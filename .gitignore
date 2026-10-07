@@ -1,0 +1,19 @@
+# TASK R13 (D67): the tree had no ignore file, so every build and rig run left
+# untracked noise that had to be filtered by eye. Everything below is a build
+# product or rig scratch and can be regenerated from src/ + tests/.
+#
+# NOTE: the shipped binaries under bin/ ARE tracked and are pinned in
+# MANIFEST-md5; they are deliberately NOT ignored.
+
+# build products
+x64/
+dist/
+*.o
+
+# rig scratch (dot-files the stability targets create and delete themselves)
+tests/.*
+tests/*.log
+tests/*.pid
+
+# a default run's log, written next to the config it served
+multics.log

@@ -199,7 +199,15 @@ void debugf(uint32_t flag, char *format, ...)
 	} else index=0;
 	
 	va_list args;
-	va_start (args, fstr);
+	/*
+	 * TASK R13 (D67): was va_start (args, fstr). The last named parameter
+	 * is `format`, not the local copy `fstr`; passing a local to va_start
+	 * is undefined behaviour and only happens to work on x86-64 -- the
+	 * shipped arm/mipsel/sh4 builds are exactly where it matters. GCC
+	 * warns ([-Wvarargs]); the cross builds never showed it because the
+	 * warning is off in their flag sets.
+	 */
+	va_start (args, format);
 	/* TASK 3.3 -- was vsprintf: the formatted line overflowed
 	 * debugline[1024] on long names and long evidence strings. */
 	vsnprintf( debugline+index, (int)sizeof(debugline)-index, fstr, args);

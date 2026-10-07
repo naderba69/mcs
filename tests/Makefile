@@ -8,10 +8,10 @@ BIN     ?= ../make-x64/x64/multics
 CFG      = multics-live.cfg
 HTTPPORT = 15500
 
-.PHONY: pm jm sk cn smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs ce cy au pr soak pq all
+.PHONY: pm jm sk cn smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs ce cy au pr soak pq oh all
 include stability.mk
 # soak is deliberately NOT in `all`. It runs for about 20 minutes.
-all: smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs ce cy au pr jm pq sk cn vl ri
+all: smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs ce cy au pr jm pq sk cn vl ri oh
 
 # TASK 4.2. Stats binary, not the stock one: counters must be on.
 SOAK_BIN ?= ../bin/multics-r82a-stats-x64

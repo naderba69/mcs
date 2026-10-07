@@ -41,8 +41,17 @@
 #include <poll.h>
 #include <sys/prctl.h>
 #include <poll.h>
+/* TASK R13 (D67): http_hex_token() calls open("/dev/urandom",0) -- without
+ * this the call compiled as an implicit declaration (UB for a variadic
+ * libc function). Found by building with -Wimplicit-function-declaration. */
+#include <fcntl.h>
 
 #endif
+
+/* TASK R13 (D67): the page handlers take an opaque request pointer they
+ * never dereference; without this forward declaration the tag was declared
+ * inside the parameter list and GCC warned it would not be visible. */
+struct http_request;
 
 #include "debug.h"
 #include "convert.h"
@@ -418,7 +427,7 @@ int parse_http_request(int sock, http_request *req )
 	int totalsize = 0;
 	memset(buffer,0,sizeof(buffer));
 	memset(req,0, sizeof(http_request));
-	size = recv( sock, buffer, sizeof(buffer), MSG_NOSIGNAL);
+	size = recv( sock, buffer, sizeof(buffer)-1, MSG_NOSIGNAL); /* TASK R13 (D67): one byte is reserved for the terminator written below -- a first packet of exactly sizeof(buffer) bytes used to put one byte of stack outside the array (the POST body loop below guards this the same way). */
 	if (size<10) return 0;
 	totalsize += size;
 	//printf("** Receiving %d bytes\n%s\n",size,buffer );
@@ -434,7 +443,7 @@ int parse_http_request(int sock, http_request *req )
 			if ( retval>0 )	{
 				if ( pfd.revents & (POLLHUP|POLLNVAL) ) return 0; // Disconnect
 				else if ( pfd.revents & (POLLIN|POLLPRI) ) {
-					int len = recv(sock, (buffer+size), sizeof(buffer)-size, MSG_NOSIGNAL);
+					int len = recv(sock, (buffer+size), sizeof(buffer)-1-size, MSG_NOSIGNAL); /* R13 (D67) */
 					//printf("** Receiving %d bytes\n",len );
 					if (len<=0) return 0;
 					size+=len;

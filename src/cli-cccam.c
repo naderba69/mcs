@@ -508,11 +508,19 @@ void cc_srv_recvmsg(struct server_data *srv)
 			 * uninitialised stack and must never be offered -- feeding it in would
 			 * manufacture proofs out of garbage.
 			 *
-			 * OBSERVE-ONLY: counts and logs, changes no score and disables nothing.
-			 * GR3 allows hard action on a genuine reuse proof, but only once the
-			 * detector has been checked against real traffic.
+			 * R13 (D67) note: the OBSERVE-ONLY wording that stood here was stale.
+			 * The proof path below is the TASK 1.5 action -- it scores
+			 * (TRUST_EV_PROOF) and disables (cache_purge_mark + sweep) on the proof
+			 * itself, unconditionally. What R13 changed is only WHO may testify:
+			 * a push the cache refused no longer files the sighting.
 			 */
-			if ( cwreuse_offer( &cwreuse_tab, cw, cacheex.ecmd5, 1,
+			/* TASK R13 (D67): only a key that ENTERED the cache may testify. The
+			 * three pre-storage drops (LOCAL_ONLY, the profile gate, BLOCK_FAKE_CW)
+			 * return -1: a refused push must not become the first sighting of a
+			 * reuse proof -- otherwise a peer could pre-poison a key it knows by
+			 * pushing it for an unwanted service, having it refused, and the honest
+			 * delivery of the same bytes would be convicted (and purged) globally. */
+			if ( res >= 0 && cwreuse_offer( &cwreuse_tab, cw, cacheex.ecmd5, 1,
 					cacheex.caid, cacheex.sid, cacheex.provid, GetTickCount() ) == CWREUSE_PROOF ) {
 				cwreuse_proofs++;
 				/* TASK 2.6: the convicted key itself goes into negative memory,

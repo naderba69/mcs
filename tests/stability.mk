@@ -2179,7 +2179,7 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	  rm -f .tl-a.log; \
 	  env $$1 stdbuf -o0 -e0 ./$(CACHEPEER) $(TL_CACHE) $(TL_A) $$2 32 > .tl-a.log 2>&1 & \
 	  peera=$$!; \
-	  for i in $$(seq 1 40); do grep -q "advertised card" .tl-a.log && break; sleep 0.5; done; \
+	  for i in $$(seq 1 40); do grep -q "advertised card" .tl-a.log 2>/dev/null && break; sleep 0.5; done; \
 	  for i in $$(seq 1 40); do grep -q "Online.*$(TL_A)" .tl-srv.log && break; sleep 0.5; done; \
 	  sleep 1; \
 	}; \
@@ -2271,7 +2271,7 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	    CP_REPUSH_MS=1500 CP_REPUSH_SAME=1 \
 	    stdbuf -o0 -e0 ./$(CACHEPEER) $(TL_CACHE) $(TL_A) $(TL_POISON) 32 > .tl-a.log 2>&1 & \
 	peera=$$!; \
-	for i in $$(seq 1 20); do grep -q "unsolicited push" .tl-a.log && break; sleep 0.5; done; \
+	for i in $$(seq 1 20); do grep -q "unsolicited push" .tl-a.log 2>/dev/null && break; sleep 0.5; done; \
 	for i in $$(seq 1 30); do grep -q "CW NEGATIVE: " .tl-srv.log && break; sleep 0.5; done; \
 	nref2=$$(grep -c "CW NEGATIVE: " .tl-srv.log); \
 	if [ "$$nref2" -ge 1 ]; then \
@@ -4082,11 +4082,11 @@ CE_KEY    = 0102030405060708091011121314
 ce: $(CXPEER)
 	@test -x $(CE_BIN) || { echo "build the stats release first: make -C ../make-x64 release-stats"; exit 1; }
 	@chmod +x $(CXPEER) $(NCCLIENT) 2>/dev/null || true
-	@rm -f .ce-srv.log .ce-nc.out .ce-peer.out .ce-stats.out $(CE_CFG); ok=1; \
-	start_srv() { stdbuf -o0 -e0 $(CE_BIN) -C $(CE_CFG) -v > .ce-srv.log 2>&1 & srv=$$!; \
+	@rm -f .ce-s1.log .ce-s2.log .ce-s3.log .ce-nc1.out .ce-nc2.out .ce-peer.out .ce-stats.out $(CE_CFG); ok=1; \
+	start_srv() { stdbuf -o0 -e0 $(CE_BIN) -C $(CE_CFG) -v > $$1 2>&1 & srv=$$!; \
 	  for i in $$(seq 1 25); do curl -s -m 2 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(CE_HPORT)/ 2>/dev/null | grep -q 200 && break; sleep 1; done; \
 	  for i in $$(seq 1 15); do python3 -c "import socket;s=socket.create_connection(('127.0.0.1',$(CE_CPORT)),2);s.close()" 2>/dev/null && break; sleep 1; done; }; \
-	kill_srv() { kill -9 $$srv 2>/dev/null; sleep 1; pkill -9 -x multics 2>/dev/null; sleep 1; }; \
+	kill_srv() { kill -9 $$srv 2>/dev/null; sleep 1; pkill -9 -f "^$(CE_BIN) -C $(CE_CFG) -v$$" 2>/dev/null; sleep 1; }; \
 	\
 	echo "=== ce scenario 1: baseline (no gates) ==="; \
 	{ printf 'HTTP PORT: $(CE_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nHTTP TITLE: mcs-ce\n'; \
@@ -4094,13 +4094,13 @@ ce: $(CXPEER)
 	  printf 'DCW STATS: ON\nSTATS-WINDOW: 2000\nCACHE PORT: 15704\nCACHE FILTER: OFF\n\n'; \
 	  printf 'CCCAM PORT: $(CE_CPORT)\nF: cxu cxp { cacheex_mode=3; }\n\n'; \
 	  printf '[ cxg ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CE_NPORT)\nENABLE CACHEEX: YES\nDCW TIMEOUT: 9000\nUSER: u1 p1\n'; } > $(CE_CFG); \
-	start_srv; \
-	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(CE_NPORT) u1 p1 $(CE_KEY) 0 1884 64 > .ce-nc.out 2>&1 & nc=$$!; \
+	start_srv .ce-s1.log; \
+	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(CE_NPORT) u1 p1 $(CE_KEY) 0 1884 64 > .ce-nc1.out 2>&1 & nc=$$!; \
 	sleep 2; \
 	./$(CXPEER) 127.0.0.1 $(CE_CPORT) cxu cxp "push 1884 0 64 $(CE_GOOD)" > .ce-peer.out 2>&1; \
 	wait $$nc; \
 	grep -q "\[ ok \] cccam login" .ce-peer.out && echo "  [ ok ] the cacheex peer logged in through the real handshake" || { echo "  [FAIL] cacheex peer login"; ok=0; }; \
-	grep -q "DELIVERED A CONTROL WORD" .ce-nc.out && echo "  [ ok ] baseline: the good push answered the pending ECM" || { echo "  [FAIL] baseline: push not delivered"; ok=0; }; \
+	grep -q "DELIVERED A CONTROL WORD" .ce-nc1.out && echo "  [ ok ] baseline: the good push answered the pending ECM" || { echo "  [FAIL] baseline: push not delivered"; ok=0; }; \
 	python3 $(CEDCW) 127.0.0.1 $(CE_TPORT) admin admin > .ce-stats.out; \
 	sed 's/^/  /' .ce-stats.out | head -9; \
 	grep -q "^cacheex-local-only 0$$" .ce-stats.out && grep -q "^cacheex-fake-cw 0$$" .ce-stats.out && grep -q "^cacheex-confirm-wait 0$$" .ce-stats.out && echo "  [ ok ] baseline: all three gate counters at zero" || { echo "  [FAIL] baseline: a gate counted without being armed"; ok=0; }; \
@@ -4114,14 +4114,14 @@ ce: $(CXPEER)
 	  printf 'DEFAULT CACHEEX LOCAL_ONLY: YES\nDEFAULT CACHEEX BLOCK_FAKE_CW: YES\nDEFAULT CACHEEX CWCHECK: 2\n\n'; \
 	  printf 'CCCAM PORT: $(CE_CPORT)\nF: cxu cxp { cacheex_mode=3; }\n\n'; \
 	  printf '[ cxg ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CE_NPORT)\nENABLE CACHEEX: YES\nDCW TIMEOUT: 9000\nUSER: u1 p1\n'; } > $(CE_CFG); \
-	start_srv; \
+	start_srv .ce-s2.log; \
 	./$(CXPEER) 127.0.0.1 $(CE_CPORT) cxu cxp "push 1884 0 C8 $(CE_GOOD)" > .ce-peer.out 2>&1; \
 	grep -q "\[ ok \] push" .ce-peer.out && echo "  [ ok ] the unsolicited push was sent by the peer" || { echo "  [FAIL] the peer could not push"; ok=0; }; \
-	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(CE_NPORT) u1 p1 $(CE_KEY) 0 1884 64 > .ce-nc.out 2>&1 & nc=$$!; \
+	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(CE_NPORT) u1 p1 $(CE_KEY) 0 1884 64 > .ce-nc2.out 2>&1 & nc=$$!; \
 	sleep 2; \
 	./$(CXPEER) 127.0.0.1 $(CE_CPORT) cxu cxp "push 1884 0 64 $(CE_GOOD) bad" "sleep 500" "push 1884 0 64 $(CE_GOOD)" "sleep 500" "push 1884 0 64 $(CE_GOOD)" > .ce-peer.out 2>&1; \
 	wait $$nc; \
-	grep -q "DELIVERED A CONTROL WORD" .ce-nc.out && echo "  [ ok ] the confirmed push crossed the floor and was served" || { echo "  [FAIL] the confirmed push never served the client"; ok=0; }; \
+	grep -q "DELIVERED A CONTROL WORD" .ce-nc2.out && echo "  [ ok ] the confirmed push crossed the floor and was served" || { echo "  [FAIL] the confirmed push never served the client"; ok=0; }; \
 	python3 $(CEDCW) 127.0.0.1 $(CE_TPORT) admin admin > .ce-stats.out; \
 	sed 's/^/  /' .ce-stats.out | head -9; \
 	grep -q "^cacheex-local-only 1$$" .ce-stats.out && echo "  [ ok ] LOCAL_ONLY dropped the unsolicited push" || { echo "  [FAIL] LOCAL_ONLY counter"; ok=0; }; \
@@ -4134,12 +4134,13 @@ ce: $(CXPEER)
 	  printf 'TELNET PORT: $(CE_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
 	  printf 'DEFAULT CACHEEX MAXHOP_LG: 4\nDEFAULT CACHEEX CWCHECK: 9\n\n'; \
 	  printf '[ cxg ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CE_NPORT)\nENABLE CACHEEX: YES\nDCW TIMEOUT: 9000\nUSER: u1 p1\n'; } > $(CE_CFG); \
-	start_srv; \
-	grep -q "MAXHOP_LG: not implemented" .ce-srv.log && echo "  [ ok ] MAXHOP_LG says it is not implemented" || { echo "  [FAIL] MAXHOP_LG stayed silent"; ok=0; }; \
-	grep -q "CWCHECK capped at 5" .ce-srv.log && echo "  [ ok ] CWCHECK 9 clamped to the cap 5" || { echo "  [FAIL] CWCHECK was not clamped"; ok=0; }; \
+	start_srv .ce-s3.log; \
+	grep -q "MAXHOP_LG: not implemented" .ce-s3.log && echo "  [ ok ] MAXHOP_LG says it is not implemented" || { echo "  [FAIL] MAXHOP_LG stayed silent"; ok=0; }; \
+	grep -q "CWCHECK capped at 5" .ce-s3.log && echo "  [ ok ] CWCHECK 9 clamped to the cap 5" || { echo "  [FAIL] CWCHECK was not clamped"; ok=0; }; \
 	kill_srv; \
 	\
-	if [ "$$ok" = "1" ]; then rm -f $(CE_CFG) .ce-srv.log .ce-nc.out .ce-peer.out .ce-stats.out; \
+	if [ "$$ok" = "1" ] && [ -z "$$CE_KEEP" ]; then rm -f $(CE_CFG) .ce-s1.log .ce-s2.log .ce-s3.log .ce-nc1.out .ce-nc2.out .ce-peer.out .ce-stats.out; \
+	elif [ "$$ok" = "1" ]; then echo "  [note] logs kept under tests/.ce-* (CE_KEEP=1)"; \
 	else echo "[FAIL] logs kept under tests/.ce-*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
 
@@ -4886,3 +4887,44 @@ vl:
 	else echo "[FAIL] P4 (/cwlog $$cw4, / $$home4)"; ok=0; fi; \
 	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then echo "vl: 4/4 ok"; else echo "vl: FAILED"; exit 1; fi
+
+# ---------------------------------------------------------------------------
+# TASK R13 (D67) -- the overlong HTTP header.
+#
+# parse_http_request() read up to sizeof(buffer) bytes into a 2048-byte stack
+# buffer and then wrote the terminator at buffer[size]: a first packet of
+# exactly 2048 bytes put one byte of stack outside the array (the POST body
+# loop further down had always guarded this; the header path had not). The
+# fix reserves one byte in both recv() calls. This target proves the outcome
+# that matters: an oversized header is dropped, the server survives with a
+# log free of crash markers, and the NEXT request still answers 200.
+# ---------------------------------------------------------------------------
+OH_HPORT = 16996
+OH_NPORT = 16997
+
+.PHONY: oh
+
+oh:
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@printf 'HTTP PORT: $(OH_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n\n' > .oh.cfg; \
+	printf '[ oh ]\nNEWCAMD PORT: $(OH_NPORT)\nUSER: u1 p1\n' >> .oh.cfg; \
+	rm -f .oh-srv.log; \
+	$(BIN) -C .oh.cfg > .oh-srv.log 2>&1 & echo $$! > .oh.pid; \
+	code=000; for i in $$(seq 1 25); do \
+	  code=$$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(OH_HPORT)/); \
+	  [ "$$code" = "200" ] && break; sleep 1; done; \
+	ok=1; \
+	if [ "$$code" = "200" ]; then echo "  [ ok ] the server answers 200 before the flood"; else echo "[FAIL] HTTP / answered $$code before the flood"; ok=0; fi; \
+	fill=$$(head -c 3000 /dev/zero | tr '\0' A); \
+	flood=$$(curl -s -m 5 -u admin:admin -H "X-Fill: $$fill" -o /dev/null -w '%{http_code}' http://127.0.0.1:$(OH_HPORT)/ 2>/dev/null || true); \
+	echo "  [ note ] the 3000-byte header came back as '$$flood' (000 = dropped, which is the contract)"; \
+	alive=0; kill -0 $$(cat .oh.pid) 2>/dev/null && alive=1; \
+	if [ "$$alive" = "1" ]; then echo "  [ ok ] the server survived a header larger than its 2048-byte buffer"; else echo "[FAIL] the server died on the overlong header"; ok=0; fi; \
+	if grep -qi "segmentation\|SIGSEGV\|AddressSanitizer\|stack-buffer" .oh-srv.log; then echo "[FAIL] the server log shows a crash marker"; ok=0; fi; \
+	code2=000; for i in $$(seq 1 10); do \
+	  code2=$$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(OH_HPORT)/); \
+	  [ "$$code2" = "200" ] && break; sleep 1; done; \
+	if [ "$$code2" = "200" ]; then echo "  [ ok ] the next request still answers 200"; else echo "[FAIL] the next request answered $$code2"; ok=0; fi; \
+	kill $$(cat .oh.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .oh.pid) 2>/dev/null; pkill -9 '^multics' 2>/dev/null; rm -f .oh.pid .oh.cfg; \
+	if [ "$$ok" = "1" ]; then echo "oh: 3/3 ok"; else echo "oh: FAILED"; exit 1; fi

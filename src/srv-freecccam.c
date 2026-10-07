@@ -244,7 +244,11 @@ void *freecc_connect_cli(struct connect_cli_data *param)
   // send cli data ack
 	cc_msg_send( sock, &cli->sendblock, CC_MSG_CLI_INFO, 0, NULL);
 	//cc_msg_send( sock, &cli->sendblock, CC_MSG_BAD_ECM, 0, NULL);
-	int sendversion = ( (cli->version[28]=='W')&&(cli->version[29]='H')&&(cli->version[30]='O') );
+	/* TASK R13 (D67): the two '=' that stood here were assignments, not
+	 * comparisons: they WROTE 'H' and 'O' into the client's own version string
+	 * (remote input, copied from the hello at :511/:464) and made sendversion
+	 * depend on byte 28 alone. == restores the intended test. */
+	int sendversion = ( (cli->version[28]=='W')&&(cli->version[29]=='H')&&(cli->version[30]=='O') );
 	cc_sendinfo_cli(cli, sendversion);
 	//cc_msg_send( sock, &cli->sendblock, CC_MSG_BAD_ECM, 0, NULL);
 	cli->cardsent = 1;

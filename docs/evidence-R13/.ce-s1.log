@@ -1,0 +1,22 @@
+Multi CardServer r82 - by evileyes (http://www.infosat.org)
+[16:21:15.444] config: parsing file '.ce-srv.cfg'
+[16:21:15.444] config(8,13): DCW STATS: ON
+[16:21:15.445] config(9,18): STATS-WINDOW: 2000 ms
+[16:21:15.545] [cxg ] Newcamd Server started on port 15702
+[16:21:15.545] HTTP server started on port 15700
+[16:21:15.545] Telnet server started on port 15701
+[16:21:15.545] CCcam server 0 started on port 15703 (version: 2.0.11)
+[16:21:15.545] FreeCCcam Server: invalid port value (0)
+[16:21:15.545] Cache server started on port 15704
+[16:21:18.478] cc_connect_cli(): recv sha1 timeout
+[16:21:18.485] cxg : client 'u1' connected (127.0.0.1)
+[16:21:18.537] <- ecm from client 'u1' ch 1884:000000:0064:a1669c0c
+ !!! PHASE1 STATS: 2s | struct 0 (0 repeats suppressed) | cache defer 0 | purge 0 live (0 marked, 0 released, 0 expired) | rotate 0 skipped, 0 refused, 0 below limit of 1 | trust 0 sources | agreement 0 agree, 0 dispute, 0 self, 0 proof, 0 unplaced | keys 0 impossible, 0 near (same), 0 near (other) | timing 0 fast, 0 flat (0 repeats suppressed) | shape 0 full, 0 one-group (0 limited), 0 patterns | cycle offered 0 (0 marked, 0 contra), handed 0 (0 stale, 0 unverified, 0 lines) | negative 0 live (0 proven, 0 refused, 0 lines) | mirror 0 keys, 0 complement-built (0 patterns) | peertrust 0 peers, 0 below the line, 0 skipped | cache guard 0 short, 0 unconfigured | lifecycle 0 fine, 0 coarse, 0 negative restored, 0 bad | fade 0, snapshots 0 ok, 0 failed
+[16:21:20.486] CCcam1: client 'cxu' connected
+[16:21:20.486] CCcam1: client 'cxu' running version 2.0.11 build 
+[16:21:20.541] CCcam: client 'cxu' read failed 0
+[16:21:20.541] CCcam: client 'cxu' disconnected 
+[16:21:20.541] => cw to client 'u1' ch 1884:000000:0064 (2004ms)
+found cccam cacheex client 'cxu'
+[16:21:20.557] newcamd: client 'u1' read failed 0
+[16:21:20.557] newcamd: client 'u1' disconnected

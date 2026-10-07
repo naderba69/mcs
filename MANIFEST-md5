@@ -1,4 +1,18 @@
 # MANIFEST-md5 — freeze manifest, reopened for TASK R12 (2026-10-01, D66)
+# R13 (2026-10-07, D67) reopened the freeze one more time: the refused
+# push stopped testifying (six cwreuse_offer sites), the HTTP header reader
+# stopped writing one byte past its stack buffer, two '=' that should have
+# been '==' were fixed, and the CCCAM-client config parser stopped copying a
+# 255-byte line into a 32-byte field. The two unit sources that make test
+# had been building WITHOUT (test_cachequeue.c, test_cwlog.c) are back, the
+# queue/queue-stats x64 flavours are pinned for the first time since R6, and
+# this round's documents plus docs/evidence-R13/ join the pinned set. Every
+# x64 flavour was rebuilt and re-hashed on the final tree: stock
+# 9bb6a247..., stats aaca87bf..., queue 1c0ab4f7..., queue-stats 45477482...,
+# dev 904d2e49... (dev is not shipped; M4). The arm/mipsel/sh4 binaries stay
+# pre-R13 (no cross toolchain in this environment) and are marked in
+# docs/REPORT-R13-ar.md (O2). History: R12 (D66) / R11 (D65) / R10 (D64) /
+# R9 (D63) / R8 (D62) / R8.1 (D62/R8) ...
 # and re-frozen: the stock reply-interference defect closed -- a refused
 # cycle declaration no longer convicts the key bytes (node poison lifted,
 # refusal kept); every x64 flavour rebuilt on the fixed tree (stats
@@ -17,20 +31,21 @@
 # The D53 frozen pair is preserved byte-exact under bin-frozen-D53/ and pinned here.
 # Fingerprints (frozen D53 -> preserved): stock 3d1f58b385a7a0eea720c3c59c3bdd29,
 #   stats f6d29d2e8585f08537b6b645d4df6666
+
 f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 3d1f58b385a7a0eea720c3c59c3bdd29  bin-frozen-D53/multics-r82a-stock-x64
 800177a56d2f4e6f3a0a0ce5dac71c95  bin/multics-r82a-arm
 dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-77034adfe6e07aa34c66eb9360e2a817  bin/multics-r82a-stats-x64
-e1ef16ac1d58730317a2938cca63dc65  bin/multics-r82a-stock-x64
+aaca87bf20255468289bfc890723460e  bin/multics-r82a-stats-x64
+9bb6a247096671e144a35005cd14b8b7  bin/multics-r82a-stock-x64
 a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 2c0c47e7cdb35fbcfcdeeeaa92d09f5c  docs/BLACKSCREEN.md
 797863f9c6d87675f97e3965189f7c45  docs/BUILD-PATCHES.md
-ccf9a29ae8a653af85efcf6a56cc70e0  docs/DECISIONS.md
+eae871b30a12a508f21fccc06b23b6aa  docs/DECISIONS.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
 aeb042c9d76386556797ef105b123531  docs/FIELD-GUIDE-ar.md
-182151205deb601eebe720ff141edcd4  docs/INDEX-ar.md
+330db4436bec7e00387f135f5dd7ac95  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
 70ab1bccd5e598d5ec3b59a888ba17d8  docs/ORIGIN.md
 c16b39bad6ebc83d5ad5bae1c1cc90f1  docs/PATCH-PLAN.md
@@ -75,10 +90,10 @@ a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
 7b949b5abf74a03f7e67a9e044614b1c  docs/REPORT-R8-ar.md
-6027129aae86c719895949cb321d0b36  docs/ROADMAP-ar.md
+1f0ad8c7c1fe482da7bf85e689cef9d5  docs/ROADMAP-ar.md
 e2b4152bf7a3ec2a661e54ad10db26eb  docs/RUNBOOK-cold-restore-ar.md
 96a82c4540dce04760fd4c7221f51ef9  docs/SCOPE.md
-f73bb910c529d567e9d41c693d6c8a5c  docs/STATUS.md
+7b9db1d74ccb218862be3d8662e618c5  docs/STATUS.md
 b4221d3be6966b31fd89181f0f64ade4  docs/all310-run.log
 5f07fcb601071d3677f382f9c3d9a83c  docs/all311-run.log
 e7eabf1e4afbf7775a4816bd34906c33  docs/all312-run.log
@@ -219,17 +234,17 @@ a812e9fb5be67650f7a75c591c7acc4f  src/cacheex.c
 2155bbab14869816d688ee4ef71beb1b  src/cacheguard.h
 002c8ab7e9afd94cd79a7951be6b4235  src/cachepref.h
 312acf517d478947f46caa67aae15aed  src/cachequeue.c
-0d4a93f38639394e36ec5faf6b509038  src/cachequeue.h
+773b09d5df224a6383eab2484c1f461e  src/cachequeue.h
 09333fb39024132aced37897272ab156  src/cfgfield.h
-303df7017170bf7d7f677c744c22dc1a  src/cli-camd35.c
-db6f353f980eff744d29c165e7a79f5c  src/cli-cccam.c
+c751ab0c0c03f5911da7fb6632f640c2  src/cli-camd35.c
+d675d9612daa26fd5749fe67bbbcb753  src/cli-cccam.c
 6ed461e895b82028bd117117a401f29c  src/cli-common.c
-f1222c48dec14b86cbb402d61ef979b2  src/cli-cs378x.c
+c53b2d396a4fcc593b39c041820db180  src/cli-cs378x.c
 d5160d103896f38661a331cc752966e8  src/cli-newcamd.c
 27b8049f341f967a683b629546d61635  src/cli-radegast.c
 bdb0eddd13cf80f88014595bda5c71a7  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-c190de82731fd84be84b5c09ca11a6a0  src/config.c
+198eaa390ce55989118d0a7eac14c9bc  src/config.c
 6e92551af48672defc4213d72a419a16  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
@@ -241,7 +256,7 @@ a0f37c725a1265fa1c0e8f680287f7a2  src/cwcm.h
 9a794fd26685c7662472d20a31b5aad0  src/cwconsensus.c
 a990ad6e03b6c94721fbe5aba5a22205  src/cwconsensus.h
 b90b439e0ffda467a6e8c6879111b4bb  src/cwlog.c
-578e9a13c85de61474580ba4c1b10edc  src/cwlog.h
+138f7a14305eec2f856c15705613536a  src/cwlog.h
 14c205365abfd5795d09d9402fec3acc  src/cwcycle.h
 40e70b3c7fd6078aae44ddfb71d01750  src/cwentropy.h
 b892e9b95fab633f57b3181437ed909a  src/cwneg.h
@@ -253,7 +268,7 @@ bc77abb88fb7b3bf52951c0f91f1fc8c  src/dcw.h
 d7fb5793ba7eca598348bcf01ce0e6f4  src/dcwfilter.h
 f409ca6b69a0187d12013f47dea3fced  src/dcwstats.h
 a01d421a3390eb25ab90d0ecc26899bf  src/dcwstruct.h
-290a255cb00b2014c9e9a1f1c10a89af  src/debug.c
+dc94f45f856bf02e662a98064ae68306  src/debug.c
 b3e06a3ae58adfeabf113d06f7e86133  src/debug.h
 5ac70aeabbab7f3139464e4c10035b1d  src/debugcore.h
 ff819ba0ed59803687c2e99869d638a3  src/des.c
@@ -263,7 +278,7 @@ ff819ba0ed59803687c2e99869d638a3  src/des.c
 a57c1ef449562f76d428f7cb151d3431  src/ecmdata.h
 53bf1ba928072a0c68dcb81566acb029  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-e4e06991ebd9cf3cf274d51f780ca79f  src/httpserver.c
+cbc5b140599fc006c5b714e77ed13438  src/httpserver.c
 f5b6ea3dc27287ae7b1411316bde8b72  src/httpserver.h
 a43344053ef6be6a6af0b301eae0fd34  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
@@ -304,11 +319,11 @@ b82ecc6a2bf38bc2c56aee7dd1f095c8  src/rotation.h
 f245f7e5032e0752df586d67ed24942a  src/sha1.h
 c7398b08fecfec0ed8b0b496d84476bd  src/sockets.c
 0dbfdc97f166c184ccc2c6732c4b06c1  src/sockets.h
-65ea7486e998d0b76995e2e49e1b1d48  src/srv-camd35.c
-e1a24c06d341204896fae45d1ab40fa5  src/srv-cccam.c
+fb2edccde50a9b1452fc4fb530b1e21b  src/srv-camd35.c
+920cb5cea762f5608443fcc2e41d6648  src/srv-cccam.c
 84945ca2988bd574f3edfd57b2f96048  src/srv-common.c
-26da3c691bdc8370be0799ec9b8506cf  src/srv-cs378x.c
-d0f4a5568e8810947acc12c8be0297a4  src/srv-freecccam.c
+e6b6cded38f08e4e9a276f68ecdeaee6  src/srv-cs378x.c
+ad9c91d33b751ed8953e996e143deac2  src/srv-freecccam.c
 f37fa4ae3957d631026291664fd4c42e  src/srv-mgcamd.c
 a2e39360d2668d6116359c7df914294a  src/srv-newcamd.c
 e8a505e621f834e456c441491482c657  src/srv-radegast.c
@@ -331,7 +346,7 @@ af09ddc7d479b76a2bd9a9bbc69aef24  src/twin.c
 49b46f0c904d8e80aae752ac4c98d406  src/twin.h
 3260272b8bddbec232a45f08976e110d  start-multics.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-a7c109b92bf21aeb26dcabeffec97489  tests/Makefile
+82363f70150457631d5b156a8f82a303  tests/Makefile
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 518ab2e1a2864eee5bab964fc612aa4f  tests/ca-bite.c
 5081b47e7ffe26768c6f69153719d4e4  tests/cachepeer.c
@@ -346,7 +361,7 @@ b2caeeac7e48b211710f9236a020fdb7  tests/multics-live.cfg
 45fd5df42eb90b259a77baf3a0e42eff  tests/ncserver.c
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
-66bad4a5a05041d265e08bc4a9b375a6  tests/stability.mk
+557c9241967c040ebf3a9bb31d503bd3  tests/stability.mk
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c
 c2de2dea646a9b520a434e18f5ee2243  docs/REPORT-R11-ar.md
 e6fd8c0948529cc5aa1fe050001a9f85  docs/REPORT-R12-ar.md
@@ -356,3 +371,34 @@ e6fd8c0948529cc5aa1fe050001a9f85  docs/REPORT-R12-ar.md
 6a298707d580ca98c336970053c97883  docs/interference-R12/postfix-trap-srv.log
 5f1db57b3ded74be65bbc0548d139323  docs/interference-R12/postfix-trap-peerA.log
 42e60170d3dd5792ebaaad8aa290bf71  docs/interference-R12/postfix-trap-peerB.log
+1c0ab4f709d4ef8f257fc1a440fe46e1  bin/multics-r82a-queue-x64
+454774826e30ab5466fe3268eaa30e05  bin/multics-r82a-queue-stats-x64
+d916c151f93eeccd95ef6736672e9234  make-x64/test_cachequeue.c
+f485032a4154a2c18956159904b5d015  make-x64/test_cwlog.c
+f0797a4e62b6311fcaceb579f111c26b  .gitignore
+0737151b2ac8d259af53532cd7b7a698  docs/REPORT-R13-ar.md
+25fcd334fe6caa66ecab4df5bfbb9ab0  docs/evidence-R13/ce-post-R13-default.out
+3cc611d948f2d57ef579b7aa6aa600a3  docs/evidence-R13/ce-post-R13.out
+8a4ae5b8dd435301960e97f8ef4e4ac9  docs/evidence-R13/ce-repro.sh
+25e4d3ceebed39527bb24f3eb017d41a  docs/evidence-R13/ce2-srv.log
+c0c07aa7b7140be82e93d97ca27b7ff8  docs/evidence-R13/cr2-s2.log
+eaa4ad3a5ab138da5468221d48519824  docs/evidence-R13/exp-A.cfg
+2e713dd8ff98baad2accedc49607105f  docs/evidence-R13/exp-A.log
+eaa4ad3a5ab138da5468221d48519824  docs/evidence-R13/exp-B.cfg
+8d5c2b97d04b165c223767bc111c65d1  docs/evidence-R13/exp-B.log
+eaa4ad3a5ab138da5468221d48519824  docs/evidence-R13/exp-C.cfg
+0e3fb1338d358c316bc620192cd0599c  docs/evidence-R13/exp-C.log
+603e56039be92002ef1ca365e849407a  docs/evidence-R13/exp.sh
+c6dd291cc456d21983a8cdf53005e0c1  docs/evidence-R13/fullwing-partial-r13a.log
+0801bf433b8ded3082ba4a3bdfe33656  docs/evidence-R13/impl.log
+1a8fbd7524f1776442183f1bb51d31d8  docs/evidence-R13/md5check.log
+f38efbf98d1257f48db2bc23b39991cf  docs/evidence-R13/oh-post-R13.out
+0bfb2bc01f3d7d1b67ac2b517bad5108  docs/evidence-R13/unit.log
+89a526e3e9a0f1597735c1365e76bbc0  docs/evidence-R13/wing2.log
+aa487e95ce2568b999cbf576f5cc26ba  docs/evidence-R13/wing3.log
+7aae94703cd2f254270a1d5c1a9582be  docs/evidence-R13/.ce-s1.log
+01c0b4aba433986531b586debb9f582a  docs/evidence-R13/.ce-s2.log
+bfd3ecd7a60ff316f3ee3da95eb3c997  docs/evidence-R13/.ce-s3.log
+1c9205664fb37e5c13c4a1db264aa62a  docs/evidence-R13/.ce-nc1.out
+98dc64f1a9d6fff3d1088558296da059  docs/evidence-R13/.ce-nc2.out
+d41d8cd98f00b204e9800998ecf8427e  docs/evidence-R13/.oh-srv.log

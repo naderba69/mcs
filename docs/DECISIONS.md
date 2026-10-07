@@ -3204,3 +3204,119 @@ GR3 reuse proof (same cw on a different service) which convicts the key
 globally -- correct protection behaviour, so each phase now carries its
 own checksum-valid key on its own channel; and every client find is
 retried once before its phase can fail.
+
+## D67 -- TASK R13, a refused push must not testify: the cwreuse sighting
+## guard, plus the hygiene that the failed target was hiding (2026-10-07)
+
+**Situation.** The wing had exactly one red target (`ce`) and it had been
+red for three identical runs. The forensics (isolation runs A/B/C under
+`docs/evidence-R13/`) pinned the trigger: an unsolicited 0x00C8 push that
+`LOCAL_ONLY` refuses, followed by an honest push of the SAME control word
+on the good service (0x0064). In the failing run the log showed the
+refusal first and then `CW NEGATIVE MARK ... 1884:000000:0064 ...
+proven unable to open its picture`, `CW REUSE PROOF`, `CACHE PURGE` and
+a trust demotion within two seconds. The mechanism: every caller did
+`res = cache_setdcw(...)` and called `cwreuse_offer(...)` UNCONDITIONALLY.
+`cache_setdcw` returns negative for the three PRE-STORAGE refusals
+(LOCAL_ONLY, the profile gate, BLOCK_FAKE_CW), so a refused push still
+created the FIRST SIGHTING of the key; the later honest delivery of the
+same bytes was then judged a reuse proof, the good key was filed in
+negative memory, `cwn_gate` refused every later store, the peer threshold
+was never crossed and the ECM was never served. This is not a test
+artifact -- it is a pre-poisoning attack: a peer that knows a key can push
+it for a service nobody wants, have it refused, and watch the honest
+delivery of those bytes be convicted globally.
+
+**Decision.** Only a key that ENTERED the cache may testify. Guard all six
+call sites with `res >= 0`: `src/srv-cccam.c:998`, `src/srv-camd35.c:319`,
+`src/srv-cs378x.c:452`, `src/cli-cccam.c:521`, `src/cli-camd35.c:259`,
+`src/cli-cs378x.c:329`. The refusal itself is untouched (still dropped,
+still counted, still logged) -- what changed is that the refusal leaves no
+memory. No new flag: a defect fix, all flavours move together.
+
+**Also fixed, in the same round (same reason: they were the real warnings
+the build was drowning in).** `httpserver.c`: `#include <fcntl.h>` for the
+`/dev/urandom` open and a `struct http_request;` forward declaration (the
+type was declared inside a parameter list). `debug.c:202`:
+`va_start(args, fstr)` -> `va_start(args, format)` (undefined behaviour;
+x86-64 tolerated it, the cross targets are where it bites). `cwlog.h`:
+the ring API (`cwlog_note/count/capacity/snapshot/reset`) had NO
+prototypes -- callers in `httpserver.c` and `clustredcache.c` were implicit
+declarations. `make-x64/test_cachequeue.c` and `make-x64/test_cwlog.c`
+were MISSING from the tree while `make test` claimed 36 binaries and 1352
+checks: recreated, 23/23 and 37/37, and the cwlog test pins the contract
+that ring reasons 0-9 spell exactly what `dcwstats_reason_name()` spells.
+`tests/stability.mk`: the three `ce` scenarios used to overwrite each
+other's logs (now `.ce-s{1,2,3}.log`, `.ce-nc{1,2}.out`); `kill_srv` used
+`pkill -9 -x multics`, which can never match anything because the process
+name is truncated at 15 chars (`multics-r82a-st`) -- now an anchored
+`pkill -9 -f "^$(CE_BIN) -C $(CE_CFG) -v$"`; `CE_KEEP=1` keeps the
+evidence on a green run and prints a `[note]`, not a `[FAIL]`. A first
+attempt at the pkill pattern (`-f "[m]ultics-r82a-stats-x64 -C .ce.cfg"`)
+killed the recipe's own shell and make reported `Killed`: a `pkill -f`
+pattern must never appear in the recipe text it is running.
+
+**Verification.** `make ce` exit 0, 3 scenarios, 10 ok, 0 fail
+(`docs/evidence-R13/ce-post-R13.out`); the kept per-scenario logs show the
+refusal WITHOUT any negative mark, purge or trust demotion
+(`.ce-s2.log`), against the pre-fix log quoted above. `make -C make-x64
+test` exit 0, 1352 ok. Full wing re-run: see `REPORT-R13-ar.md` §2 (the
+wing number is counted from `make -k all`, not from a hand-picked subset).
+All four x64 flavours rebuilt; fingerprints stock `88a3bf29...`, stats
+`3c2c3df4...`, queue `c344b06e...`, queue-stats `72d3a3dc...`, dev
+`6eb62ab3...`; the shipped binaries are proven to be their declared
+flavours by their strings (`[CACHE QUEUE] enqueued`, `DCW STATS`) because
+`strip` removes the symbols the in-Makefile self-checks use.
+
+**Not closed, and now recorded rather than implied.** The cross binaries
+`bin/multics-r82a-{arm,mipsel,sh4}` predate R13 and no toolchain for them
+exists in this environment (checked). The 12 `-Waddress-of-packed-member`
+warnings stay, deliberately documented with file:line. `src/cw1cycle`,
+`multics.log`, the unsafe `strcpy/strcat/sprintf` population and the
+missing CI are enumerated with priorities in `docs/REPORT-R13-ar.md`
+(O1-O27, M1-M30). `.gitignore` added (build outputs and rig scratch; the
+real `tests/multics-*.cfg` files are verified not ignored).
+
+**Addendum, same round (R13/D67) -- the rest of what the sweep found and
+fixed.** (1) The one-byte stack overrun in the HTTP header reader:
+`parse_http_request()` read up to `sizeof(buffer)` into `buffer[2048]` and
+then wrote the terminator at `buffer[size]`, so a first packet of exactly
+2048 bytes put one byte of stack outside the array -- remotely reachable
+before any authentication, and the POST body loop below it had always
+guarded itself, which is how the omission was spotted. Both `recv()`
+calls now reserve the terminator byte (`httpserver.c:430` and `:446`), and
+a new live target `oh` (stability.mk:4902-4933, wired into `all`) floods a
+3000-byte header and asserts the three outcomes that matter: the server
+survives, its log carries no crash marker, the next request answers 200
+(3/3, `docs/evidence-R13/oh-post-R13.out`). (2) Two `=` that should have
+been `==` in the CCCAM/FREECCCAM client-info path (`srv-cccam.c:534`,
+`srv-freecccam.c:251`): they WROTE 'H' and 'O' into the client's own
+version string and left `sendversion` decided by byte 28 alone; the intent
+of the original test is undocumented, so the minimal repair is the
+comparison, flagged as M30. (3) `config.c:3015-3020` and `:3301-3306`:
+the two CCCAM-client info blocks `strcpy`'d a config line of up to 255
+bytes into `info->name[32]` (heap-struct overrun from config content) and
+scanned `str[strlen(str)-1]` when the value could be empty (a read at
+`str[-1]`); both blocks now use bounded copies and an `i>=0` guard.
+(4) `cachequeue.h`: the comment claimed an out-of-range length counted as
+a drop; the code (rightly) counts only ring-full drops, so the comment was
+corrected and the unit test pins the behaviour. (5) The six exchange sites
+carried a stale "OBSERVE-ONLY ... changes no score and disables nothing"
+paragraph above a proof path that scores and purges; rewritten to say what
+R13 changed (who may testify) and what the code does. (6) `cwlog.h`: the
+two static name helpers are now `__attribute__((unused))` so the unit
+build is warning-clean. (7) `tests/stability.mk`: the `tl` target's two
+wait loops grepped a file the background peer had not created yet (a raw
+grep error in the wing log, seen in the first full run) -- `2>/dev/null`.
+(8) `.gitignore` added: build products (`x64/`, `dist/`, `*.o`), rig
+scratch (`tests/.*`, logs, pids) and `multics.log`; `bin/` is deliberately
+NOT ignored because the shipped binaries are tracked and pinned.
+(9) The manifest was re-frozen over the whole set including the two
+recovered test sources, the two `queue` flavours that had never been
+pinned since R6, this round's documents and `docs/evidence-R13/`;
+`md5sum -c MANIFEST-md5` exits 0. Final fingerprints: stock
+`9bb6a247...`, stats `aaca87bf...`, queue `1c0ab4f7...`, queue-stats
+`45477482...`, dev `904d2e49...` (the earlier `88a3bf29` family in
+STATUS belonged to the intermediate build of the same round -- the
+sources changed again when the four items above were fixed, and every
+flavour was rebuilt and re-hashed on the final tree).

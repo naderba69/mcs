@@ -1,0 +1,16 @@
+ncclient: MultiCS Newcamd client harness
+  [ ok ] stage 1: connected and read the 14-byte keymod
+         keymod = C18B1A3166F90B2BCC7926BA0E57
+  [ ok ] stage 2: the 'MCS' marker verifies -- this is MultiCS
+  [ ok ] stage 3: login key derived
+         sessionkey = 415748F3C7EE000082765B59FC814400
+  [ ok ] stage 4: login sent (41 bytes, md5-crypt = $1$abcdefgh$wfBfK8YL8MFpMAYtvMlvA.)
+  [ ok ] stage 5: LOGIN_ACK -- the server accepted the client
+         post-login key: des_login_key_get(deskey, passwdcrypt (len 34))
+         post-login sessionkey = B220B0F90DA62100685C69618DAA0200
+         cs_message_send returned 90, socket fd=3
+         poll(300) right after send -> 0, revents=0x0 (0x10=HUP 0x8=POLLERR)
+  [ ok ] stage 6: ECM 1/1 sent (64 bytes, ch 1884:000000:0064)
+         reply type 0x80, len=19, dcw=01020306112233660A0B0C21515253F6
+  [ ok ] stage 6: THE SERVER DELIVERED A CONTROL WORD
+== 7 stages passed ==

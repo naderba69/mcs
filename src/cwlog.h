@@ -51,7 +51,11 @@ struct cwlog_entry {
 };
 
 /* Verdict name, for the web page and /json. Never returns NULL. */
-static const char *cwlog_verdict_name(int verdict)
+/* Attribute: the two name helpers are inline conveniences; a translation
+ * unit that includes this header without naming both (cwlog.c itself does
+ * not) would otherwise warn under the unit suite's -Wall -Wextra. TASK R13
+ * (D67): the make test build is warning-clean again. */
+static __attribute__((unused)) const char *cwlog_verdict_name(int verdict)
 {
 	switch (verdict) {
 	case CWLOG_DELIVERED: return "delivered";
@@ -65,7 +69,7 @@ static const char *cwlog_verdict_name(int verdict)
 /* Reason name. 0..9 must stay word-for-word the dcwstats names (the
  * ring rows and the counters describe the same events); 10+ are the
  * ring-only codes. Never returns NULL. */
-static const char *cwlog_reason_name(int reason)
+static __attribute__((unused)) const char *cwlog_reason_name(int reason)
 {
 	switch (reason) {
 	case 0:  return "accepted";
@@ -85,5 +89,17 @@ static const char *cwlog_reason_name(int reason)
 	default:                return "unknown";
 	}
 }
+
+/* TASK R13 (D67): the ring's own API. These five functions live in cwlog.c;
+ * until R13 the header declared only the inline name helpers, so every
+ * caller (clustredcache.c, httpserver.c) called them through an implicit
+ * declaration that the build's -Wno-implicit-function-declaration hid. */
+void cwlog_note(int verdict, int reason, int peerid,
+                uint32_t caid, uint32_t provid, uint16_t sid,
+                const uint8_t *cw, uint32_t tick);
+int  cwlog_count(void);
+int  cwlog_capacity(void);
+int  cwlog_snapshot(struct cwlog_entry *out, int max);
+void cwlog_reset(void);
 
 #endif /* MCS_CWLOG_H */

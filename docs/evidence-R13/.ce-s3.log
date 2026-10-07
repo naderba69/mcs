@@ -1,0 +1,8 @@
+Multi CardServer r82 - by evileyes (http://www.infosat.org)
+[16:21:34.708] config: parsing file '.ce-srv.cfg'
+[16:21:34.708] config(7,25): CACHEEX MAXHOP_LG: not implemented; CACHEEX MAXHOP is the enforced cap
+[16:21:34.708] config(8,26): CACHEEX CWCHECK capped at 5
+[16:21:34.809] [cxg ] Newcamd Server started on port 15702
+[16:21:34.809] HTTP server started on port 15700
+[16:21:34.809] Telnet server started on port 15701
+[16:21:34.809] FreeCCcam Server: invalid port value (0)

@@ -1,0 +1,5 @@
+  [ ok ] the server answers 200 before the flood
+  [ note ] the 3000-byte header came back as '000' (000 = dropped, which is the contract)
+  [ ok ] the server survived a header larger than its 2048-byte buffer
+  [ ok ] the next request still answers 200
+oh: 3/3 ok

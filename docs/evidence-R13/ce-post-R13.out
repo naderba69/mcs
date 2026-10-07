@@ -1,0 +1,32 @@
+=== ce scenario 1: baseline (no gates) ===
+  [ ok ] the cacheex peer logged in through the real handshake
+  [ ok ] baseline: the good push answered the pending ECM
+  dcwstats: ON
+  accepted 2
+  checksum 0
+  null/half-null 0
+  repeat-3-bytes 0
+  bad-dcw-list 0
+  cacheex-local-only 0
+  cacheex-fake-cw 0
+  cacheex-confirm-wait 0
+  [ ok ] baseline: all three gate counters at zero
+=== ce scenario 2: gates armed ===
+  [ ok ] the unsolicited push was sent by the peer
+  [ ok ] the confirmed push crossed the floor and was served
+  dcwstats: ON
+  accepted 4
+  checksum 0
+  null/half-null 0
+  repeat-3-bytes 0
+  bad-dcw-list 0
+  cacheex-local-only 1
+  cacheex-fake-cw 1
+  cacheex-confirm-wait 1
+  [ ok ] LOCAL_ONLY dropped the unsolicited push
+  [ ok ] BLOCK_FAKE_CW dropped the corrupted key
+  [ ok ] CWCHECK held the first unconfirmed arrival
+=== ce scenario 3: parser notices ===
+  [ ok ] MAXHOP_LG says it is not implemented
+  [ ok ] CWCHECK 9 clamped to the cap 5
+[FAIL] logs kept under tests/.ce-*

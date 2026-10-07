@@ -1,0 +1,35 @@
+Multi CardServer r82 - by evileyes (http://www.infosat.org)
+[15:55:57.033] config: parsing file '/tmp/exp-A.cfg'
+[15:55:57.033] config(8,13): DCW STATS: ON
+[15:55:57.033] config(9,18): STATS-WINDOW: 2000 ms
+[15:55:57.033] config(13,23): DCWFILTER CHECKSUM: OFF
+[15:55:57.033] config(14,21): DCWFILTER REPEAT: OFF
+[15:55:57.134] [cxg ] Newcamd Server started on port 15702
+[15:55:57.134] HTTP server started on port 15700
+[15:55:57.134] Telnet server started on port 15701
+[15:55:57.134] CCcam server 0 started on port 15703 (version: 2.0.11)
+[15:55:57.134] FreeCCcam Server: invalid port value (0)
+[15:55:57.134] Cache server started on port 15704
+[15:56:00.065] cc_connect_cli(): recv sha1 timeout
+[15:56:00.070] CCcam1: client 'cxu' connected
+[15:56:00.070] CCcam1: client 'cxu' running version 2.0.11 build 
+[15:56:00.072] cxg : client 'u1' connected (127.0.0.1)
+[15:56:00.106] <- ecm from client 'u1' ch 1884:000000:0064:a1669c0c
+[15:56:00.125] [CACHEEX GATE] LOCAL_ONLY: unsolicited push dropped ch 1884:000000:00c8
+[15:56:00.125] CCcam: client 'cxu' read failed 0
+[15:56:00.125] CCcam: client 'cxu' disconnected 
+ !!! PHASE1 STATS: 2s | struct 0 (0 repeats suppressed) | cache defer 0 | purge 0 live (0 marked, 0 released, 0 expired) | rotate 0 skipped, 0 refused, 0 below limit of 1 | trust 0 sources | agreement 0 agree, 0 dispute, 0 self, 0 proof, 0 unplaced | keys 0 impossible, 0 near (same), 0 near (other) | timing 0 fast, 0 flat (0 repeats suppressed) | shape 0 full, 0 one-group (0 limited), 0 patterns | cycle offered 0 (0 marked, 0 contra), handed 0 (0 stale, 0 unverified, 0 lines) | negative 0 live (0 proven, 0 refused, 0 lines) | mirror 0 keys, 0 complement-built (0 patterns) | peertrust 0 peers, 0 below the line, 0 skipped | cache guard 0 short, 0 unconfigured | lifecycle 0 fine, 0 coarse, 0 negative restored, 0 bad | fade 0, snapshots 0 ok, 0 failed
+[15:56:02.074] CCcam1: client 'cxu' connected
+[15:56:02.074] CCcam1: client 'cxu' running version 2.0.11 build 
+[15:56:02.130] !!! [CACHEEX GATE] BLOCK_FAKE_CW: fake cw from exchange peer (20000|1) ch 1884:000000:0064
+[15:56:02.575] [CACHEEX GATE] CWCHECK: holding cw, 1/2 confirmations ch 1884:000000:0064
+[15:56:02.575] !!! CW NEGATIVE MARK: ch 1884:000000:0064 key 0102030611223366.. proven unable to open its picture on source 1/131073 -- it will not be delivered again, to any client, from any source (GR3 proof memory; no score, no disable)
+[15:56:02.575] !!! CW REUSE PROOF: same cw for a different ecm on a different service, ch 1884:000000:0064 from cxu
+[15:56:02.575] !!! CACHE PURGE: ch 1884:000000:0064 marked 1 cached cw(s) from cxu
+[15:56:03.075] !!! CW NEGATIVE: ch 1884:000000:0064 -- key 0102030611223366.. was proven unable to open its picture (proven on source 1/131073, 0 s ago) and a cache source offered it again: refused before any client, hit #1 for this key. The refusal is proof-scoped memory, not a score: nothing was scored and no source was disabled
+[15:56:03.075] !!! PEER TRUST: source 1/131073 on caid 1884 fell below the trust line: score 10 (2 proof(s), 0 soft, 0 good). Its share of cache requests for this caid is skipped for 60 seconds, then one request tests it again -- nothing is disconnected, no client was touched, and keys that clients keep win the requests back
+[15:56:03.075] !!! CW REUSE PROOF: same cw for a different ecm on a different service, ch 1884:000000:0064 from cxu
+[15:56:03.075] CCcam: client 'cxu' read failed 0
+[15:56:03.075] CCcam: client 'cxu' disconnected 
+ !!! PHASE1 STATS: 2s | struct 0 (0 repeats suppressed) | cache defer 0 | purge 1 live (2 marked, 0 released, 0 expired) | rotate 0 skipped, 0 refused, 0 below limit of 1 | trust 1 source | agreement 0 agree, 0 dispute, 0 self, 0 proof, 0 unplaced | keys 0 impossible, 0 near (same), 0 near (other) | timing 0 fast, 0 flat (0 repeats suppressed) | shape 0 full, 1 one-group (0 limited), 0 patterns | cycle offered 1 (0 marked, 0 contra), handed 0 (0 stale, 0 unverified, 0 lines) | negative 1 live (1 proven, 1 refused, 1 line) | mirror 1 keys, 0 complement-built (0 patterns) | peertrust 1 peer, 1 below the line, 0 skipped | cache guard 0 short, 0 unconfigured | lifecycle 0 fine, 0 coarse, 0 negative restored, 0 bad | fade 0, snapshots 0 ok, 0 failed
+ !!! PHASE1 STATS: 2s | struct 0 (0 repeats suppressed) | cache defer 0 | purge 1 live (2 marked, 0 released, 0 expired) | rotate 0 skipped, 0 refused, 0 below limit of 1 | trust 1 source | agreement 0 agree, 0 dispute, 0 self, 0 proof, 0 unplaced | keys 0 impossible, 0 near (same), 0 near (other) | timing 0 fast, 0 flat (0 repeats suppressed) | shape 0 full, 1 one-group (0 limited), 0 patterns | cycle offered 1 (0 marked, 0 contra), handed 0 (0 stale, 0 unverified, 0 lines) | negative 1 live (1 proven, 1 refused, 1 line) | mirror 1 keys, 0 complement-built (0 patterns) | peertrust 1 peer, 1 below the line, 0 skipped | cache guard 0 short, 0 unconfigured | lifecycle 0 fine, 0 coarse, 0 negative restored, 0 bad | fade 0, snapshots 0 ok, 0 failed

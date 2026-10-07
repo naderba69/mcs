@@ -24,7 +24,11 @@ struct cq_entry {
 };
 
 void          cq_init(void);
-/* 1 = queued, 0 = dropped (ring full, or len outside 0..CQ_BUF) */
+/* 1 = queued, 0 = refused: the ring was full (counted by cq_dropped(),
+ * the backpressure the module exists for) or the arguments were invalid --
+ * len outside 0..CQ_BUF or a NULL pointer (a caller error, NOT counted as a
+ * drop; the R6 A/B run asserts zero drops on valid traffic). TASK R13 (D67)
+ * corrected this comment: it claimed both cases were drops. */
 int           cq_push(void *src, const struct sockaddr_in *from,
                       const unsigned char *buf, int len);
 /* 1 = entry copied out, 0 = ring empty */

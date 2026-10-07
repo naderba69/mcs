@@ -1,0 +1,9 @@
+TARGET cy rc=0 fails=0 oks=8
+TARGET au rc=0 fails=0 oks=16
+TARGET pr rc=0 fails=0 oks=14
+TARGET jm rc=0 fails=0 oks=8
+TARGET pq rc=0 fails=0 oks=3
+TARGET sk rc=0 fails=0 oks=10
+TARGET cn rc=0 fails=0 oks=4
+TARGET vl rc=0 fails=0 oks=4
+TARGET ri rc=0 fails=0 oks=2

@@ -3005,12 +3005,19 @@ link_cccam_client:
 #endif
 						else {
 							struct client_info_data *info = malloc( sizeof(struct client_info_data) );
-							strcpy(info->name, str);
+							/* TASK R13 (D67): both copies are bounded and the trim loop is
+							 * guarded at i>=0. The name and value come from the config
+							 * line (str[255]) while info->name is 32 bytes: an over-long
+							 * key name used to run past the field into the rest of the
+							 * malloc'd struct (heap corruption from config content), and
+							 * an empty value made the loop read str[-1]. Same fix in both
+							 * CCCAM-client parser blocks (this one and the one below). */
+							snprintf(info->name, sizeof(info->name), "%s", str);
 							parse_spaces();
 							parse_value(str,"\r\n;}");
-							for(i=strlen(str)-1; ( (str[i]==' ')||(str[i]=='\t') ) ; i--) str[i] = 0; // Remove spaces
+							for(i=(int)strlen(str)-1; i>=0 && ( (str[i]==' ')||(str[i]=='\t') ) ; i--) str[i] = 0; // Remove spaces
 							//printf(" VALUE: '%s'\n", str);
-							strcpy(info->value, str);
+							snprintf(info->value, sizeof(info->value), "%s", str);
 							info->next = cli->info;
 							cli->info = info;
 						}
@@ -3284,12 +3291,19 @@ link_mgcamd_user:
 						else if (!strcmp(str,"shares")) parse_option_shares( cli->sharelimits );
 						else {
 							struct client_info_data *info = malloc( sizeof(struct client_info_data) );
-							strcpy(info->name, str);
+							/* TASK R13 (D67): both copies are bounded and the trim loop is
+							 * guarded at i>=0. The name and value come from the config
+							 * line (str[255]) while info->name is 32 bytes: an over-long
+							 * key name used to run past the field into the rest of the
+							 * malloc'd struct (heap corruption from config content), and
+							 * an empty value made the loop read str[-1]. Same fix in both
+							 * CCCAM-client parser blocks (this one and the one below). */
+							snprintf(info->name, sizeof(info->name), "%s", str);
 							parse_spaces();
 							parse_value(str,"\r\n;}");
-							for(i=strlen(str)-1; ( (str[i]==' ')||(str[i]=='\t') ) ; i--) str[i] = 0; // Remove spaces
+							for(i=(int)strlen(str)-1; i>=0 && ( (str[i]==' ')||(str[i]=='\t') ) ; i--) str[i] = 0; // Remove spaces
 							//printf(" VALUE: '%s'\n", str);
-							strcpy(info->value, str);
+							snprintf(info->value, sizeof(info->value), "%s", str);
 							info->next = cli->info;
 							cli->info = info;
 						}
