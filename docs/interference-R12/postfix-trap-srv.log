@@ -1,0 +1,20 @@
+Multi CardServer r82 - by evileyes (http://www.infosat.org)
+[21:34:44.169] config: parsing file '/tmp/.ri.cfg'
+[21:34:44.169] config(5,13): DCW STATS: ON
+[21:34:44.169] config(16,20): DCWFILTER CYCLE: ON (profile ri )
+[21:34:44.270] [ri ] Newcamd Server started on port 16948
+[21:34:44.270] HTTP server started on port 16945
+[21:34:44.270] Telnet server started on port 16946
+[21:34:44.270] FreeCCcam Server: invalid port value (0)
+[21:34:44.270] Cache server started on port 16947
+[21:34:47.282] cache: Peer (127.0.0.1:16950) come Online*
+[21:34:47.282] cache: Peer (127.0.0.1:16949) come Online*
+[21:34:51.183] ri : client 'u1' connected (127.0.0.1)
+[21:34:51.216] <- ecm from client 'u1' ch 1884:000000:0064:a1669c0c
+[21:34:51.247] !!! CW CYCLE: source 1/65538 ch 1884:000000:0064 -- 1 of 1 cache key this window contradicted the cycle that ECM declares (expected CW0, saw CW1), 0 keys carried no marker; the last one was offered by the peer -- 0 keys were handed to a waiting client in that state. A key of the previous crypto period, or the other half of the even/odd pair, is genuine and still cannot open the picture. Nothing was rejected, delayed or scored: this is a measurement, not an accusation
+[21:34:51.247] [CYCLE GATE] wrong-half key refused at ingest (expected CW0, saw CW1) ch 1884:000000:0064
+[21:34:51.247] cache(GR10): not re-pushing cw from peer2 (127.0.0.1:16950) ch 1884:000000:0064/a1669c0c
+[21:34:51.647] cache(GR10): not re-pushing cw from peer1 (127.0.0.1:16949) ch 1884:000000:0064/a1669c0c
+[21:34:51.648] => cw to client 'u1' ch 1884:000000:0064 (432ms)
+[21:34:51.663] newcamd: client 'u1' read failed 0
+[21:34:51.663] newcamd: client 'u1' disconnected

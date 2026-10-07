@@ -1,0 +1,31 @@
+In file included from test_cacheguard.c:20:
+In function 'cg_format_unknown',
+    inlined from 'main' at test_cacheguard.c:113:6:
+../src/cacheguard.h:136:17: warning: ' packet(s) in this window fr...' directive output truncated writing 63 bytes into a region of size 10 [-Wformat-truncation=]
+  136 |                 "CACHE GUARD: %lu packet(s) in this window from unconfigured "
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../src/cacheguard.h: In function 'main':
+../src/cacheguard.h:136:44: note: format string is defined here
+  136 |                 "CACHE GUARD: %lu packet(s) in this window from unconfigured "
+      |                                  ~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  137 |                 "senders -- last: a %s (%d) from %u.%u.%u.%u:%d; the cache "
+      |                 ~~~~~~~~~~~~~~~~~~~~        
+In function 'cg_format_unknown',
+    inlined from 'main' at test_cacheguard.c:113:6:
+../src/cacheguard.h:135:16: note: 'snprintf' output 212 bytes into a destination of size 24
+  135 |         return snprintf(line, (size_t)sz,
+      |                ^~~~~~~~~~~~~~~~~~~~~~~~~~
+  136 |                 "CACHE GUARD: %lu packet(s) in this window from unconfigured "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  137 |                 "senders -- last: a %s (%d) from %u.%u.%u.%u:%d; the cache "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  138 |                 "exchange runs between configured peers only, and stock dropped "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  139 |                 "this before any layer saw it",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  140 |                 (unsigned long)window_count, cg_typename((uint8_t)type), type,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  141 |                 ip & 0xff, (ip >> 8) & 0xff, (ip >> 16) & 0xff, (ip >> 24) & 0xff,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  142 |                 port);
+      |                 ~~~~~

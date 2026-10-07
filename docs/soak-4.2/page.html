@@ -1,0 +1,147 @@
+<HTML>
+<HEAD>
+<title>Multi CardServer - Home</title>
+<meta http-equiv="Content-type" content="text/html; charset=utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="icon" type="image/png" href="/favicon.png">
+<style type="text/css">
+:root{--bg:#eef2f6;--panel:#ffffff;--ink:#1c2733;--muted:#5b6b7b;--line:#d5dde5;--accent:#0f5f8a;--accent-soft:#e3eef5;--good:#1e7a46;--bad:#c0392b;--warn:#9a6b0f;}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,'Segoe UI',Tahoma,Arial,sans-serif;}
+a{color:var(--accent);text-decoration:none;}
+a:hover{text-decoration:underline;}
+hr{border:0;border-top:1px solid var(--line);}
+.menu{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);box-shadow:0 1px 4px rgba(16,35,55,.08);padding:4px 10px;overflow:hidden;}
+.menu ul{margin:0;padding:0;display:flex;flex-wrap:wrap;align-items:center;list-style:none;}
+.menu li{margin:2px 2px;}
+.menu li a{display:block;padding:6px 13px;border-radius:6px;font-weight:600;font-size:13px;color:var(--ink);}
+.menu li a:hover{background:var(--accent-soft);text-decoration:none;}
+.menu a.selected{background:var(--accent);color:#fff;}
+.menu a.selected:hover{background:var(--accent);}
+.menu a.disabled{color:#b3bfc9;text-decoration:line-through;}
+.menu span{float:right;color:var(--muted);font-size:11px;padding:8px 2px;}
+html[dir=rtl] .menu span{float:left !important;}
+table{border-collapse:collapse;}
+td,th{font-size:12px;padding:4px 7px;}
+.maintable{background:var(--panel);font-size:12px;width:auto;}
+.maintable th{padding:6px 8px;text-align:left;border-top:2px solid var(--accent);border-bottom:1px solid var(--line);background:var(--accent-soft);color:var(--ink);font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+.maintable tr:hover{background-color:#f0f6fa;}
+.maintable td{border-bottom:1px solid var(--line);padding:4px 8px;}
+.maintable a{font-weight:700;}
+.infotable{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;margin:6px 0;}
+.infotable th{padding:6px;font-size:11px;text-align:center;background:#3d4d5c;color:#fff;border-bottom:1px solid var(--line);}
+.infotable tr:hover{background-color:#f0f6fa;}
+.infotable td{border-bottom:1px solid var(--line);}
+.infotable .left{text-transform:uppercase;font-weight:700;}
+.option th,.option td{font-size:11px;background:var(--panel);color:var(--warn);}
+.option th{border-bottom:1px solid var(--line);text-align:left;}
+.infomenu{background:var(--panel);border:1px solid var(--line);border-radius:6px;}
+.infomenu td{padding:2px 4px;}
+.alt1{background-color:#ffffff;}
+.alt2{background-color:#f6f8fa;}
+.alt3{background-color:#eaf1ec;}
+.success{color:var(--good);font-weight:700;}
+.failed{color:var(--bad);font-weight:700;}
+.busy{background-color:#8a9a12;color:#fff;text-align:center;}
+.online{background-color:var(--good);color:#fff;text-align:center;}
+.offline{background-color:var(--bad);color:#fff;text-align:center;}
+.left{text-align:left;}.center{text-align:center;}.right{text-align:right;}
+.online:hover .connect_data,.offline:hover .connect_data,.busy:hover .connect_data{visibility:visible;}
+.connect_data{border-collapse:collapse;padding:0;margin:-1px 0 0 55px;position:absolute;visibility:hidden;border:1px solid var(--line);font-size:11px;background:var(--panel);color:var(--ink);box-shadow:0 3px 10px rgba(16,35,55,.18);}
+.connect_data td{background-color:var(--accent-soft);border-bottom:1px solid var(--line);padding:2px 10px;}
+input,textarea,select{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent);}
+input,select{margin:4px 2px;background:#fff;}
+textarea{width:100%;height:81%;margin:5px 0;padding:6px;}
+.sbutton{font-weight:700;background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:6px;cursor:pointer;}
+.sbutton:hover{filter:brightness(1.1);}
+fieldset{border:1px solid var(--line);border-radius:8px;}
+div.outer{position:relative;width:100%;}
+div.right{width:100%;margin-left:50%;}
+div.top,div.bottom{position:absolute;width:50%;}
+div.top{top:0;}
+div.bottom{bottom:0;}
+@media (max-width:760px){
+ body{font-size:13px;}
+ td,th{font-size:11px;padding:3px 5px;}
+ .menu li a{padding:5px 9px;font-size:12px;}
+ .menu span{display:none;}
+ .maintable,.infotable,.option{display:block;overflow-x:auto; -webkit-overflow-scrolling:touch;white-space:nowrap;}
+ div.right{margin-left:0;}
+ div.top,div.bottom{position:static;width:100%;}
+}
+
+</style>
+
+<script type='text/javascript'>
+function imgrequest( url, el )
+{
+	var httpRequest;
+	try { httpRequest = new XMLHttpRequest(); }
+	catch (trymicrosoft) { try { httpRequest = new ActiveXObject('Msxml2.XMLHTTP'); } catch (oldermicrosoft) { try { httpRequest = new ActiveXObject('Microsoft.XMLHTTP'); } catch(failed) { httpRequest = false; } } }
+	if (!httpRequest) { alert('Your browser does not support Ajax.'); return false; }
+	if ( typeof(el)!='undefined' ) {
+		el.onclick = null;
+		el.style.opacity = '0.7';
+		httpRequest.onreadystatechange = function()
+		{
+			if (httpRequest.readyState == 4) if (httpRequest.status == 200) el.style.opacity = '0.3';
+		}
+	}
+	httpRequest.open('GET', url, true);
+	httpRequest.send(null);
+}
+
+var autorefresh=0;
+var tautorefresh;
+function setautorefresh(t)
+{
+	clearTimeout(tautorefresh);
+	autorefresh = t;
+	if (t>0) tautorefresh = setTimeout('updateDiv()',autorefresh);
+}
+function updateDiv()
+{
+	var httpRequest;
+	try {
+		httpRequest = new XMLHttpRequest();  // Mozilla, Safari, etc
+	}
+	catch(trymicrosoft) {
+		try {
+			httpRequest = new ActiveXObject('Msxml2.XMLHTTP');
+		}
+		catch(oldermicrosoft) {
+			try {
+				httpRequest = new ActiveXObject('Microsoft.XMLHTTP');
+			}
+			catch(failed) {
+				httpRequest = false;
+			}
+		}
+	}
+	if (!httpRequest) {
+		alert('Your browser does not support Ajax.');
+		return false;
+	}
+	// Action http_request
+	httpRequest.onreadystatechange = function()
+	{
+		if (httpRequest.readyState == 4) {
+			if(httpRequest.status == 200) {
+				requestError=0;
+				document.getElementById('mainDiv').innerHTML = httpRequest.responseText;
+			}
+			tautorefresh = setTimeout('updateDiv()',autorefresh);
+		}
+	}
+	httpRequest.open('GET', '/?action=div',true);
+	httpRequest.send(null);
+}
+
+function start()
+{
+	 setautorefresh(autorefresh);
+}
+</script>
+</HEAD>
+<body onload="start();"><div class=menu><ul><li><a class=selected href='/'>Home</a></li><li><a href='/debug'>Debug</a></li><li><a href='/threads'>Threads</a></li><li><a class=disabled href='/servers'>Servers</a></li><li><a href='/cache'>Cache</a></li><li><a href='/profiles'>Profiles</a></li><li><a href='/newcamd'>Newcamd</a></li><li><a href='/cacheex'>CacheEX</a></li><li><a href='/editor'>Editor</a></li><li><a href='/restart'>Restart</a></li><li><a href='?lang=ar'>عربي</a></li><li><a href='/logout'>Logout</a></li></ul><span style='float:right;'>Multi Card Server r82</span></div>
+<div align=right>Autorefresh <select onchange='setautorefresh(this.value);'><option value=0 selected>OFF</option><option value=1000>1s</option><option value=2000>2s</option><option value=3000>3s</option><option value=4000>4s</option><option value=5000>5s</option><option value=6000>6s</option><option value=7000>7s</option><option value=8000>8s</option><option value=9000>9s</option><option value=10000>10s</option></select></div>
+<div id='mainDiv'><div style="margin-left:10px;">Uptime: 00d 00:20:12<br>Load Average: 0.02<br>Free Memory: 1299428 kB<br>Total Profiles: 1<br>Total Servers: 0<br>Total Cache Servers: 1<br>Total CCcam Servers: 0<br>Total Mgcamd Servers: 0<br>Total Camd35 Servers: 0<br>Total cs378x Servers: 0<br><br><b>DCW stats</b> ON<table class=option border=1px cellspacing=0><tr><th>Reason</th><th>Count</th></tr><tr><td>accepted</td><td>3412</td></tr><tr><td>checksum</td><td>487</td></tr><tr><td>null/half-null</td><td>0</td></tr><tr><td>repeat-3-bytes</td><td>0</td></tr><tr><td>bad-dcw-list</td><td>0</td></tr><tr><td>cacheex-local-only</td><td>0</td></tr><tr><td>cacheex-fake-cw</td><td>0</td></tr><tr><td>cacheex-confirm-wait</td><td>0</td></tr><tr><td>cycle-contradiction</td><td>0</td></tr><tr><td>consensus-mismatch</td><td>0</td></tr></table></div></body></html>

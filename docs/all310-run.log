@@ -1,0 +1,823 @@
+  [ ok ] HTTP / answered 200
+  [ ok ] empty config refused with exit 1 (was SIGSEGV/139)
+  [ ok ] DCWFILTER REPEAT parsed
+  [ ok ] DCWFILTER CHECKSUM parsed
+  [ ok ] unknown sub-option reported by name
+  [ ok ] SOFT-FAIL-WINDOW parsed
+  [ ok ] RETRY-WINDOW clamped 10 -> 500 ms
+\
+run_one() { \
+  bin="$1"; tag="$2"; ok=1; \
+  rm -f .stab.$tag.log; \
+  stdbuf -o0 -e0 "$bin" -C .stability.cfg -v > .stab.$tag.log 2>&1 & \
+  pid=$!; \
+  code=000; \
+  for i in $(seq 1 25); do \
+    code=$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:15700/); \
+    [ "$code" = "200" ] && break; \
+    sleep 1; \
+  done; \
+  \
+  if kill -0 $pid 2>/dev/null; then \
+    echo "  [ ok ] $tag: started and still alive after 6 s"; \
+  else \
+    echo "  [FAIL] $tag: died during startup"; ok=0; \
+  fi; \
+  \
+  code=$(curl -s -m 5 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:15700/ 2>/dev/null); \
+  if [ "$code" = "200" ]; then \
+    echo "  [ ok ] $tag: HTTP answered 200"; \
+  else \
+    echo "  [FAIL] $tag: HTTP answered '$code'"; ok=0; \
+  fi; \
+  \
+  kill -HUP $pid 2>/dev/null; sleep 3; \
+  if kill -0 $pid 2>/dev/null; then \
+    echo "  [ ?? ] $tag: SURVIVED SIGHUP -- hot-reload now exists, update this test"; \
+  else \
+    echo "  [ ok ] $tag: SIGHUP terminates it (r82a has no hot-reload handler)"; \
+  fi; \
+  \
+  stdbuf -o0 -e0 "$bin" -C .stability.cfg -v > .stab.$tag.log 2>&1 & \
+  pid=$!; \
+  for i in $(seq 1 25); do \
+    code=$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:15700/); \
+    [ "$code" = "200" ] && break; \
+    sleep 1; \
+  done; \
+  code=$(curl -s -m 5 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:15700/ 2>/dev/null); \
+  if [ "$code" = "200" ]; then \
+    echo "  [ ok ] $tag: restarted cleanly and HTTP answered 200 again"; \
+  else \
+    echo "  [FAIL] $tag: after restart HTTP answered '$code'"; ok=0; \
+  fi; \
+  \
+  kill $pid 2>/dev/null; \
+  for i in 1 2 3 4 5; do kill -0 $pid 2>/dev/null || break; kill -9 $pid 2>/dev/null; sleep 1; done; \
+  if kill -0 $pid 2>/dev/null; then \
+    echo "  [FAIL] $tag: still running after SIGKILL"; ok=0; \
+  else \
+    echo "  [ ok ] $tag: shut down"; \
+  fi; \
+  \
+  if grep -q "bind port failed" .stab.$tag.log; then \
+    echo "  [FAIL] $tag: a leftover server holds the ports"; ok=0; \
+  fi; \
+  if grep -qi "segmentation\|SIGSEGV" .stab.$tag.log; then \
+    echo "  [FAIL] $tag: logged a segfault"; ok=0; \
+  fi; \
+  \
+  rm -f .stab.$tag.log; \
+  if [ $ok = 1 ]; then return 0; else return 1; fi; \
+}; \
+\
+rc=0; \
+run_one ../make-x64/x64/multics stock || rc=1; \
+sleep 2; \
+run_one ../make-x64/x64/multics configured || rc=1; \
+rm -f .stability.cfg; \
+exit $rc
+  [ ok ] stock: started and still alive after 6 s
+  [ ok ] stock: HTTP answered 200
+  [ ok ] stock: SIGHUP terminates it (r82a has no hot-reload handler)
+  [ ok ] stock: restarted cleanly and HTTP answered 200 again
+  [ ok ] stock: shut down
+  [ ok ] configured: started and still alive after 6 s
+  [ ok ] configured: HTTP answered 200
+  [ ok ] configured: SIGHUP terminates it (r82a has no hot-reload handler)
+  [ ok ] configured: restarted cleanly and HTTP answered 200 again
+  [ ok ] configured: shut down
+  ncclient: MultiCS Newcamd client harness
+    [ ok ] stage 1: connected and read the 14-byte keymod
+           keymod = C5D33D98AC19C5CB784A1D10FB2F
+    [ ok ] stage 2: the 'MCS' marker verifies -- this is MultiCS
+    [ ok ] stage 3: login key derived
+           sessionkey = 997F4245CC576800539DC2AA5A402600
+    [ ok ] stage 4: login sent (41 bytes, md5-crypt = $1$abcdefgh$wfBfK8YL8MFpMAYtvMlvA.)
+    [ ok ] stage 5: LOGIN_ACK -- the server accepted the client
+           post-login key: des_login_key_get(deskey, passwdcrypt (len 34))
+           post-login sessionkey = B220B0F90DA62100685C69618DAA0200
+           cs_message_send returned 90, socket fd=3
+           poll(300) right after send -> 0, revents=0x0 (0x10=HUP 0x8=POLLERR)
+    [ ok ] stage 6: ECM 1/2 sent (64 bytes, ch 1884:000000:0064)
+           reply type 0x80, len=3, dcw=
+    [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
+    [ ok ] stage 6: ECM 2/2 sent (64 bytes, ch 1884:000000:0064)
+           reply type 0x80, len=3, dcw=
+    [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
+  == 6 stages passed ==
+  [ ok ] the server answered both ECMs (decode-failed is correct with no card server)
+  [ ok ] the server SURVIVED both ECMs -- regression guard for the NULL ecm deref
+  [ ok ] a real Newcamd client drove the real server through the ECM path
+  [ ok ] the client RECEIVED A CONTROL WORD, twice
+  [ ok ] and it is exactly the CW the peer pushed
+  [ ok ] the server accepted the cache peer
+  [ ok ] TASK 1.0b: GR10 suppressed the re-push at runtime
+  [ ok ] TASK 1.2: RETRY_HARD detected at runtime
+  [ ok ] TASK 1.1: origin is DCW_SOURCE_CACHE / PEER_CSP|1, as GR1 requires
+  [ ok ] TASK 1.6: rotation recorded the source to avoid
+  [ ok ] the server survived the whole sequence
+  [ ok ] two services, one key: both ECMs answered with the same cw
+  [ ok ] two services, one key: 1 reuse proof(s), as required
+  [ ok ] two services, one key: 1 purge(s), as required
+  [ ok ] two services, one key: server survived
+  [ ok ] GR6: one service, one key: both ECMs answered with the same cw
+  [ ok ] GR6: one service, one key: 0 reuse proof(s), as required
+  [ ok ] GR6: one service, one key: 0 purge(s), as required
+  [ ok ] GR6: one service, one key: server survived
+  [ ok ] learned the ecm hash for sid 0064: a1669c0c
+  [ ok ] ON: 8 retry events fed the trust engine
+  [ ok ] ON: the working client still got all 6 cw(s)
+  [ ok ] ON: 13 deferral(s) of the unverified cache entry
+  [ ok ] ON: deferring still left the client answered (3 cw(s)) -- no black screen
+  [ ok ] ON: server survived
+  [ ok ] OFF: 8 retry events fed the trust engine
+  [ ok ] OFF: the working client still got all 6 cw(s)
+  [ ok ] OFF: no deferral, stock behaviour kept
+  [ ok ] OFF: the same entry WAS served, so ON is what withheld it
+  [ ok ] OFF: server survived
+  [ ok ] the client still received a control word (2)
+  [ ok ] and it is exactly the structurally impossible key, untouched
+  [ ok ] TASK 1.8: the scan ran on the real delivery path (1 line(s))
+  [ ok ] GR1: attributed to DCW_SOURCE_CACHE(1) / PEER_CSP|1, not to a card server
+  [ ok ] and the line says so: evidence, not a filter
+  [ ok ] the peer re-pushed the SAME key 3 times after the first delivery
+  [ ok ] TASK 1.8: the repeats produced no further line (3 pushes, 1 report)
+  [ ok ] the server survived the whole sequence
+  [ ok ] the option was parsed and reported at startup
+  [ ok ] and so was STATS-WINDOW
+  [ ok ] the events below the limit were counted and tolerated (2 line(s))
+  [ ok ] exactly ONE avoidance line -- one log line per confirmed event, not one per bad cw
+  [ ok ] and exactly 2 below-limit lines: events 1 and 2 tolerated, event 3 avoided
+  [ ok ] the avoidance line says the limit was reached, not merely that a retry happened
+  [ ok ] STATS-WINDOW emitted 3 summary line(s)
+  [ ok ] and the line reports the limit actually in force, not the default
+  [ ok ] the client was answered throughout (4 cw(s)) -- the tolerance black-screened nothing
+  [ ok ] server survived
+rc=0; \
+case_one() { \
+  label="$1"; age="$2"; want="$3"; \
+  rm -f .pa-srv.log .pa-peer.log .pa-cli.log; \
+  { printf 'HTTP PORT: 15950\nHTTP USER: admin\nHTTP PASS: admin\n'; \
+    printf 'HTTP TITLE: mcs-purgeage\nTELNET PORT: 15959\n'; \
+    printf 'CACHE PORT: 15951\n'; \
+    printf 'CACHE PEER: 127.0.0.1:15952 { csp=1 }\n'; \
+    printf 'CACHE FILTER: OFF\n'; \
+    [ -n "$age" ] && printf 'SERVICE-BLACKLIST-TIME: %s\n' "$age"; \
+    printf '\n[ purgetest ]\nCAID: 1884\nPORT: 15953\nUSER: u1 p1\n'; } > .purgeage.cfg; \
+  stdbuf -o0 -e0 ./.cachepeer.bin 15951 15952 11223366445566FF77889998AABBCC31 2 > .pa-peer.log 2>&1 & \
+  peer=$!; \
+  sleep 1; \
+  stdbuf -o0 -e0 ../make-x64/x64/multics -C .purgeage.cfg -v > .pa-srv.log 2>&1 & \
+  srv=$!; \
+  for i in $(seq 1 40); do \
+    code=$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:15950/); \
+    [ "$code" = "200" ] && break; sleep 1; \
+  done; \
+  for i in $(seq 1 30); do grep -q "advertised card" .pa-peer.log && break; sleep 0.5; done; \
+  sleep 1; \
+  NC_ALT_SID=00C8 ./.ncclient.bin 127.0.0.1 15953 u1 p1 0102030405060708091011121314 0 1884 0064 > .pa-cli.log 2>&1; \
+  sleep 7; \
+  if kill -0 $srv 2>/dev/null; then survived=1; else survived=0; fi; \
+  kill $srv $peer 2>/dev/null; \
+  for i in 1 2 3 4 5; do kill -0 $srv 2>/dev/null || break; kill -9 $srv 2>/dev/null; sleep 1; done; \
+  kill -9 $peer 2>/dev/null; \
+  nm=$(grep -c "!!! CACHE PURGE: ch" .pa-srv.log); \
+  ne=$(grep -c "CACHE PURGE EXPIRE" .pa-srv.log); \
+  if [ "$nm" = "1" ]; then echo "  [ ok ] $label: the reuse proof placed exactly 1 mark"; \
+  else echo "[FAIL] $label: $nm mark(s), expected 1 -- the scenario did not set up"; rc=1; fi; \
+  if [ "$ne" = "$want" ]; then echo "  [ ok ] $label: $ne expire line(s), as required"; \
+  else echo "[FAIL] $label: $ne expire line(s), expected $want"; rc=1; fi; \
+  if [ "$want" = "1" ]; then \
+    chmarked=$(sed -n 's/.*CACHE PURGE: ch \([0-9a-f:]*\) marked.*/\1/p' .pa-srv.log | head -1); \
+    if [ -n "$chmarked" ] && grep -q "CACHE PURGE EXPIRE: ch $chmarked mark on source 1/65537" .pa-srv.log; then \
+      echo "  [ ok ] $label: the expire line names the SAME channel ($chmarked) and source the mark line named (GR8)"; \
+    else echo "[FAIL] $label: the expire line does not name what the mark line named"; rc=1; fi; \
+    grep -q "after 3000 ms" .pa-srv.log \
+      && echo "  [ ok ] $label: and the window it expired against" \
+      || { echo "[FAIL] $label: the expire line does not state the window"; rc=1; }; \
+  fi; \
+  if [ $survived = 1 ]; then echo "  [ ok ] $label: server survived"; \
+  else echo "[FAIL] $label: server died"; rc=1; fi; \
+  if grep -qi "segmentation\|SIGSEGV" .pa-srv.log; then echo "[FAIL] $label: logged a segfault"; rc=1; fi; \
+  sleep 2; \
+}; \
+case_one "ON: 3 s window" "3000" 1; \
+case_one "OFF: the default" "" 0; \
+rm -f .purgeage.cfg .pa-srv.log .pa-peer.log .pa-cli.log; \
+exit $rc
+  [ ok ] ON: 3 s window: the reuse proof placed exactly 1 mark
+  [ ok ] ON: 3 s window: 1 expire line(s), as required
+  [ ok ] ON: 3 s window: the expire line names the SAME channel (1884:000000:00c8) and source the mark line named (GR8)
+  [ ok ] ON: 3 s window: and the window it expired against
+  [ ok ] ON: 3 s window: server survived
+  [ ok ] OFF: the default: the reuse proof placed exactly 1 mark
+  [ ok ] OFF: the default: 0 expire line(s), as required
+  [ ok ] OFF: the default: server survived
+  [ ok ] a disagreement alone accused nobody -- GR3, no client failure, no proof
+  [ ok ] phase 1's client was served a key: it is a failure, not a delivery, that accuses
+  [ ok ] and nothing was marked for it either
+  [ ok ] the disagreement WAS recorded: 1 dispute, 0 self, 0 proof
+  [ ok ] exactly ONE mismatch line for one confirmed event
+  [ ok ] GR1: the accused source (1/65538) is the one the client held a key from
+  [ ok ] the dissenter (1/65537) is named and is NOT the accused
+  [ ok ] the cache entry was marked, on the accused source and no other
+  [ ok ] the ledger counted exactly one proof and no self-disputes
+  [ ok ] every failure had an identity to be placed against (0 unplaced)
+  [ ok ] the client kept being served (3 cw(s)): a proof must not black-screen a channel
+  [ ok ] the re-asks were classified as retries (2), not zaps
+  [ ok ] server survived
+  [ ok ] the peer measured its own pair of keys: 3 bit flips, checksum still valid
+  [ ok ] phase 1's honest key really was delivered (so its silence means something)
+  [ ok ] no entropy and no collision verdict on honest traffic (GR3: it must stay quiet)
+  [ ok ] and the stats line counts zero of each, not just the log
+  [ ok ] phase 2 delivered the derived key itself, so the verdict is about the key that arrived
+  [ ok ] exactly ONE collision line for one derived key
+  [ ok ] and the server measured the same 3 bits the peer intended
+  [ ok ] GR1: both keys came from the same source, so the verdict is attributable
+  [ ok ] the line names BOTH keys, byte for byte as the peer pushed them (GR8: exact evidence)
+  [ ok ] the derived key is not also accused of low entropy (the two halves are independent)
+  [ ok ] the stats summary counts exactly one same-source near miss (waited for the window, not for a sleep)
+  [ ok ] server survived
+  [ ok ] the card server connected and advertised CAID 1884
+  [ ok ] the evidence lines are back: the SERVER filter is a FILTER, not an addition (DBG_ALL=0), and the window is 2 s on a 5 s wakeup
+  [ info ] phase1-honest: 16 ECM(s) on 16 distinct services, 16 control words delivered so far
+  [ ok ] phase 1: 16 honest replies (55-75 ms, floor 42 ms) produced NO verdict of any kind
+  [ ok ] and the stats line agrees: 0 fast, 0 flat, so the silence is a measurement and not an absence
+  [ info ] phase2-metronome: 40 ECM(s) on 40 distinct services, 56 control words delivered so far
+  [ ok ] phase 2: 40 replies at exactly 55 ms are reported as a metronome
+  [ ok ] and the line says in words that it is not proof, so it cannot be read as an accusation
+  [ ok ] and it did NOT score: trust is still 0 sources -- FLAT is outside CWT_SCOREMASK (GR3)
+  [ ok ] a 55 ms reply was never called fast: the floor is a floor and 55 > 42
+  [ info ] phase3-instant: 8 ECM(s) on 8 distinct services, 64 control words delivered so far
+  [ ok ] phase 3: instant answers are reported once per service: 8 lines for 8 services
+  [ ok ] and the line states what makes it impossible rather than just scoring it
+  [ ok ] and THIS one scored: trust went 0 -> 8 sources, one per service -- GR4 granularity, shown live
+  [ ok ] and the stats line counts every reply of both kinds, including the ones the report window suppressed
+  [ ok ] the card server confirms it answered instantly
+  [ ok ] and that it took its metronome turns
+  [ ok ] every client was served throughout: 64 of 64 control words delivered, none of this cost a viewer anything
+  [ ok ] server survived
+  [ ok ] the first cache peer is online and has advertised its card
+  [ info ] phase1-honest: 4 request(s), 4 control word(s) delivered so far
+  [ ok ] phase 1: four honest keys reached four clients (the positive control)
+  [ ok ] and produced no plausibility line at all
+  [ ok ] with the stats line agreeing: every key of full shape, none one-group, no patterns
+  [ info ] trust before any forgery: 0 source(s)
+  [ info ] phase2a-two-forged: 2 request(s), 4 control word(s) delivered so far
+  [ ok ] phase 2a: two forged keys are counted and NOT convicted -- two is not a pattern
+  [ info ] phase2b-four-forged: 2 request(s), 4 control word(s) delivered so far
+  [ ok ] phase 2b: the third key crossed the line and produced exactly ONE line
+  [ ok ] and it names WHICH group is broken (4) -- one damaged byte, not four accidents
+  [ ok ] and carries the count and the rate the verdict was formed on (GR8: the evidence, not just the verdict)
+  [ ok ] and says in words that delivery was not touched (no silent action)
+  [ ok ] the stats line counts all four damaged keys, not only the one that was reported
+  [ ok ] and exactly one pattern was announced while every key stayed counted
+  [ ok ] and it SCORED: trust went 0 -> 1 entr(ies), for the service that crossed the line (GR4)
+  [ ok ] GR2/GR3: refused keys produced no proof, no reuse proof, no rotation -- a refused key is a timeout, not an accusation
+  [ ok ] and no client received anything from that peer: the checksum filter refused all four forged keys (4 delivery(s) before, 4 after)
+  [ ok ] and the collision layer stayed quiet: the forged keys are 57-70 bits apart, far past its 16-bit threshold
+  [ info ] phase3-one-in-eleven: 11 request(s), 14 control word(s) delivered so far
+  [ ok ] phase 3: one forged key in eleven (9 %, under the 20 % line) on a FRESH source added no line
+  [ ok ] it is still counted (five one-group keys in total) and simply never becomes a pattern
+  [ ok ] and the pattern count stayed at 1, so phase 3 changed no score at all
+  [ ok ] and every valid key in all three phases reached its client (4 + 10): none of this cost a viewer anything
+  [ info ] the third peer reported 1 broken key(s) and 10 repaired one(s)
+  [ ok ] and its own instrument confirms the 1-in-11 mix the phase was built from
+  [ ok ] server survived
+  [ ok ] the peer is online and has advertised its card
+  [ ok ] phase 1: three declared keys, correctly marked, all three delivered
+  [ ok ] and an agreeing source earned no cycle line at all
+  [ ok ] the stats line reads: offered 3 (3 marked, 0 contra), handed 3 (0 stale, 0 unverified, 0 lines)
+  [ ok ] phase 2: both contradictory keys were refused before any client (deliveries stayed 3)
+  [ ok ] phase 2: the contradiction produced exactly ONE line -- the second key throttled (one per window)
+  [ ok ] and it names the halves: the ECM declared CW0 and the peer declared CW1
+  [ ok ] and says WHERE it saw it (offered by the peer, not handed to a client)
+  [ ok ] and says in words that nothing was done -- a measurement, not an action
+  [ ok ] GR3: a declared cycle is evidence, not proof -- trust stayed at 0 source(s)
+  [ ok ] the stats line reads: offered 5 (5 marked, 2 contra), handed 3 (0 stale, 0 unverified, 1 line)
+  [ ok ] phase 3: the undeclared key was refused by the gate (deliveries 3) and earned NO new line
+  [ ok ] and the layer kept the two apart: offered 6 but only 5 marked -- silence counted, never accused
+  [ ok ] server survived
+  [ ok ] the peer is online and has advertised its card
+  [ ok ] phase 2: the reuse proof filed the key itself, exactly once (CW NEGATIVE MARK)
+  [ ok ] and the mark says in words what it now guarantees
+  [ ok ] phase 3: the third offer of the same poison was refused, one line
+  [ ok ] and the refusal names the moment it acted: before any client
+  [ ok ] and says in words that the refusal moved no score and disabled nothing
+  [ ok ] the reuse proof(s) behind the mark: 2
+  [ ok ] GR3 in the positive direction: exactly the two pre-proof deliveries happened, the third reply reached nobody
+  [ ok ] the stats line remembers: 1 live, 1 proven, 1 refused, 1 line
+  [ ok ] server survived
+  [ ok ] the peer is online and has advertised its card
+  [ ok ] phase 1: three honest keys, three deliveries
+  [ ok ] the mirror layer saw all three and said nothing: mirror 3 keys, 0 complement-built
+  [ ok ] phase 2: both mirror keys PASSED the checksum layer and were DELIVERED (deliveries 3 -> 5)
+  [ ok ] and 2.4 read them as full shape: zero plausibility lines -- the construction is invisible to every structural layer
+  [ ok ] the mirror layer counted both silently: mirror 5 keys, 2 complement-built, still no line (two keys are not a pattern)
+  [ ok ] and no score moved on two keys (GR3: one key never convicts)
+  [ ok ] phase 3: the third mirror key crossed the pattern -- exactly ONE line
+  [ ok ] and it names the construction: the second half is the complement of the first
+  [ ok ] and carries the pair count the verdict was formed on (GR8)
+  [ ok ] and says in words that delivery was not touched
+  [ ok ] the mirror key was delivered anyway -- the layer observes, it does not gate (the gate belongs to a later decision)
+  [ ok ] and it SCORED: trust went 0 -> 1 entr(ies) -- edit evidence, softly (GR3/GR4)
+  [ ok ] no cross-fire: fresh keys triggered no reuse proof and no negative memory
+  [ ok ] the stats line remembers: mirror 6 keys, 3 complement-built, 1 pattern
+  [ ok ] server survived
+  [ ok ] peer B is online at the cache server
+  [ ok ] phase 1: three services, three honest keys, three deliveries
+  [ ok ] the coarse tier watched and said nothing: no crossing, nobody below the line
+  [ ok ] phase 2: the fixed key came back for a second service -- one CW-reuse proof
+  [ ok ] and a third service completes the second proof
+  [ ok ] two proofs on one (peer, caid) cross the coarse line: exactly ONE sentence
+  [ ok ] and it names the counts that did it: 2 proof(s), on this caid
+  [ ok ] and it says what the brake is NOT: nothing is disconnected, no client touched
+  [ ok ] the stats line remembers: 1 1 0
+  [ ok ] B answered all three poisoned services: the brake arms on the second OFFER, after the ask
+  [ ok ] phase 3: B's share of the fan-out is skipped -- its request count froze at 3
+  [ ok ] and A is asked instead: 1 request(s) answered -- the skip is per-peer, not a blackout
+  [ ok ] the client got its key anyway: one more delivery, from A (skipping a poisoner costs a client nothing)
+  [ ok ] the stats line carries the brake: 1 1 1
+  [ ok ] server survived
+  [ ok ] phase 1: three services, three honest deliveries
+  [ ok ] the guard watched honest traffic and said nothing: cache guard 0 short, 0 unconfigured
+  [ ok ] phase 2: the stranger's pushes are SEEN now -- exactly one line in the window
+  [ ok ] and the line names the sender: 127.0.0.1:16643
+  [ ok ] the stats remember: cache guard 0 short, 2 unconfigured
+  [ ok ] and stock's treatment is unchanged: a dark sender still delivers nothing (deliveries stay 3)
+  [ ok ] phase 3: A's truncated reply is dropped before any parse -- exactly one line
+  [ ok ] and it names the evidence: 8 bytes against a 13-byte minimum
+  [ ok ] the stats remember: cache guard 1 short, 26 unconfigured
+  [ ok ] A's next reply, intact, delivers: the gate costs a well-formed sender nothing
+  [ ok ] two events, two lines, no noise: the window kept its word
+  [ ok ] server survived
+  [ ok ] phase 1: two services, two honest deliveries -- the rig is alive
+  [ ok ] the cache thread is writing snapshots: 9 ok, none failed
+  [ ok ] phase 2: the reused poison key is proven and filed (one CW NEGATIVE MARK)
+  [ ok ] the conviction is on disk: exactly one NG line in the state file
+  [ ok ] idle past the grace, the fade relaxed the condemned entries: 7 move(s)
+  [ ok ] the fine tier is on disk too: 2 TF line(s)
+  [ ok ] phase 3: the restart read its state back -- the loader spoke once, at startup
+  [ ok ] the conviction came back: at least one negative entry restored
+  [ ok ] the garbage line was refused whole and counted, nothing half-applied
+  [ ok ] the stats remember both: 1 negative restored, 1 bad line
+  [ ok ] the first fresh offer of the same poison is refused at ingest after the restart
+  [ ok ] and it is the restored conviction biting, not a new one: no second mark
+  [ ok ] deliveries unchanged: the pre-proof two only, the third reached nobody
+  [ ok ] no snapshot failure across both runs (fade/snapshots '0 1 0')
+  [ ok ] server survived
+  [ ok ] phase 1: the right credentials open the page
+  [ ok ] no credentials: 401
+  [ ok ] wrong credentials: 401
+  [ ok ] a 400-char Basic payload is refused without decoding (pass[256] stays pass[256])
+  [ ok ] 30 header lines: the parser stops at 20, the request is still just unauthorised
+  [ ok ] a 600-byte header value is truncated at the field, not past it
+  [ ok ] a 700-byte request line wrote nothing past path[512], and the server still serves
+  [ ok ] a POST body with 40 pairs stops at postlist's 20, still 401
+  [ ok ] phase 3: the pass-only file that stock served wide open answers 401 now
+  [ ok ] and the same parser probes get the same refusals on it
+  [ ok ] both servers' logs are clean: no crash, no backtrace, all probes survived
+  [ ok ] both servers survived
+  [ ok ] no page carries the raw username markup (index, newcamd, client detail, debug)
+  [ ok ] the escaped form is what the pages render: 2 page(s) show &lt;script&gt;
+  [ ok ] the interface still serves: index answered 200
+  [ ok ] the poisoned name logged in fine (the fix is at render, not at login)
+  [ ok ] the server log is clean
+  [ ok ] server survived
+  [ ok ] the 62-char name flowed through the layers: 5 ring line(s) name it
+  [ ok ] /debug renders the named lines escaped: 5 occurrence(s)
+  [ ok ] the name appears whole (max legal), the LINE bounded: longest run 
+  [ ok ] a 900-char login attempt is refused as unknown user, and the refusal line itself is clamped (longest B-run: 0)
+  [ ok ] the interface still serves
+  [ ok ] the server log is clean
+  [ ok ] server survived
+  [ ok ] the server SURVIVED the refused cache-table allocation (pre-fix: SIGSEGV on the first ECM)
+  [ ok ] every failed attempt said so, once, bounded: 10 line(s) for two ECMs
+  [ ok ] the bite really fired: 10 table allocation(s) refused
+  [ ok ] the interface still serves with the cache table missing
+  [ ok ] the phase-1 server log is clean
+  [ ok ] phase 2: a real cache peer's CW was delivered to a real client (the guards did not touch the happy path)
+  [ ok ] and it is exactly the CW the peer pushed
+  [ ok ] the fresh table was allocated and the peer came online
+  [ ok ] the clean run survived the whole sequence
+  [ ok ] exactly two parse warnings, one per truncated field, naming the config lines
+  [ ok ] the control pair logs in untouched
+  [ ok ] the 70-char name entry logs in through its truncated 63-char form (pre-fix: the stored name was mangled with the password's bytes)
+  [ ok ] the 70-char password entry logs in through its truncated form (pre-fix: userhash was destroyed, 'unknown user' for its own pass)
+  [ ok ] the pre-fix failure signature is gone: no configured user is 'unknown'
+  [ ok ] the server log is clean
+  [ ok ] server survived
+  [ ok ] phase 1: the peer recorded the server's request for the hash
+  [ ok ] phase 1: the first waiter died (cache-only profile, silent peer)
+  [ ok ] phase 3: the stored key answers peer requests (6/6) -- the auto-answer gate is open
+  [ ok ] phase 4: the SAME ECM from a second client is served from the stored key
+  [ ok ] and it is exactly the key the peer pushed
+  [ ok ] the server survived the whole sequence
+  [ ok ] the real server boots under ASan with three 255-char config tokens
+  [ ok ] the server is alive after the parse
+  [ ok ] zero AddressSanitizer reports (pre-fix: 8 stack-buffer-overflow WRITEs)
+  [ ok ] the profile parsed to the end: newcamd port came up
+  [ ok ] the plain -O2 binary boots the identical config
+  [ ok ] and the plain binary parsed the profile to the end too
+  [ ok ] http accepts the truncated 63-char credential (pre-fix: 401)
+  [ ok ] telnet accepts the truncated 63-char pair and reaches the prompt (pre-fix: FAIL)
+  [ ok ] exactly four house-format warnings: both fields, both surfaces
+  [ ok ] the config parsed to the end
+  [ ok ] the server survived
+../src/sha1.c: In function 'SHA1_Update':
+../src/sha1.c:211:31: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  211 |         SHA1_Transform(context->state, context->buffer);
+      |                        ~~~~~~~^~~~~~~
+../src/sha1.c:213:35: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  213 |             SHA1_Transform(context->state, data + i);
+      |                            ~~~~~~~^~~~~~~
+../src/md5.c: In function '__md5_Update':
+../src/md5.c:224:41: warning: taking address of packed member of 'struct MD5Context' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  224 |                 __md5_Transform (context->state, context->buffer);
+      |                                  ~~~~~~~^~~~~~~
+../src/md5.c:227:49: warning: taking address of packed member of 'struct MD5Context' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  227 |                         __md5_Transform (context->state, &input[i]);
+      |                                          ~~~~~~~^~~~~~~
+../src/aes.c: In function 'AES_set_encrypt_key':
+../src/aes.c:691:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  691 |         rk = key->rd_key;
+      |              ^~~
+../src/aes.c: In function 'AES_set_decrypt_key':
+../src/aes.c:792:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  792 |         rk = key->rd_key;
+      |              ^~~
+../src/aes.c: In function 'AES_encrypt':
+../src/aes.c:842:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  842 |         rk = key->rd_key;
+      |              ^~~
+../src/aes.c: In function 'AES_decrypt':
+../src/aes.c:1033:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1033 |         rk = key->rd_key;
+      |              ^~~
+../src/debug.c: In function 'debugf':
+../src/debug.c:202:9: warning: second parameter of 'va_start' not last named argument [-Wvarargs]
+  202 |         va_start (args, fstr);
+      |         ^~~~~~~~
+../src/config.c: In function 'read_config':
+../src/config.c:1597:109: warning: taking address of packed member of 'struct camd35_client_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1597 |                                 camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
+      |                                                                                                             ^~~~~~~~~~
+../src/config.c:1702:109: warning: taking address of packed member of 'struct camd35_client_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1702 |                                 camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
+      |                                                                                                             ^~~~~~~~~~
+../src/config.c:1727:109: warning: taking address of packed member of 'struct server_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1727 |                                 camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
+      |                                                                                                             ^~~~~~~~~~
+../src/config.c:1764:101: warning: taking address of packed member of 'struct server_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1764 |                         camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
+      |                                                                                                     ^~~~~~~~~~
+../src/httpserver.c: In function 'http_send_cache_peer':
+../src/httpserver.c:2607:59: warning: taking address of packed member of 'struct sms_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2607 |                         struct tm * timeinfo = localtime (&sms->rawtime);
+      |                                                           ^~~~~~~~~~~~~
+In file included from ../src/main.c:2073:
+../src/clustredcache.c: In function 'save_sms':
+../src/clustredcache.c:1228:51: warning: taking address of packed member of 'struct sms_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1228 |                 struct tm * timeinfo = localtime (&sms->rawtime);
+      |                                                   ^~~~~~~~~~~~~
+../src/clustredcache.c: In function 'cache_new_sms':
+../src/clustredcache.c:1244:15: warning: taking address of packed member of 'struct sms_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1244 |         time (&sms->rawtime);
+      |               ^~~~~~~~~~~~~
+../src/clustredcache.c: In function 'cache_recvmsg':
+../src/clustredcache.c:2316:31: warning: taking address of packed member of 'struct sms_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2316 |                         time (&sms->rawtime);
+      |                               ^~~~~~~~~~~~~
+../src/clustredcache.c: In function 'start_thread_cache':
+../src/clustredcache.c:2924:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2924 |         create_thread(&prg.tid_cache, (threadfn)cache_thread,NULL);
+      |                       ^~~~~~~~~~~~~~
+In file included from ../src/main.c:2078:
+../src/cli-cccam.c: In function 'cc_connect_srv':
+../src/cli-cccam.c:163:37: warning: taking address of packed member of 'struct server_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  163 |                 if (!create_thread( &srv->tid, (threadfn)cacheex_cc_srv_recvmsg, srv )) {
+      |                                     ^~~~~~~~~
+In file included from ../src/main.c:2088:
+../src/cli-camd35.c: In function 'camd35_connect_srv':
+../src/cli-camd35.c:383:60: warning: taking address of packed member of 'struct server_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  383 |                                         if (!create_thread(&srv->tid, (threadfn)camd35_srv_recvmsg_thread, srv)) {
+      |                                                            ^~~~~~~~~
+In file included from ../src/main.c:2091:
+../src/cli-cs378x.c: In function 'cs378x_connect_srv':
+../src/cli-cs378x.c:455:52: warning: taking address of packed member of 'struct server_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  455 |                                 if (!create_thread(&srv->tid, (threadfn)cs378x_srv_recvmsg_thread, srv)) {
+      |                                                    ^~~~~~~~~
+In file included from ../src/main.c:2103:
+../src/srv-mgcamd.c: In function 'start_thread_mgcamd':
+../src/srv-mgcamd.c:1132:23: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1132 |         create_thread(&cfg.mgcamd.tid_recvmsg, mg_recvmsg_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~~~~~~~~
+In file included from ../src/main.c:2107:
+../src/srv-cccam.c: In function 'cc_connect_cli':
+../src/srv-cccam.c:545:37: warning: taking address of packed member of 'struct cc_client_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  545 |                 if (!create_thread( &cli->tid, (threadfn)cacheex_cc_cli_recvmsg, cli )) {
+      |                                     ^~~~~~~~~
+../src/srv-cccam.c: In function 'start_thread_cccam':
+../src/srv-cccam.c:1376:23: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1376 |         create_thread(&cfg.cccam.tid_recvmsg, cc_recvmsg_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~~~~~~~
+In file included from ../src/main.c:2127:
+../src/srv-cs378x.c: In function 'start_thread_cs378x':
+../src/srv-cs378x.c:805:23: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  805 |         create_thread(&cfg.cs378x.tid_recvmsg, cs378x_cacheex_recvmsg_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~~~~~~~~
+../src/srv-cs378x.c:806:23: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  806 |         create_thread(&cfg.cs378x.tid_recvmsg, cs378x_recvmsg_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~~~~~~~~
+In file included from ../src/main.c:2131:
+../src/cacheex.c: In function 'start_thread_cacheex':
+../src/cacheex.c:442:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  442 |         create_thread(&prg.tid_cacheex, cacheex_recvmsg_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~
+../src/cacheex.c:443:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  443 |         create_thread(&prg.tid_cacheex, cacheex_pipe_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~
+In file included from ../src/main.c:2138:
+../src/th-srv.c: In function 'start_thread_srv':
+../src/th-srv.c:182:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  182 |         create_thread(&prg.tid_srv, (threadfn)connect_servers,NULL);
+      |                       ^~~~~~~~~~~~
+In file included from ../src/main.c:2139:
+../src/th-dns.c: In function 'start_thread_dns':
+../src/th-dns.c:59:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+   59 |         create_thread(&prg.tid_dns, (threadfn)dns_thread,NULL);
+      |                       ^~~~~~~~~~~~
+In file included from ../src/main.c:2140:
+../src/th-ecm.c: In function 'start_thread_recv_msg':
+../src/th-ecm.c:673:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  673 |         create_thread(&prg.tid_msg, (threadfn)recv_msg_thread,NULL);
+      |                       ^~~~~~~~~~~~
+../src/th-ecm.c:674:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  674 |         create_thread(&prg.tid_msg, (threadfn)thread_keepalive,NULL);
+      |                       ^~~~~~~~~~~~
+../src/th-ecm.c:676:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  676 |         create_thread(&prg.tid_msg, (threadfn)setdcw_thread,NULL);
+      |                       ^~~~~~~~~~~~
+In file included from ../src/main.c:2142:
+../src/th-cfg.c: In function 'start_thread_config':
+../src/th-cfg.c:153:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  153 |         create_thread(&prg.tid_cfg, (threadfn)reread_config_thread,NULL);
+      |                       ^~~~~~~~~~~~
+In file included from ../src/main.c:2145:
+../src/th-date.c: In function 'start_thread_date':
+../src/th-date.c:120:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  120 |         create_thread(&prg.tid_date, (threadfn)thread_enddate,NULL);
+      |                       ^~~~~~~~~~~~~
+../src/main.c: In function 'mainprocess':
+../src/main.c:2332:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2332 |         if ( pipe(prg.pipe.cache) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~
+../src/main.c:2336:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2336 |         if ( pipe(prg.pipe.ecm) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~
+../src/main.c:2341:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2341 |         if ( pipe(prg.pipe.cacheex) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~~~
+../src/main.c:2346:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2346 |         if ( pipe(prg.pipe.cs378x) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~~
+../src/main.c:2349:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2349 |         if ( pipe(prg.pipe.cs378x_cex) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~~~~~~
+../src/main.c:2353:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2353 |         if ( pipe(prg.pipe.cccam) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~
+../src/main.c:2357:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2357 |         if ( pipe(prg.pipe.mgcamd) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~~
+../src/main.c:2361:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2361 |         if ( pipe(prg.pipe.newcamd) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~~~
+../src/sha1.c: In function 'SHA1_Update':
+../src/sha1.c:211:31: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  211 |         SHA1_Transform(context->state, context->buffer);
+      |                        ~~~~~~~^~~~~~~
+../src/sha1.c:213:35: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  213 |             SHA1_Transform(context->state, data + i);
+      |                            ~~~~~~~^~~~~~~
+../src/md5.c: In function '__md5_Update':
+../src/md5.c:224:41: warning: taking address of packed member of 'struct MD5Context' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  224 |                 __md5_Transform (context->state, context->buffer);
+      |                                  ~~~~~~~^~~~~~~
+../src/md5.c:227:49: warning: taking address of packed member of 'struct MD5Context' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  227 |                         __md5_Transform (context->state, &input[i]);
+      |                                          ~~~~~~~^~~~~~~
+../src/aes.c: In function 'AES_set_encrypt_key':
+../src/aes.c:691:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  691 |         rk = key->rd_key;
+      |              ^~~
+../src/aes.c: In function 'AES_set_decrypt_key':
+../src/aes.c:792:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  792 |         rk = key->rd_key;
+      |              ^~~
+../src/aes.c: In function 'AES_encrypt':
+../src/aes.c:842:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  842 |         rk = key->rd_key;
+      |              ^~~
+../src/aes.c: In function 'AES_decrypt':
+../src/aes.c:1033:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1033 |         rk = key->rd_key;
+      |              ^~~
+../src/debug.c: In function 'debugf':
+../src/debug.c:202:9: warning: second parameter of 'va_start' not last named argument [-Wvarargs]
+  202 |         va_start (args, fstr);
+      |         ^~~~~~~~
+../src/config.c: In function 'read_config':
+../src/config.c:1597:109: warning: taking address of packed member of 'struct camd35_client_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1597 |                                 camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
+      |                                                                                                             ^~~~~~~~~~
+../src/config.c:1702:109: warning: taking address of packed member of 'struct camd35_client_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1702 |                                 camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
+      |                                                                                                             ^~~~~~~~~~
+../src/config.c:1727:109: warning: taking address of packed member of 'struct server_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1727 |                                 camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
+      |                                                                                                             ^~~~~~~~~~
+../src/config.c:1764:101: warning: taking address of packed member of 'struct server_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1764 |                         camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
+      |                                                                                                     ^~~~~~~~~~
+../src/httpserver.c: In function 'http_send_cache_peer':
+../src/httpserver.c:2607:59: warning: taking address of packed member of 'struct sms_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2607 |                         struct tm * timeinfo = localtime (&sms->rawtime);
+      |                                                           ^~~~~~~~~~~~~
+In file included from ../src/main.c:2073:
+../src/clustredcache.c: In function 'save_sms':
+../src/clustredcache.c:1228:51: warning: taking address of packed member of 'struct sms_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1228 |                 struct tm * timeinfo = localtime (&sms->rawtime);
+      |                                                   ^~~~~~~~~~~~~
+../src/clustredcache.c: In function 'cache_new_sms':
+../src/clustredcache.c:1244:15: warning: taking address of packed member of 'struct sms_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1244 |         time (&sms->rawtime);
+      |               ^~~~~~~~~~~~~
+../src/clustredcache.c: In function 'cache_recvmsg':
+../src/clustredcache.c:2316:31: warning: taking address of packed member of 'struct sms_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2316 |                         time (&sms->rawtime);
+      |                               ^~~~~~~~~~~~~
+../src/clustredcache.c: In function 'start_thread_cache':
+../src/clustredcache.c:2924:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2924 |         create_thread(&prg.tid_cache, (threadfn)cache_thread,NULL);
+      |                       ^~~~~~~~~~~~~~
+In file included from ../src/main.c:2078:
+../src/cli-cccam.c: In function 'cc_connect_srv':
+../src/cli-cccam.c:163:37: warning: taking address of packed member of 'struct server_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  163 |                 if (!create_thread( &srv->tid, (threadfn)cacheex_cc_srv_recvmsg, srv )) {
+      |                                     ^~~~~~~~~
+In file included from ../src/main.c:2088:
+../src/cli-camd35.c: In function 'camd35_connect_srv':
+../src/cli-camd35.c:383:60: warning: taking address of packed member of 'struct server_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  383 |                                         if (!create_thread(&srv->tid, (threadfn)camd35_srv_recvmsg_thread, srv)) {
+      |                                                            ^~~~~~~~~
+In file included from ../src/main.c:2091:
+../src/cli-cs378x.c: In function 'cs378x_connect_srv':
+../src/cli-cs378x.c:455:52: warning: taking address of packed member of 'struct server_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  455 |                                 if (!create_thread(&srv->tid, (threadfn)cs378x_srv_recvmsg_thread, srv)) {
+      |                                                    ^~~~~~~~~
+In file included from ../src/main.c:2103:
+../src/srv-mgcamd.c: In function 'start_thread_mgcamd':
+../src/srv-mgcamd.c:1132:23: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1132 |         create_thread(&cfg.mgcamd.tid_recvmsg, mg_recvmsg_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~~~~~~~~
+In file included from ../src/main.c:2107:
+../src/srv-cccam.c: In function 'cc_connect_cli':
+../src/srv-cccam.c:545:37: warning: taking address of packed member of 'struct cc_client_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  545 |                 if (!create_thread( &cli->tid, (threadfn)cacheex_cc_cli_recvmsg, cli )) {
+      |                                     ^~~~~~~~~
+../src/srv-cccam.c: In function 'start_thread_cccam':
+../src/srv-cccam.c:1376:23: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1376 |         create_thread(&cfg.cccam.tid_recvmsg, cc_recvmsg_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~~~~~~~
+In file included from ../src/main.c:2127:
+../src/srv-cs378x.c: In function 'start_thread_cs378x':
+../src/srv-cs378x.c:805:23: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  805 |         create_thread(&cfg.cs378x.tid_recvmsg, cs378x_cacheex_recvmsg_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~~~~~~~~
+../src/srv-cs378x.c:806:23: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  806 |         create_thread(&cfg.cs378x.tid_recvmsg, cs378x_recvmsg_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~~~~~~~~
+In file included from ../src/main.c:2131:
+../src/cacheex.c: In function 'start_thread_cacheex':
+../src/cacheex.c:442:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  442 |         create_thread(&prg.tid_cacheex, cacheex_recvmsg_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~
+../src/cacheex.c:443:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  443 |         create_thread(&prg.tid_cacheex, cacheex_pipe_thread,NULL);
+      |                       ^~~~~~~~~~~~~~~~
+In file included from ../src/main.c:2138:
+../src/th-srv.c: In function 'start_thread_srv':
+../src/th-srv.c:182:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  182 |         create_thread(&prg.tid_srv, (threadfn)connect_servers,NULL);
+      |                       ^~~~~~~~~~~~
+In file included from ../src/main.c:2139:
+../src/th-dns.c: In function 'start_thread_dns':
+../src/th-dns.c:59:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+   59 |         create_thread(&prg.tid_dns, (threadfn)dns_thread,NULL);
+      |                       ^~~~~~~~~~~~
+In file included from ../src/main.c:2140:
+../src/th-ecm.c: In function 'start_thread_recv_msg':
+../src/th-ecm.c:673:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  673 |         create_thread(&prg.tid_msg, (threadfn)recv_msg_thread,NULL);
+      |                       ^~~~~~~~~~~~
+../src/th-ecm.c:674:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  674 |         create_thread(&prg.tid_msg, (threadfn)thread_keepalive,NULL);
+      |                       ^~~~~~~~~~~~
+../src/th-ecm.c:676:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  676 |         create_thread(&prg.tid_msg, (threadfn)setdcw_thread,NULL);
+      |                       ^~~~~~~~~~~~
+In file included from ../src/main.c:2142:
+../src/th-cfg.c: In function 'start_thread_config':
+../src/th-cfg.c:153:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  153 |         create_thread(&prg.tid_cfg, (threadfn)reread_config_thread,NULL);
+      |                       ^~~~~~~~~~~~
+In file included from ../src/main.c:2145:
+../src/th-date.c: In function 'start_thread_date':
+../src/th-date.c:120:23: warning: taking address of packed member of 'struct program_data' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  120 |         create_thread(&prg.tid_date, (threadfn)thread_enddate,NULL);
+      |                       ^~~~~~~~~~~~~
+../src/main.c: In function 'mainprocess':
+../src/main.c:2332:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2332 |         if ( pipe(prg.pipe.cache) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~
+../src/main.c:2336:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2336 |         if ( pipe(prg.pipe.ecm) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~
+../src/main.c:2341:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2341 |         if ( pipe(prg.pipe.cacheex) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~~~
+../src/main.c:2346:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2346 |         if ( pipe(prg.pipe.cs378x) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~~
+../src/main.c:2349:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2349 |         if ( pipe(prg.pipe.cs378x_cex) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~~~~~~
+../src/main.c:2353:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2353 |         if ( pipe(prg.pipe.cccam) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~
+../src/main.c:2357:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2357 |         if ( pipe(prg.pipe.mgcamd) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~~
+../src/main.c:2361:27: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 2361 |         if ( pipe(prg.pipe.newcamd) < 0 ) { perror("pipe()"); exit(1); }
+      |                   ~~~~~~~~^~~~~~~~
+  [ ok ] stats build: the line arms the counters (DCW STATS: ON)
+  [ ok ] the config parsed to the end
+  [ ok ] profile DCW TIMEOUT: 1500 still applied (the STATS sub-word did not swallow it)
+  [ ok ] file reload: the reset runs, the line re-arms (2x + Config file Changed)
+  [ ok ] no line, no counters: the default stays silent
+  [ ok ] a typo reads OFF, visibly (BOGUS -> DCW STATS: OFF)
+  [ ok ] stock build: the line parses but is inert, one warning says so
+  [ ok ] the stock build parsed the same config to the end
+  [ ok ] the ASan probe: production xmlescape stays inside its frame (pre-fix: stack-buffer-overflow WRITE)
+  [ ok ] /profiles renders (200)
+  [ ok ] the profile name arrives escaped (xe&amp;38)
+  [ ok ] no raw unescaped name in the page
+  [ ok ] /servers renders (200)
+  [ ok ] no truncation warning for honest values
+  [ ok ] the config parsed to the end
+  [ ok ] the server survived
+  [warn] ARCHITECTURE.md:140 -> srv-newcamd.c:985 : no identifier from that sentence near it (cs_check_sendcw is at 1003)
+  [warn] ARCHITECTURE.md:142 -> srv-newcamd.c:862 : no identifier from that sentence near it (cs_senddcw_cli is at 880)
+  [warn] ARCHITECTURE.md:206 -> clustredcache.c:1590 : no identifier from that sentence near it (cw_cache_data is at 1608)
+  [warn] ARCHITECTURE.md:206 -> clustredcache.c:1806 : no identifier from that sentence near it (cw_cache_data is at 1827)
+  [warn] ARCHITECTURE.md:221 -> httpserver.c:3707 : no identifier from that sentence near it (getpeerbyid is at 3765)
+  [warn] ARCHITECTURE.md:272 -> clustredcache.c:752 : no identifier from that sentence near it (pcache is at 731)
+  [warn] ARCHITECTURE.md:274 -> srv-newcamd.c:829 : no identifier from that sentence near it (DCW_SOURCE_CSCLIENT is at 847)
+  [warn] ARCHITECTURE.md:277 -> httpserver.c:2992 : no identifier from that sentence near it (src2string is at 3041)
+  [warn] ARCHITECTURE.md:379 -> config.c:1246 : no identifier from that sentence near it (threshold is at 1355)
+  [warn] ARCHITECTURE.md:380 -> config.c:1264 : no identifier from that sentence near it (SERVICE is at 1373)
+  [warn] ARCHITECTURE.md:382 -> config.c:1292 : no identifier from that sentence near it (STATS is at 1400)
+  [warn] ARCHITECTURE.md:385 -> config.c:5748 : no identifier from that sentence near it (update_cache_servers is at 5957)
+  [warn] ARCHITECTURE.md:389 -> config.c:207 : no identifier from that sentence near it (init_config is at 232)
+  [warn] ARCHITECTURE.md:408 -> httpserver.c:7041 : no identifier from that sentence near it (fopen is at 7006)
+  [warn] ARCHITECTURE.md:443 -> clustredcache.c:1035 : no identifier from that sentence near it (cache_send_fwdreply is at 1100)
+  [warn] ARCHITECTURE.md:458 -> config.c:3076 : no identifier from that sentence near it (CACHE is at 3229)
+  [warn] ARCHITECTURE.md:484 -> main.c:1389 : no identifier from that sentence near it (trust_lock is at 1423)
+  [warn] ARCHITECTURE.md:611 -> main.c:1389 : no identifier from that sentence near it (STAT_DCW_SUCCESS is at 1603)
+  [warn] ARCHITECTURE.md:612 -> main.c:1431 : no identifier from that sentence near it (RETRY_HARD is at 1645)
+  [warn] ARCHITECTURE.md:613 -> srv-newcamd.c:862 : no identifier from that sentence near it (cs_senddcw_cli is at 880)
+  [warn] ARCHITECTURE.md:614 -> main.c:1154 : no identifier from that sentence near it (agreement is at 1361)
+  [warn] ARCHITECTURE.md:678 -> setdcw.c:532 : no identifier from that sentence near it (STAT_DCW_SUCCESS is at 604)
+  [warn] ARCHITECTURE.md:679 -> main.c:1171 : no identifier from that sentence near it (cwentropy_lowdiv is at 1378)
+  [warn] ARCHITECTURE.md:961 -> clustredcache.c:676 : no identifier from that sentence near it (put_ecm2cache is at 741)
+  [warn] ARCHITECTURE.md:962 -> clustredcache.c:541 : no identifier from that sentence near it (checkcycle is at 607)
+  [warn] ARCHITECTURE.md:976 -> setdcw.c:678 : no identifier from that sentence near it (clients_check_sendcw is at 700)
+  [warn] ARCHITECTURE.md:1046 -> clustredcache.c:1872 : no identifier from that sentence near it (cache_purge_mark is at 1937)
+  [warn] ARCHITECTURE.md:1047 -> clustredcache.c:1496 : no identifier from that sentence near it (cache_setdcw is at 1561)
+  [warn] BLACKSCREEN.md:104 -> main.c:1560 : no identifier from that sentence near it (cardsids_update is at 1774)
+  [warn] BLACKSCREEN.md:213 -> clustredcache.c:541 : no identifier from that sentence near it (checkcycle is at 607)
+  [warn] DECISIONS.md:105 -> srv-newcamd.c:895 : no identifier from that sentence near it (enablefreeze is at 911)
+  [warn] DECISIONS.md:161 -> srv-newcamd.c:985 : no identifier from that sentence near it (cs_check_sendcw is at 1003)
+  [warn] DECISIONS.md:176 -> config.c:5795 : no identifier from that sentence near it (remove_newcamd_clients is at 6004)
+  [warn] DISCUSSION.md:10 -> clustredcache.c:1609 : no identifier from that sentence near it (cache_setdcw is at 1561)
+  [warn] DISCUSSION.md:94 -> config.c:4103 : no identifier from that sentence near it (cw1cycle is at 4312)
+  [warn] ORIGIN.md:51 -> clustredcache.c:562 : no identifier from that sentence near it (get_cache2ecm is at 636)
+  [warn] ORIGIN.md:63 -> clustredcache.c:752 : no identifier from that sentence near it (pcache is at 731)
+  [warn] ORIGIN.md:79 -> config.c:6926 : no identifier from that sentence near it (cfg_set_id_counters is at 7041)
+  [warn] SCOPE.md:54 -> clustredcache.c:541 : no identifier from that sentence near it (checkcycle is at 607)
+  [warn] SCOPE.md:55 -> clustredcache.c:1609 : no identifier from that sentence near it (CACHE is at 1575)
+  doc-ref sweep: 419 references checked, 0 out of range
+  doc-ref content check (advisory): 208 inspected, 40 worth a second look

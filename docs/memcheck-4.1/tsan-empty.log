@@ -1,0 +1,19 @@
+
+Error: no profile configured.
+  Add at least one profile to ../docs/memcheck-4.1/tsan-empty.cfg, for example:
+
+    [ myprofile ]
+    CAID: 1884
+    PORT: 15001
+    USER: user pass
+
+
+Error: no profile configured.
+  Add at least one profile to ../docs/memcheck-4.1/tsan-empty.cfg, for example:
+
+    [ myprofile ]
+    CAID: 1884
+    PORT: 15001
+    USER: user pass
+
+Multi CardServer r82 - by evileyes (http://www.infosat.org)

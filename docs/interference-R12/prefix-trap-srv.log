@@ -1,0 +1,18 @@
+Multi CardServer r82 - by evileyes (http://www.infosat.org)
+[21:30:20.715] config: parsing file '/tmp/.ri.cfg'
+[21:30:20.715] config(5,13): DCW STATS: ON
+[21:30:20.715] config(16,20): DCWFILTER CYCLE: ON (profile ri )
+[21:30:20.815] [ri ] Newcamd Server started on port 16948
+[21:30:20.815] HTTP server started on port 16945
+[21:30:20.815] Telnet server started on port 16946
+[21:30:20.815] FreeCCcam Server: invalid port value (0)
+[21:30:20.815] Cache server started on port 16947
+[21:30:23.826] cache: Peer (127.0.0.1:16950) come Online*
+[21:30:23.826] cache: Peer (127.0.0.1:16949) come Online*
+[21:30:27.734] ri : client 'u1' connected (127.0.0.1)
+[21:30:27.768] <- ecm from client 'u1' ch 1884:000000:0064:a1669c0c
+[21:30:27.798] !!! CW CYCLE: source 1/65538 ch 1884:000000:0064 -- 1 of 1 cache key this window contradicted the cycle that ECM declares (expected CW0, saw CW1), 0 keys carried no marker; the last one was offered by the peer -- 0 keys were handed to a waiting client in that state. A key of the previous crypto period, or the other half of the even/odd pair, is genuine and still cannot open the picture. Nothing was rejected, delayed or scored: this is a measurement, not an accusation
+[21:30:27.798] [CYCLE GATE] wrong-half key refused at ingest (expected CW0, saw CW1) ch 1884:000000:0064
+[21:30:31.772] |> decode failed to client 'u1' ch 1884:000000:0064 (4004ms)
+[21:30:31.788] newcamd: client 'u1' read failed 0
+[21:30:31.788] newcamd: client 'u1' disconnected

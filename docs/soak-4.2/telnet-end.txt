@@ -1,0 +1,19 @@
+Welcome to Telnet Server
+
+Login: Password: 
+
+type 'help' for command list
+
+[command]: dcwstats: ON
+accepted 3412
+checksum 487
+null/half-null 0
+repeat-3-bytes 0
+bad-dcw-list 0
+cacheex-local-only 0
+cacheex-fake-cw 0
+cacheex-confirm-wait 0
+cycle-contradiction 0
+consensus-mismatch 0
+
+[command]: 

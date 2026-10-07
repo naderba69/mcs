@@ -1,0 +1,315 @@
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Read of size 4 at 0x561a7409723c by main thread:
+    #0 create_thread ../src/threads.c:51 (multics+0xa7bd2) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 start_thread_recv_msg ../src/th-ecm.c:684 (multics+0x9cb89) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 mainprocess ../src/main.c:2462 (multics+0x9d6bd) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x561a7409723c by thread T4:
+    #0 recv_msg_thread ../src/th-ecm.c:512 (multics+0x9c5a6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is global 'prg' of size 1128 at 0x561a74097200 (multics+0x11d23c)
+
+  Thread T4 'ECM Thread' (tid=54891, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_recv_msg ../src/th-ecm.c:684 (multics+0x9cb89) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2462 (multics+0x9d6bd) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/threads.c:51 in create_thread
+==================
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Read of size 4 at 0x561a7409452c by thread T8:
+    #0 telnet_thread ../src/telnet.c:443 (multics+0xa5cc0) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x561a7409452c by thread T1:
+    #0 check_config ../src/config.c:6951 (multics+0x22514) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 reread_config_thread ../src/th-cfg.c:104 (multics+0x55b75) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is global 'cfg' of size 87436 at 0x561a7407f040 (multics+0x11a52c)
+
+  Thread T8 'Telnet' (tid=54895, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_telnet ../src/telnet.c:481 (multics+0xa7b7d) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2468 (multics+0x9d6d1) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T1 'Config Thread' (tid=54888, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_config ../src/th-cfg.c:178 (multics+0x9cbe6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2431 (multics+0x9d64a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/telnet.c:443 in telnet_thread
+==================
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Read of size 4 at 0x561a74097254 by main thread:
+    #0 create_thread ../src/threads.c:51 (multics+0xa7bd2) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 start_thread_cache ../src/clustredcache.c:2937 (multics+0x6728e) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 mainprocess ../src/main.c:2471 (multics+0x9d6db) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x561a74097254 by thread T9:
+    #0 cache_thread ../src/clustredcache.c:2827 (multics+0x6615c) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is global 'prg' of size 1128 at 0x561a74097200 (multics+0x11d254)
+
+  Thread T9 'Cache RecvMSG T' (tid=54896, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_cache ../src/clustredcache.c:2937 (multics+0x6728e) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2471 (multics+0x9d6db) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/threads.c:51 in create_thread
+==================
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Read of size 4 at 0x729800000074 by thread T12:
+    #0 cs_recvmsg_thread ../src/srv-newcamd.c:1123 (multics+0x8e34a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x729800000074 by thread T1:
+    #0 check_config ../src/config.c:6897 (multics+0x222a0) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 reread_config_thread ../src/th-cfg.c:104 (multics+0x55b75) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is heap block of size 11355 at 0x729800000000 allocated by thread T1:
+    #0 malloc ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:665 (libtsan.so.2+0x51656) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 read_config ../src/config.c:938 (multics+0x943f) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 reread_config_thread ../src/th-cfg.c:73 (multics+0x55b0a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T12 'Newcamd RecvMSG' (tid=54902, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_newcamd ../src/srv-newcamd.c:1196 (multics+0x6da89) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2484 (multics+0x9d6f9) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T1 'Config Thread' (tid=54888, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_config ../src/th-cfg.c:178 (multics+0x9cbe6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2431 (multics+0x9d64a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/srv-newcamd.c:1123 in cs_recvmsg_thread
+==================
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Read of size 4 at 0x561a7407fda4 by thread T15:
+    #0 frcc_recvmsg_thread ../src/srv-freecccam.c:565 (multics+0x94f18) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x561a7407fda4 by thread T1:
+    #0 check_config ../src/config.c:6989 (multics+0x2284a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 reread_config_thread ../src/th-cfg.c:104 (multics+0x55b75) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is global 'cfg' of size 87436 at 0x561a7407f040 (multics+0x105da4)
+
+  Thread T15 'FreeCCcam RecvM' (tid=54905, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_freecccam ../src/srv-freecccam.c:623 (multics+0x76664) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2495 (multics+0x9d717) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T1 'Config Thread' (tid=54888, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_config ../src/th-cfg.c:178 (multics+0x9cbe6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2431 (multics+0x9d64a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/srv-freecccam.c:565 in frcc_recvmsg_thread
+==================
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Write of size 4 at 0x561a74094248 by thread T17:
+    #0 cs378x_recvmsg_thread ../src/srv-cs378x.c:669 (multics+0x99d4b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x561a74094248 by thread T16:
+    #0 cs378x_cacheex_recvmsg_thread ../src/srv-cs378x.c:741 (multics+0x9a145) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is global 'cfg' of size 87436 at 0x561a7407f040 (multics+0x11a248)
+
+  Thread T17 (tid=54907, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_cs378x ../src/srv-cs378x.c:806 (multics+0x7a7bf) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2499 (multics+0x9d721) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T16 'cs378x RecvMSG ' (tid=54906, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_cs378x ../src/srv-cs378x.c:805 (multics+0x7a7ab) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2499 (multics+0x9d721) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/srv-cs378x.c:669 in cs378x_recvmsg_thread
+==================
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Read of size 4 at 0x561a74094264 by thread T20:
+    #0 http_thread ../src/httpserver.c:7491 (multics+0x2b831) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x561a74094264 by thread T1:
+    #0 check_config ../src/config.c:6933 (multics+0x223d6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 reread_config_thread ../src/th-cfg.c:104 (multics+0x55b75) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is global 'cfg' of size 87436 at 0x561a7407f040 (multics+0x11a264)
+
+  Thread T20 'HTTP Server' (tid=54910, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_http ../src/httpserver.c:7534 (multics+0x53486) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2510 (multics+0x9d74a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T1 'Config Thread' (tid=54888, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_config ../src/th-cfg.c:178 (multics+0x9cbe6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2431 (multics+0x9d64a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:7491 in http_thread
+==================
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Read of size 4 at 0x561a7407fa84 by thread T21:
+    #0 http_send_index ../src/httpserver.c:1117 (multics+0x2f626) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 gererClient ../src/httpserver.c:7317 (multics+0x52a84) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x561a7407fa84 by thread T1:
+    #0 cfg_set_id_counters ../src/config.c:7301 (multics+0x23ebd) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 reread_config_thread ../src/th-cfg.c:105 (multics+0x55b7d) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is global 'cfg' of size 87436 at 0x561a7407f040 (multics+0x105a84)
+
+  Thread T21 (tid=54911, running) created by thread T20 at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 http_thread ../src/httpserver.c:7511 (multics+0x2b90c) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T1 'Config Thread' (tid=54888, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_config ../src/th-cfg.c:178 (multics+0x9cbe6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2431 (multics+0x9d64a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:1117 in http_send_index
+==================
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Read of size 4 at 0x561a74094048 by thread T21:
+    #0 http_send_index ../src/httpserver.c:1119 (multics+0x2f6ac) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 gererClient ../src/httpserver.c:7317 (multics+0x52a84) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x561a74094048 by thread T1:
+    #0 cfg_set_id_counters ../src/config.c:7277 (multics+0x23ca4) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 reread_config_thread ../src/th-cfg.c:105 (multics+0x55b7d) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is global 'cfg' of size 87436 at 0x561a7407f040 (multics+0x11a048)
+
+  Thread T21 (tid=54911, running) created by thread T20 at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 http_thread ../src/httpserver.c:7511 (multics+0x2b90c) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T1 'Config Thread' (tid=54888, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_config ../src/th-cfg.c:178 (multics+0x9cbe6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2431 (multics+0x9d64a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:1119 in http_send_index
+==================
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Read of size 4 at 0x561a7409420c by thread T21:
+    #0 http_send_index ../src/httpserver.c:1120 (multics+0x2f6ef) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 gererClient ../src/httpserver.c:7317 (multics+0x52a84) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x561a7409420c by thread T1:
+    #0 cfg_set_id_counters ../src/config.c:7200 (multics+0x236d5) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 reread_config_thread ../src/th-cfg.c:105 (multics+0x55b7d) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is global 'cfg' of size 87436 at 0x561a7407f040 (multics+0x11a20c)
+
+  Thread T21 (tid=54911, running) created by thread T20 at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 http_thread ../src/httpserver.c:7511 (multics+0x2b90c) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T1 'Config Thread' (tid=54888, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_config ../src/th-cfg.c:178 (multics+0x9cbe6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2431 (multics+0x9d64a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:1120 in http_send_index
+==================
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Read of size 4 at 0x561a74094238 by thread T21:
+    #0 http_send_index ../src/httpserver.c:1121 (multics+0x2f732) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 gererClient ../src/httpserver.c:7317 (multics+0x52a84) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x561a74094238 by thread T1:
+    #0 cfg_set_id_counters ../src/config.c:7239 (multics+0x239bb) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 reread_config_thread ../src/th-cfg.c:105 (multics+0x55b7d) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is global 'cfg' of size 87436 at 0x561a7407f040 (multics+0x11a238)
+
+  Thread T21 (tid=54911, running) created by thread T20 at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 http_thread ../src/httpserver.c:7511 (multics+0x2b90c) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T1 'Config Thread' (tid=54888, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_config ../src/th-cfg.c:178 (multics+0x9cbe6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2431 (multics+0x9d64a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:1121 in http_send_index
+==================
+==================
+WARNING: ThreadSanitizer: data race (pid=54883)
+  Read of size 4 at 0x72980000000c by thread T23:
+    #0 getprofilecells ../src/httpserver.c:2676 (multics+0x3784d) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 http_send_profiles ../src/httpserver.c:2845 (multics+0x383e8) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 gererClient ../src/httpserver.c:7322 (multics+0x52acc) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Previous write of size 4 at 0x72980000000c by thread T1:
+    #0 cfg_set_id_counters ../src/config.c:7139 (multics+0x23340) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #1 reread_config_thread ../src/th-cfg.c:105 (multics+0x55b7d) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Location is heap block of size 11355 at 0x729800000000 allocated by thread T1:
+    #0 malloc ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:665 (libtsan.so.2+0x51656) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 read_config ../src/config.c:938 (multics+0x943f) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 reread_config_thread ../src/th-cfg.c:73 (multics+0x55b0a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T23 (tid=54917, running) created by thread T20 at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 http_thread ../src/httpserver.c:7511 (multics+0x2b90c) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+  Thread T1 'Config Thread' (tid=54888, running) created by main thread at:
+    #0 pthread_create ../../../../src/libsanitizer/tsan/tsan_interceptors_posix.cpp:1022 (libtsan.so.2+0x568a6) (BuildId: 99ef88596cb10a8ccf307fe1a9070f66a44b1624)
+    #1 create_thread ../src/threads.c:46 (multics+0xa7bc6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #2 start_thread_config ../src/th-cfg.c:178 (multics+0x9cbe6) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #3 mainprocess ../src/main.c:2431 (multics+0x9d64a) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+    #4 main ../src/main.c:2782 (multics+0x9dd8b) (BuildId: 3984542653788c9530e6a3e179f19ec0a429cfbb)
+
+SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:2676 in getprofilecells
+==================

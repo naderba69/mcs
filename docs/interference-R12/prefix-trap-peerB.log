@@ -1,0 +1,7 @@
+PEER: bound 127.0.0.1:16950, target 127.0.0.1:16947, cw=10203060405060F070809080A0B0C010
+PEER: got MultiCS ping (peer id 0002)
+PEER: sent TYPE_HELLO_ACK -- recvport and ping are now set server-side
+PEER: advertised card 18840000
+PEER: ignored packet type 19 (len 6)
+PEER: got request sid 0064 hash A1669C0C
+PEER: replied CW for ch 1884:0000 sid 0064 hash A1669C0C mark 2 (1/64)

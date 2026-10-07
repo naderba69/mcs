@@ -1,0 +1,11 @@
+      2 SUMMARY: ThreadSanitizer: data race ../src/threads.c:51 in create_thread
+      1 SUMMARY: ThreadSanitizer: data race ../src/telnet.c:443 in telnet_thread
+      1 SUMMARY: ThreadSanitizer: data race ../src/srv-newcamd.c:1123 in cs_recvmsg_thread
+      1 SUMMARY: ThreadSanitizer: data race ../src/srv-freecccam.c:565 in frcc_recvmsg_thread
+      1 SUMMARY: ThreadSanitizer: data race ../src/srv-cs378x.c:669 in cs378x_recvmsg_thread
+      1 SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:7491 in http_thread
+      1 SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:2676 in getprofilecells
+      1 SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:1121 in http_send_index
+      1 SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:1120 in http_send_index
+      1 SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:1119 in http_send_index
+      1 SUMMARY: ThreadSanitizer: data race ../src/httpserver.c:1117 in http_send_index

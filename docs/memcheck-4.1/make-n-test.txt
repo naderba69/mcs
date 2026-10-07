@@ -1,0 +1,107 @@
+mkdir -p x64
+gcc -O2 -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-builtin-declaration-mismatch -Wno-stringop-overread -Wno-stringop-truncation -Wno-format-truncation -Wno-unused-result -Wno-pointer-sign -Wno-deprecated-declarations -Wno-return-mismatch -Wno-implicit-int -Wno-unused-but-set-variable -Wno-unused-variable -Wno-implicit-fallthrough -Wno-dangling-pointer -Wno-array-bounds -Wno-shift-count-overflow -Wno-format -DCLI_CSCACHE -DSRV_CSCACHE -DCHECK_NEXTDCW -DSID_FILTER -DNEWCACHE -DCCCAM_CLI -DRADEGAST_CLI -DCAMD35_CLI -DCS378X_CLI -DHTTP_SRV -DTELNET -DMGCAMD_SRV -DCCCAM_SRV -DCAMD35_SRV -DCS378X_SRV -DFREECCCAM_SRV -DEXPIREDATE -DDCWSWAP -DCACHEEX -DTHREAD_DCW -DMONOTHREAD_ACCEPT -DDEBUG_NETWORK -DMCS_SELFTEST -o x64/test_dcw test_dcw.c ../src/dcw.c
+mkdir -p x64
+gcc -O2 -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-builtin-declaration-mismatch -Wno-stringop-overread -Wno-stringop-truncation -Wno-format-truncation -Wno-unused-result -Wno-pointer-sign -Wno-deprecated-declarations -Wno-return-mismatch -Wno-implicit-int -Wno-unused-but-set-variable -Wno-unused-variable -Wno-implicit-fallthrough -Wno-dangling-pointer -Wno-array-bounds -Wno-shift-count-overflow -Wno-format -DCLI_CSCACHE -DSRV_CSCACHE -DCHECK_NEXTDCW -DSID_FILTER -DNEWCACHE -DCCCAM_CLI -DRADEGAST_CLI -DCAMD35_CLI -DCS378X_CLI -DHTTP_SRV -DTELNET -DMGCAMD_SRV -DCCCAM_SRV -DCAMD35_SRV -DCS378X_SRV -DFREECCCAM_SRV -DEXPIREDATE -DDCWSWAP -DCACHEEX -DTHREAD_DCW -DMONOTHREAD_ACCEPT -DDEBUG_NETWORK -o x64/test_dcwstats test_dcwstats.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cache_relay test_cache_relay.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -DMCS_DCWFILTER_NOGLOBALS -o x64/test_dcwfilter test_dcwfilter.c ../src/dcw.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_dcwstruct test_dcwstruct.c ../src/dcw.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwentropy test_cwentropy.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwtime test_cwtime.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwplaus test_cwplaus.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwcycle test_cwcycle.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwneg test_cwneg.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwcm test_cwcm.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_trustagg test_trustagg.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cacheguard test_cacheguard.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_trustlife test_trustlife.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_htmlesc test_htmlesc.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_debugcore test_debugcore.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_phase1cfg test_phase1cfg.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_ledger test_ledger.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_peer_origin test_peer_origin.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cache_threshold test_cache_threshold.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_peercard test_peercard.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_retry_detect test_retry_detect.c
+mkdir -p x64
+# -fpack-struct matches the real build; without it sizeof(entry) reads 48, not 45.
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_cw_reuse test_cw_reuse.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_trust test_trust.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_cache_purge test_cache_purge.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_rotation test_rotation.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cachepref test_cachepref.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_parser test_parser.c
+mkdir -p x64
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_cfgfield test_cfgfield.c
+./x64/test_dcw
+echo
+./x64/test_dcwstats
+echo
+./x64/test_cache_relay
+echo
+./x64/test_dcwfilter
+./x64/test_dcwstruct
+echo
+./x64/test_cwentropy
+echo
+./x64/test_cwtime
+echo
+./x64/test_cwplaus
+echo
+./x64/test_cwcycle
+echo
+./x64/test_cwneg
+echo
+./x64/test_cwcm
+./x64/test_trustagg
+./x64/test_cacheguard
+./x64/test_trustlife
+./x64/test_htmlesc
+./x64/test_debugcore
+echo
+./x64/test_phase1cfg
+./x64/test_ledger
+echo
+./x64/test_peer_origin
+echo
+./x64/test_cache_threshold
+echo
+./x64/test_peercard
+echo
+./x64/test_retry_detect
+echo
+./x64/test_cw_reuse
+echo
+./x64/test_trust
+echo
+./x64/test_cache_purge
+echo
+./x64/test_rotation
+echo
+./x64/test_cachepref
+./x64/test_parser
+./x64/test_cfgfield

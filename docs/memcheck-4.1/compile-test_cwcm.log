@@ -1,0 +1,35 @@
+In file included from test_cwcm.c:26:
+../src/cwcm.h: In function 'main':
+../src/cwcm.h:282:50: warning: '%06x' directive output truncated writing between 6 and 8 bytes into a region of size between 0 and 2 [-Wformat-truncation=]
+  282 |                 "CW MIRROR: source %d/%d ch %04x:%06x:%04x -- %u of %u key%s this "
+      |                                                  ^~~~
+In function 'cwcm_format',
+    inlined from 'main' at test_cwcm.c:242:7:
+../src/cwcm.h:282:17: note: directive argument in the range [0, 65535]
+  282 |                 "CW MIRROR: source %d/%d ch %04x:%06x:%04x -- %u of %u key%s this "
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../src/cwcm.h:281:16: note: 'snprintf' output between 475 and 526 bytes into a destination of size 32
+  281 |         return snprintf(out, (size_t)outlen,
+      |                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  282 |                 "CW MIRROR: source %d/%d ch %04x:%06x:%04x -- %u of %u key%s this "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  283 |                 "window are mirror-built: the second half is the bitwise complement "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  284 |                 "of the first (%d of 6 byte pairs on the key that crossed the line). "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  285 |                 "A complement half breaks 2 of the 4 group sums by exactly 2, so a "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  286 |                 "mirror that passes the checksum layer is a REPAIRED mirror -- built, "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  287 |                 "then adjusted to look structural -- and it cannot open its picture. "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  288 |                 "Delivery was not touched by this layer: the keys already passed "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  289 |                 "every filter",
+      |                 ~~~~~~~~~~~~~~~
+  290 |                 ev->srctype, ev->srcid, ev->caid, ev->provid, ev->sid,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  291 |                 ev->win_mirror, ev->win_all, (ev->win_all == 1) ? "" : "s",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  292 |                 ev->pairs);
+      |                 ~~~~~~~~~~

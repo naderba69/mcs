@@ -1,0 +1,14 @@
+# TASK 4.1 / D49.
+# A signal ends the process without unwinding HTTP handler threads.
+# The request buffer's only pointer is on that thread's stack, so
+# valgrind reports it as definitely lost. An idle run (no client)
+# reports 0 definite leaks, and gererClient frees the buffer on its
+# only return. Do not suppress any other stack.
+{
+   sigterm-http-request-buffer
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:dynbuf_init
+   fun:gererClient
+}

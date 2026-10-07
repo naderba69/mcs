@@ -1,0 +1,14 @@
+../src/config.c:912:8: runtime error: load of address 0x560c7256a4df with insufficient space for an object of type 'char'
+0x560c7256a4df: note: pointer points here
+ 00 00 00 00 00  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  00 00 00
+             ^ 
+
+Error: no profile configured.
+  Add at least one profile to ../docs/memcheck-4.1/asan.cfg, for example:
+
+    [ myprofile ]
+    CAID: 1884
+    PORT: 15001
+    USER: user pass
+
+Multi CardServer r82 - by evileyes (http://www.infosat.org)

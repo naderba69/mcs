@@ -1,0 +1,8 @@
+ncclient: MultiCS Newcamd client harness
+  [ ok ] stage 1: connected and read the 14-byte keymod
+         keymod = BF83D1460DE2EE9C812EB694432F
+  [ ok ] stage 2: the 'MCS' marker verifies -- this is MultiCS
+  [ ok ] stage 3: login key derived
+         sessionkey = C1AE15CE1250950009DAB0BA48F14900
+  [ ok ] stage 4: login sent (41 bytes, md5-crypt = $1$abcdefgh$wfBfK8YL8MFpMAYtvMlvA.)
+  [FAIL] stage 5: no usable login answer (len=0)
