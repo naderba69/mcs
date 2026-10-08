@@ -1,0 +1,108 @@
+== pre-M1 sources (git 27bb871) -- recovery build: every misaligned site ==
+/tmp/ubsan-m1/old/aes.c: In function 'AES_set_encrypt_key':
+/tmp/ubsan-m1/old/aes.c:691:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  691 |         rk = key->rd_key;
+      |              ^~~
+/tmp/ubsan-m1/old/aes.c: In function 'AES_set_decrypt_key':
+/tmp/ubsan-m1/old/aes.c:792:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  792 |         rk = key->rd_key;
+      |              ^~~
+/tmp/ubsan-m1/old/aes.c: In function 'AES_encrypt':
+/tmp/ubsan-m1/old/aes.c:842:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  842 |         rk = key->rd_key;
+      |              ^~~
+/tmp/ubsan-m1/old/aes.c: In function 'AES_decrypt':
+/tmp/ubsan-m1/old/aes.c:1033:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1033 |         rk = key->rd_key;
+      |              ^~~
+/tmp/ubsan-m1/old/sha1.c: In function 'SHA1_Update':
+/tmp/ubsan-m1/old/sha1.c:211:31: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  211 |         SHA1_Transform(context->state, context->buffer);
+      |                        ~~~~~~~^~~~~~~
+/tmp/ubsan-m1/old/sha1.c:213:35: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  213 |             SHA1_Transform(context->state, data + i);
+      |                            ~~~~~~~^~~~~~~
+-- recover-prefix: exit status 0, 47 misaligned access(es)
+   /tmp/ubsan-m1/old/aes.c:700:8: runtime error: store to misaligned address 0x7fffcded5772 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:701:8: runtime error: store to misaligned address 0x7fffcded5776 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:702:8: runtime error: store to misaligned address 0x7fffcded577a for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:703:8: runtime error: store to misaligned address 0x7fffcded577e for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:706:10: runtime error: load of misaligned address 0x7fffcded5772 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:707:14: runtime error: load of misaligned address 0x7fffcded5772 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:707:10: runtime error: store to misaligned address 0x7fffcded5782 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:713:14: runtime error: load of misaligned address 0x7fffcded5776 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:713:22: runtime error: load of misaligned address 0x7fffcded5782 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:713:10: runtime error: store to misaligned address 0x7fffcded5786 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:714:14: runtime error: load of misaligned address 0x7fffcded577a for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:714:22: runtime error: load of misaligned address 0x7fffcded5786 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:714:10: runtime error: store to misaligned address 0x7fffcded578a for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:715:14: runtime error: load of misaligned address 0x7fffcded577e for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:715:22: runtime error: load of misaligned address 0x7fffcded578a for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:715:10: runtime error: store to misaligned address 0x7fffcded578e for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:848:27: runtime error: load of misaligned address 0x7fffcded5772 for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:849:27: runtime error: load of misaligned address 0x7fffcded5776 for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:850:27: runtime error: load of misaligned address 0x7fffcded577a for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:851:27: runtime error: load of misaligned address 0x7fffcded577e for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:934:15: runtime error: load of misaligned address 0x7fffcded5782 for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:940:15: runtime error: load of misaligned address 0x7fffcded5786 for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:946:15: runtime error: load of misaligned address 0x7fffcded578a for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:952:15: runtime error: load of misaligned address 0x7fffcded578e for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:964:15: runtime error: load of misaligned address 0x7fffcded5792 for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:970:15: runtime error: load of misaligned address 0x7fffcded5796 for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:976:15: runtime error: load of misaligned address 0x7fffcded579a for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:982:15: runtime error: load of misaligned address 0x7fffcded579e for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:994:5: runtime error: load of misaligned address 0x7fffcded5812 for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:1001:5: runtime error: load of misaligned address 0x7fffcded5816 for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:1008:5: runtime error: load of misaligned address 0x7fffcded581a for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/aes.c:1015:5: runtime error: load of misaligned address 0x7fffcded581e for type 'const uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:144:7: runtime error: load of misaligned address 0x7fffcded5866 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:145:7: runtime error: load of misaligned address 0x7fffcded5866 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:146:7: runtime error: load of misaligned address 0x7fffcded5866 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:147:7: runtime error: load of misaligned address 0x7fffcded5866 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:148:7: runtime error: load of misaligned address 0x7fffcded5866 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:173:10: runtime error: load of misaligned address 0x7fffcded5866 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:173:14: runtime error: store to misaligned address 0x7fffcded5866 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:174:10: runtime error: load of misaligned address 0x7fffcded586a for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:174:14: runtime error: store to misaligned address 0x7fffcded586a for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:175:10: runtime error: load of misaligned address 0x7fffcded586e for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:175:14: runtime error: store to misaligned address 0x7fffcded586e for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:176:10: runtime error: load of misaligned address 0x7fffcded5872 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:176:14: runtime error: store to misaligned address 0x7fffcded5872 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:177:10: runtime error: load of misaligned address 0x7fffcded5876 for type 'uint32_t', which requires 4 byte alignment
+   /tmp/ubsan-m1/old/sha1.c:177:14: runtime error: store to misaligned address 0x7fffcded5876 for type 'uint32_t', which requires 4 byte alignment
+   offsets (want non-zero): &k%4=2 &rd_key%4=2 &state%4=2
+   aes out[0]=2d
+   sha1[0..3]=22485dc0
+
+== pre-M1 sources -- halt-on-first-error build (strict) ==
+/tmp/ubsan-m1/old/aes.c: In function 'AES_set_encrypt_key':
+/tmp/ubsan-m1/old/aes.c:691:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  691 |         rk = key->rd_key;
+      |              ^~~
+/tmp/ubsan-m1/old/aes.c: In function 'AES_set_decrypt_key':
+/tmp/ubsan-m1/old/aes.c:792:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  792 |         rk = key->rd_key;
+      |              ^~~
+/tmp/ubsan-m1/old/aes.c: In function 'AES_encrypt':
+/tmp/ubsan-m1/old/aes.c:842:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  842 |         rk = key->rd_key;
+      |              ^~~
+/tmp/ubsan-m1/old/aes.c: In function 'AES_decrypt':
+/tmp/ubsan-m1/old/aes.c:1033:14: warning: taking address of packed member of 'struct aes_key_st' may result in an unaligned pointer value [-Waddress-of-packed-member]
+ 1033 |         rk = key->rd_key;
+      |              ^~~
+/tmp/ubsan-m1/old/sha1.c: In function 'SHA1_Update':
+/tmp/ubsan-m1/old/sha1.c:211:31: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  211 |         SHA1_Transform(context->state, context->buffer);
+      |                        ~~~~~~~^~~~~~~
+/tmp/ubsan-m1/old/sha1.c:213:35: warning: taking address of packed member of 'struct <anonymous>' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  213 |             SHA1_Transform(context->state, data + i);
+      |                            ~~~~~~~^~~~~~~
+-- strict-prefix: exit status 1, 1 misaligned access(es)
+   /tmp/ubsan-m1/old/aes.c:700:8: runtime error: store to misaligned address 0x7ffc82e2aa32 for type 'uint32_t', which requires 4 byte alignment
+
+== working tree (after M1) -- strict build ==
+-- strict-tree: exit status 0, 0 misaligned access(es)
+   offsets (want non-zero): &k%4=2 &rd_key%4=2 &state%4=2
+   aes out[0]=2d
+   sha1[0..3]=22485dc0

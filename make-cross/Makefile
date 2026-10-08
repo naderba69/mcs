@@ -19,12 +19,12 @@ OPTS = -DCLI_CSCACHE -DSRV_CSCACHE -DCHECK_NEXTDCW -DSID_FILTER -DNEWCACHE \
 	-DFREECCCAM_SRV -DEXPIREDATE -DDCWSWAP -DCACHEEX -DTHREAD_DCW \
 	-DMONOTHREAD_ACCEPT -DDEBUG_NETWORK -DEPOLL_NEWCAMD -DEPOLL_ECM
 
-PORTFLAGS = -include ../make-x64/port_gnu89.h -std=gnu89 -fpermissive -fcommon \
+PORTFLAGS = -include ../make-x64/port_gnu89.h -std=gnu89 -fcommon \
 	-fno-strict-aliasing -Wno-implicit-function-declaration \
 	-Wno-int-conversion -Wno-incompatible-pointer-types \
 	-Wno-builtin-declaration-mismatch -Wno-stringop-overread \
 	-Wno-stringop-truncation -Wno-format-truncation -Wno-unused-result \
-	-Wno-pointer-sign -Wno-deprecated-declarations -Wno-return-mismatch \
+	-Wno-pointer-sign -Wno-deprecated-declarations \
 	-Wno-implicit-int -Wno-unused-but-set-variable -Wno-unused-variable \
 	-Wno-implicit-fallthrough -Wno-dangling-pointer -Wno-array-bounds \
 	-Wno-shift-count-overflow -Wno-format
