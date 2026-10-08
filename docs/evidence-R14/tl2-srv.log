@@ -1,0 +1,8 @@
+Multi CardServer r82 - by evileyes (http://www.infosat.org)
+[17:24:19.911] config: parsing file '.tl2.cfg'
+[17:24:20.011] [tl2 ] Newcamd Server started on port 8000
+[17:24:20.011] HTTP server started on port 17001
+[17:24:20.011] Telnet server started on port 17002
+[17:24:20.011] FreeCCcam Server: invalid port value (0)
+[17:24:25.966] [TELNET IDLE] session closed after 3s of silence
+[17:24:26.489] [TELNET LIMIT] telnet: refusing 127.0.0.1 -- 3 session(s) already open (TELNET MAXCLIENTS: 3)

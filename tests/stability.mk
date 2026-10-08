@@ -4079,7 +4079,11 @@ CE_KEY    = 0102030405060708091011121314
 
 .PHONY: ce
 
-ce: $(CXPEER)
+# TASK R14 (D68): the recipe drives $(NCCLIENT) twice but never asked for it,
+# so `make ce` on a tree where no other target had built the helper died with
+# "/bin/sh: ./.ncclient.bin: not found" and then reported five unrelated
+# failures. cy and cachecw always declared both; this one now does too.
+ce: $(CXPEER) $(NCCLIENT)
 	@test -x $(CE_BIN) || { echo "build the stats release first: make -C ../make-x64 release-stats"; exit 1; }
 	@chmod +x $(CXPEER) $(NCCLIENT) 2>/dev/null || true
 	@rm -f .ce-s1.log .ce-s2.log .ce-s3.log .ce-nc1.out .ce-nc2.out .ce-peer.out .ce-stats.out $(CE_CFG); ok=1; \
@@ -4971,3 +4975,56 @@ tl1:
 	if [ "$$good" = "answered" ]; then echo "  [ ok ] and a well-formed login still gets the console (the fix is not a mute)"; else echo "[FAIL] the console did not answer a proper login: $$good"; ok=0; fi; \
 	kill $$(cat .tl1.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .tl1.pid) 2>/dev/null; pkill -9 '^multics' 2>/dev/null; rm -f .tl1.pid .tl1.cfg; \
 	if [ "$$ok" = "1" ]; then echo "tl1: 4/4 ok"; else echo "tl1: FAILED"; exit 1; fi
+
+# ---------------------------------------------------------------------------
+# tl2 -- the telnet door under pressure: idle timeout and session cap.
+#
+# TASK R14 (D68). Before this, a client that connected and sent nothing held
+# its thread forever: there was no SO_RCVTIMEO anywhere in telnet.c, no cap on
+# parallel sessions, and the default allowlist is empty (= everyone). One peer
+# could inflate the thread table from a single socket loop.
+#
+# ONE SERVER with TELNET TIMEOUT: 3 and TELNET MAXCLIENTS: 3, THREE SCENARIOS:
+#   A. a session that says nothing is ended BY THE SERVER within the timeout,
+#      and the log names the reason ("[TELNET IDLE]");
+#   B. with three sessions open, the fourth gets one sentence and no thread --
+#      and the log carries "[TELNET LIMIT]" with the count;
+#   C. once the idle ones are gone the slots come back: a proper login reaches
+#      the console (the fix bounds the door, it does not weld it shut).
+#
+# Ports: HTTP 17001, telnet 17002, newcamd 17003.
+# ---------------------------------------------------------------------------
+TL2_HPORT = 17001
+TL2_TPORT = 17002
+TL2_NPORT = 17003
+
+.PHONY: tl2
+
+tl2:
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@printf 'HTTP PORT: $(TL2_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nTELNET PORT: $(TL2_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\nTELNET TIMEOUT: 3\nTELNET MAXCLIENTS: 3\n\n' > .tl2.cfg; \
+	printf '[ tl2 ]\nNEWCAMD PORT: $(TL2_NPORT)\nUSER: u1 p1\n' >> .tl2.cfg; \
+	rm -f .tl2-srv.log; \
+	# stdbuf: the server is killed with -9 at the end, so a block-buffered
+	# stdout would lose exactly the lines this target asserts on.
+	stdbuf -o0 -e0 $(BIN) -C .tl2.cfg -v > .tl2-srv.log 2>&1 & echo $$! > .tl2.pid; \
+	code=000; for i in $$(seq 1 25); do \
+	  code=$$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(TL2_HPORT)/); \
+	  [ "$$code" = "200" ] && break; sleep 1; done; \
+	ok=1; \
+	if [ "$$code" = "200" ]; then echo "  [ ok ] the server answers 200 before the probe"; else echo "[FAIL] HTTP / answered $$code before the probe"; ok=0; fi; \
+	a=$$(python3 telnetprobe.py idle $(TL2_TPORT) 12); \
+	case "$$a" in closed*) echo "  [ ok ] A: the server ended a silent session itself ($$a; the timeout is 3s)";; *) echo "[FAIL] A: $$a"; ok=0;; esac; \
+	if grep -q "TELNET IDLE" .tl2-srv.log; then echo "  [ ok ] A: and said why in the log ([TELNET IDLE])"; else echo "[FAIL] A: no [TELNET IDLE] line in the server log"; ok=0; fi; \
+	b=$$(python3 telnetprobe.py cap $(TL2_TPORT) 3); \
+	case "$$b" in *"too many sessions"*) echo "  [ ok ] B: the fourth session was refused with a sentence ('$$b')";; *) echo "[FAIL] B: the fourth session got '$$b'"; ok=0;; esac; \
+	if grep -q "TELNET LIMIT" .tl2-srv.log; then echo "  [ ok ] B: and the refusal is in the log with the count ([TELNET LIMIT])"; else echo "[FAIL] B: no [TELNET LIMIT] line in the server log"; ok=0; fi; \
+	sleep 4; \
+	c=$$(python3 telnetprobe.py login $(TL2_TPORT) admin admin); \
+	case "$$c" in console) echo "  [ ok ] C: the slots came back after the idle close (login reached the console)";; *) echo "[FAIL] C: login after the idle close said '$$c'"; ok=0;; esac; \
+	alive=0; kill -0 $$(cat .tl2.pid) 2>/dev/null && alive=1; \
+	if [ "$$alive" = "1" ]; then echo "  [ ok ] the server survived the whole sequence"; else echo "[FAIL] the server died"; ok=0; fi; \
+	if grep -qi "segmentation\|SIGSEGV\|AddressSanitizer\|stack-buffer" .tl2-srv.log; then echo "[FAIL] the server log shows a crash marker"; ok=0; fi; \
+	kill $$(cat .tl2.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .tl2.pid) 2>/dev/null; pkill -9 '^multics' 2>/dev/null; rm -f .tl2.pid .tl2.cfg; \
+	if [ "$$ok" = "1" ]; then echo "tl2: 7/7 ok"; else echo "tl2: FAILED"; exit 1; fi

@@ -67,14 +67,67 @@ struct telnet_conn_data { /* TASK R3 (D57) */
 	uint32_t ip;
 };
 
-void *telnetprocess(int *param )
+/* TASK R14 (D68): how many console sessions are alive right now, so the
+ * accept door can refuse past TELNET MAXCLIENTS. The counter is guarded by
+ * its own small mutex: the accept loop increments, each client thread
+ * decrements on its way out, and neither ever holds it while doing I/O. */
+static pthread_mutex_t telnet_sess_lock = PTHREAD_MUTEX_INITIALIZER;
+static int telnet_sess_live = 0;
+
+static int telnet_session_enter(void)
+{
+	int ok = 1;
+	pthread_mutex_lock(&telnet_sess_lock);
+	if ( (cfg.telnet.maxclients>0) && (telnet_sess_live>=cfg.telnet.maxclients) ) ok = 0;
+	else telnet_sess_live++;
+	pthread_mutex_unlock(&telnet_sess_lock);
+	return ok;
+}
+
+static void telnet_session_leave(void)
+{
+	pthread_mutex_lock(&telnet_sess_lock);
+	if (telnet_sess_live>0) telnet_sess_live--;
+	pthread_mutex_unlock(&telnet_sess_lock);
+}
+
+/* TASK R14 (D68): a session must not wait forever. SO_RCVTIMEO turns every
+ * recv() below into "give up after N seconds", which is what closes the
+ * silent-client resource hole: before this, a peer that connected and sent
+ * nothing held its thread and its slot for good. 0 keeps stock behaviour. */
+static void telnet_set_idle_timeout(int fd)
+{
+	struct timeval tv;
+	if (cfg.telnet.timeout<=0) return;
+	tv.tv_sec  = cfg.telnet.timeout;
+	tv.tv_usec = 0;
+	if ( setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (char*)&tv, sizeof(tv)) < 0 )
+		debugf(getdbgflag(DBG_HTTP,0,0)," telnet: could not arm the %ds idle timeout (errno=%d)\n", cfg.telnet.timeout, errno);
+}
+
+/* TASK R14 (D68): the session body, and a wrapper that owns the session
+ * slot. Keeping the pairing in one place means no return path below can
+ * forget to give the slot back. */
+/* TASK R14 (D68): every console read goes through here so an idle close is
+ * said out loud. Without it, "the client went away" and "we dropped the
+ * client for silence" look identical in the log, and the second one is a
+ * decision the operator must be able to see. */
+static int telnet_recv(int fd, char *buf, int len)
+{
+	int r = recv(fd, buf, len, MSG_NOSIGNAL);
+	if ( (r<=0) && ((errno==EAGAIN)||(errno==EWOULDBLOCK)) )
+		debugf(getdbgflag(DBG_HTTP,0,0)," [TELNET IDLE] session closed after %ds of silence\n", cfg.telnet.timeout);
+	return r;
+}
+
+static void *telnet_login_session(struct telnet_conn_data *tcd)
 {
 	/* TASK R3 (D57): the thread's own connection data, now with the
 	 * source address. Every wait below burns THIS thread only. */
-	struct telnet_conn_data *tcd = (struct telnet_conn_data *)param;
 	int fd = tcd->fd;
 	uint32_t myip = tcd->ip;
-	free(param);
+
+	free(tcd);
 
 	char buf[4096];
 	char str[256];
@@ -90,7 +143,7 @@ void *telnetprocess(int *param )
 	//
 	writes(fd, "Welcome to Telnet Server\r\n\r\nLogin: ");
 
-	len = recv( fd, buf, sizeof(buf), MSG_NOSIGNAL);
+	len = telnet_recv( fd, buf, sizeof(buf) );
 	if (len<=0) { close(fd); return NULL; }
 	/* TASK R13 (D67): len==1 used to reach the CR/LF test below and read
 	 * buf[-1]; with buf[-1]==0x0d it would even have written buf[-2] = 0.
@@ -113,7 +166,7 @@ void *telnetprocess(int *param )
 	}
 	//
 	writes(fd, "Password: ");
-	len = recv( fd, buf, sizeof(buf), MSG_NOSIGNAL);
+	len = telnet_recv( fd, buf, sizeof(buf) );
 	if (len<=0) { close(fd); return NULL; }
 	/* TASK R13 (D67): len==1 used to reach the CR/LF test below and read
 	 * buf[-1]; with buf[-1]==0x0d it would even have written buf[-2] = 0.
@@ -136,7 +189,7 @@ void *telnetprocess(int *param )
 
 	while ( 1 ) {
 		writes(fd, "\r\n[command]: ");
-		len = recv( fd, buf, sizeof(buf), MSG_NOSIGNAL);
+		len = telnet_recv( fd, buf, sizeof(buf) );
 		if (len<=0) { close(fd); return NULL; }
 	/* TASK R13 (D67): len==1 used to reach the CR/LF test below and read
 	 * buf[-1]; with buf[-1]==0x0d it would even have written buf[-2] = 0.
@@ -493,6 +546,21 @@ void *telnetprocess(int *param )
 
 
 
+void *telnetprocess(int *param )
+{
+	struct telnet_conn_data *tcd = (struct telnet_conn_data *)param;
+	void *ret;
+
+	if (!tcd) return NULL;
+	/* TASK R14 (D68): arm the idle timeout before a single byte is read.
+	 * A session that ends by timeout must be distinguishable in the log
+	 * from one the client closed, so say it once, here. */
+	telnet_set_idle_timeout(tcd->fd);
+	ret = telnet_login_session(tcd);
+	telnet_session_leave();
+	return ret;
+}
+
 void *telnet_thread(void *param)
 {
 	int clientsock;
@@ -515,6 +583,17 @@ void *telnet_thread(void *param)
 					else {
 						//SetSocketNoDelay(clientsock);
 						pthread_t cli_tid;
+						/* TASK R14 (D68): the session gate. Refusing here,
+						 * before a thread exists, is what makes MAXCLIENTS a
+						 * real bound: the refused client gets one sentence
+						 * and the door closes. */
+						if ( !telnet_session_enter() ) {
+							debugf(getdbgflag(DBG_HTTP,0,0)," [TELNET LIMIT] telnet: refusing %s -- %d session(s) already open (TELNET MAXCLIENTS: %d)\n",
+								ip2string(client_addr.sin_addr.s_addr), telnet_sess_live, cfg.telnet.maxclients);
+							writes(clientsock, "too many sessions, bye.\r\n");
+							close( clientsock );
+							continue;
+						}
 						/* TASK R3 (D57): the door now knows who is knocking --
 						 * the per-IP allowlist and the progressive delay need
 						 * the source address. Same wire behavior when both
@@ -522,11 +601,12 @@ void *telnet_thread(void *param)
 						struct telnet_conn_data *param = malloc( sizeof(struct telnet_conn_data) );
 						/* TASK R13 (D67): same unchecked-allocation pattern as the HTTP
 						 * accept path above; drop the connection instead of dereferencing. */
-						if (!param) { close( clientsock ); continue; }
+						if (!param) { telnet_session_leave(); close( clientsock ); continue; }
 						param->fd = clientsock;
 						param->ip = client_addr.sin_addr.s_addr;
 						if ( !create_thread(&cli_tid, (threadfn)telnetprocess,param) ) {
 							free( param );
+							telnet_session_leave();
 							close( clientsock );
 						}
 					}

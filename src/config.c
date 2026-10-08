@@ -332,6 +332,14 @@ void init_config(struct config_data *cfg)
 	login_allow_reset(&cfg->http.allow);
 #endif
 
+#ifdef TELNET
+	/* TASK R14 (D68): the console used to keep a thread forever for a
+	 * client that sent nothing. 300 s idle and 64 sessions are the
+	 * defaults; both are configurable, and 0 turns each one off. */
+	cfg->telnet.timeout = 300;
+	cfg->telnet.maxclients = 64;
+#endif
+
 	// CACHE
 	cfg->cache.peerid = 1;
 	cfg->cache.serverid = 1;
@@ -1923,6 +1931,26 @@ link_camd35_server:
 				ucol38 = iparser - currentline;
 				parse_str(str);
 				cfg_store_field(cfg->telnet.pass, sizeof(cfg->telnet.pass), str, file->nbline, ucol38, "password"); /* TASK 3.8 */
+			}
+			else if (!strcmp(str,"TIMEOUT")) { /* TASK R14 (D68) */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				cfg->telnet.timeout = atoi(str);
+				if (cfg->telnet.timeout<0) cfg->telnet.timeout = 0;
+			}
+			else if (!strcmp(str,"MAXCLIENTS")) { /* TASK R14 (D68) */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				cfg->telnet.maxclients = atoi(str);
+				if (cfg->telnet.maxclients<0) cfg->telnet.maxclients = 0;
 			}
 			else if (!strcmp(str,"LOGIN")) { /* TASK R3 (D57) */
 				parse_name(str);
@@ -6922,6 +6950,11 @@ void reread_config( struct config_data *cfg )
 	// Telnet Server
 	strcpy(cfg->telnet.user, newcfg.telnet.user);
 	strcpy(cfg->telnet.pass, newcfg.telnet.pass);
+	/* TASK R14 (D68): a SIGHUP reload must move these too -- the socket
+	 * options of already-accepted sessions cannot be reached, but the next
+	 * session and the accept gate below read the new values. */
+	cfg->telnet.timeout = newcfg.telnet.timeout;
+	cfg->telnet.maxclients = newcfg.telnet.maxclients;
 	if (cfg->telnet.port!=newcfg.telnet.port) {
 		//cfg->http.flags |= FLAG_DISCONNECT;
 		cfg->telnet.port = newcfg.telnet.port;

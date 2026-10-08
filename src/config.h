@@ -1535,6 +1535,8 @@ struct config_data
 		char pass[64];
 		int logindelay;               /* TASK R3 (D57): ms base, 0 = off */
 		struct login_allow allow;     /* TASK R3 (D57): optional allowlist */
+		int timeout;                  /* TASK R14 (D68): idle seconds on a session, 0 = off */
+		int maxclients;               /* TASK R14 (D68): concurrent sessions, 0 = off */
 		pid_t pid;
 		pthread_t tid;
 	} telnet;

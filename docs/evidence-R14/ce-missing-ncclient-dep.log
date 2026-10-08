@@ -1,0 +1,27 @@
+# O30/F21: هدف ce كان يستعمل .ncclient.bin بلا أن يطلبه
+
+## العرض (تشغيل ce في شجرة لم يبنِ فيها هدفٌ آخر المساعد):
+$ cd tests && make ce
+=== ce scenario 2: gates armed ===
+  [ ok ] the unsolicited push was sent by the peer
+  [FAIL] the confirmed push never served the client
+  [FAIL] LOCAL_ONLY counter
+  [FAIL] BLOCK_FAKE_CW counter
+  [FAIL] CWCHECK counter
+$ sed -n '36p' .ce-nc2.out
+/bin/sh: 36: ./.ncclient.bin: not found        <-- السبب الحقيقي، مخفيّ داخل سجل
+
+## السبب
+tests/stability.mk:4082 كان:   ce: $(CXPEER)
+بينما الوصفة تستدعي ./\$(NCCLIENT) مرّتين. cy (4180) و cachecw (230) يطلبان الاثنين.
+
+## الإصلاح
+ce: $(CXPEER) $(NCCLIENT)
+
+## بعد الإصلاح
+$ make ce   -> rc=0، 10 فحوص [ok]، 0 [FAIL]
+$ make -n ce | head -1
+cc -O2 -m64 -std=gnu89 -w -o .ncclient.bin ncclient.c ../src/des.c ../src/msg-newcamd.c ../src/md5.c
+
+الدرس: فشل خمسة تأكيدات لم يكن لها علاقة بالكاش أصلاً — الأولى التي كان يجب
+أن تُقرأ هي سطر 'not found' في ملف العميل، لا العدّادات.

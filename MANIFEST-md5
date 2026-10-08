@@ -36,8 +36,8 @@ f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 800177a56d2f4e6f3a0a0ce5dac71c95  bin/multics-r82a-arm
 dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-0c0a584153805434616f0fc5a476a11b  bin/multics-r82a-stats-x64
-5be152814cd476db53dab26c45e48dae  bin/multics-r82a-stock-x64
+c27528de35fd6811eca3898c7523182d  bin/multics-r82a-stats-x64
+d775ec147b492beb4ec8c42eba8256a9  bin/multics-r82a-stock-x64
 a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 2c0c47e7cdb35fbcfcdeeeaa92d09f5c  docs/BLACKSCREEN.md
 797863f9c6d87675f97e3965189f7c45  docs/BUILD-PATCHES.md
@@ -243,8 +243,8 @@ d5160d103896f38661a331cc752966e8  src/cli-newcamd.c
 27b8049f341f967a683b629546d61635  src/cli-radegast.c
 bdb0eddd13cf80f88014595bda5c71a7  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-198eaa390ce55989118d0a7eac14c9bc  src/config.c
-6e92551af48672defc4213d72a419a16  src/config.h
+0585302d66333c448aaaef708c9dd7c3  src/config.c
+4d406f27582e66d60d015c93f87b4606  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
 40863224046ccab4dbc0b957c87ebe99  src/country.c
@@ -327,7 +327,7 @@ f37fa4ae3957d631026291664fd4c42e  src/srv-mgcamd.c
 a2e39360d2668d6116359c7df914294a  src/srv-newcamd.c
 e8a505e621f834e456c441491482c657  src/srv-radegast.c
 1f738df5156f04b48eabce52fcf0fd9d  src/statsline.h
-1688205d1c6377b4380ee1d155e3db8e  src/telnet.c
+99dff2aabfcd757e05cb8f836c024350  src/telnet.c
 e79043a4563b3f9a8cf0acacc292f691  src/telnet.h
 3276e29ab436ad2694698a0a1ea9be7a  src/th-cfg.c
 f79f0bec8fa0d48f1d16950b820aa08f  src/th-date.c
@@ -345,7 +345,7 @@ af09ddc7d479b76a2bd9a9bbc69aef24  src/twin.c
 49b46f0c904d8e80aae752ac4c98d406  src/twin.h
 3260272b8bddbec232a45f08976e110d  start-multics.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-18ce4a60feb7b3f09a89f7bfe56e8e76  tests/Makefile
+d90f9079f840ca37458f8cde6cea1120  tests/Makefile
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 518ab2e1a2864eee5bab964fc612aa4f  tests/ca-bite.c
 5081b47e7ffe26768c6f69153719d4e4  tests/cachepeer.c
@@ -360,7 +360,7 @@ b2caeeac7e48b211710f9236a020fdb7  tests/multics-live.cfg
 45fd5df42eb90b259a77baf3a0e42eff  tests/ncserver.c
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
-53a1c4d30ae7776a4fb7c4f429b200c6  tests/stability.mk
+a7a08b06283647e636ac292e664a0762  tests/stability.mk
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c
 c2de2dea646a9b520a434e18f5ee2243  docs/REPORT-R11-ar.md
 e6fd8c0948529cc5aa1fe050001a9f85  docs/REPORT-R12-ar.md
@@ -370,8 +370,8 @@ e6fd8c0948529cc5aa1fe050001a9f85  docs/REPORT-R12-ar.md
 6a298707d580ca98c336970053c97883  docs/interference-R12/postfix-trap-srv.log
 5f1db57b3ded74be65bbc0548d139323  docs/interference-R12/postfix-trap-peerA.log
 42e60170d3dd5792ebaaad8aa290bf71  docs/interference-R12/postfix-trap-peerB.log
-a8e9b161ae5c8a4d878dbb8501bdc80f  bin/multics-r82a-queue-x64
-e325203d9797d2e767bd58e9f182bd27  bin/multics-r82a-queue-stats-x64
+b5f0348d9161346972011757baa32621  bin/multics-r82a-queue-x64
+c4a1a7e0647c04ad3466abcec98f7869  bin/multics-r82a-queue-stats-x64
 d916c151f93eeccd95ef6736672e9234  make-x64/test_cachequeue.c
 f485032a4154a2c18956159904b5d015  make-x64/test_cwlog.c
 f0797a4e62b6311fcaceb579f111c26b  .gitignore
@@ -412,3 +412,8 @@ a2fecac4f83af3ba400ad25f87bb56ae  docs/evidence-R13/memcheck-stale-srclist.log
 41800598a6e4e63dc0bc6f1002adb8f0  docs/evidence-R13/preflight-live.log
 f9db95a15c40c4e7bb6fe6a71a27220e  docs/evidence-R13/tl1-post-R13.out
 d41d8cd98f00b204e9800998ecf8427e  docs/evidence-R13/tl1-srv.log
+1e55990a315e42fa0bd2fa5087d1a732  tests/telnetprobe.py
+9ca8a4c3c93e5a4e80eaea1469798ae6  docs/evidence-R14/ce-after-ncclient-dep.out
+d134501b7099977a0591b8ff1273499a  docs/evidence-R14/ce-missing-ncclient-dep.log
+a78184a01b70f8344b86b854175ca905  docs/evidence-R14/tl2-post-R14.out
+53f943406a3953ad7e7e7baa35a78ad3  docs/evidence-R14/tl2-srv.log

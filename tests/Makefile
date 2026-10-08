@@ -8,7 +8,7 @@ BIN     ?= ../make-x64/x64/multics
 CFG      = multics-live.cfg
 HTTPPORT = 15500
 
-.PHONY: pm jm sk cn smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs ce cy au pr soak pq oh tl1 preflight all
+.PHONY: pm jm sk cn smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs ce cy au pr soak pq oh tl1 tl2 preflight all
 include stability.mk
 # soak is deliberately NOT in `all`. It runs for about 20 minutes.
 # Refuse to start a second wing while one is already running. Every target in
@@ -18,7 +18,7 @@ include stability.mk
 # they corrupt each other's evidence and print FAILs that do not exist -- the
 # exact failure this round paid for twice (evidence-R13/concurrency-collision.log).
 # A precise per-target lock is still worth adding on top (M33 in REPORT-R13-ar.md).
-all: preflight smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs ce cy au pr jm pq sk cn vl ri oh tl1
+all: preflight smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs ce cy au pr jm pq sk cn vl ri oh tl1 tl2
 
 preflight:
 	@n=$$(ps -eo comm= | grep -c '^multics' || true); \

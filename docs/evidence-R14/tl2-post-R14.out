@@ -1,0 +1,30 @@
+# stdout would lose exactly the lines this target asserts on.
+stdbuf -o0 -e0 ../make-x64/x64/multics -C .tl2.cfg -v > .tl2-srv.log 2>&1 & echo $! > .tl2.pid; \
+code=000; for i in $(seq 1 25); do \
+  code=$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:17001/); \
+  [ "$code" = "200" ] && break; sleep 1; done; \
+ok=1; \
+if [ "$code" = "200" ]; then echo "  [ ok ] the server answers 200 before the probe"; else echo "[FAIL] HTTP / answered $code before the probe"; ok=0; fi; \
+a=$(python3 telnetprobe.py idle 17002 12); \
+case "$a" in closed*) echo "  [ ok ] A: the server ended a silent session itself ($a; the timeout is 3s)";; *) echo "[FAIL] A: $a"; ok=0;; esac; \
+if grep -q "TELNET IDLE" .tl2-srv.log; then echo "  [ ok ] A: and said why in the log ([TELNET IDLE])"; else echo "[FAIL] A: no [TELNET IDLE] line in the server log"; ok=0; fi; \
+b=$(python3 telnetprobe.py cap 17002 3); \
+case "$b" in *"too many sessions"*) echo "  [ ok ] B: the fourth session was refused with a sentence ('$b')";; *) echo "[FAIL] B: the fourth session got '$b'"; ok=0;; esac; \
+if grep -q "TELNET LIMIT" .tl2-srv.log; then echo "  [ ok ] B: and the refusal is in the log with the count ([TELNET LIMIT])"; else echo "[FAIL] B: no [TELNET LIMIT] line in the server log"; ok=0; fi; \
+sleep 4; \
+c=$(python3 telnetprobe.py login 17002 admin admin); \
+case "$c" in console) echo "  [ ok ] C: the slots came back after the idle close (login reached the console)";; *) echo "[FAIL] C: login after the idle close said '$c'"; ok=0;; esac; \
+alive=0; kill -0 $(cat .tl2.pid) 2>/dev/null && alive=1; \
+if [ "$alive" = "1" ]; then echo "  [ ok ] the server survived the whole sequence"; else echo "[FAIL] the server died"; ok=0; fi; \
+if grep -qi "segmentation\|SIGSEGV\|AddressSanitizer\|stack-buffer" .tl2-srv.log; then echo "[FAIL] the server log shows a crash marker"; ok=0; fi; \
+kill $(cat .tl2.pid) 2>/dev/null; sleep 1; kill -9 $(cat .tl2.pid) 2>/dev/null; pkill -9 '^multics' 2>/dev/null; rm -f .tl2.pid .tl2.cfg; \
+if [ "$ok" = "1" ]; then echo "tl2: 7/7 ok"; else echo "tl2: FAILED"; exit 1; fi
+  [ ok ] the server answers 200 before the probe
+  [ ok ] A: the server ended a silent session itself (closed after 3.0s; the timeout is 3s)
+  [ ok ] A: and said why in the log ([TELNET IDLE])
+  [ ok ] B: the fourth session was refused with a sentence ('too many sessions, bye.')
+  [ ok ] B: and the refusal is in the log with the count ([TELNET LIMIT])
+  [ ok ] C: the slots came back after the idle close (login reached the console)
+  [ ok ] the server survived the whole sequence
+tl2: 7/7 ok
+rc=0
