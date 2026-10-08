@@ -1,0 +1,14 @@
+== short live session ==
+built x64/mem-asan/multics
+built x64/mem-tsan/multics
+built x64/mem-vg/multics
+  ok asan empty-config refused (rc=1)
+  ok asan live HTTP / and /profiles, tool rc=143, races=0
+  ok tsan empty-config refused (rc=1)
+  ok tsan live HTTP / and /profiles, tool rc=143, races=11
+  TSan data races recorded in ../docs/memcheck-4.1/tsan-races.txt (D49, not a failure)
+  FAIL valgrind empty-config rc=127 (expected 1)
+env: 'valgrind': No such file or directory
+  FAIL valgrind live HTTP /=000 /profiles=000
+env: 'valgrind': No such file or directory
+MEMCHECK: findings recorded in ../docs/memcheck-4.1

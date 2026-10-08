@@ -1,0 +1,22 @@
+# F16: التنظيف الأعمى (pkill -x multics) لا يرى الثنائيات المُسلَّمة — إثبات حيّ
+#
+# الخادم المُشغَّل: ../bin/multics-r82a-queue-stats-x64 -C /tmp/peek.cfg -v   (منفذ HTTP 17001)
+# اسم العملية كما يراه لينكس (comm، مقتطع إلى 15 حرفاً): multics-r82a-qu
+#
+$ ps -eo comm= | grep '^multics'
+multics-r82a-qu
+$ curl -s -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:17001/
+200
+
+$ pkill -9 -x multics        # النمط القديم المستخدم في 15 موضعاً
+pkill rc=1                   # لم يطابق شيئاً
+survivors: 1                 # الخادم ما زال يعمل
+
+$ pkill -9 '^multics'        # النمط المُصلَح
+pkill rc=0
+survivors: 0                 # قُتل فعلاً
+
+# الأثر: أي هدف يستخدم ثنائياً مُسلَّماً (cy: CY_BIN=bin/multics-r82a-stats-x64،
+# jm: bin/multics-r82a-queue-stats-x64، xe: dist/multics-r82a-stats-x64) يترك
+# خادمه حياً بعد الانتهاء، فيلتقط الهدف التالي منفذه الثابت ويردّ عليه بسياق قديم —
+# وميض لفشل كاذب أو، أسوأ، نجاح كاذب على خادم ليس الذي أنشأه الاختبار.

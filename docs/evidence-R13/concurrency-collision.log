@@ -1,0 +1,24 @@
+# انهيار التزامن: تشغيلان لنفس الجناح في آن واحد على مجلد tests/ نفسه
+# السبب: كل هدف يحجز منافذ ثابتة (cy: 16400-16410، ce: 15700-15703، oh: 16996/16997 ...)
+# دون أي قفل، فتتصادم الخوادم على المنافذ وتتشارك ملفات .log و.cfg نفسها.
+# هذا الملف مقتطف خام من تشغيل make -k all الذي كان يعمل في الخلفية بينما كانت
+# الحلقة المركّزة (cy au pr jm pq sk cn vl ri) تعمل في المقدمة: هدف cy في هذا
+# التشغيل أنتج [FAIL] كاذباً على شجرة سليمة، ثم قُتل التشغيلان وأُعيد الجناح وحده.
+# (الأمر: make -k all > /tmp/fullwing2.log; الطوابع الزمنية 15:45-15:55 UTC)
+
+## مقتطف: نهاية /tmp/fullwing2.log عند إيقافه
+make: *** [stability.mk:1285: plaus] Error 1
+[FAIL] no peer online: the rig proves nothing
+[FAIL] phase 1 delivered 0 of 3
+  [ ok ] and an agreeing source earned no cycle line at all
+[FAIL] cycle counters are '', expected '3 3 0 3 0 0 0'
+[FAIL] a contradictory key reached a client: deliveries 3 -> 0
+[FAIL] 0 cycle line(s) for two contradictions, expected exactly 1
+[FAIL] the line does not name the halves: 
+[FAIL] the line does not name the observation point
+[FAIL] the line does not disclaim itself
+  [ ok ] GR3: a declared cycle is evidence, not proof -- trust stayed at  source(s)
+FULLWING2_RC=137
+
+## ومقارنة: تشغيل cy وحده بعد ذلك (نفس الشجرة، نفس الثنائيات) نجح 8/8
+TARGET cy rc=0 fails=0 oks=8   (docs/evidence-R13/wing-targets-post-r13.log)

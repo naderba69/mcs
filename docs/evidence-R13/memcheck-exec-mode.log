@@ -1,0 +1,38 @@
+# F19: البتّة التنفيذية لسكربتات الشجرة — دليل حيّ
+#
+## 1) الحالة في فهرس git (قبل الإصلاح)
+$ git ls-files -s | awk '$1=="100644" && $4 ~ /\.(sh|py)$/'
+make-x64/memcheck.sh
+tests/autelnet.py
+tests/cedcw.py
+tests/docrefs.sh
+tests/soak.sh
+
+## 2) الأثر الحيّ: مسار تحقّق موثَّق لا يعمل من نسخة نظيفة
+$ make -C make-x64 memcheck
+./memcheck.sh
+make: ./memcheck.sh: Permission denied
+make: *** [Makefile:442: memcheck] Error 127
+(وهو المسار الذي يستند إليه سجل القرارات: 'make -C make-x64 memcheck exits 0')
+
+## 3) كان معلوماً ومرقَّعاً في مكان واحد فقط
+tests/Makefile:34:
+	@chmod +x soak.sh 2>/dev/null || true   # a restored workspace can lose the exec bit
+
+## 4) بعد الإصلاح (git update-index --chmod=+x + chmod)
+$ git ls-files -s | awk '$4 ~ /\.(sh|py)$/ {print $1, $4}'
+100755 docs/evidence-R13/ce-repro.sh
+100755 docs/evidence-R13/exp.sh
+100755 make-x64/memcheck.sh
+100755 start-multics.sh
+100755 tests/autelnet.py
+100755 tests/cedcw.py
+100755 tests/docrefs.sh
+100755 tests/soak.sh
+
+$ make -C make-x64 memcheck
+make: Entering directory '/home/user/mcs/make-x64'
+./memcheck.sh
+== unit tests ==
+compiling ASan+UBSan units
+compiling TSan units   <-- صار يعمل فعلاً

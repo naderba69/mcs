@@ -78,6 +78,10 @@ extern unsigned long  dcwstats[DCW_REJ_COUNT];
 	} while (0)
 
 /* Reset every counter (used by `telnet> dcwstats reset`). */
+/* TASK R13 (D67): used by telnet.c when the counters are compiled in; the
+ * unit TUs include this header without that path, so say so explicitly
+ * instead of letting -Wall report it in half the test build. */
+__attribute__((unused))
 static void dcwstats_reset(void)
 {
 	int i;

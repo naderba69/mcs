@@ -2156,7 +2156,7 @@ TL_STATE = .tl-trust
 .PHONY: tl
 tl: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(TL_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-tl\nTELNET PORT: 16670\n'; \
@@ -2321,7 +2321,7 @@ HA_CFG2  = .ha2.cfg
 .PHONY: ha
 ha:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(HA_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-ha\nTELNET PORT: $(HA_TPORT)\n\n'; \
@@ -2419,7 +2419,7 @@ XS_KEY   = 0102030405060708091011121314
 .PHONY: xs
 xs:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(XS_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-xs\n\n'; \
@@ -2490,7 +2490,7 @@ DL_KEY   = 0102030405060708091011121314
 .PHONY: dl
 dl:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(DL_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-dl\n\n'; \
@@ -2588,7 +2588,7 @@ $(CABITE): ca-bite.c
 
 ca: $(CACHEPEER) $(NCCLIENT) $(CABITE)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(CA_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-ca\n'; \
@@ -2704,7 +2704,7 @@ CU_KEY   = 0102030405060708091011121314
 
 cu: $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x multics 2>/dev/null; pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .ncclient.bin 2>/dev/null; sleep 1; true
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .ncclient.bin 2>/dev/null; sleep 1; true
 	@A63=$$(printf 'A%.0s' $$(seq 1 63)); P63=$$(printf 'P%.0s' $$(seq 1 63)); \
 	A70=$$(printf 'A%.0s' $$(seq 1 70)); P70=$$(printf 'P%.0s' $$(seq 1 70)); \
 	{ printf 'HTTP PORT: $(CU_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
@@ -2813,7 +2813,7 @@ $(SPPEER): sp-peer.c
 sp: $(SPPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 -x '.sp-peer.bin' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
-	  pkill -9 -x multics 2>/dev/null; pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .sp-peer.bin .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
+	  pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .sp-peer.bin .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(SP_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-sp\n'; \
 	   printf 'CACHE PORT: $(SP_CACHE)\n'; \
@@ -2909,7 +2909,7 @@ ps:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@command -v curl >/dev/null || { echo "curl required"; exit 1; }
 	@make -C ../make-x64 x64/multics-asan >/dev/null 2>&1 || { echo "asan build failed"; exit 1; }
-	@pkill -9 -x multics-asan 2>/dev/null; pkill -9 -x multics 2>/dev/null; sleep 1; true
+	@pkill -9 -x multics-asan 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(PS_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nHTTP TITLE: mcs-ps\n'; \
 	   printf 'TRUSTED-CACHE-FIRST: '; printf 'X%.0s' $$(seq 1 255); printf '\n'; \
 	   printf 'SERVER '; printf 'S%.0s' $$(seq 1 255); printf ' desc 127.0.0.1 1 u p 0\n\n'; \
@@ -3002,7 +3002,7 @@ u: $(UPROBE)
 	@chmod +x $(UPROBE) 2>/dev/null || true   # make can skip the build rule after a restored workspace; do not depend on the bit surviving
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@command -v curl >/dev/null || { echo "curl required"; exit 1; }
-	@pkill -9 -x multics 2>/dev/null; sleep 1; true
+	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(U_HPORT)\nHTTP USER: '; printf 'A%.0s' $$(seq 1 70); printf '\n'; \
 	   printf 'HTTP PASS: '; printf 'P%.0s' $$(seq 1 70); printf '\n'; \
 	   printf 'HTTP TITLE: mcs-u\nTELNET PORT: $(U_TPORT)\nTELNET USER: '; \
@@ -3079,7 +3079,7 @@ xe:
 	if [ $$? -eq 0 ]; then \
 	  echo "  [ ok ] the ASan probe: production xmlescape stays inside its frame (pre-fix: stack-buffer-overflow WRITE)"; \
 	else echo "[FAIL] ASan probe reports an overflow:"; cat .xe-probe.log | head -8; exit 1; fi
-	@pkill -9 -x multics 2>/dev/null; sleep 1; true
+	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(X_PORT)\nHTTP TITLE: m&cs-xe\n\n[ xe&38 ]\nCAID: 1884\nPORT: 16761\nNEWCAMD PORT: 0\n'; } > $(X_CFG); \
 	ok=1; \
 	rm -f .xe-srv.log; \
@@ -4184,7 +4184,7 @@ cy: $(CACHEPEER) $(NCCLIENT)
 	start_srv() { stdbuf -o0 -e0 $(CY_BIN) -C $(CY2_CFG) -v > .cy2-srv.log 2>&1 & srv=$$!; \
 	  for i in $$(seq 1 25); do curl -s -m 2 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(CY2_HPORT)/ 2>/dev/null | grep -q 200 && break; sleep 1; done; \
 	  sleep 2; }; \
-	kill_srv() { kill -9 $$srv 2>/dev/null; sleep 1; pkill -9 -x multics 2>/dev/null; sleep 1; }; \
+	kill_srv() { kill -9 $$srv 2>/dev/null; sleep 1; pkill -9 '^multics' 2>/dev/null; sleep 1; }; \
 	start_peer() { \
 	  [ "$$peer" != "0" ] && { kill -9 $$peer 2>/dev/null; sleep 0.5; }; \
 	  rm -f .cy2-peer.log; \
@@ -4272,7 +4272,7 @@ AU_CFG4   = .au4.cfg
 .PHONY: au
 au:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x multics 2>/dev/null; sleep 1; true
+	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(AU1_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-au1\nTELNET PORT: $(AU1_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n\n'; \
 	   printf '[ au1 ]\nNEWCAMD PORT: 0\n'; } > $(AU_CFG1); \
@@ -4348,7 +4348,7 @@ au:
 	else echo "  [ ok ] phase 3: the compliant server's log is clean"; fi; \
 	kill $$srv1 $$srv2 $$srv3 $$srv4 2>/dev/null; sleep 1; \
 	for s in $$srv1 $$srv2 $$srv3 $$srv4; do kill -9 $$s 2>/dev/null; done; \
-	pkill -9 -x multics 2>/dev/null; \
+	pkill -9 '^multics' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then rm -f $(AU_CFG1) $(AU_CFG2) $(AU_CFG3) $(AU_CFG4) .au*-srv.log; \
 	else echo "[FAIL] logs kept under tests/.au*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
@@ -4450,7 +4450,7 @@ pr:
 	breq2=$$(grep -c "got request" .pr-b.log); \
 	if [ "$$breq2" -ge 1 ]; then echo "  [ ok ] phase 5: the recovered peer receives finds again (B $$breq2)"; else echo "[FAIL] phase 5: the recovered peer is still shunned"; ok=0; fi; \
 	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; \
-	pkill -9 -x multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
+	pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then rm -f $(PR_REP) $(PR_CFG) .pr-srv.log .pr-a.log .pr-b.log .pr-cli.log multics.peers; \
 	else echo "[FAIL] logs kept under tests/.pr*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
@@ -4488,7 +4488,7 @@ JM_REP    = .jm.rep
 # phase 8 reads -- hence the break on B's own 'got request' + sleep 8.
 jm:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(JM_REP) $(JM_CFG) .jm-srv.log .jm-a.log .jm-b.log .jm.json multics.peers; \
 	{ printf 'HTTP PORT: $(JM_HPORT)\nHTTP USER: a\nHTTP PASS: a\nHTTP TITLE: mcs-jm\nTELNET PORT: $(JM_TPORT)\nTELNET USER: a\nTELNET PASS: a\nDCW STATS: ON\n'; \
 	   printf 'CACHE PORT: $(JM_CACHE)\nCACHE FILTER: OFF\n'; \
@@ -4548,7 +4548,7 @@ PM_CFG    = .pm-srv.cfg
 .PHONY: pm
 pm:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(PM_CFG) .pm-srv.log .pm-a.log .pm-b.log .pm-cli.log; \
 	{ printf 'HTTP PORT: $(PM_HPORT)\nHTTP USER: a\nHTTP PASS: a\nHTTP TITLE: mcs-pm\nTELNET PORT: $(PM_TPORT)\nTELNET USER: a\nTELNET PASS: a\nDCW STATS: ON\n'; \
 	   printf 'CACHE PORT: $(PM_CACHE)\nCACHE FILTER: OFF\n\n'; \
@@ -4576,7 +4576,7 @@ pm:
 	wall_ms=$$(( (t1 - t0) / 1000000 )); cpu_ms=$$(( (utime1 - utime0) * 10 )); \
 	echo "PM: binary=$(BIN)"; \
 	echo "PM: delivered=$$deliv/100  wall_ms=$$wall_ms  pushes_applied=$$pushes  cpu_ms=$$cpu_ms  rss_hwm_kb=$${hwm1:-?}  queue_dropped=$$qtally"; \
-	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; 
+	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; 
 	@echo "PM: logs kept under tests/.pm-*"
 
 # ---------------------------------------------------------------------------
@@ -4928,3 +4928,46 @@ oh:
 	if [ "$$code2" = "200" ]; then echo "  [ ok ] the next request still answers 200"; else echo "[FAIL] the next request answered $$code2"; ok=0; fi; \
 	kill $$(cat .oh.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .oh.pid) 2>/dev/null; pkill -9 '^multics' 2>/dev/null; rm -f .oh.pid .oh.cfg; \
 	if [ "$$ok" = "1" ]; then echo "oh: 3/3 ok"; else echo "oh: FAILED"; exit 1; fi
+
+# ---------------------------------------------------------------------------
+# tl1 -- the telnet console, before any credential is read: a one-byte line.
+#
+# parse path: telnet.c reads with recv(), then tests buf[len-2]/buf[len-1] for
+# CRLF. A single byte used to reach that test and read buf[-1] (one byte below
+# the stack buffer), and had buf[-1] held 0x0d it would then have written
+# buf[-2] = 0. R13 (D67) refuses len<2 with the same rule recv() already had.
+#
+# This target sends exactly one byte, asserts the server survives it and its
+# log carries no crash marker, then sends a well-formed line to prove the
+# console still answers -- the fix must not turn into a mute console.
+#
+# Ports: HTTP 16998, telnet 16999, newcamd 17000 (a profile is mandatory).
+# ---------------------------------------------------------------------------
+TL1_HPORT = 16998
+TL1_TPORT = 16999
+TL1_NPORT = 17000
+
+.PHONY: tl1
+
+tl1:
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@printf 'HTTP PORT: $(TL1_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nTELNET PORT: $(TL1_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n\n' > .tl1.cfg; \
+	printf '[ tl1 ]\nNEWCAMD PORT: $(TL1_NPORT)\nUSER: u1 p1\n' >> .tl1.cfg; \
+	rm -f .tl1-srv.log; \
+	$(BIN) -C .tl1.cfg > .tl1-srv.log 2>&1 & echo $$! > .tl1.pid; \
+	code=000; for i in $$(seq 1 25); do \
+	  code=$$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(TL1_HPORT)/); \
+	  [ "$$code" = "200" ] && break; sleep 1; done; \
+	ok=1; \
+	if [ "$$code" = "200" ]; then echo "  [ ok ] the server answers 200 before the probe"; else echo "[FAIL] HTTP / answered $$code before the probe"; ok=0; fi; \
+	one=$$(python3 -c "import socket; s=socket.create_connection(('127.0.0.1',$(TL1_TPORT)),5); s.sendall(b'\n'); s.close(); print('sent')" 2>&1); \
+	if [ "$$one" = "sent" ]; then echo "  [ ok ] a single-byte line was delivered to the telnet console"; else echo "[FAIL] could not deliver the one-byte line: $$one"; ok=0; fi; \
+	sleep 1; \
+	alive=0; kill -0 $$(cat .tl1.pid) 2>/dev/null && alive=1; \
+	if [ "$$alive" = "1" ]; then echo "  [ ok ] the server survived a line that cannot be CRLF-terminated"; else echo "[FAIL] the server died on the one-byte line"; ok=0; fi; \
+	if grep -qi "segmentation\|SIGSEGV\|AddressSanitizer\|stack-buffer" .tl1-srv.log; then echo "[FAIL] the server log shows a crash marker"; ok=0; fi; \
+	good=$$(python3 -c "import socket; s=socket.create_connection(('127.0.0.1',$(TL1_TPORT)),5); s.recv(200); s.sendall(b'admin\r\n'); s.recv(200); s.sendall(b'admin\r\n'); s.settimeout(5); d=s.recv(400); s.close(); print('answered' if b'help' in d else 'silent: '+repr(d[:40]))" 2>&1 | tail -1); \
+	if [ "$$good" = "answered" ]; then echo "  [ ok ] and a well-formed login still gets the console (the fix is not a mute)"; else echo "[FAIL] the console did not answer a proper login: $$good"; ok=0; fi; \
+	kill $$(cat .tl1.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .tl1.pid) 2>/dev/null; pkill -9 '^multics' 2>/dev/null; rm -f .tl1.pid .tl1.cfg; \
+	if [ "$$ok" = "1" ]; then echo "tl1: 4/4 ok"; else echo "tl1: FAILED"; exit 1; fi

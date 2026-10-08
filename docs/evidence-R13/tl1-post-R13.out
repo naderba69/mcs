@@ -1,0 +1,5 @@
+  [ ok ] the server answers 200 before the probe
+  [ ok ] a single-byte line was delivered to the telnet console
+  [ ok ] the server survived a line that cannot be CRLF-terminated
+  [ ok ] and a well-formed login still gets the console (the fix is not a mute)
+tl1: 4/4 ok

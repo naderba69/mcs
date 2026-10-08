@@ -92,6 +92,10 @@ void *telnetprocess(int *param )
 
 	len = recv( fd, buf, sizeof(buf), MSG_NOSIGNAL);
 	if (len<=0) { close(fd); return NULL; }
+	/* TASK R13 (D67): len==1 used to reach the CR/LF test below and read
+	 * buf[-1]; with buf[-1]==0x0d it would even have written buf[-2] = 0.
+	 * One byte cannot be CRLF-terminated, so refuse it here. */
+	if (len<2) { close(fd); return NULL; }
 	//printf(" Received(%d): '%s'\r\n", len, buf);
 	if ( (buf[len-2]!='\r')||(buf[len-1]!='\n') )  { close(fd); return NULL; }
 	buf[len-2] = 0;
@@ -111,6 +115,10 @@ void *telnetprocess(int *param )
 	writes(fd, "Password: ");
 	len = recv( fd, buf, sizeof(buf), MSG_NOSIGNAL);
 	if (len<=0) { close(fd); return NULL; }
+	/* TASK R13 (D67): len==1 used to reach the CR/LF test below and read
+	 * buf[-1]; with buf[-1]==0x0d it would even have written buf[-2] = 0.
+	 * One byte cannot be CRLF-terminated, so refuse it here. */
+	if (len<2) { close(fd); return NULL; }
 	//printf(" Received(%d): '%s'\r\n", len, buf);
 	if ( (buf[len-2]!='\r')||(buf[len-1]!='\n') )  { close(fd); return NULL; }
 	buf[len-2] = 0;
@@ -130,6 +138,10 @@ void *telnetprocess(int *param )
 		writes(fd, "\r\n[command]: ");
 		len = recv( fd, buf, sizeof(buf), MSG_NOSIGNAL);
 		if (len<=0) { close(fd); return NULL; }
+	/* TASK R13 (D67): len==1 used to reach the CR/LF test below and read
+	 * buf[-1]; with buf[-1]==0x0d it would even have written buf[-2] = 0.
+	 * One byte cannot be CRLF-terminated, so refuse it here. */
+	if (len<2) { close(fd); return NULL; }
 		//printf(" Received(%d): %s", len, buf);
 		if ( (buf[len-2]!='\r')||(buf[len-1]!='\n') )  { close(fd); return NULL; }
 		buf[len-2] = 0;
@@ -508,6 +520,9 @@ void *telnet_thread(void *param)
 						 * the source address. Same wire behavior when both
 						 * are off. */
 						struct telnet_conn_data *param = malloc( sizeof(struct telnet_conn_data) );
+						/* TASK R13 (D67): same unchecked-allocation pattern as the HTTP
+						 * accept path above; drop the connection instead of dereferencing. */
+						if (!param) { close( clientsock ); continue; }
 						param->fd = clientsock;
 						param->ip = client_addr.sin_addr.s_addr;
 						if ( !create_thread(&cli_tid, (threadfn)telnetprocess,param) ) {

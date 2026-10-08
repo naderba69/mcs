@@ -3276,6 +3276,91 @@ warnings stay, deliberately documented with file:line. `src/cw1cycle`,
 missing CI are enumerated with priorities in `docs/REPORT-R13-ar.md`
 (O1-O27, M1-M30). `.gitignore` added (build outputs and rig scratch; the
 real `tests/multics-*.cfg` files are verified not ignored).
+**Addendum 5, same round (R13/D67) -- the memory-check path was dead twice
+over.** `make -C make-x64 memcheck` is the path R4's decision cites as
+"exits 0". It could not run at all: the five scripts the rigs invoke
+(`memcheck.sh`, `soak.sh`, `docrefs.sh`, `autelnet.py`, `cedcw.py`) are
+tracked as mode 100644, so `./memcheck.sh` answered "Permission denied"
+(Error 127) from a clean checkout -- and `tests/Makefile:34` already had a
+`chmod +x soak.sh` patch with the telling comment "a restored workspace can
+lose the exec bit", i.e. the disease was known and treated one target at a
+time. The bits are fixed in the index now (100755). Underneath that,
+`memcheck.sh` carried its own copy of the link's source list and had gone
+stale -- it stopped at `main.c`, so the ASan/TSan/valgrind live server could
+not link once `loginthrottle.o`, `peerrep.o`, `cwconsensus.o` and
+`monjson.o` joined the build (`undefined reference to peerrep_save ...`).
+There is now one source of truth: a `print-srcs` target in `make-x64/Makefile`
+derives the list from the same `OBJECTS` the release links, and `memcheck.sh`
+asks for it. Measured on a copy of the tree (the R4 logs stay untouched):
+**ASan+UBSan 36/36 and TSan 36/36 on the units, the live server clean under
+ASan (`races=0`) and carrying the eleven already-recorded TSan races that
+D49 treats as a decision rather than a failure.** Only the valgrind leg
+cannot run here -- the tool is not installed (`env: 'valgrind': No such file
+or directory`, rc=127) -- so R4's "exits 0" claim is verified for the
+sanitizers and left explicitly unverified for valgrind (M40).
+
+**Addendum 4, same round (R13/D67) -- one byte on the telnet port, and the
+noise that hid the warnings.** The HTTP fix in addendum 2 sent the sweep
+looking for the same shape elsewhere, and `src/telnet.c` had it three times:
+`recv()` then `buf[len-2]`/`buf[len-1]` with no guard for `len==1`, so a
+single byte (before any credential is read) made the login path read
+`buf[-1]`, and had that byte been 0x0d it would have written `buf[-2] = 0`.
+A `len<2` refusal now sits next to the existing `len<=0` at all three sites,
+and a new live target `tl1` (stability.mk:4933-4974, wired into `all`) sends
+exactly one byte, asserts the server survives with a clean log, then logs in
+properly to prove the console was not muted (4/4,
+`docs/evidence-R13/tl1-post-R13.out`). The same walk found two unchecked
+allocations in the accept paths (`httpserver.c:8008`, `telnet.c:522`) --
+`malloc()` followed by `->` with no test; both now close the connection on
+failure. Separately, the build was answering two C++-only options
+(`-fpermissive`, `-Wno-return-mismatch`) in a C build and printing 48 cc1
+lines per flavour over the 12 real warnings -- noise four times the signal,
+which is how a warning stops being read. The options are gone from
+`make-x64/Makefile` (the same cleanup in `make-cross` is M37, unverifiable
+here without a cross toolchain). That also made the unit build's own twelve
+warnings visible, and a line-by-line pass found exactly one real item in
+them -- `peerrep.c:37 stage_name()` is dead code, marked and listed for
+deletion -- plus two deliberate truncation tests worth keeping and four
+cosmetic false positives now written clean. Final state: every flavour exits
+0 with exactly 12 warnings, all `-Waddress-of-packed-member`; `make test`
+1352 ok, 2 intended warnings; wing 52 targets.
+
+**Addendum 3, same round (R13/D67) -- cleanup could not see its own server.**
+Fifteen recipes in `tests/stability.mk` ended a server with
+`pkill -9 -x multics`. Linux truncates the process name to 15 characters, so
+the shipped flavours appear as `multics-r82a-st` / `multics-r82a-qu` and the
+exact match killed nothing -- proved live: with the server answering 200,
+`pkill -9 -x multics` returned 1 and the process survived, while
+`pkill -9 '^multics'` returned 0 and killed it
+(`docs/evidence-R13/pkill-comm-live.log`). Three of those recipes clean up
+targets that run a shipped binary (`cy`, `jm`, `xe`), so a leftover server
+keeps the fixed port and the next target queries a server that never read its
+config: a false failure, or worse a false pass. All 17 occurrences now match
+by prefix; the same prefix rule fixed the `preflight` guard one addendum ago.
+
+**Addendum 2, same round (R13/D67) -- the wing is not parallel-safe.** Running
+`make -k all` while the focused nine-target loop was also running produced a
+`[FAIL]` that did not exist (target `cy`, on a tree whose `cy` passes 8/8 when
+run alone); the raw excerpt is kept in
+`docs/evidence-R13/concurrency-collision.log`. Every target here binds fixed
+ports (cy 16400-16410, ce 15700-15703, oh 16996/16997, pq 15900/15901 ...) and
+writes fixed work files (`.cyc.cfg`, `.cyc-srv.log`, ...), so two runs
+corrupt each other instead of merely being slow -- that teaches an engineer
+to treat FAILs as noise, which is worse than not having the rig. A second
+run of the same wing was later disturbed by a stray `pkill` during the
+preflight test, hitting `cachecw`; it too was re-run alone and passes.
+`preflight` is now the first prerequisite of `all` and refuses to start when
+a MultiCS server is already alive; a per-target lock is still worth having
+(M33). The first version of that check matched `comm` exactly and was blind
+to the shipped binaries -- `comm` is truncated to 15 characters, so
+`bin/multics-r82a-stats-x64` appears as `multics-r82a-st` and slips past a
+`grep -cx multics` (measured live, PREFLIGHT_RC=0 with the server running).
+The check now matches the prefix `^multics` and was re-verified on a real
+server process in the middle of the wing run (exit 2, refusal), see
+`docs/evidence-R13/preflight-live.log`. Any process-name matching in this
+project has to be prefix-based for the same reason. The frozen side-by-side is: wing 51 targets, loop targets
+69 checks, ce 10, oh 3, unit 1352.
+
 
 **Addendum, same round (R13/D67) -- the rest of what the sweep found and
 fixed.** (1) The one-byte stack overrun in the HTTP header reader:
@@ -3315,8 +3400,10 @@ NOT ignored because the shipped binaries are tracked and pinned.
 recovered test sources, the two `queue` flavours that had never been
 pinned since R6, this round's documents and `docs/evidence-R13/`;
 `md5sum -c MANIFEST-md5` exits 0. Final fingerprints: stock
-`9bb6a247...`, stats `aaca87bf...`, queue `1c0ab4f7...`, queue-stats
-`45477482...`, dev `904d2e49...` (the earlier `88a3bf29` family in
-STATUS belonged to the intermediate build of the same round -- the
-sources changed again when the four items above were fixed, and every
-flavour was rebuilt and re-hashed on the final tree).
+**superseded -- see addendum 4**: the sources changed again later in the
+same round (the telnet guard, the two checked allocations, the build-flag
+cleanup), so every flavour was rebuilt and re-hashed one last time and the
+final family is stock `5be15281...`, stats `0c0a5841...`, queue `a8e9b161...`,
+queue-stats `e325203d...`, dev `a0be49c6...` (REPORT-R13-ar.md §8.3). The
+`88a3bf29` family in STATUS and the `9bb6a247` family here are both
+intermediate builds of R13; only §8.3 is authoritative.

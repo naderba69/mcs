@@ -1,0 +1,41 @@
+# F20: memcheck.sh كان يحمل قائمة مصادر قديمة — إثبات قبل/بعد
+
+## قبل الإصلاح (في نسخة من الشجرة، /tmp/mc)
+$ cd /tmp/mc/make-x64 && ./memcheck.sh live
+== short live session ==
+LINK FAIL x64/mem-asan/multics
+/usr/bin/ld: .../src/clustredcache.c:1048: undefined reference to `peerrep_save'
+/usr/bin/ld: .../src/clustredcache.c:1847: undefined reference to `peerrep_stage'
+/usr/bin/ld: .../src/clustredcache.c:1856: undefined reference to `cwconsensus_verdict'
+...
+(السبب: السطر 102 في السكربت كان قائمة صلبية تنتهي عند main.c، والوحدات
+ loginthrottle/peerrep/cwconsensus/monjson دخلت البناء بعد R4 ولم تُضَف إليها)
+
+## بعد الإصلاح: القائمة تُشتق من البناء نفسه
+make-x64/Makefile: هدف print-srcs جديد:
+	print-srcs:
+		@printf '%s\n' '$(patsubst %.o,%.c,$(notdir $(OBJECTS)))'
+memcheck.sh:102-105:
+	srcs=$(make -s print-srcs)
+
+$ cd /tmp/mc/make-x64 && ./memcheck.sh live
+built x64/mem-asan/multics
+built x64/mem-tsan/multics
+  ok asan empty-config refused (rc=1)
+  ok asan live HTTP / and /profiles, tool rc=143, races=0
+  ok tsan empty-config refused (rc=1)
+  ok tsan live HTTP / and /profiles, tool rc=143, races=11
+  TSan data races recorded in ../docs/memcheck-4.1/tsan-races.txt (D49, not a failure)
+  FAIL valgrind ... rc=127
+env: 'valgrind': No such file or directory   <-- الأداة غير مثبَّتة في هذه البيئة
+
+## وبناء الوحدات تحت الفاحصين (memcheck units)
+asan: 36 passed, 0 failed
+tsan: 36 passed, 0 failed
+valgrind: 0 passed, 36 failed   (نفس السبب: valgrind غير موجود)
+
+## ملاحظة شفافية (أمانة الأدلة)
+أول تجربة لتحقّق البتّة التنفيذية (F19) جرت في الشجرة نفسها بأمر `timeout 20 make -C make-x64 memcheck`،
+فبدأ `memcheck.sh` قبل أن يقطعه الوقت وكتب ملفات في `docs/memcheck-4.1/` (دليل R4).
+أُعيد المجلد بأكمله من git (`git checkout -- docs/memcheck-4.1/` + `git clean -f`)، وتأكّد أن `git status` نظيف له،
+ثم أُجريت **كل** القياسات اللاحقة (units وlive) في نسخة من الشجرة في `/tmp/mc` — ولم تُمَسّ أدلة R4 بعد الاستعادة.

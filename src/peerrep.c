@@ -34,6 +34,10 @@ static int  pr_th_ban      = 50;
 
 /* ------------------------------------------------------------------ */
 
+/* TASK R13 (D67): dead code -- nothing calls it (monjson.c has its own
+ * mj_stagename). The unit build's -Wall caught it; kept, marked, and listed
+ * for deletion in REPORT-R13-ar.md. */
+__attribute__((unused))
 static const char *stage_name(int st)
 {
 	switch (st) {
@@ -154,8 +158,10 @@ int peerrep_load(void)
 						struct peerrep_rec *r = &pr_tab[pr_count++];
 						r->ip = ip; r->port = (uint16_t)port;
 						r->stage = stage; r->events = events;
-						strncpy(r->lastreason, reason, PEERREP_REASON_MAX-1);
-						r->lastreason[PEERREP_REASON_MAX-1] = 0;
+						/* R13 (D67): snprintf instead of strncpy: same truncation,
+						 * but -Wstringop-truncation stops flagging a terminator
+						 * that the next line wrote anyway. */
+						snprintf(r->lastreason, PEERREP_REASON_MAX, "%s", reason);
 						loaded++;
 						continue;
 					}

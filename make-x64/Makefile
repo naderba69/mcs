@@ -29,12 +29,15 @@ include ../src/Makefile
 .DEFAULT_GOAL := link
 
 # Compatibility flags (see port_gnu89.h for the full rationale)
-PORTFLAGS = -include port_gnu89.h -std=gnu89 -fpermissive -fcommon \
+# R13 (D67): the C++-only options (-fpermissive, -Wno-return-mismatch) are gone;
+# this is a C build, so gcc only answered them with two lines of cc1 noise per
+# object (48 lines per flavour) that buried the real warnings.
+PORTFLAGS = -include port_gnu89.h -std=gnu89 -fcommon \
 	-fno-strict-aliasing -Wno-implicit-function-declaration \
 	-Wno-int-conversion -Wno-incompatible-pointer-types \
 	-Wno-builtin-declaration-mismatch -Wno-stringop-overread \
 	-Wno-stringop-truncation -Wno-format-truncation -Wno-unused-result \
-	-Wno-pointer-sign -Wno-deprecated-declarations -Wno-return-mismatch \
+	-Wno-pointer-sign -Wno-deprecated-declarations \
 	-Wno-implicit-int -Wno-unused-but-set-variable -Wno-unused-variable \
 	-Wno-implicit-fallthrough -Wno-dangling-pointer -Wno-array-bounds \
 	-Wno-shift-count-overflow -Wno-format
@@ -379,7 +382,7 @@ x64/test_ledger: test_ledger.c ../src/ledger.h
 ASAN_LIBS = $(filter-out $(OUTPUT)/main.o,$(filter-out $(OUTPUT)/parser.o,$(filter-out $(OUTPUT)/config.o,$(OBJECTS))))
 x64/multics-asan: ../src/main.c ../src/parser.c ../src/config.c $(ASAN_LIBS)
 	@mkdir -p x64
-	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -o $@ ../src/main.c ../src/parser.c ../src/config.c $(ASAN_LIBS) -lpthread
+	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -o $@ ../src/main.c ../src/parser.c ../src/config.c $(ASAN_LIBS) -lpthread
 
 # TASK 3.9: direct ASan probe for xmlescape's frame. Links the REAL
 # httpserver TU (ASan-instrumented, its xmlescape renamed real_xmlescape)
@@ -388,9 +391,9 @@ x64/multics-asan: ../src/main.c ../src/parser.c ../src/config.c $(ASAN_LIBS)
 XE_PROBE_LIBS = $(filter-out $(OUTPUT)/httpserver.o,$(filter-out $(OUTPUT)/main.o,$(OBJECTS)))
 x64/probe_xmlescape: ../src/httpserver.c ../src/main.c probe_xmlescape.c $(XE_PROBE_LIBS)
 	@mkdir -p x64
-	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -Dxmlescape=real_xmlescape -c ../src/httpserver.c -o x64/httpserver-xe.o
+	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -Dxmlescape=real_xmlescape -c ../src/httpserver.c -o x64/httpserver-xe.o
 	$(CC) -O1 -g -m64 -fsanitize=address -fsanitize-recover=address -o x64/probe-xe-main.o -c probe_xmlescape.c
-	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -Dmain=multics_main -c ../src/main.c -o x64/main-xe.o
+	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -Dmain=multics_main -c ../src/main.c -o x64/main-xe.o
 	$(CC) -fsanitize=address -fsanitize-recover=address -o $@ x64/probe-xe-main.o x64/httpserver-xe.o x64/main-xe.o $(XE_PROBE_LIBS) -lpthread
 
 # TASK 3.13: call the REAL cardsids_update. Production main.c, main()
@@ -433,6 +436,15 @@ distclean:
 print-cflags:
 	@printf '%s\n' '$(CFLAGS)'
 
+# R13 (D67): the source list of the linked server, straight from OBJECTS
+# (which the upstream Makefile owns). memcheck.sh used to carry its own copy
+# of that list and had silently gone stale: it stopped at main.c, so the
+# ASan/TSan/valgrind live server could not link at all once peerrep.o,
+# cwconsensus.o, monjson.o and loginthrottle.o joined the build. One source
+# of truth, and it can never drift again.
+print-srcs:
+	@printf '%s\n' '$(patsubst %.o,%.c,$(notdir $(OBJECTS)))'
+
 # Official memory checks. Not part of `make test`: sanitizers and
 # valgrind are a separate, slower target.
 memcheck:
@@ -452,4 +464,4 @@ x64/probe_parsequotes: probe_parsequotes.c ../src/parser.c ../src/parser.h
 	@mkdir -p x64
 	$(CC) -O1 -g -m64 -std=gnu89 -fpack-struct -fsanitize=address -o $@ probe_parsequotes.c ../src/parser.c
 
-.PHONY: link test distclean release release-stats print-cflags memcheck
+.PHONY: link test distclean release release-stats print-cflags print-srcs memcheck

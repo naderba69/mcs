@@ -99,7 +99,10 @@ compile_server() {
 	extra=$2
 	mkdir -p "$dest"
 	base=$(make -s print-cflags | sed 's/-O2/-O1 -g -fno-omit-frame-pointer/')
-	srcs="sha1.c des.c md5.c aes.c dcw.c convert.c tools.c debug.c parser.c ipdata.c threads.c sockets.c msg-newcamd.c msg-cccam.c msg-radegast.c config.c ecmdata.c httpserver.c telnet.c main.c"
+	# R13 (D67): the list comes from the build itself (make print-srcs) --
+	# the hard-coded copy here had gone stale and the live server no longer
+	# linked. print-srcs walks the same OBJECTS list the release link uses.
+	srcs=$(make -s print-srcs)
 	for s in $srcs; do
 		# shellcheck disable=SC2086
 		if ! gcc $extra $base -w -c "../src/$s" -o "$dest/${s%.c}.o" >"$LOG/srv-${dest##*/}-${s}.log" 2>&1; then

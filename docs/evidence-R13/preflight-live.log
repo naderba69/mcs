@@ -1,0 +1,16 @@
+# حارس preflight (F15): الاختبار الحيّ أثناء تشغيل الجناح
+#
+# 1) النمط الأول (grep -cx multics) فشل في كشف الخادم الحيّ:
+#    العملية كانت: multics-r82a-st   (../dist/multics-r82a-stats-x64 -C .dt.cfg -v)
+#    اسم العملية (comm) يُقتطع إلى 15 حرفاً، فـ -x multics لا يطابقه → الحارس صامت وهو مطلوب.
+#    النتيجة المقيسة: PREFLIGHT_RC=0 بينما الخادم يعمل.
+#
+# 2) النمط المُصلَح (ps -eo comm= | grep -c '^multics') على الخادم الحيّ نفسه:
+#    live multics-like procs: 1
+#    multics-r82a-st
+#    refusing to start: 1 multics process(es) already running -- another wing is probably active
+#    stop it first, or run the single target you want
+#    make: *** [Makefile:24: preflight] Error 1   →  PREFLIGHT_RC_LIVE=2
+#
+# ملاحظة: الخادم المذكور كان جزءاً من تشغيل الجناح الفعلي (هدف dt)، أي أن الحارس مُختبَر
+# على العملية الحقيقية لا على محاكاة. بعد انتهاء الهدف يختفي الخادم فيعود الحارس للسماح (0).

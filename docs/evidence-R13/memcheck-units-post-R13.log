@@ -1,0 +1,44 @@
+== unit tests ==
+compiling ASan+UBSan units
+compiling TSan units
+compiling valgrind units
+asan: 36 passed, 0 failed
+tsan: 36 passed, 0 failed
+  FAIL valgrind test_cache_purge
+  FAIL valgrind test_cache_relay
+  FAIL valgrind test_cache_threshold
+  FAIL valgrind test_cacheex_gates
+  FAIL valgrind test_cacheguard
+  FAIL valgrind test_cachepref
+  FAIL valgrind test_cachequeue
+  FAIL valgrind test_cfgfield
+  FAIL valgrind test_cw_reuse
+  FAIL valgrind test_cwcm
+  FAIL valgrind test_cwconsensus
+  FAIL valgrind test_cwcycle
+  FAIL valgrind test_cwentropy
+  FAIL valgrind test_cwlog
+  FAIL valgrind test_cwneg
+  FAIL valgrind test_cwplaus
+  FAIL valgrind test_cwtime
+  FAIL valgrind test_dcw
+  FAIL valgrind test_dcwfilter
+  FAIL valgrind test_dcwstats
+  FAIL valgrind test_dcwstruct
+  FAIL valgrind test_debugcore
+  FAIL valgrind test_htmlesc
+  FAIL valgrind test_ledger
+  FAIL valgrind test_loginthrottle
+  FAIL valgrind test_monjson
+  FAIL valgrind test_parser
+  FAIL valgrind test_peer_origin
+  FAIL valgrind test_peercard
+  FAIL valgrind test_peerrep
+  FAIL valgrind test_phase1cfg
+  FAIL valgrind test_retry_detect
+  FAIL valgrind test_rotation
+  FAIL valgrind test_trust
+  FAIL valgrind test_trustagg
+  FAIL valgrind test_trustlife
+valgrind: 0 passed, 36 failed
+MEMCHECK: findings recorded in ../docs/memcheck-4.1

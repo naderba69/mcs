@@ -8006,6 +8006,9 @@ void *http_thread(void *param)
 						//SetSocketNoDelay(clientsock);
 						pthread_t cli_tid;
 						struct connect_data *newdata = malloc( sizeof(struct connect_data) );
+						/* TASK R13 (D67): a failed allocation used to be dereferenced on
+						 * the next line (NULL->sock). Drop the connection instead. */
+						if (!newdata) { close(clientsock); continue; }
 						newdata->sock = clientsock; 
 						newdata->ip = client_addr.sin_addr.s_addr;
 						if (!create_thread(&cli_tid, (threadfn)gererClient, newdata)) {

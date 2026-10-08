@@ -132,8 +132,12 @@ static int cwcm_pairs(const uint8_t *cw)
 	int i, n = 0;
 
 	if (!cw) return 0;
-	for (i = 0; i < 6; i++)
-		if (cw[B[i]] == (uint8_t)~cw[A[i]]) n++;
+	for (i = 0; i < 6; i++) {
+		/* R13 (D67): via a uint8_t, as in dcwstruct.h -- the value is the
+		 * same, the comparison no longer trips -Wsign-compare. */
+		uint8_t inva = (uint8_t)~cw[A[i]];
+		if (cw[B[i]] == inva) n++;
+	}
 	return n;
 }
 

@@ -349,8 +349,12 @@ static inline unsigned dcwstruct_scan(const uint8_t *cw, int use_checksum, int u
 	{
 		int same = 1, inv = 1;
 		for (i = 0; i < 8; i++) {
+			/* R13 (D67): the complement goes through a uint8_t first --
+			 * gcc's -Wsign-compare fires on a promoted complement used
+			 * directly in a comparison (same value either way). */
+			uint8_t invb = (uint8_t)~cw[i];
 			if (cw[8 + i] != cw[i]) same = 0;
-			if (cw[8 + i] != (uint8_t)~cw[i]) inv = 0;
+			if (cw[8 + i] != invb) inv = 0;
 		}
 		if (same) m |= DCWS_HALVES;
 		if (inv)  m |= DCWS_INV;
