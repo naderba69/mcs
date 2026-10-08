@@ -1,0 +1,1793 @@
+make: Entering directory '/home/user/mcs/make-x64'
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_m1align test_m1align.c ../src/aes.c ../src/sha1.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cachequeue test_cachequeue.c ../src/cachequeue.c -lpthread
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwconsensus test_cwconsensus.c ../src/cwconsensus.c -lpthread
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_monjson test_monjson.c ../src/monjson.c -lpthread
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_peerrep test_peerrep.c ../src/peerrep.c -lpthread
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwlog test_cwlog.c ../src/cwlog.c -lpthread
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -DMCS_LT_NOGLOBALS -o x64/test_loginthrottle test_loginthrottle.c ../src/loginthrottle.c
+gcc -O2 -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fcommon -fno-strict-aliasing -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-builtin-declaration-mismatch -Wno-stringop-overread -Wno-stringop-truncation -Wno-format-truncation -Wno-unused-result -Wno-pointer-sign -Wno-deprecated-declarations -Wno-implicit-int -Wno-unused-but-set-variable -Wno-unused-variable -Wno-implicit-fallthrough -Wno-dangling-pointer -Wno-array-bounds -Wno-shift-count-overflow -Wno-format -DCLI_CSCACHE -DSRV_CSCACHE -DCHECK_NEXTDCW -DSID_FILTER -DNEWCACHE -DCCCAM_CLI -DRADEGAST_CLI -DCAMD35_CLI -DCS378X_CLI -DHTTP_SRV -DTELNET -DMGCAMD_SRV -DCCCAM_SRV -DCAMD35_SRV -DCS378X_SRV -DFREECCCAM_SRV -DEXPIREDATE -DDCWSWAP -DCACHEEX -DTHREAD_DCW -DMONOTHREAD_ACCEPT -DDEBUG_NETWORK -DMCS_SELFTEST -o x64/test_dcw test_dcw.c ../src/dcw.c
+gcc -O2 -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fcommon -fno-strict-aliasing -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-builtin-declaration-mismatch -Wno-stringop-overread -Wno-stringop-truncation -Wno-format-truncation -Wno-unused-result -Wno-pointer-sign -Wno-deprecated-declarations -Wno-implicit-int -Wno-unused-but-set-variable -Wno-unused-variable -Wno-implicit-fallthrough -Wno-dangling-pointer -Wno-array-bounds -Wno-shift-count-overflow -Wno-format -DCLI_CSCACHE -DSRV_CSCACHE -DCHECK_NEXTDCW -DSID_FILTER -DNEWCACHE -DCCCAM_CLI -DRADEGAST_CLI -DCAMD35_CLI -DCS378X_CLI -DHTTP_SRV -DTELNET -DMGCAMD_SRV -DCCCAM_SRV -DCAMD35_SRV -DCS378X_SRV -DFREECCCAM_SRV -DEXPIREDATE -DDCWSWAP -DCACHEEX -DTHREAD_DCW -DMONOTHREAD_ACCEPT -DDEBUG_NETWORK -o x64/test_dcwstats test_dcwstats.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cache_relay test_cache_relay.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -DMCS_DCWFILTER_NOGLOBALS -o x64/test_dcwfilter test_dcwfilter.c ../src/dcw.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_dcwstruct test_dcwstruct.c ../src/dcw.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwentropy test_cwentropy.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwtime test_cwtime.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwplaus test_cwplaus.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwcycle test_cwcycle.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwneg test_cwneg.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cwcm test_cwcm.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_trustagg test_trustagg.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cacheguard test_cacheguard.c
+In file included from test_cacheguard.c:20:
+In function 'cg_format_unknown',
+    inlined from 'main' at test_cacheguard.c:113:6:
+../src/cacheguard.h:136:17: warning: ' packet(s) in this window fr...' directive output truncated writing 63 bytes into a region of size 10 [-Wformat-truncation=]
+  136 |                 "CACHE GUARD: %lu packet(s) in this window from unconfigured "
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../src/cacheguard.h: In function 'main':
+../src/cacheguard.h:136:44: note: format string is defined here
+  136 |                 "CACHE GUARD: %lu packet(s) in this window from unconfigured "
+      |                                  ~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  137 |                 "senders -- last: a %s (%d) from %u.%u.%u.%u:%d; the cache "
+      |                 ~~~~~~~~~~~~~~~~~~~~        
+In function 'cg_format_unknown',
+    inlined from 'main' at test_cacheguard.c:113:6:
+../src/cacheguard.h:135:16: note: 'snprintf' output 212 bytes into a destination of size 24
+  135 |         return snprintf(line, (size_t)sz,
+      |                ^~~~~~~~~~~~~~~~~~~~~~~~~~
+  136 |                 "CACHE GUARD: %lu packet(s) in this window from unconfigured "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  137 |                 "senders -- last: a %s (%d) from %u.%u.%u.%u:%d; the cache "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  138 |                 "exchange runs between configured peers only, and stock dropped "
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  139 |                 "this before any layer saw it",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  140 |                 (unsigned long)window_count, cg_typename((uint8_t)type), type,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  141 |                 ip & 0xff, (ip >> 8) & 0xff, (ip >> 16) & 0xff, (ip >> 24) & 0xff,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  142 |                 port);
+      |                 ~~~~~
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_trustlife test_trustlife.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_htmlesc test_htmlesc.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_debugcore test_debugcore.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_phase1cfg test_phase1cfg.c
+In file included from test_phase1cfg.c:23:
+../src/statsline.h: In function 'statsline_format':
+../src/statsline.h:191:17: warning: ' flat (' directive output truncated writing 7 bytes into a region of size between 0 and 4 [-Wformat-truncation=]
+  191 |                 " !!! PHASE1 STATS: %us | struct %lu (%lu repeat%s suppressed)"
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+../src/statsline.h:198:45: note: format string is defined here
+  198 |                 " | timing %lu fast, %lu flat (%lu repeat%s suppressed)"
+      |                                         ~~~~^~~
+../src/statsline.h:190:13: note: 'snprintf' output between 750 and 1744 bytes into a destination of size 320
+  190 |         n = snprintf(out, (size_t)outlen,
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  191 |                 " !!! PHASE1 STATS: %us | struct %lu (%lu repeat%s suppressed)"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  192 |                 " | cache defer %lu"
+      |                 ~~~~~~~~~~~~~~~~~~~~
+  193 |                 " | purge %d live (%lu marked, %lu released, %lu expired)"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  194 |                 " | rotate %lu skipped, %lu refused, %lu below limit of %d"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  195 |                 " | trust %d source%s"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~
+  196 |                 " | agreement %lu agree, %lu dispute, %lu self, %lu proof, %lu unplaced"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  197 |                 " | keys %lu impossible, %lu near (same), %lu near (other)"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  198 |                 " | timing %lu fast, %lu flat (%lu repeat%s suppressed)"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  199 |                 " | shape %lu full, %lu one-group (%lu limited), %lu pattern%s"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  200 |                 " | cycle offered %lu (%lu marked, %lu contra)"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  201 |                 ", handed %lu (%lu stale, %lu unverified, %lu line%s)"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  202 |                 " | negative %lu live (%lu proven, %lu refused, %lu line%s)"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  203 |                 " | mirror %lu keys, %lu complement-built (%lu pattern%s)"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  204 |                 " | peertrust %lu peer%s, %lu below the line, %lu skipped"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  205 |                 " | cache guard %lu short, %lu unconfigured"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  206 |                 " | lifecycle %lu fine, %lu coarse, %lu negative restored, %lu bad"
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  207 |                 " | fade %lu, snapshots %lu ok, %lu failed",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  208 |                 (unsigned)(s->window_ms / 1000),
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  209 |                 s->struct_anomalous,
+      |                 ~~~~~~~~~~~~~~~~~~~~
+  210 |                 s->struct_suppressed, (s->struct_suppressed == 1) ? "" : "s",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  211 |                 s->deferrals,
+      |                 ~~~~~~~~~~~~~
+  212 |                 s->purge_live, s->purge_marked, s->purge_released, s->purge_expired,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  213 |                 s->rot_skipped, s->rot_capped, s->rot_below, s->rot_limit,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  214 |                 s->trust_live, (s->trust_live == 1) ? "" : "s",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  215 |                 s->agr_agree, s->agr_dispute, s->agr_self, s->agr_proof, s->agr_miss,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  216 |                 s->cwen_impossible, s->cwen_derived, s->cwen_foreign,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  217 |                 s->cwt_fast, s->cwt_flat, s->cwt_suppressed,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  218 |                 (s->cwt_suppressed == 1) ? "" : "s",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  219 |                 s->cwp_full, s->cwp_one_group, s->cwp_weak, s->cwp_reports,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  220 |                 (s->cwp_reports == 1) ? "" : "s",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  221 |                 s->cyc_keys, s->cyc_marked, s->cyc_contra,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  222 |                 s->cycs_keys, s->cycs_stale, s->cycs_unverif,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  223 |                 s->cyc_reports, (s->cyc_reports == 1) ? "" : "s",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  224 |                 s->neg_live, s->neg_marks, s->neg_hits,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  225 |                 s->neg_lines, (s->neg_lines == 1) ? "" : "s",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  226 |                 s->cm_keys, s->cm_mirror,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~
+  227 |                 s->cm_reports, (s->cm_reports == 1) ? "" : "s",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  228 |                 s->ta_peers, (s->ta_peers == 1) ? "" : "s",
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  229 |                 s->ta_below, s->ta_skipped,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  230 |                 s->cg_short, s->cg_unknown,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  231 |                 s->tl_fine, s->tl_coarse, s->tl_neg, s->tl_bad,
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  232 |                 s->tl_faded, s->tl_saves, s->tl_savefails);
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_ledger test_ledger.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_peer_origin test_peer_origin.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cache_threshold test_cache_threshold.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_peercard test_peercard.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_retry_detect test_retry_detect.c
+# -fpack-struct matches the real build; without it sizeof(entry) reads 48, not 45.
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_cw_reuse test_cw_reuse.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_trust test_trust.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_cache_purge test_cache_purge.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_rotation test_rotation.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -o x64/test_cachepref test_cachepref.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_parser test_parser.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o x64/test_cfgfield test_cfgfield.c
+gcc -O2 -m64 -Wall -Wextra -std=gnu89 -I../src -o x64/test_cacheex_gates test_cacheex_gates.c
+./x64/test_cachequeue
+test_cachequeue: the real bounded ring (TASK R6/D60, 256 slots x 512 bytes)
+  [ ok ] fresh ring: depth is zero                                      = 0
+  [ ok ] fresh ring: nothing counted as enqueued                        = 0
+  [ ok ] fresh ring: nothing counted as dropped                         = 0
+  [ ok ] a pop on an empty ring refuses                                 = 0
+  [ ok ] a NULL from or a NULL payload is refused                       = 1
+  [ ok ] a negative length and one past CQ_BUF are refused              = 1
+  [ ok ] those refusals are caller errors, not ring drops               = 0
+  [ ok ] the empty datagram itself is legal (len 0)                     = 1
+  [ ok ] the ring holds exactly one entry                               = 1
+  [ ok ] the pop returns that entry                                     = 1
+  [ ok ] the popped length is the pushed length                         = 0
+  [ ok ] a full CQ_BUF-byte datagram round-trips intact                 = 1
+  [ ok ] the source address survives the round trip                     = 1234
+  [ ok ] the opaque src pointer survives the round trip                 = 1
+  [ ok ] FIFO order is kept and the drained ring is empty               = 1
+  [ ok ] the ring fills to exactly CQ_SLOTS                             = 256
+  [ ok ] a push on the full ring is refused                             = 0
+  [ ok ] that refusal IS counted as a drop                              = 1
+  [ ok ] the refused push never counted as enqueued                     = 256
+  [ ok ] after one pop the freed slot accepts the next push             = 1
+  [ ok ] a drain returns exactly the queued entries                     = 256
+  [ ok ] an empty ring pops nothing and keeps its counters              = 1
+  [ ok ] cq_init clears the depth and both counters                     = 1
+== 23/23 passed, 0 failed ==
+
+./x64/test_cwconsensus
+== cwconsensus unit -- TASK R8 (D62) ==
+  [ ok ] first key one voter holds
+  [ ok ] hold counted
+  [ ok ] re-push from the same peer is still one vote
+  [ ok ] second distinct voter delivers early
+  [ ok ] delivered hold is not re-released
+  [ ok ] equal-weight later key is refused
+  [ ok ] the timing loser stays refused (sticky node)
+  [ ok ] the clean key beats the distrusted holder
+  [ ok ] the loser's bytes are reported for neutralizing
+  [ ok ] the winner's path refuses nobody
+  [ ok ] the convicted key stays refused
+  [ ok ] refusal counted once for the winner path
+  [ ok ] two clean voters beat one earlier key
+  [ ok ] no release before the window
+  [ ok ] the hold pops at window expiry
+  [ ok ] the release carries the channel and first voter
+  [ ok ] the release carries the held bytes
+  [ ok ] a popped hold never pops twice
+  [ ok ] release counted
+  [ ok ] a returning voter renews itself and wins the timing tie
+  [ ok ] the conflict stays decided, no crash
+  [ ok ] another sid is another world: no conflict
+  [ ok ] another tag is another request: no conflict
+  [ ok ] the follower's weight moved: the clean newcomer wins
+  [ ok ] the table held at least a full pass of requests
+
+== 25/25 passed, 0 failed ==
+
+./x64/test_monjson
+== monjson unit -- TASK R5 (D59) ==
+  [ ok ] escape passthrough intact = 0
+  [ ok ] escape specials mapped = 0
+  [ ok ] escape overflow: -1, NUL inside cap, canary intact = -1
+  [ ok ] escape exact fit works = 0
+  [ ok ] minimal doc braces = 715
+  [ ok ] version pinned = 0
+  [ ok ] uptime/now present = 0
+  [ ok ] dcwstats off = 0
+  [ ok ] all dcwstats names present = 10
+  [ ok ] peerrep off shape = 0
+  [ ok ] cache_peers empty = 0
+  [ ok ] comma discipline = 0
+  [ ok ] counters carried = 725
+  [ ok ] merge doc built = 1290
+  [ ok ] thresholds carried = 0
+  [ ok ] rep record fields = 0
+  [ ok ] orphan rep record kept = 0
+  [ ok ] peer row fields in order = 0
+  [ ok ] rep merged into matching row = 0
+  [ ok ] peer name escaped in row = 0
+  [ ok ] unmatched row stays empty = 0
+  [ ok ] comma discipline with data = 0
+  [ ok ] doc overflow: -1, empty body, canary intact = -1
+  [ ok ] overflow respected the cap = 0
+  [ ok ] 256-peer doc built = 43356
+  [ ok ] canaries untouched around 256-peer doc = 0
+
+== 26/26 passed, 0 failed ==
+
+./x64/test_peerrep
+-- 1. off by default: every gate passes, nothing is counted --
+  [ ok ] ask_ok passes
+  [ ok ] push_ok passes
+  [ ok ] note is a no-op
+  [ ok ] count is 0
+-- 2. the ladder climbs on confirmed events, upward only --
+  [ ok ] stage 0 for a stranger
+  [ ok ] event 1: no crossing
+  [ ok ] event 2: no crossing
+  [ ok ] ask_ok still allows
+  [ ok ] event 3: DISTRUST
+  [ ok ] ask_ok now refuses
+  [ ok ] push_ok still allows
+  [ ok ] events 4,5: quiet
+  [ ok ] event 6: ISOLATE
+  [ ok ] push_ok now refuses
+  [ ok ] events 7..9: quiet
+  [ ok ] event 10: BAN
+  [ ok ] the ladder never descends
+  [ ok ] stage reads BAN
+-- 3. the ledger is per peer: the innocent neighbour untouched --
+  [ ok ] other ip: gates open
+  [ ok ] other ip: no records
+  [ ok ] other ip: other port untouched
+-- 4. the file: atomic write, restart round-trip --
+  [ ok ] reload finds the record
+  [ ok ] stage survives
+  [ ok ] record identity
+  [ ok ] events exact
+  [ ok ] reason carried
+-- 5. corrupt lines are skipped, good lines load --
+  [ ok ] only the good line loads
+  [ ok ] the good record lives
+-- 6. an unset FILE derives from the config path --
+  [ ok ] load with derived path is safe (no file yet)
+  [ ok ] the derived file is found
+  [ ok ] its record applies
+-- 7. thresholds stay ordered however they are written --
+  [ ok ] distrust clamped >= 1
+  [ ok ] a mangled ladder still escalates monotonically
+
+== 33/33 passed, 0 failed ==
+
+./x64/test_cwlog
+test_cwlog: the real verdict ring (TASK R11/D65, cap 100)
+  [ ok ] the capacity is CWLOG_CAP                                      = 100
+  [ ok ] a fresh ring is empty                                          = 0
+  [ ok ] snapshot refuses a NULL buffer                                 = 0
+  [ ok ] snapshot refuses max <= 0                                      = 0
+  [ ok ] snapshot on an empty ring returns 0                            = 0
+  [ ok ] note records the row                                           = 1
+  [ ok ] snapshot returns it                                            = 1
+  [ ok ] the verdict is stored                                          = 0
+  [ ok ] the reason is stored                                           = 0
+  [ ok ] the caid is stored                                             = 6276
+  [ ok ] the provid is stored                                           = 1193046
+  [ ok ] the sid is stored                                              = 100
+  [ ok ] the tick is stored                                             = 4242
+  [ ok ] the peerid keeps its origin flags                              = 65537
+  [ ok ] all 16 cw bytes are stored                                     = 0
+  [ ok ] a NULL cw stores 16 zeros and a -1 source                      = 1
+  [ ok ] a verdict below the range is dropped                           = 2
+  [ ok ] a verdict above the range is dropped                           = 2
+  [ ok ] verdict names 0..3 read as the page prints them                = 1
+  [ ok ] an unknown verdict is named, never NULL                        = 1
+  [ ok ] reasons 0..9 are word-for-word the dcwstats names              = 1
+  [ ok ] the four ring-only reasons are named                           = 1
+  [ ok ] an unknown reason is named, never NULL                         = 1
+  [ ok ] three rows are live                                            = 3
+  [ ok ] snapshot returns them newest first (row 0 = last sid)          = 1
+  [ ok ] newest first: row 1 carries the middle sid                     = 161
+  [ ok ] newest first: row 2 carries the first sid                      = 160
+  [ ok ] the ring never grows past CWLOG_CAP                            = 100
+  [ ok ] the five oldest rows were evicted, not kept                    = 1
+  [ ok ] the newest row survived                                        = 9105
+  [ ok ] the oldest survivor is the 6th row written                     = 9006
+  [ ok ] a ring-only reason round-trips through storage                 = 1
+  [ ok ] snapshot respects max < count                                  = 3
+  [ ok ] snapshot can ask for more than is live                         = 100
+  [ ok ] reset forgets every row and keeps the capacity                 = 1
+  [ ok ] 200 threaded notes leave a full, bounded ring                  = 100
+  [ ok ] every row the flood left is intact and consistent              = 1
+== 37/37 passed, 0 failed ==
+
+./x64/test_loginthrottle
+-- 1. the pure schedule --
+  [ ok ] base 0 = off
+  [ ok ] fails 0 = nothing
+  [ ok ] 1st failure = base
+  [ ok ] 2nd = x2
+  [ ok ] 3rd = x4
+  [ ok ] 7th hits the cap
+  [ ok ] 20th stays at the cap
+  [ ok ] no overflow at fail 1000
+-- 2. the allowlist --
+  [ ok ] empty list passes anyone
+  [ ok ] add one
+  [ ok ] duplicate add is harmless
+  [ ok ] count stayed 1
+  [ ok ] listed ip passes
+  [ ok ] stranger refused
+  [ ok ] list filled to max
+  [ ok ] over the max refused
+  [ ok ] a listed member still passes
+-- 3. the failure table --
+  [ ok ] first failure counts 1
+  [ ok ] second counts 2
+  [ ok ] third counts 3
+  [ ok ] another ip is independent
+  [ ok ] a's delay follows its own count
+  [ ok ] success forgives
+  [ ok ] b untouched by a's success
+  [ ok ] a quiet slot starts from zero
+
+== 25/25 passed, 0 failed ==
+
+./x64/test_dcw
+== MultiCS dcw.c filter self-test ==
+
+-- basic sanity --
+  [ ok ] valid CSA-checksum CW is accepted              = 1
+  [ ok ] all-zero CW is rejected                        = 0
+  [ ok ] CW with corrupted checksum is rejected         = 0
+
+-- the fake-CW attack described in the r107 changelog --
+  [ ok ] XOR-0xF0 fake CW is rejected                   = 0
+
+-- legitimate CW shapes that the current filter may kill --
+  info : CW with 11 11 11 group -> isbadDCW=1 acceptDCW=0
+  [ ok ] CW containing three equal bytes is REJECTED (documents current bug) = 0
+  info : NDS half-nulled CW -> checksum=1 ishalfnulledcw=1 acceptDCW=1
+  [ ok ] NDS half-nulled CW survives acceptDCW          = 1
+  [ ok ] ishalfnulledcw detects a zeroed half           = 1
+
+-- similarcw() cycle detector --
+  [ ok ] similarcw flags 4/8 matching bytes             = 1
+
+-- TASK 3.14: the BAD-DCW list --
+  [ ok ] documented BAD-DCW key passes checksum         = 1
+  [ ok ] documented key accepted while the list is empty = 1
+  [ ok ] documented key rejected once listed            = 0
+  [ ok ] a key that is not listed still passes          = 1
+  [ ok ] clearing the list accepts the key again        = 1
+  [ ok ] a key inside the cap is still rejected         = 0
+  [ ok ] the 33rd key is not enforced                   = 1
+
+-- TASK 3.15: a profile may override the two gates --
+  [ ok ] a broken checksum is rejected while the gate is on = 0
+  [ ok ] checksum off accepts that key                  = 1
+  [ ok ] inherit still rejects it                       = 0
+  [ ok ] three equal bytes are rejected while the gate is on = 0
+  [ ok ] repeat off accepts that key                    = 1
+  [ ok ] checksum forced on still rejects               = 0
+  [ ok ] a null key stays rejected with both gates off  = 0
+
+== 22/22 passed, 0 failed ==
+
+./x64/test_dcwstats
+== Phase 4: dcw.c instrumentation ==
+
+-- 1. equivalence with unmodified r82a --
+  [ ok ] valid CSA-checksum CW                        = 1
+  [ ok ] all-zero CW                                  = 0
+  [ ok ] corrupted-checksum CW                        = 0
+  [ ok ] XOR-0xF0 fake CW                             = 0
+  [ ok ] three-equal-bytes CW                         = 0
+  [ ok ] NDS half-nulled CW                           = 1
+
+-- 2. decision matches the documented expectation --
+  [ ok ] valid CW accepted                            = 1
+  [ ok ] all-zero rejected                            = 0
+  [ ok ] corrupted checksum rejected                  = 0
+  [ ok ] XOR-0xF0 fake rejected                       = 0
+  [ ok ] three-equal-bytes rejected                   = 0
+  [ ok ] NDS half-nulled accepted                     = 1
+
+-- 3. counters are OFF by default (stock behaviour) --
+  [ ok ] no counter touched while disabled            = 0
+
+-- 4. attribution when enabled --
+  [ ok ] checksum rejections                          = 2
+  [ ok ] null rejections                              = 1
+  [ ok ] repeat rejections                            = 1
+  [ ok ] accepted                                     = 2
+
+-- 5. reason names used by telnet/web output --
+  [ ok ] all reason names resolve                     = 1
+
+-- 6. reset --
+  [ ok ] counters cleared                             = 0
+
+== 19/19 passed, 0 failed ==
+
+./x64/test_cache_relay
+== TASK 1.0b: GR10 cache re-push guard ==
+
+-- default config (CACHE FORWARD: OFF) --
+  [ ok ] peer fwd=0 is NOT relayed                            = 0
+  [ ok ] peer fwd=1 is NOT relayed                            = 0
+
+-- CACHE FORWARD: ON (operator opt-in / rollback path) --
+  [ ok ] peer fwd=0 IS relayed                                = 1
+  [ ok ] peer fwd=1 is NOT relayed                            = 0
+
+-- input robustness (the cfg field is an int, not a bool) --
+  [ ok ] forward=2 behaves as true                            = 1
+  [ ok ] negative forward is false                            = 0
+  [ ok ] src_fwd=2 behaves as true                            = 0
+
+-- truth table is exhaustive over both booleans --
+  [ ok ] nothing is relayed when FORWARD is off               = 0
+  [ ok ] exactly one case relays when FORWARD is on           = 1
+
+== 9/9 passed, 0 failed ==
+
+./x64/test_dcwfilter
+test_dcwfilter: real acceptDCW() gates (TASK 1.10b)
+  [ ok ] fixture clean passes r82a's checksum                 = 1
+  [ ok ] fixture clean is not a repeat                        = 0
+  [ ok ] fixture clean is not null                            = 0
+  [ ok ] fixture repeating DOES pass checksum                 = 1
+  [ ok ] fixture repeating IS a repeat                        = 1
+  [ ok ] fixture badchecksum fails checksum                   = 0
+  [ ok ] fixture badchecksum is not a repeat                  = 0
+  [ ok ] default: clean accepted                              = 1
+  [ ok ] default: repeating rejected (r82a)                   = 0
+  [ ok ] default: badchecksum rejected (r82a)                 = 0
+  [ ok ] repeat off: repeating now accepted                   = 1
+  [ ok ] repeat off: clean still accepted                     = 1
+  [ ok ] repeat off: badchecksum still rejected               = 0
+  [ ok ] checksum off: badchecksum now accepted               = 1
+  [ ok ] checksum off: clean still accepted                   = 1
+  [ ok ] checksum off: repeating still rejected               = 0
+  [ ok ] both off: all-zero CW still rejected                 = 0
+  [ ok ] half-null CW is not an all-null CW                   = 0
+  [ ok ] both off: half-null passes (setdcw.c handles it)     = 1
+== 19/19 passed, 0 failed ==
+./x64/test_dcwstruct
+test_dcwstruct -- TASK 1.8 structural pre-filters as soft signals
+  sizeof(struct dcwstruct_entry) = 56
+  -- the premises the rest of the suite rests on --
+  [ ok ] k_clean passes the upstream checksum test (guards the arithmetic that built it)
+  [ ok ] neither k_clean half is one repeated byte
+  [ ok ] neither k_clean half is a constant step
+  [ ok ] neither k_clean half is a two-value half
+  [ ok ] a clean key scans to zero: the fast path costs one pass and says nothing
+  -- one test at a time --
+  [ ok ] identical halves -> DCWS_HALVES and nothing else
+  [ ok ] inverted halves -> DCWS_INV (plus CHECKSUM: an inverted key can never satisfy it)
+  [ ok ] and with the checksum gate off, the inversion is the only bit left
+  [ ok ] three equal leading bytes -> DCWS_REPEAT only
+  [ ok ] the same key with the repeat filter off -> no bit at all: a disabled filter is not evidence
+  [ ok ] one repeated byte half -> DCWS_SAME (and REPEAT: 0x80 three times is a repeat too)
+  [ ok ] same key, repeat filter off -> DCWS_SAME survives on its own
+  [ ok ] a two-value half -> DCWS_LOWENT only, and not on the clean half
+  [ ok ] a constant-step half -> DCWS_MONO only
+  [ ok ] a bad checksum in one byte -> DCWS_CHECKSUM only
+  [ ok ] and with the checksum gate off, nothing at all
+  -- NDS half keys: a zero half is a shape, not an anomaly --
+  [ ok ] clean half + all-zero half -> no signal, so NDS keys cost nothing
+  [ ok ] the same half, zeroed and not zeroed, gives the same verdict: only the other half is judged
+  [ ok ] the zeroed half WOULD be DCWS_SAME -- which is exactly why the per-half tests skip it
+  [ ok ] and it does not leak into the mask through the cross-half tests either
+  -- which bits may move a score --
+  [ ok ] DCWS_REPEAT is excluded: at 1 in 16 000 random keys it would decay a healthy source on noise
+  [ ok ] the other six bits all count
+  [ ok ] a key whose ONLY finding is REPEAT produces no trust event at all
+  [ ok ] and a key with REPEAT plus a real anomaly produces exactly one event's worth of evidence
+  -- the log token --
+  [ ok ] no bits -> an empty string, not a stray separator
+  [ ok ] one bit -> MONO
+  [ ok ] two bits, in bit order, joined by +
+  [ ok ] all seven bits -> every name, in order
+  [ ok ] and the longest possible token is 43 characters
+  [ ok ] a short buffer is filled to the last byte and NUL-terminated, never overrun
+  -- repeat suppression --
+  [ ok ] a fresh table has suppressed nothing
+  [ ok ] first sighting of a key is reported
+  [ ok ] the same key, same source, same channel -> suppressed
+  [ ok ] and the suppression is counted, not silent
+  [ ok ] still arriving a window after it was last reported -> reported again, not silenced
+  [ ok ] the same key from a DIFFERENT source is a different fact (GR1)
+  [ ok ] and on a different channel it is a different fact too (GR4)
+  [ ok ] the same key re-judged differently after a filter change is new information
+  [ ok ] a different key from the same source is reported
+  [ ok ] a NULL table reports rather than swallows: a bug here must not hide evidence
+  -- the table is bounded and forgets the oldest --
+  [ ok ] the table takes DCWSTRUCT_SLOTS distinct keys
+  [ ok ] while they are all still remembered, they are all still suppressed
+  [ ok ] one more key still fits, by evicting the longest-unseen
+  [ ok ] the evicted entry is reported again rather than forgotten forever
+  [ ok ] the next oldest went when the table filled again
+  [ ok ] while an entry that was never the oldest stayed remembered
+  [ ok ] the whole table stays under a kilobyte (GR9: bounded, no allocation)
+
+== 47/47 passed, 0 failed ==
+
+./x64/test_cwentropy
+test_cwentropy -- TASK 2.2 entropy and collision forensics
+  sizeof(struct cwen_table) = 1560, struct cwen_match = 40
+  [ ok ] a key is at distance 0 from itself
+  [ ok ] a key and its complement are 128 bits apart
+  [ ok ] the clean key really does use 16 distinct values
+  [ ok ] the 5-value key really does use 5 distinct values
+  [ ok ] the 6-value key really does use 6 distinct values
+  [ ok ] the NDS-shaped key uses 6 distinct values (zero plus five)
+  [ ok ] popcount is right at both ends and in the middle
+  [ ok ] the null-half predicate sees exactly one null half here
+  [ ok ] the ring is a bounded, small object (GR9)
+  [ ok ] a clean key carries no entropy verdict
+  [ ok ] five distinct values in the whole key is LOWDIV
+  [ ok ] six distinct values is one above the threshold and stays silent
+  [ ok ] a legitimate NDS null half is never LOWDIV, however few values it uses
+  [ ok ] a NULL key is not evidence
+  [ ok ] the built neighbour is exactly 3 bits away
+  [ ok ] the first key of all has nothing to collide with
+  [ ok ] a 3-bit edit from the same source is a collision
+  [ ok ] and it is not attributed to another source
+  [ ok ] the reported distance is the real one, not an estimate
+  [ ok ] the reported age is the real one
+  [ ok ] the neighbour's identity is reported for the log
+  [ ok ] the neighbour's key is reported for the log
+  [ ok ] the neighbour's ECM identity is reported
+  [ ok ] the threshold itself is still a collision (<=)
+  [ ok ] and it reports the threshold distance
+  [ ok ] one bit past the threshold is a normal key, not a forgery
+  [ ok ] a near neighbour from another source is reported
+  [ ok ] but never as the attributable verdict
+  [ ok ] GR1 policy: the cross-source verdict is excluded from scoring by the mask itself
+  [ ok ] an identical key for a different ECM is recognised
+  [ ok ] and is not double-reported as a near collision
+  [ ok ] GR3 policy: the identical-key fact belongs to TASK 1.3, which already acts on it
+  [ ok ] a second key for the SAME ECM is the ledger's question, not this one's
+  [ ok ] re-pushing the same key for the same ECM does not fill the ring
+  [ ok ] with no ECM identity the collision tests cannot fire at all
+  [ ok ] but the entropy half still works without an identity
+  [ ok ] a neighbour exactly at the age limit still counts
+  [ ok ] one ms past the limit it does not
+  [ ok ] the closest neighbour is the one reported
+  [ ok ] the ring holds exactly CWEN_SLOTS entries when full
+  [ ok ] the overflow past the ring is counted, not ignored
+  [ ok ] 2000 unrelated honest keys produce no collision verdict at all
+  [ ok ] 2000 random keys produce no entropy verdict either
+  [ ok ] and every one of them was recorded
+  [ ok ] an empty mask renders as an empty string
+  [ ok ] every bit renders and the result is bounded
+  [ ok ] and the names are the ones the log line will print
+  [ ok ] two bits join with a plus, in bit order
+  [ ok ] a short buffer truncates the name instead of overflowing it
+  [ ok ] a one-byte buffer still produces a terminated empty string
+
+== 50/50 passed, 0 failed ==
+
+./x64/test_cwtime
+== TASK 2.3 -- card-server latency forensics ==
+
+-- 1. premises --
+  [ ok ] the window is the 16 replies the header documents
+  [ ok ] the flatness band is the measured 5 ms, not 1 and not 20
+  [ ok ] only FAST may move a score; FLAT is evidence for the log (GR3)
+  [ ok ] the two verdicts are separate bits
+  [ ok ] the table holds more sources than a real config has
+  sizeof(cwt_table) = 6912, cwt_slot = 108, cwt_evidence = 44
+  [ ok ] the whole table is a few KB, not a heap
+  [ ok ] init leaves an empty ring (and it is what .bss already held)
+-- 2. faster than a card can be --
+  [ ok ] floor 0 (the option off): a 0 ms reply says nothing
+  [ ok ] and nothing is reported
+  [ ok ] floor 20: a 0 ms reply is CWT_FAST
+  [ ok ] the first one is fresh, so it is reported
+  [ ok ] the evidence carries both numbers
+  [ ok ] the counters say 1 under the floor out of 2 measured
+  [ ok ] 19 ms with a 20 ms floor is still impossible
+  [ ok ] 20 ms with a 20 ms floor is not: the test is < floor
+  [ ok ] 21 ms is a normal reply and produces nothing at all
+  [ ok ] 64 honest replies (60-66 ms, 20 ms floor): zero verdicts
+  [ ok ] and the counters agree
+  [ ok ] the lifetime min/max are the real ones, not the window's
+-- 3. one report per source and channel per minute --
+  [ ok ] 200 impossible replies in one minute earn ONE log line
+  [ ok ] but the verdict is still formed on every reply
+  [ ok ] and every one of them is counted
+  [ ok ] the last call reports the verdict as well
+  [ ok ] a minute later it is said again
+  [ ok ] the same source on another SID is reported separately
+  [ ok ] and that one is then suppressed in its turn
+  [ ok ] a different PROVID is a different service
+  [ ok ] a second source gets its own first report
+  [ ok ] a negative source id is refused, not indexed
+  [ ok ] an id past the table is refused too
+  [ ok ] a NULL table is refused
+  [ ok ] and a NULL evidence pointer is allowed (the verdict is still formed)
+-- 4. a metronome is evidence, not proof --
+  [ ok ] the 15th identical reply is still not a flat window: it is not full yet
+  [ ok ] and the evidence says how full it is
+  [ ok ] the 16th makes it flat
+  [ ok ] the evidence names the window: 40..40 ms, one distinct value
+  [ ok ] a 1 ms spread over a full window is a metronome
+  [ ok ] and so is a 5 ms spread: the band is the measured noise floor
+  [ ok ] 6 ms is outside the band: that is a card, not a clock
+  [ ok ] a 20 ms spread is honest jitter and stays silent
+  [ ok ] CWT_DEGEN is not in the scoring mask (the whole point of the refusal)
+  [ ok ] once reported, a steady source does not repeat itself every reply
+  [ ok ] and it never becomes FAST: there is no floor
+  [ ok ] a source can be both fast and flat, and the name says so
+-- 5. what a real card looks like --
+  [ ok ] 200 jittery honest replies: not one verdict of any kind
+  [ ok ] a warming-up card is not a metronome
+  [ ok ] a steady 60 ms card is never FAST: 60 > the 20 ms floor
+  [ ok ] but it does look flat, which is why FLAT cannot score
+  [ ok ] and FLAT is not in the scoring mask
+  [ ok ] the first flat window is reported
+  [ ok ] and a different channel does not make the same server flat AGAIN
+  [ ok ] but after the window it is said once more
+  [ ok ] an absurdly large latency is not treated as fast
+  [ ok ] the steady source in slot 7 is judged on its own replies
+  [ ok ] and the jittery one in slot 8 is not tainted by it
+-- 6. the evidence --
+  [ ok ] the fifth impossible reply carries a verdict to format
+  [ ok ] the formatter produces a line
+  [ ok ] it names the source
+  [ ok ] it names the measurement and the floor it was judged against
+  [ ok ] it says how many replies the window holds
+  [ ok ] and how many of the source's replies were impossible (all five here)
+  [ ok ] and how regular the window is
+  [ ok ] a short buffer truncates cleanly and the return says so
+  [ ok ] a NULL buffer is refused, not written to
+  [ ok ] no verdict names itself 'none'
+  [ ok ] FAST names itself
+  [ ok ] DEGEN is shown as FLAT
+  [ ok ] and both together name both
+
+== 68/68 passed, 0 failed ==
+
+./x64/test_cwplaus
+TASK 2.4 -- plausibility scoring (cwplaus.h)
+  [ ok ] a key of the expected shape satisfies all four group sums
+  [ ok ] the documented forgery (last byte XORed) satisfies three of four
+  [ ok ] and so does the same trick on another group
+  [ ok ] a good key: 4/4, no verdict, and no group blamed
+  [ ok ] the last-byte forgery is ONE_GROUP and names group 4 -- not 'a group'
+  [ ok ] the second-group forgery names group 2: the verdict carries WHICH group
+  [ ok ] a NULL out-parameter is allowed (the verdict is still formed)
+  [ ok ] bad_group is 0 when nothing fails, so 0 can never mean group 0
+  [ ok ] noise produces a verdict
+  [ ok ] one forged key IS classified as ONE_GROUP
+  [ ok ] but it earns no report: one key is 1.52% likely on an honest bouquet
+  [ ok ] it is counted in the window: 1 of 1
+  [ ok ] and in the lifetime counter
+  [ ok ] with the failing group and the intact count in the evidence
+  [ ok ] key 1 of 3: still nothing reported
+  [ ok ] key 2 of 3: still nothing
+  [ ok ] key 3 of 3 (100% of the window): the pattern is claimed
+  [ ok ] and the evidence says 3 of 3, 100%
+  [ ok ] 3 forged keys spread through 26 (11%) never reach the 20% rate: a busy source is not accused
+  [ ok ] and the rate the line would print is 11%
+  [ ok ] while the key itself is still classified ONE_GROUP
+  [ ok ] two forged keys at 100% of the window are still not a pattern
+  [ ok ] three forged keys spread over two different groups are not ONE damaged byte: no report
+  [ ok ] they are still counted, so the operator sees the rate
+  [ ok ] a mixed window stays quiet even at 3 of 3
+  [ ok ] 200 forged keys inside one window earn exactly ONE report
+  [ ok ] while all 200 are counted (the rate stays truthful)
+  [ ok ] and the evidence says one report was made
+  [ ok ] after CWP_WINDOW the window rolls over: this key is key 1 of a fresh window
+  [ ok ] and one key in a fresh window is not a pattern
+  [ ok ] ten honest keys: 10 full, 0 one-group, no report
+  [ ok ] and nothing to say
+  [ ok ] forged key 1 of 11 (9%): classified, counted, silent
+  [ ok ] forged key 2 of 12 (16%): still under the 20% line, still silent
+  [ ok ] forged key 3 of 13 (23%) crosses the line and the pattern is claimed on THAT key
+  [ ok ] two sources with the same srctype keep separate windows
+  [ ok ] and the evidence names the source it belongs to
+  [ ok ] past CWP_SLOTS sources the newest source still gets a slot (the oldest is evicted)
+  [ ok ] and the slot really holds that source
+  [ ok ] a source arriving on a full table is tracked from its first key, not dropped
+  [ ok ] the evidence formats into a 512-byte buffer untruncated
+  [ ok ] the line names the source
+  [ ok ] and the channel it was serving (GR4)
+  [ ok ] and WHICH group is broken
+  [ ok ] and the count that convicted it
+  [ ok ] and the rate
+  [ ok ] and says in words that delivery is unchanged (GR8: no silent action)
+  [ ok ] into a 48-byte buffer the sentence truncates to exactly 47 characters
+  [ ok ] and a NULL buffer is refused rather than written to
+  [ ok ] evidence without a fresh verdict produces no line at all
+  [ ok ] the mask names are stable
+  [ ok ] ONE_GROUP is spelled the same everywhere
+  [ ok ] and combinations too
+  [ ok ] only ONE_GROUP may score; a key that never had the shape is not evidence
+  [ ok ] the pattern needs 3 keys and 20% of the window
+  [ ok ] four groups (dcw.c:35) and a 60 s window
+
+== 56/56 passed, 0 failed ==
+
+./x64/test_cwcycle
+test_cwcycle
+  [ ok ] tag==cw1cycle(0x81) expects CW1
+  [ ok ] tag!=cw1cycle(0x81) expects CW0
+  [ ok ] tag==cw1cycle(0x80) expects CW1
+  [ ok ] tag!=cw1cycle(0x80) expects CW0
+  [ ok ] a channel with no cw1cycle expects nothing
+  [ ok ] a bare tag against 0x81 expects CW0
+  [ ok ] marker 0 reads as nothing declared
+  [ ok ] marker CW0 reads as CW0
+  [ ok ] marker CW1 reads as CW1
+  [ ok ] marker 3 is garbage, not a declaration
+  [ ok ] a raw tag byte (0x80) is not a declaration
+  [ ok ] 0xFF is not a declaration
+  [ ok ] nothing expected, nothing declared: unjudged
+  [ ok ] expected half, undeclared key: unjudged
+  [ ok ] no expectation, declared key: unjudged
+  [ ok ] declared and equal: agree
+  [ ok ] declared and equal (CW0): agree
+  [ ok ] declared CW1 for a CW0 request: contradiction
+  [ ok ] declared CW0 for a CW1 request: contradiction
+  [ ok ] 200 agreeing keys earn no line at all
+  [ ok ] the counters still counted
+  [ ok ] an undeclared key is counted as offered, not as marked, and stays quiet
+  [ ok ] the first contradiction fires
+  [ ok ] the evidence marks itself as fired
+  [ ok ] the line carries what was expected and what arrived
+  [ ok ] one contradiction, one report
+  [ ok ] the marked counter moved with it
+  [ ok ] a second contradiction inside the window stays quiet
+  [ ok ] quiet evidence is still recorded
+  [ ok ] the count advances while the line is throttled
+  [ ok ] a contradiction in the next window fires again
+  [ ok ] the window rolled and the report counted
+  [ ok ] an offered contradiction names the offer side
+  [ ok ] the offer did not touch the hand-off counters
+  [ ok ] a stale hand-off counts on the hand-off counters, quiet inside the window
+  [ ok ] the next window names the hand-off side
+  [ ok ] a declared channel handed an undeclared key: unverified, not stale
+  [ ok ] a channel with no declared half is unjudged too, never stale
+  [ ok ] a contradictory hand-off on a new source fires immediately
+  [ ok ] two sources keep separate evidence
+  [ ok ] the second source's window is its own
+  [ ok ] a new source fits after eviction and stays quiet (agreeing)
+  [ ok ] the evicted source restarts from a clean window when it returns
+  [ ok ] no table: quiet, and the evidence says nothing was recorded
+  [ ok ] an unknown 'where' is tolerated (counted as an offer)
+  [ ok ] the note works with no evidence struct at all
+  [ ok ] format with no evidence writes nothing
+  [ ok ] the sentence renders
+  [ ok ] it names the layer
+  [ ok ] it names the source
+  [ ok ] it names the channel
+  [ ok ] it says which half was expected and which arrived
+  [ ok ] it says, in words, that nothing was done
+  [ ok ] it says what it is
+  [ ok ] it survives a short buffer, terminated
+  ----
+  55 ok, 0 failed
+
+./x64/test_cwneg
+test_cwneg
+  [ ok ] identical keys digest identically
+  [ ok ] one flipped bit changes the digest
+  [ ok ] the digest is deterministic
+  [ ok ] the first proof files as a fresh mark
+  [ ok ] re-proving the same key is not a fresh mark
+  [ ok ] and it did not occupy a second slot
+  [ ok ] the proven key is remembered
+  [ ok ] the first refusal fires its line
+  [ ok ] the evidence remembers WHO proved the key
+  [ ok ] the evidence remembers WHEN the proof was
+  [ ok ] the second offer is remembered too
+  [ ok ] and throttled: counted, no second line inside the window
+  [ ok ] the same bytes on another SID of the provider ARE suppressed
+  [ ok ] any SID of the same provider: suppressed
+  [ ok ] another provider is a different memory
+  [ ok ] another CAID is a different memory
+  [ ok ] a different key on the same channel is not suppressed
+  [ ok ] one edited byte makes it a different key, not a hit
+  [ ok ] a refusal after the window has rolled fires again
+  [ ok ] the counters carried over: 5 refusals, 2 lines
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] a proof files
+  [ ok ] the table filled
+  [ ok ] a new proof fits a full table (eviction, never refusal)
+  [ ok ] the touched key survived the eviction
+  [ ok ] the least recently touched key was the one evicted
+  [ ok ] and it re-files cleanly when its proof comes again
+  [ ok ] no table: no mark
+  [ ok ] no key: no mark
+  [ ok ] no table: no hit
+  [ ok ] no key: no hit
+  [ ok ] an unknown key is no hit, quietly
+  [ ok ] count of no table is 0
+  [ ok ] an all-zero key can be filed (it is a key like any other)
+  [ ok ] and it is remembered
+  [ ok ] the sentence renders
+  [ ok ] it names the layer
+  [ ok ] it names the channel
+  [ ok ] it states what the proof established
+  [ ok ] it names who proved it
+  [ ok ] it says how long ago
+  [ ok ] it states where the refusal happened
+  [ ok ] it numbers the refusal
+  [ ok ] it says in words that no score moved and no source was disabled
+  [ ok ] it shows the refused key's own first bytes
+  [ ok ] it survives a short buffer, terminated
+  ----
+  172 ok, 0 failed
+
+./x64/test_cwcm
+test_cwcm
+  [ ok ] an honest key shows at most one accidental pair
+  [ ok ] 200 varied honest keys: none reaches the 5-pair verdict
+  [ ok ] a pure mirror carries all 6 complement pairs
+  [ ok ] and -- the header's claim -- a pure mirror FAILS the group sums
+  [ ok ] the broken groups are 3 and 4
+  [ ok ] group 3 is off by exactly 2
+  [ ok ] group 4 is off by exactly 2
+  [ ok ] groups 1 and 2 (half 1's own) hold
+  [ ok ] a REPAIRED mirror: 6/6 pairs AND all four sums -- invisible to the checksum layer
+  [ ok ] a mirror repaired in free space: 5/6 pairs, sums intact -- still caught
+  [ ok ] a key with 4 accidental pairs stays under the verdict (FP guard)
+  [ ok ] the verdict is the mirror mask
+  [ ok ] and the first key scores NOTHING (restraint)
+  [ ok ] the evidence carries the pair count
+  [ ok ] the second mirror key is counted, still no line
+  [ ok ] both are counted in the window
+  [ ok ] the third mirror key crosses the pattern and fires
+  [ ok ] 3 of 3 in the window (100 % >= 20 %)
+  [ ok ] one report announced
+  [ ok ] an honest key in between is just counted
+  [ ok ] a fourth mirror key inside the window stays throttled
+  [ ok ] the counters keep counting while the line is quiet
+  [ ok ] the new window starts clean: one key is not yet a pattern
+  [ ok ] the pattern re-formed and fires again in the new window
+  [ ok ] two windows, two reports
+  [ ok ] two sources keep separate evidence
+  [ ok ] the second source's window is its own (no pattern yet)
+  [ ok ] a new source fits a full table (eviction, never refusal)
+  [ ok ] the evicted (oldest) source restarts from a clean window
+  [ ok ] no table: no verdict
+  [ ok ] no key: no verdict
+  [ ok ] the scan of no key is 0 pairs
+  [ ok ] the note works with no evidence struct
+  [ ok ] the sentence renders
+  [ ok ] it names the layer
+  [ ok ] it names the source
+  [ ok ] it names the channel
+  [ ok ] it names the construction
+  [ ok ] it carries the pair count
+  [ ok ] it explains why the checksum layer passed it
+  [ ok ] it states the consequence
+  [ ok ] it says in words that delivery was not touched
+  [ ok ] it survives a short buffer, terminated
+  ----
+  43 ok, 0 failed
+./x64/test_trustagg
+trustagg: the coarse tier of the cache-peer trust engine
+  [ ok ] one proof on a fresh peer: counted, not yet a crossing
+  [ ok ] the PROOF step is trust.h's flat 25
+  [ ok ] coarse SOFT arithmetic equals the fine tier's, step for step
+  [ ok ] coarse GOOD arithmetic equals the fine tier's, step for step
+  [ ok ] proofs stop at the floor: recovery stays possible
+  [ ok ] goods stop at the ceiling: no source becomes immune
+  [ ok ] one peer, two CAIDs: two entries (finer than per-server)
+  [ ok ] the first CAID is untouched by the second's events (GR4, live)
+  [ ok ] neither CAID's proof count leaked into the other
+  [ ok ] a different srcid is a different counterparty
+  [ ok ] a different srctype is a different counterparty
+  [ ok ] one proof leaves the peer above the line (35 > 25)
+  [ ok ] the second proof crosses: the crossing is the event
+  [ ok ] the evidence carries the fallen score
+  [ ok ] the evidence carries the counts that did it
+  [ ok ] the evidence carries the identity (GR1/GR4)
+  [ ok ] the evidence carries the window
+  [ ok ] the fan-out skips the peer while the suppression runs
+  [ ok ] still inside the window: still skipped
+  [ ok ] an event inside the window never writes a second line
+  [ ok ] the window ends: one request tests the peer again
+  [ ok ] still poisoning after the test: the next event re-arms
+  [ ok ] and the brake is running again
+  [ ok ] a GOOD event never arms the brake
+  [ ok ] a source with no entry is askable: unseen is not guilty
+  [ ok ] crossed for the recovery story
+  [ ok ] the test request goes out
+  [ ok ] goods climb back above the line
+  [ ok ] the climb takes tens of goods, not hundreds (slow on purpose)
+  [ ok ] above the line, the peer is askable again
+  [ ok ] and no line is written on the way up
+  [ ok ] the table fills to its size
+  [ ok ] the OLDEST entry is evicted, never the worst-scored, and never the just-touched
+  [ ok ] a full table always accepts the next peer
+  [ ok ] reset empties the table and the counters
+  [ ok ] the sentence builds
+  [ ok ] it names the source the way every layer does
+  [ ok ] it names the CAID the habit was seen on
+  [ ok ] it names the counts that did it
+  [ ok ] it says what the brake does and for how long
+  [ ok ] it says what the brake is NOT
+  [ ok ] it says delivery was not touched
+  [ ok ] it says how it ends
+  [ ok ] it survives a short buffer, terminated
+  [ ok ] NULL evidence is refused
+  [ ok ] NULL buffer is refused
+  [ ok ] a zero buffer is refused
+  [ ok ] an ask-only event writes nothing
+  48 ok, 0 failed
+./x64/test_cacheguard
+cacheguard: the cache protocol guard (ingress validation)
+  [ ok ] TYPE_REQUEST needs 12 (handler reads buf[1..11])
+  [ ok ] TYPE_REPLY needs 13 (integrity byte at buf[12])
+  [ ok ] TYPE_PINGREQ needs 13 (port at buf[11..12])
+  [ ok ] TYPE_PINGRPL needs 6 (peer id at buf[4..5])
+  [ ok ] TYPE_RESENDREQ needs 16 (upstream's own gate)
+  [ ok ] TYPE_HELLO_ACK needs 9 (id + crc at buf[4..8])
+  [ ok ] unknown types keep the stock floor of 2: no invented policy
+  [ ok ] our own REQUEST (12) and REPLY (29/30) always pass
+  [ ok ] our own PINGREQ (13), PINGRPL (9) and RESENDREQ (16) always pass
+  [ ok ] our own HELLO_ACK (9) always passes
+  [ ok ] the first event opens the window and writes
+  [ ok ] an event inside the window stays silent
+  [ ok ] and so does the next
+  [ ok ] but the window COUNTED all three (the suppression is stated)
+  [ ok ] an event after the window reopens it and writes again
+  [ ok ] the reopened window starts counting from one
+  [ ok ] an event at tick 0 writes
+  [ ok ] tick-0's window runs one tick long (opened at 1, not 0)
+  [ ok ] and it cannot hold the window open beyond that: it reopens at 60001
+  [ ok ] separate kinds have separate windows (short never silences unknown)
+  [ ok ] the short-drop sentence builds
+  [ ok ] it names the packet type
+  [ ok ] it names the numeric type for the log grep
+  [ ok ] it names both the actual and the minimum length
+  [ ok ] it names the sender
+  [ ok ] it says the datagram was not interpreted (GR8: observation, not verdict)
+  [ ok ] it states the window's suppression count
+  [ ok ] it survives a short buffer, terminated
+  [ ok ] the unknown-sender sentence builds
+  [ ok ] it states the window's count
+  [ ok ] it names the packet, number included
+  [ ok ] it names the sender
+  [ ok ] it states the rule
+  [ ok ] it says the treatment is stock's, unchanged
+  [ ok ] it survives a short buffer, terminated
+  [ ok ] the sender prints in iptoa order (LSB first), like every other layer
+  [ ok ] an unknown short type is named UNKNOWN-TYPE with its number
+  [ ok ] NULL buffer refused (short)
+  [ ok ] NULL buffer refused (unknown)
+  [ ok ] zero size refused
+  [ ok ] a negative length is refused, never printed
+  41 ok, 0 failed
+trustlife: fade, persistence and the restore path
+  [ ok ] the condemned entry sits at the floor (10)
+  [ ok ] inside the grace the score does not move
+  [ ok ] after grace, one point per step of silence
+  [ ok ] long silence relaxes to neutral, never past it
+  [ ok ] the history counters do not fade
+  [ ok ] the fresh event bit at full strength from the relaxed score
+  [ ok ] an active entry never fades inside the grace: its last event is its shield
+  [ ok ] the GOOD staircase reaches the ceiling
+  [ ok ] silence decays standing from the ceiling, one point per step
+  [ ok ] a second sweep at the same tick moves nothing (stateless)
+  [ ok ] the coarse tier fades by the same rule: 58 idle seconds relax 10 all the way to 60
+  [ ok ] and the peer is askable again the moment it is above the line
+  [ ok ] trust_restore lands score and counters
+  [ ok ] an age older than this boot's counter pins the entry at tick 0 (conservative)
+  [ ok ] a representable age re-bases exactly: seen at now - age
+  [ ok ] TF line round-trips
+  [ ok ] every TF field survives, flags and zero provid included
+  [ ok ] TA line round-trips
+  [ ok ] every TA field survives
+  [ ok ] the NG line formats
+  [ ok ] the NG line round-trips digest and evidence prefix
+  [ ok ] the line carries the key's 8-byte evidence prefix in hex
+  [ ok ] the conviction restores into the empty table
+  [ ok ] the ORIGINAL key is refused after the round trip, any sid
+  [ ok ] a different key is not tarred by it
+  [ ok ] a different caid is not tarred by it
+  [ ok ] restoring the same conviction twice touches, not duplicates
+  [ ok ] and the table holds exactly one conviction
+  [ ok ] every malformed line is refused whole
+  [ ok ] the restored entry exists
+  [ ok ] a full table evicts the oldest, exactly as trust_record does
+  [ ok ] and the next peer is never refused
+  32 ok, 0 failed
+  [ ok ] a <script> username comes out inert
+  [ ok ] ampersand becomes &amp;
+  [ ok ] double quote becomes &quot;
+  [ ok ] single quote becomes &#39;
+  [ ok ] all five metacharacters in one string
+  [ ok ] a plain name is untouched
+  [ ok ] empty name, empty output
+  [ ok ] NULL name, empty output
+  [ ok ] NULL buffer refused
+  [ ok ] zero size refused
+  [ ok ] negative size refused
+  [ ok ] truncation leaves room for the terminator
+  [ ok ] size 3 keeps two chars and terminates
+  [ ok ] size 1 is an empty string
+  [ ok ] an entity never lands half-written
+  [ ok ] the boundary size takes the whole escape
+  [ ok ] a flood of metacharacters stays inside a 8-byte buffer
+  [ ok ] the returned length is the real length
+  [ ok ] the built cell carries no raw <script>
+  [ ok ] the built cell carries the escaped name
+  [ ok ] an honest name builds the exact stock cell
+  [ ok ] 300 worst-case chars escape to 1200 and fit the cells
+22 ok, 0 failed
+  [ ok ] a short line comes back whole
+  [ ok ] a 6000-byte line into 4096 lands as exactly 4095 bytes
+  [ ok ] a small dest is filled to its bound
+  [ ok ] dest size 1 stays empty
+  [ ok ] dest size 0 refused
+  [ ok ] NULL line treated as empty
+  [ ok ] a 900+ byte caller line clamps at a 512-byte slot edge
+  [ ok ] 75 entries wrap to cursor 5
+  [ ok ] the newest entries overwrite the oldest slots: 70..74 now in 0..4
+  [ ok ] and the untouched slots keep their first pass
+  [ ok ] the /debug read-back walks (cursor-35)..(cursor-1): 35 lines
+  [ ok ] a 400-byte line fits whole and comes back whole
+12 ok, 0 failed
+
+./x64/test_phase1cfg
+test_phase1cfg -- TASK 1.9: BAD-CW-LIMIT, SERVICE-BLACKLIST-TIME, STATS-WINDOW
+  sizeof(struct rotation_entry) = 38, rotation_table = 2444
+  sizeof(struct purge_entry) = 19, purge_table = 1232
+  -- BAD-CW-LIMIT: one slot per source, avoided once the count reaches the limit --
+  [ ok ] limit 3: the first confirmed bad CW is counted, not acted on
+  [ ok ] and the source is not avoided yet
+  [ ok ] the second is counted too
+  [ ok ] the third returns 2: this is the event that reached the limit, so this is the one to log
+  [ ok ] and now the source is avoided
+  [ ok ] a fourth returns 1, not 2: over the limit already, so nothing new to log
+  [ ok ] and exactly the two events below the limit were counted as deferred
+  [ ok ] limit 1: the first event reaches the limit immediately (TASK 1.6 behaviour)
+  [ ok ] and nothing was ever deferred, which is how a default install reads
+  -- two sources below the limit must not share one slot --
+  [ ok ] source 1 reached its own count of 3
+  [ ok ] source 2 reached its own count of 3
+  [ ok ] source 1 is avoided
+  [ ok ] source 2 is avoided
+  -- the default path is the pre-1.9 functions, not a re-implementation --
+  [ ok ] rotation_note_bad() still returns 1 for a new source (its old contract)
+  [ ok ] and 0 for a source it already recorded, exactly as before
+  [ ok ] the 6-argument should_avoid() avoids on the first event, i.e. limit 1
+  [ ok ] the count is the number of events seen, 2, and stays readable above the limit rather than saturating at it
+  [ ok ] the channel recovering releases it
+  [ ok ] and clears the avoidance
+  [ ok ] AND the count -- otherwise a tolerated source would carry its count across recoveries and be avoided on the next single event
+  -- SERVICE-BLACKLIST-TIME: a mark with an age limit --
+  [ ok ] a definitive proof places a mark
+  [ ok ] the default (no age limit) withholds regardless of age
+  [ ok ] ten minutes later and still no age limit: still withheld -- TASK 1.5 behaviour, unchanged
+  [ ok ] with a 5 s limit, 4 s of age is still inside it
+  [ ok ] and exactly 5 s is out: the comparison is >=, so a window of N means N milliseconds
+  [ ok ] expire() with the option off lifts nothing (the default costs one test)
+  [ ok ] and counts nothing
+  [ ok ] expire() lifts the aged mark
+  [ ok ] and reports WHICH mark it lifted, so GR8's one-log-line-per-event can name it
+  [ ok ] the table is empty again
+  [ ok ] counted as expired, not released
+  [ ok ] and nothing is withheld any more
+  [ ok ] a second proof places a new mark
+  [ ok ] one second old, so a 5 s sweep leaves it alone
+  [ ok ] and it is still live
+  -- the recovery release, and the two counters being different --
+  [ ok ] a recovering source lifts its own mark
+  [ ok ] counted as released, NOT as expired -- "my peer recovered" and "my peer went quiet" are different situations
+  [ ok ] a second lift removes nothing
+  [ ok ] and does not double-count
+  [ ok ] and a mark on another channel is not touched (GR4: never wider than the channel)
+  -- STATS-WINDOW: the line an operator reads --
+  [ ok ] returns the length it wrote, matching strlen
+  [ ok ] the line is identifiable in a log full of other lines
+  [ ok ] and names the window in seconds, so a reader can turn counts into rates
+  [ ok ] a completely idle window is still reported -- silence would be indistinguishable from a server whose new code never ran
+  [ ok ] singular is singular: one suppressed repeat, not "1 repeats"
+  [ ok ] the 1.7 deferrals are on the line
+  [ ok ] marks live, and the two kinds of lift told apart
+  [ ok ] rotation, the cap, and the BAD-CW-LIMIT tolerance all visible
+  [ ok ] and the trust table's size
+  [ ok ] one source, not one sources
+  [ ok ] a 20-byte buffer gets 19 characters and a terminator, never more
+  [ ok ] a 1-byte buffer gets an empty string
+  [ ok ] NULL snapshot is an error, not a crash
+  [ ok ] NULL buffer is an error too
+
+== 54/54 passed, 0 failed ==
+./x64/test_ledger
+== test_ledger (TASK 2.1) ==
+-- a lone key is never a proof: the ledger has nothing to compare --
+  [ ok ] first key recorded, no verdict                                 = 0
+  [ ok ] nothing accused on a first sighting                            = 0
+  [ ok ] client failed on the only key: still no proof (GR3)            = 0
+-- the same key again is agreement, not a dispute --
+  [ ok ] same source, same key: agreement                               = 1
+  [ ok ] independent source, SAME key: agreement, not dispute           = 1
+  [ ok ] and it is counted as corroboration                             = 2
+  [ ok ] with no dispute recorded                                       = 0
+  [ ok ] two sources agreed, so a failure accuses nobody                = 0
+-- a source contradicting itself is not 'agreement mismatch' --
+  [ ok ] same source, different key: self-dispute, counted              = 3
+  [ ok ] the entry still holds exactly one key                          = 1
+  [ ok ] GR3: one source alone can never prove anything                 = 0
+  [ ok ] the self-dispute is still on the record                        = 1
+-- THE PROOF: failure first, then an independent contradiction --
+  [ ok ] peer A delivers its key                                        = 0
+  [ ok ] the client comes back 1.2 s later: recorded                    = 0
+  [ ok ] peer B offers a different key: PROOF                           = 4
+  [ ok ] the ACCUSED slot is the one the client received                = 0
+  [ ok ] accused = peer A, the delivered one                            = 65547
+  [ ok ] dissenter = peer B, and it is named                            = 65548
+  [ ok ] the elapsed delivery->failure is measured                      = 1200
+  [ ok ] the accused key is carried for the log                         = 0
+  [ ok ] so is the key that contradicted it                             = 0
+-- the proof is latched: the same two keys cannot accuse twice --
+  [ ok ] re-offering the same pair says nothing new                     = 1
+  [ ok ] and neither does a repeated failure on the same key            = 0
+-- THE OTHER ORDER: both keys known first, failure last --
+  [ ok ] a dispute with no failure yet is not a proof                   = 4
+-- a key that never reached a client cannot be the accused one --
+  [ ok ] the delivered key is the accused one, whoever came first       = 4
+  [ ok ] accused slot is the delivered key, not the earlier one         = 1
+-- a failure we cannot place is never a guess (GR3) --
+  [ ok ] a key the source never sent accuses nobody                     = 0
+-- identity: GR6 and D5 --
+  [ ok ] an all-zero ecmd5 is not an identity                           = 0
+  [ ok ] a key with no ecmd5 is refused outright                        = 0
+  [ ok ] and nothing was written to the table                           = 1
+  [ ok ] a real key is valid                                            = 1
+  [ ok ] a NULL key is not                                              = 0
+  [ ok ] same 32-bit hash, different ecmd5: two separate entries        = 2
+  [ ok ] and the first entry saw no second source                       = 1
+-- GR4: the same peer on another channel is another identity --
+  [ ok ] a different SID is a different key, so it still disputes       = 2
+-- aging, eviction, boundedness --
+  [ ok ] the entry is found while it is fresh                           = 1
+  [ ok ] and gone once it is older than the window                      = 1
+  [ ok ] ... but the window itself is still inside                      = 1
+  [ ok ] an aged entry is re-used, not contradicted                     = 0
+  [ ok ] and it restarts with one slot                                  = 1
+  [ ok ] every key that still fits is still findable                    = 32
+  [ ok ] and the table never grew past its size                         = 3360
+-- the log line --
+  [ ok ] the line is rendered                                           = 1
+  [ ok ] it names the channel                                           = 1
+  [ ok ] it names the accused source                                    = 1
+  [ ok ] it says the key was delivered                                  = 1
+  [ ok ] it quantifies the client's return                              = 1
+  [ ok ] it names the independent source                                = 1
+  [ ok ] it carries the delivered key                                   = 1
+  [ ok ] it carries the contradicting key                               = 1
+  [ ok ] it does not claim an action it cannot know about               = 1
+  [ ok ] the line is bounded to one screen width                        = 1
+  [ ok ] a small buffer reports the truncation                          = 1
+  [ ok ] it wrote exactly what fits                                     = 39
+  [ ok ] with no garbage past the cut                                   = 1
+  [ ok ] and it is a true prefix of the full line                       = 0
+  [ ok ] a non-proof renders nothing                                    = -1
+  [ ok ] and leaves the buffer empty                                    = 0
+  [ ok ] bad arguments are refused                                      = -1
+  [ ok ] a NULL event is refused                                        = -1
+== 60/60 passed, 0 failed ==
+
+./x64/test_peer_origin
+test_peer_origin: real origin model (TASK 1.1)
+  [ ok ] PEER_CSP                                             = 0x10000
+  [ ok ] PEER_CCCAM_CLIENT                                    = 0x20000
+  [ ok ] PEER_CAMD35_CLIENT                                   = 0x40000
+  [ ok ] PEER_CS378X_CLIENT                                   = 0x80000
+  [ ok ] PEER_CACHEEX_SERVER                                  = 0x100000
+  [ ok ] flags are mutually exclusive                         = 0x1F0000
+  [ ok ] PEER_ORIGIN_FLAGS excludes the id field              = 0x0
+  [ ok ] PEER_ID_MASK is all-ones in its field                = 0xFFFF
+  [ ok ] max id round-trips through the mask                  = 0xFFFF
+  [ ok ] bare id is unchanged                                 = 0x7
+  [ ok ] id zero is unchanged                                 = 0x0
+  [ ok ] CSP peer 5 -> 5                                      = 0x5
+  [ ok ] CCcam client 9 -> 9                                  = 0x9
+  [ ok ] camd35 client 12 -> 12                               = 0xC
+  [ ok ] cs378x client 3 -> 3                                 = 0x3
+  [ ok ] cacheex server 44 -> 44                              = 0x2C
+  [ ok ] no flag on a bare id                                 = 0x0
+  [ ok ] CSP recognised                                       = 0x10000
+  [ ok ] cacheex server recognised                            = 0x100000
+  [ ok ] CSP peer is NOT a client push                        = 0x0
+  [ ok ] cacheex server is NOT a client push                  = 0x0
+  [ ok ] bare id is NOT a client push                         = 0x0
+  [ ok ] CCcam client IS a client push                        = 0x1
+  [ ok ] camd35 client IS a client push                       = 0x1
+  [ ok ] cs378x client IS a client push                       = 0x1
+  [ ok ] smallest flag is above the id field                  = 0x1
+== 26/26 passed, 0 failed ==
+
+./x64/test_cacheex_gates
+test_cacheex_gates: family classification
+  [ ok ] CSP origin is not exchange
+  [ ok ] bare CSP is not exchange
+  [ ok ] cccam client is exchange
+  [ ok ] camd35 client is exchange
+  [ ok ] cs378x client is exchange
+  [ ok ] cacheex server is exchange
+  [ ok ] zero origin is not exchange
+  [ ok ] CSP flag dominates
+test_cacheex_gates: LOCAL_ONLY truth table
+  [ ok ] armed+exchange+no waiter -> drop
+  [ ok ] armed+exchange+waiter -> keep
+  [ ok ] armed+CSP+no waiter -> keep (out of scope)
+  [ ok ] unarmed -> never drops
+test_cacheex_gates: BLOCK_FAKE_CW truth table
+  [ ok ] armed+exchange+tests failed -> reject
+  [ ok ] armed+exchange+tests passed -> keep
+  [ ok ] armed+CSP -> never rejects here
+  [ ok ] unarmed -> never rejects
+test_cacheex_gates: CWCHECK floor
+  [ ok ] below floor 2 -> hold
+  [ ok ] at floor 2 -> serve
+  [ ok ] past floor -> serve
+  [ ok ] global 3 beats profile 2 -> hold at 2
+  [ ok ] global 3 floor reached -> serve
+  [ ok ] floor 0 disarms
+  [ ok ] CSP arrivals never held
+  [ ok ] parser cap is 5
+test_cacheex_gates: all ok
+
+./x64/test_cache_threshold
+test_cache_threshold: real min-peer floor (TASK 1.11a)
+  [ ok ] threshold 1, 1 peer -> accept                            = 1
+  [ ok ] threshold 1, 2 peers -> accept                           = 1
+  [ ok ] threshold 1, 5 peers -> accept                           = 1
+  [ ok ] r82a agrees at threshold 1                               = 1
+  [ ok ] threshold 2, 1 peer -> hold                              = 0
+  [ ok ] threshold 2, 2 peers -> accept                           = 1
+  [ ok ] threshold 2, 3 peers -> STILL accept (r82a rejected here) = 1
+  [ ok ] r82a rejected the 3rd peer                               = 0
+  [ ok ] threshold 3, 2 peers -> hold                             = 0
+  [ ok ] threshold 3, 3 peers -> accept                           = 1
+  [ ok ] threshold 3, 9 peers -> accept                           = 1
+  [ ok ] r82a rejected the 9th peer                               = 0
+  [ ok ] threshold 30, 29 peers -> hold                           = 0
+  [ ok ] threshold 30, 30 peers -> accept                         = 1
+  [ ok ] threshold 30, 31 peers -> accept                         = 1
+  [ ok ] every threshold in [1,30] accepts at and above the floor = 1
+  [ ok ] threshold 0 is treated as 1 (hold at 0 peers)            = 0
+  [ ok ] threshold 0 is treated as 1 (accept at 1 peer)           = 1
+  [ ok ] negative threshold is treated as 1                       = 1
+  [ ok ] 0 peers is never enough                                  = 0
+  [ ok ] new comparison is monotone in peer count                 = 1
+  [ ok ] r82a comparison was NOT monotone (the bug)               = 0
+== 22/22 passed, 0 failed ==
+
+./x64/test_peercard
+== peer card list, 1024-slot bound ==
+  [ ok ] empty list is a miss                                     = 0
+  [ ok ] negative count is a miss                                 = 0
+  [ ok ] one card, hit                                            = 1
+  [ ok ] one card, other caid                                     = 0
+  [ ok ] one card, other provid                                   = 0
+  [ ok ] 1024 cards, first slot                                   = 1
+  [ ok ] 1024 cards, last slot                                    = 1
+  [ ok ] 1024 cards, middle                                       = 1
+  [ ok ] 1024 cards, below the list                               = 0
+  [ ok ] 1024 cards, above the list                               = 0
+  [ ok ] 1024 cards, other caid                                   = 0
+  [ ok ] every one of the 1024 cards is found                     = 0
+  [ ok ] count 1025 does not read past the array                  = 1
+  [ ok ] the unstored 1025th card is a miss                       = 0
+  [ ok ] 1024-list agrees with r82a, poison slot not a hit        = 0
+  [ ok ] high-CAID answers still match r82a                       = 0
+  [ ok ] linear full list, last slot                              = 1
+  [ ok ] linear full list, miss is not accept                     = 0
+  [ ok ] linear count 1025 stays in the array                     = 1
+  [ ok ] linear zero sentinel still stops the walk                = 0
+== 20/20 passed, 0 failed ==
+
+./x64/test_retry_detect
+test_retry_detect: real retry classifier (TASK 1.2)
+  [ ok ] no delivery, 1s later -> NONE (GR2)                        = 0
+  [ ok ] no delivery, immediate re-ask -> NONE (GR2)                = 0
+  [ ok ] negative nb_delivered is also NONE                         = 0
+  [ ok ] delivered, re-ask at +0ms -> HARD                          = 1
+  [ ok ] delivered, re-ask at +800ms -> HARD                        = 1
+  [ ok ] delivered, re-ask at +1500ms -> HARD (the typical bad-CW case) = 1
+  [ ok ] delivered, re-ask at +3999ms -> HARD                       = 1
+  [ ok ] exactly at +4000ms -> SOFT, not HARD                       = 2
+  [ ok ] delivered, re-ask at +4500ms -> SOFT                       = 2
+  [ ok ] delivered, re-ask at +4999ms -> SOFT                       = 2
+  [ ok ] exactly at +5000ms -> NONE                                 = 0
+  [ ok ] delivered, re-ask at +10s -> NONE (normal crypto period)   = 0
+  [ ok ] delivered, re-ask at +30s -> NONE                          = 0
+  [ ok ] 5 deliveries, re-ask at +1500ms -> HARD                    = 1
+  [ ok ] wrap: delivered just before 2^32, re-ask 1s after -> HARD  = 1
+  [ ok ] wrap: 8192ms across the boundary -> NONE (past both windows) = 0
+  [ ok ] wrap: delivered just before 2^32, re-ask 4.5s after -> SOFT = 2
+  [ ok ] wrap: 10s across the boundary -> NONE                      = 0
+  [ ok ] soft == hard: +1500ms -> HARD                              = 1
+  [ ok ] soft == hard: +4500ms -> NONE (soft band empty)            = 0
+  [ ok ] soft < hard: +1500ms -> HARD                               = 1
+  [ ok ] soft < hard: +2000ms is still inside the hard window -> HARD = 1
+  [ ok ] soft < hard: +4500ms -> NONE (soft band empty, past hard)  = 0
+  [ ok ] tight windows: +1500ms is beyond them -> NONE              = 0
+  [ ok ] wide windows: +6s is inside them -> SOFT                   = 2
+  [ ok ] ring depth is 4                                            = 4
+  [ ok ] ring slots start empty                                     = 0
+  [ ok ] ring is a value type, not a pointer                        = 1
+== 28/28 passed, 0 failed ==
+
+./x64/test_cw_reuse
+test_cw_reuse: real CW-reuse detector (TASK 1.3)
+  table is 64 entries, 2880 bytes of .bss
+  [ ok ] first sighting is never proof                                  = 0
+  [ ok ] same CW, different ECM, different SID -> PROOF                 = 1
+  [ ok ] a third service on the same CW -> PROOF again                  = 1
+  [ ok ] same CW, different ECM, SAME SID -> NONE (GR6, multi-CHID)     = 0
+  [ ok ] same CW, different CAID, same SID -> NONE (benign)             = 0
+  [ ok ] same CW, different PROVID, same SID -> NONE                    = 0
+  [ ok ] different CW, different SID -> NONE                            = 0
+  [ ok ] identical ECM re-offered -> NONE                               = 0
+  [ ok ] ecmd5 invalid: first sighting -> NONE                          = 0
+  [ ok ] ecmd5 invalid: would-be proof -> NONE (D5, no 32-bit fallback) = 0
+  [ ok ] within the age window -> PROOF                                 = 1
+  [ ok ] past the age window -> NONE (entry aged out)                   = 0
+  [ ok ] wrap: sighting before 2^32, proof after -> PROOF               = 1
+  [ ok ] wrap: aged out across the boundary -> NONE                     = 0
+  [ ok ] full table: a key that survived -> still PROOF                 = 1
+  [ ok ] table depth is the documented 64                               = 64
+  [ ok ] entry has no hidden padding beyond the fields (45 packed / 48 unpacked) = 45
+  [ ok ] whole table is 2880 bytes of .bss as the server allocates it   = 2880
+  [ ok ] table is exactly slots * entry, no trailing counter or padding = 2880
+== 19/19 passed, 0 failed ==
+
+./x64/test_trust
+test_trust: real trust engine (TASK 1.4)
+  floor=10 start=60 actionable=25 ceiling=100; table 256 x 36 bytes
+  [ ok ] floor                                                            = 10
+  [ ok ] start                                                            = 60
+  [ ok ] ceiling                                                          = 100
+  [ ok ] actionable threshold                                             = 25
+  [ ok ] unseen source -> -1 (unknown, must not start distrusted)         = -1
+  [ ok ] asking does not create an entry                                  = -1
+  [ ok ] first event creates the entry at TRUST_START                     = 60
+  [ ok ] and it is now known                                              = 60
+  [ ok ] 1 soft event: score                                              = 35
+  [ ok ] 1 soft event: NOT actionable                                     = 0
+  [ ok ] 2 soft events: score                                             = 23
+  [ ok ] 2 soft events: actionable                                        = 1
+  [ ok ] 3 soft events: score                                             = 17
+  [ ok ] 1 proof: score                                                   = 35
+  [ ok ] 1 proof: not yet actionable                                      = 0
+  [ ok ] 2 proofs: at the floor                                           = 10
+  [ ok ] 2 proofs: actionable                                             = 1
+  [ ok ] 3 proofs: still the floor, never below                           = 10
+  [ ok ] 2 soft events took it to 23                                      = 23
+  [ ok ] 1 good event moves it only to 25                                 = 25
+  [ ok ] so recovery is strictly slower than decay                        = 1
+  [ ok ] at the floor before recovery                                     = 10
+  [ ok ] passes actionable after 8 good results                           = 8
+  [ ok ] climbs back to TRUST_START after 36                              = 36
+  [ ok ] reaches the ceiling after 76                                     = 76
+  [ ok ] ceiling was reached, not asymptotic                              = 1
+  [ ok ] one proof at the ceiling still bites hard                        = 75
+  [ ok ] same source, SID 100 is at the floor                             = 10
+  [ ok ] same source, SID 200 is untouched                                = 60
+  [ ok ] same source and SID, different CAID is a different score         = -1
+  [ ok ] a different srcid starts fresh                                   = -1
+  [ ok ] flagged srcid 7|PEER_CSP is at the floor                         = 10
+  [ ok ] bare srcid 7 is a different identity                             = -1
+  [ ok ] nproof survives 50 good results                                  = 1
+  [ ok ] nsoft survives 50 good results                                   = 2
+  [ ok ] the worst-scored source is recorded first                        = 10
+  [ ok ] eviction is longest-unseen, not lowest-score                     = 10
+  [ ok ] table depth                                                      = 256
+  [ ok ] entry is 36 bytes                                                = 36
+  [ ok ] whole table is 9216 bytes of .bss                                = 9216
+== 40/40 passed, 0 failed ==
+
+./x64/test_cache_purge
+test_cache_purge: TASK 1.5 mark-by-origin
+  -- sizes (measured, not remembered) --
+     sizeof(struct purge_entry) = 19 bytes
+     sizeof(struct purge_table) = 1232 bytes
+  [ ok ] table size is slots * entry + two counters (no hidden padding)
+  [ ok ] unknown source is not withheld (no record != bad)
+  [ ok ] first mark reports a new event
+  [ ok ] marked source is withheld
+  [ ok ] marked counter incremented once
+  [ ok ] re-marking the same key is not a second event (no log spam)
+  [ ok ] but it does refresh the counter and the age
+  [ ok ] GR4: a mark on SID 100 does not touch SID 200
+  [ ok ] GR4: a mark on one CAID does not touch another
+  [ ok ] GR4: a mark on one PROVID does not touch another
+  [ ok ] GR4: a mark on source 1 does not touch source 2
+  [ ok ] GR4: same numeric id under a different source type is a different source
+  [ ok ] a CSP peer and a cacheex client with the same numeric id do not share a mark
+  [ ok ] the marked one is still withheld
+  [ ok ] unmark reports it removed something
+  [ ok ] GR8: the mark is actually gone, not merely expired
+  [ ok ] unmarking twice is harmless
+  [ ok ] count follows
+  [ ok ] table fills to exactly CACHE_PURGE_SLOTS
+  [ ok ] nothing skipped while slots were free
+  [ ok ] no entry was evicted while a free slot existed
+  [ ok ] a 65th mark still succeeds
+  [ ok ] eviction is longest-unseen: the refreshed source survived
+  [ ok ] and the longest-unseen source was the one evicted
+  [ ok ] the new mark is live
+  [ ok ] count stays bounded
+  [ ok ] GR9: 100k distinct marks leave exactly CACHE_PURGE_SLOTS entries
+  [ ok ] GR9: no mark is ever refused - eviction always makes room
+  [ ok ] NULL table: withhold returns 0
+  [ ok ] NULL table: mark returns 0
+  [ ok ] NULL table: unmark returns 0
+  [ ok ] NULL table: count returns 0
+  [ ok ] NULL table: init does not fault
+     max hits after 5000 marks over 64 slots = 79
+  [ ok ] reused slots do count hits
+  [ ok ] and the counter saturates at 255, never wrapping to 0
+  [ ok ] table still exactly full
+== 36/36 passed, 0 failed ==
+
+./x64/test_rotation
+test_rotation: TASK 1.6 instant rotation
+  -- sizes (measured, not remembered) --
+     sizeof(struct rotation_entry) = 38 bytes
+     sizeof(struct rotation_table) = 2444 bytes
+  [ ok ] table is slots * entry + two counters (no hidden padding)
+  [ ok ] an unknown source is not avoided (no record != bad)
+  [ ok ] and the channel has nothing recorded
+  [ ok ] first bad record is new
+  [ ok ] that source is now avoided for that channel
+  [ ok ] one source recorded
+  [ ok ] avoided counter incremented
+  [ ok ] recording the same source again is not a new event
+  [ ok ] and does not double-count
+  [ ok ] a bad record on SID 100 does not touch SID 200
+  [ ok ] nor a different CAID
+  [ ok ] nor a different PROVID
+  [ ok ] nor a different source on the same channel
+  [ ok ] same id under a different source type is a different source
+  [ ok ] GR4: a CSP peer and a cacheex client with the same id are separate
+  [ ok ] and the recorded one is avoided
+  [ ok ] two sources recorded
+  [ ok ] a good delivery clears the channel and reports how many
+  [ ok ] so a source is not avoided forever on one bad key
+  [ ok ] and the second one is released too
+  [ ok ] clearing an already-clear channel is harmless
+  [ ok ] all four sources recorded against the channel
+  [ ok ] exactly ROTATION_MAX_AVOID are avoided, no more
+  [ ok ] GR3: at least one recorded source stays reachable, so the channel cannot be stranded
+  [ ok ] and it is the NEWEST record that stays reachable, not the oldest
+  [ ok ] the oldest, longest-known-bad source is still avoided
+  [ ok ] the cap firing is counted, not silent
+  [ ok ] table fills
+  [ ok ] no entry evicted while a free slot existed
+  [ ok ] eviction is longest-unseen: the refreshed channel survived
+  [ ok ] and the longest-unseen channel was evicted
+  [ ok ] the new record is live
+  [ ok ] GR9: 200k records leave exactly ROTATION_SLOTS entries
+  [ ok ] NULL table: avoid returns 0
+  [ ok ] NULL table: note_bad returns 0
+  [ ok ] NULL table: note_good returns 0
+  [ ok ] NULL table: count returns 0
+  [ ok ] NULL table: init does not fault
+== 38/38 passed, 0 failed ==
+
+./x64/test_cachepref
+test_cachepref: TRUSTED-CACHE-FIRST and zap preference (TASK 1.7)
+  [ ok ] OFF, untrusted, unverified -> ALLOW (stock)                = 0
+  [ ok ] OFF, untrusted, verified   -> ALLOW (stock)                = 0
+  [ ok ] OFF, trusted,   unverified -> ALLOW (stock)                = 0
+  [ ok ] OFF, trusted,   verified   -> ALLOW (stock)                = 0
+  [ ok ] ON, trusted,   unverified -> ALLOW (trusted cache first)   = 0
+  [ ok ] ON, trusted,   verified   -> ALLOW (trusted cache first)   = 0
+  [ ok ] ON, untrusted, verified   -> ALLOW (consecutiveness checked it) = 0
+  [ ok ] ON, untrusted, unverified -> DEFER (zap: nothing checked it) = 1
+  [ ok ] score -1 (never seen) is trusted                           = 1
+  [ ok ] score at the actionable line is trusted                    = 1
+  [ ok ] score one below the line is NOT trusted                    = 0
+  [ ok ] score at the floor is NOT trusted                          = 0
+  [ ok ] score at the ceiling is trusted                            = 1
+  [ ok ] a fresh source starts trusted                              = 1
+  [ ok ] never-seen source: cache leads on a zap                    = 0
+  [ ok ] after 1 soft event the source is still trusted             = 1
+  [ ok ] after 1 soft event a zap still leads with the cache        = 0
+  [ ok ] after 2 soft events the source is untrusted                = 0
+  [ ok ] untrusted + zap -> DEFER (the poisoned-instant-entry case) = 1
+  [ ok ] untrusted + verified -> still ALLOW (steady state untouched) = 0
+  [ ok ] same peer, different SID: still trusted (GR4)              = 1
+  [ ok ] GOOD events restore trust within 40 deliveries             = 1
+  [ ok ] and a zap leads with the cache again                       = 0
+  [ ok ] after 1 PROOF the source is still trusted (score 35 > 25)  = 1
+  [ ok ] after 2 PROOFs the source is untrusted (score 10)          = 0
+  [ ok ] 2 proofs + zap -> DEFER                                    = 1
+  [ ok ] 2 proofs + verified -> still ALLOW (steady state untouched) = 0
+== 27/27 passed, 0 failed ==
+./x64/test_parser
+test_parser: the str[255] terminator stays inside (TASK 3.7)
+  [ ok ] parse_str 254-char token: length                           = 254
+  [ ok ] parse_str 254-char token: content kept                     = 1
+  [ ok ] parse_str 254-char token: can1 intact                      = 170
+  [ ok ] parse_str 254-char token: can2 intact                      = 187
+  [ ok ] parse_str 255-char token: clamped to 254                   = 254
+  [ ok ] parse_str 255-char token: content kept                     = 1
+  [ ok ] parse_str 255-char token: NUL inside the buffer            = 0
+  [ ok ] parse_str 255-char token: can1 (offset 255) intact         = 170
+  [ ok ] parse_str 255-char token: can2 intact                      = 187
+  [ ok ] parse_str 400-char token: clamped to 254                   = 254
+  [ ok ] parse_str 400-char token: can1 intact                      = 170
+  [ ok ] parse_str empty token: length 0                            = 0
+  [ ok ] parse_str empty token: terminated                          = 0
+  [ ok ] parse_str empty token: can1 intact                         = 170
+  [ ok ] parse_name 255-char token: clamped to 254                  = 254
+  [ ok ] parse_name 255-char token: can1 intact                     = 170
+  [ ok ] parse_name 255-char token: can2 intact                     = 187
+  [ ok ] parse_name 254-char token: complete                        = 254
+  [ ok ] parse_name 254-char token: can1 intact                     = 170
+  [ ok ] parse_value 255-char token: clamped to 254                 = 254
+  [ ok ] parse_value 255-char token: can1 intact                    = 170
+  [ ok ] parse_value 255-char token: can2 intact                    = 187
+  [ ok ] parse_int 255-digit token: clamped to 254                  = 254
+  [ ok ] parse_int 255-digit token: can1 intact                     = 170
+  [ ok ] parse_int 255-digit token: can2 intact                     = 187
+  [ ok ] parse_int 254-digit token: complete                        = 254
+  [ ok ] parse_int 254-digit token: can1 intact                     = 170
+  [ ok ] parse_hex 255-digit token: clamped to 254                  = 254
+  [ ok ] parse_hex 255-digit token: can1 intact                     = 170
+  [ ok ] parse_hex 255-digit token: can2 intact                     = 187
+  [ ok ] parse_bin 255-digit token: clamped to 254                  = 254
+  [ ok ] parse_bin 255-digit token: can1 intact                     = 170
+  [ ok ] parse_bin 255-digit token: can2 intact                     = 187
+  [ ok ] parse_boolean YES: 1                                       = 1
+  [ ok ] parse_boolean OFF: 0                                       = 0
+  [ ok ] parse_boolean 255-char garbage token: 0, no crash          = 0
+  [ ok ] parse_quotes 400-char value into 255: accepted             = 1
+  [ ok ] parse_quotes 400-char value into 255: capped at 254        = 254
+  [ ok ] parse_quotes 400-char value into 255: NUL inside           = 0
+  [ ok ] parse_quotes 400-char value into 255: can1 intact          = 170
+  [ ok ] parse_quotes cursor stops after closing quote              = 32
+  [ ok ] parse_quotes 250-char value into 255: complete             = 1
+  [ ok ] parse_quotes 250-char value into 255: length 250           = 250
+  [ ok ] parse_quotes 250-char value into 255: can1 intact          = 170
+  [ ok ] parse_quotes empty value: accepted                         = 1
+  [ ok ] parse_quotes empty value: str empty                        = 0
+  [ ok ] parse_quotes empty value: can1 intact                      = 170
+  [ ok ] parse_quotes unterminated: refused                         = 0
+  [ ok ] parse_quotes unterminated: str empty                       = 0
+== 49/49 passed, 0 failed ==
+./x64/test_cfgfield
+test_cfgfield: the bounded credential copy (TASK 3.8)
+  [ ok ] 63-char name: stored length                                = 63
+  [ ok ] 63-char name: content kept                                 = 1
+  [ ok ] 63-char name: pass untouched                               = 102
+  [ ok ] 63-char name: canary untouched                             = 126
+  [ ok ] 63-char name: no warning                                   = 0
+  [ ok ] 64-char name: truncated to 63                              = 63
+  [ ok ] 64-char name: pass untouched                               = 102
+  [ ok ] 64-char name: userhash untouched                           = 3735928559
+  [ ok ] 64-char name: canary untouched                             = 126
+  [ ok ] 64-char name: exactly one warning                          = 1
+  [ ok ] 70-char password: truncated to 63                          = 63
+  [ ok ] 70-char password: userhash untouched                       = 3735928559
+  [ ok ] 70-char password: canary untouched                         = 126
+  [ ok ] 70-char password: one warning (total 2)                    = 2
+  [ ok ] 254-char token: truncated to 63                            = 63
+  [ ok ] 254-char token: pass untouched                             = 102
+  [ ok ] 254-char token: canary untouched                           = 126
+  [ ok ] 254-char token: one warning (total 3)                      = 3
+  [ ok ] empty password: stored length 0                            = 0
+  [ ok ] empty password: canary untouched                           = 126
+  [ ok ] empty password: no warning (total 3)                       = 3
+  [ ok ] stored name length feeds userhash                          = 63
+  [ ok ] stored name content is the truncation                      = 65
+  [ ok ] stored name terminated inside field                        = 0
+  [ ok ] canary still untouched                                     = 126
+== 25/25 passed, 0 failed ==
+
+./x64/test_m1align
+-- M1 alignment: the hazard and the shapes --
+  [ ok ] sizeof(AES_KEY) unchanged (upstream r82a size)             = 244
+  [ ok ] sizeof(SHA_CTX) unchanged                                  = 92
+  [ ok ] AES_KEY member sits at offset 1 in a packed holder         = 1
+  [ ok ] ...so its address is under-aligned (%4)                    = 1
+  [ ok ] SHA_CTX member address is under-aligned too                = 1
+  [ ok ] MD5 context member address is under-aligned too            = 1
+  [ ok ] camd35 encryptkey member address is under-aligned          = 1
+  [ ok ] camd35 ucrc member address is under-aligned                = 1
+-- AES-128 through an under-aligned key (FIPS-197 vector) --
+  [ ok ] FIPS-197 C.1 ciphertext                                    69c4e0d86a7b0430d8cdb78070b4c55a
+  [ ok ] packed-key schedule == aligned-key schedule                = 1
+  [ ok ] the unused tail of the schedule is zeroed, not stack garbage = 0
+  [ ok ] FIPS-197 C.1 decrypt round-trip                            00112233445566778899aabbccddeeff
+-- MD5: public API and an under-aligned context --
+  [ ok ] MD5("abc")                                                 900150983cd24fb0d6963f7d28e17f72
+  [ ok ] MD5("")                                                    d41d8cd98f00b204e9800998ecf8427e
+  [ ok ] MD5("abc") with the context in a packed holder             900150983cd24fb0d6963f7d28e17f72
+-- SHA-1: under-aligned context and bare transform --
+  [ ok ] SHA1("abc") with the context in a packed holder            a9993e364706816aba3e25717850c26c9cd0d89d
+  [ ok ] SHA1("") with the context in a packed holder               da39a3ee5e6b4b0d3255bfef95601890afd80709
+  [ ok ] SHA1_Transform on an unaligned state == aligned state      = 1
+  [ ok ] ...and it leaves the caller's block byte-identical         = 1
+-- read-only input >= 64 bytes (D69: the transform used to write into the caller's buffer) --
+  [ ok ] SHA1 over 128 read-only bytes completes                    = 1
+  [ ok ] SHA1(128 read-only bytes) == hashlib                       272049b5add909ae0ed72e347781e50e3670f4dd
+  [ ok ] the read-only buffer is byte-identical afterwards          = 1
+  [ ok ] MD5(128 read-only bytes) == hashlib                        e985d0bfed0587aa1e1b0c1975446847
+  [ ok ] the read-only buffer is byte-identical afterwards (MD5)    = 1
+-- camd35 handshake data: store path == direct path --
+  [ ok ] store: encryptkey bytes == direct encryptkey bytes         = 1
+  [ ok ] store: decryptkey bytes == direct decryptkey bytes         = 1
+  [ ok ] store: ucrc value == direct ucrc                           = 2992271255
+  [ ok ] store: ucrc is not zero (a real crc32 was computed)        = 1
+  [ ok ] interop: ciphertext differs from the plaintext             = 1
+  [ ok ] interop: store->direct AES round-trip restores the payload = 1
+
+== 30/30 passed, 0 failed ==
+make: Leaving directory '/home/user/mcs/make-x64'

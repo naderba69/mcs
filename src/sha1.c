@@ -123,22 +123,37 @@ void SHAPrintContext(SHA_CTX *context, char *msg){
 #endif /* VERBOSE */
 
 /* Hash a single 512-bit block. This is the core of the algorithm. */
-void SHA1_Transform(uint32_t state[5], const uint8_t buffer[64])
+/* TASK R14 (D68): the callers pass &context->state, where context is a
+ * packed struct (-fpack-struct): taking that member's address is exactly the
+ * -Waddress-of-packed-member case, and on the strict-alignment targets
+ * (arm/mipsel/sh4) a misaligned uint32_t access is not a style question.
+ * The state now travels through an aligned local: in on entry, out on exit.
+ * Same values, same output -- the unit suite pins the digests. */
+/* TASK R14 (D69): the expansion below writes the message schedule back through
+ * `block`, so the old `block = (CHAR64LONG16*)buffer` arm wrote into the
+ * caller's buffer -- including the read-only one SHA1_Update hands it via its
+ * `const uint8_t *data`. For any input of 64+ bytes living in .rodata (a
+ * literal, a const table) that is a straight SIGSEGV, and a silent corruption
+ * for a writable one. TASK R14 (D68) already made the state travel through an
+ * aligned local; the block travels through one too now, aligned on purpose --
+ * block->l[i] is a uint32_t access, and the caller's buffer is a packed
+ * context member under -fpack-struct. A *local* copy (never the old static
+ * SHA1HANDSOFF workspace) also keeps the transform thread-safe. */
+void SHA1_Transform(void *statep, const uint8_t buffer[64])
 {
+    uint32_t state[5];
     uint32_t a, b, c, d, e;
+    uint8_t workspace[64] __attribute__((aligned(4)));
+    memcpy(state, statep, sizeof(state));
+
     typedef union {
         uint8_t c[64];
         uint32_t l[16];
     } CHAR64LONG16;
     CHAR64LONG16* block;
 
-#ifdef SHA1HANDSOFF
-    static uint8_t workspace[64];
     block = (CHAR64LONG16*)workspace;
-    memcpy(block, buffer, 64);
-#else
-    block = (CHAR64LONG16*)buffer;
-#endif
+    memcpy(workspace, buffer, 64);
 
     /* Copy context->state[] to working vars */
     a = state[0];
@@ -178,6 +193,7 @@ void SHA1_Transform(uint32_t state[5], const uint8_t buffer[64])
 
     /* Wipe variables */
     a = b = c = d = e = 0;
+    memcpy(statep, state, sizeof(state));
 }
 
 

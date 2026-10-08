@@ -190,6 +190,7 @@ void free_allhosts( struct config_data *cfg )
 
 #if defined(CAMD35_SRV) || defined(CAMD35_CLI)
 void camd35_init_data( char *user, char *pass, AES_KEY *encryptkey, AES_KEY *decryptkey, uint32_t *ucrc);
+void camd35_init_data_store( char *user, char *pass, void *encryptkey, void *decryptkey, void *ucrc); /* R14 (M1) */
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1704,7 +1705,7 @@ link_radegast_server:
 					}
 					if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 				}
-				camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
+				camd35_init_data_store( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc); /* R14 (M1) */
 				cfg_addcamd35client(camd35, cli);
 			}
 		}
@@ -1809,7 +1810,7 @@ link_radegast_server:
 					}
 					if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 				}
-				camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
+				camd35_init_data_store( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc); /* R14 (M1) */
 				//
 				cfg_addcamd35client( cs378x, cli);
 			}
@@ -1834,7 +1835,7 @@ link_radegast_server:
 				srv->handle = -1;
 				pthread_mutex_init( &srv->lock, NULL );
 				cfg_addserver(cfg, srv);
-				camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
+				camd35_init_data_store( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc); /* R14 (M1) */
 			}
 			else if (!strcmp(str,"KEEPALIVE")) {
 				parse_spaces();
@@ -1871,7 +1872,7 @@ link_camd35_server:
 			srv->handle = -1;
 			pthread_mutex_init( &srv->lock, NULL );
 			cfg_addserver(cfg, srv);
-			camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
+			camd35_init_data_store( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc); /* R14 (M1) */
 		}
 #endif
 

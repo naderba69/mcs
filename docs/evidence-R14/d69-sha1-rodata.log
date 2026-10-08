@@ -1,0 +1,15 @@
+### D69 probe -- src/sha1.c as of HEAD 27bb871 (before TASK R14/D69)
+
+== source: /tmp/d69pre/sha1.c
+Segmentation fault
+rc=139
+== hashlib reference (python3) ==
+272049b5add909ae0ed72e347781e50e3670f4dd  reference
+
+### D69 probe -- working tree (after TASK R14/D69)
+
+== source: src/sha1.c
+272049b5add909ae0ed72e347781e50e3670f4dd  input-mutated=0
+rc=0
+== hashlib reference (python3) ==
+272049b5add909ae0ed72e347781e50e3670f4dd  reference

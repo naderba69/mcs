@@ -1,0 +1,38 @@
+-- M1 alignment: the hazard and the shapes --
+  [ ok ] sizeof(AES_KEY) unchanged (upstream r82a size)             = 244
+  [ ok ] sizeof(SHA_CTX) unchanged                                  = 92
+  [ ok ] AES_KEY member sits at offset 1 in a packed holder         = 1
+  [ ok ] ...so its address is under-aligned (%4)                    = 1
+  [ ok ] SHA_CTX member address is under-aligned too                = 1
+  [ ok ] MD5 context member address is under-aligned too            = 1
+  [ ok ] camd35 encryptkey member address is under-aligned          = 1
+  [ ok ] camd35 ucrc member address is under-aligned                = 1
+-- AES-128 through an under-aligned key (FIPS-197 vector) --
+  [ ok ] FIPS-197 C.1 ciphertext                                    69c4e0d86a7b0430d8cdb78070b4c55a
+  [ ok ] packed-key schedule == aligned-key schedule                = 1
+  [ ok ] the unused tail of the schedule is zeroed, not stack garbage = 0
+  [ ok ] FIPS-197 C.1 decrypt round-trip                            00112233445566778899aabbccddeeff
+-- MD5: public API and an under-aligned context --
+  [ ok ] MD5("abc")                                                 900150983cd24fb0d6963f7d28e17f72
+  [ ok ] MD5("")                                                    d41d8cd98f00b204e9800998ecf8427e
+  [ ok ] MD5("abc") with the context in a packed holder             900150983cd24fb0d6963f7d28e17f72
+-- SHA-1: under-aligned context and bare transform --
+  [ ok ] SHA1("abc") with the context in a packed holder            a9993e364706816aba3e25717850c26c9cd0d89d
+  [ ok ] SHA1("") with the context in a packed holder               da39a3ee5e6b4b0d3255bfef95601890afd80709
+  [ ok ] SHA1_Transform on an unaligned state == aligned state      = 1
+  [ ok ] ...and it leaves the caller's block byte-identical         = 1
+-- read-only input >= 64 bytes (D69: the transform used to write into the caller's buffer) --
+  [ ok ] SHA1 over 128 read-only bytes completes                    = 1
+  [ ok ] SHA1(128 read-only bytes) == hashlib                       272049b5add909ae0ed72e347781e50e3670f4dd
+  [ ok ] the read-only buffer is byte-identical afterwards          = 1
+  [ ok ] MD5(128 read-only bytes) == hashlib                        e985d0bfed0587aa1e1b0c1975446847
+  [ ok ] the read-only buffer is byte-identical afterwards (MD5)    = 1
+-- camd35 handshake data: store path == direct path --
+  [ ok ] store: encryptkey bytes == direct encryptkey bytes         = 1
+  [ ok ] store: decryptkey bytes == direct decryptkey bytes         = 1
+  [ ok ] store: ucrc value == direct ucrc                           = 2992271255
+  [ ok ] store: ucrc is not zero (a real crc32 was computed)        = 1
+  [ ok ] interop: ciphertext differs from the plaintext             = 1
+  [ ok ] interop: store->direct AES round-trip restores the payload = 1
+
+== 30/30 passed, 0 failed ==

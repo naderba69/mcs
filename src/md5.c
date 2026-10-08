@@ -94,7 +94,7 @@ static void   __md5_Init (struct MD5Context *);
 static void   __md5_Update (struct MD5Context *, const unsigned char *, unsigned int);
 static void   __md5_Pad (struct MD5Context *);
 static void   __md5_Final (unsigned char [16], struct MD5Context *);
-static void __md5_Transform ( uint32_t state[4], const unsigned char block[64] );
+static void __md5_Transform ( void *statep, const unsigned char block[64] ); /* TASK R14 (D68): void* -- see the definition */
 
 static const char __md5__magic[] = "$1$";	/* This string is magic for this algorithm.  Having 
 						   it this way, we can get better later on */
@@ -280,12 +280,21 @@ static void __md5_Final ( unsigned char digest[16], struct MD5Context *context)
 
 /* MD5 basic transformation. Transforms state based on block. */
 
+/* TASK R14 (D68): was `uint32_t state[4]`. The callers hand it
+ * &context->state from a packed struct (-fpack-struct), which is the
+ * -Waddress-of-packed-member case -- and on arm/mipsel/sh4 a misaligned
+ * uint32_t store is a real fault, not a warning. The state goes through an
+ * aligned local: copied in here, copied back out at the end of the function.
+ * The digest is unchanged; the unit suite pins it. */
 static void
-__md5_Transform (state, block)
-	uint32_t state[4];
+__md5_Transform (statep, block)
+	void *statep;
 	const unsigned char block[64];
 {
+	uint32_t state[4];
 	uint32_t a, b, c, d, x[16];
+
+	memcpy(state, statep, sizeof(state));
 
 #if MD5_SIZE_OVER_SPEED > 1
 	uint32_t temp;
@@ -520,6 +529,10 @@ __md5_Transform (state, block)
 	state[1] += b;
 	state[2] += c;
 	state[3] += d;
+
+	/* TASK R14 (D68): hand the aligned local state back to the caller --
+	 * the matching half of the memcpy at the top of this function. */
+	memcpy(statep, state, sizeof(state));
 
 	/* Zeroize sensitive information. */
 	memset ((void *)x, 0, sizeof (x));

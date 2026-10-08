@@ -676,10 +676,15 @@ static const uint32_t rcon[] = {
 /**
  * Expand the cipher key into the encryption key schedule.
  */
-int AES_set_encrypt_key(const unsigned char *userKey, const int bits,
-			AES_KEY *key) {
+/* TASK R14 (D68): the schedule lives in key->rd_key, and -fpack-struct gives
+ * AES_KEY alignment 1 -- taking that member's address hands the AES code a
+ * possibly-unaligned uint32_t* (a real fault on arm/mipsel/sh4, merely a
+ * missed warning on x86-64). These wrappers work on an aligned local copy;
+ * only the two hot block functions pay a 240-byte memcpy, and their callers
+ * are the DCW paths (once per control word, not per byte). */
+static int aes_set_encrypt_key_rk(const unsigned char *userKey, const int bits,
+			AES_KEY *key, uint32_t *rk) {
 
-	uint32_t *rk;
    	int i = 0;
 	uint32_t temp;
 
@@ -688,7 +693,7 @@ int AES_set_encrypt_key(const unsigned char *userKey, const int bits,
 	if (bits != 128 && bits != 192 && bits != 256)
 		return -2;
 
-	rk = key->rd_key;
+	/* rk comes in from the wrapper, already aligned (R14/D68) */
 
 	if (bits==128)
 		key->rounds = 10;
@@ -774,13 +779,25 @@ int AES_set_encrypt_key(const unsigned char *userKey, const int bits,
 	return 0;
 }
 
+int AES_set_encrypt_key(const unsigned char *userKey, const int bits,
+			AES_KEY *key) {
+	uint32_t rkbuf[4 *(AES_MAXNR + 1)];
+	int status;
+
+	/* The schedule only fills 4*(rounds+1) words; zeroing first keeps the
+	 * unused tail deterministic instead of copying stack garbage into the
+	 * caller's key struct (the old in-place code left the caller's bytes). */
+	memset(rkbuf, 0, sizeof(rkbuf));
+	status = aes_set_encrypt_key_rk(userKey, bits, key, rkbuf);
+	memcpy(key->rd_key, rkbuf, sizeof(rkbuf));
+	return status;
+}
+
 /**
  * Expand the cipher key into the decryption key schedule.
  */
-int AES_set_decrypt_key(const unsigned char *userKey, const int bits,
-			 AES_KEY *key) {
-
-        uint32_t *rk;
+static int aes_set_decrypt_key_rk(const unsigned char *userKey, const int bits,
+			 AES_KEY *key, uint32_t *rk) {
 	int i, j, status;
 	uint32_t temp;
 
@@ -789,7 +806,9 @@ int AES_set_decrypt_key(const unsigned char *userKey, const int bits,
 	if (status < 0)
 		return status;
 
-	rk = key->rd_key;
+	/* R14 (D68): copy the schedule the encrypt-key call just built into
+	 * the aligned buffer the wrapper handed us. */
+	memcpy(rk, key->rd_key, sizeof(uint32_t) * 4 * (AES_MAXNR + 1));
 
 	/* invert the order of the round keys: */
 	for (i = 0, j = 4*(key->rounds); i < j; i += 4, j -= 4) {
@@ -825,12 +844,29 @@ int AES_set_decrypt_key(const unsigned char *userKey, const int bits,
 	return 0;
 }
 
+int AES_set_decrypt_key(const unsigned char *userKey, const int bits,
+			 AES_KEY *key) {
+	uint32_t rkbuf[4 *(AES_MAXNR + 1)];
+	int status;
+
+	memset(rkbuf, 0, sizeof(rkbuf));
+	status = aes_set_decrypt_key_rk(userKey, bits, key, rkbuf);
+	memcpy(key->rd_key, rkbuf, sizeof(rkbuf));
+	return status;
+}
+
 /*
  * Encrypt a single block
  * in and out can overlap
  */
 void AES_encrypt(const unsigned char *in, unsigned char *out,
 		 const AES_KEY *key) {
+	/* R14 (D68): work on an aligned copy of the schedule -- &key->rd_key
+	 * may be under-aligned under -fpack-struct. */
+	uint32_t rk_local[4 *(AES_MAXNR + 1)];
+	const uint32_t *rk_src;
+	memcpy(rk_local, key->rd_key, sizeof(rk_local));
+	rk_src = rk_local;
 
 	const uint32_t *rk;
 	uint32_t s0, s1, s2, s3, t0, t1, t2, t3;
@@ -839,7 +875,7 @@ void AES_encrypt(const unsigned char *in, unsigned char *out,
 #endif /* ?FULL_UNROLL */
 
 	assert(in && out && key);
-	rk = key->rd_key;
+	rk = rk_src;
 
 	/*
 	 * map byte array block to cipher state
@@ -1022,6 +1058,12 @@ void AES_encrypt(const unsigned char *in, unsigned char *out,
  */
 void AES_decrypt(const unsigned char *in, unsigned char *out,
 		 const AES_KEY *key) {
+	/* R14 (D68): work on an aligned copy of the schedule -- &key->rd_key
+	 * may be under-aligned under -fpack-struct. */
+	uint32_t rk_local[4 *(AES_MAXNR + 1)];
+	const uint32_t *rk_src;
+	memcpy(rk_local, key->rd_key, sizeof(rk_local));
+	rk_src = rk_local;
 
 	const uint32_t *rk;
 	uint32_t s0, s1, s2, s3, t0, t1, t2, t3;
@@ -1030,7 +1072,7 @@ void AES_decrypt(const unsigned char *in, unsigned char *out,
 #endif /* ?FULL_UNROLL */
 
 	assert(in && out && key);
-	rk = key->rd_key;
+	rk = rk_src;
 
 	/*
 	 * map byte array block to cipher state

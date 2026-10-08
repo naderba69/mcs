@@ -38,6 +38,22 @@ void camd35_init_data( char *user, char *pass, AES_KEY *encryptkey, AES_KEY *dec
 	aes_set_keys( MD5( (uint8_t*)pass, strlen(pass), md5tmp) , decryptkey, encryptkey); // pass
 }
 
+/* TASK R14 (M1): cli/srv structures are compiled with -fpack-struct, so the
+ * addresses of their AES_KEY / ucrc members may be under-aligned. This variant
+ * computes everything into properly aligned locals and copies the results into
+ * the caller's members (the parameters are void* on purpose: no pointer to a
+ * member of a packed struct is ever formed with a 4-byte-aligned type).
+ * Semantics are identical to camd35_init_data() on an aligned struct. */
+void camd35_init_data_store( char *user, char *pass, void *encryptkey, void *decryptkey, void *ucrc)
+{
+	AES_KEY ekey, dkey;
+	uint32_t crc;
+	camd35_init_data( user, pass, &ekey, &dkey, &crc);
+	memcpy( encryptkey, &ekey, sizeof(ekey));
+	memcpy( decryptkey, &dkey, sizeof(dkey));
+	memcpy( ucrc, &crc, sizeof(crc));
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 inline int camd35_padding( int len )
