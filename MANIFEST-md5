@@ -375,7 +375,7 @@ e325203d9797d2e767bd58e9f182bd27  bin/multics-r82a-queue-stats-x64
 d916c151f93eeccd95ef6736672e9234  make-x64/test_cachequeue.c
 f485032a4154a2c18956159904b5d015  make-x64/test_cwlog.c
 f0797a4e62b6311fcaceb579f111c26b  .gitignore
-d56c71aef31ac43afcf8509c86be960a  docs/REPORT-R13-ar.md
+93e96eb891de21e361e7f8873c851fea  docs/REPORT-R13-ar.md
 25fcd334fe6caa66ecab4df5bfbb9ab0  docs/evidence-R13/ce-post-R13-default.out
 3cc611d948f2d57ef579b7aa6aa600a3  docs/evidence-R13/ce-post-R13.out
 8a4ae5b8dd435301960e97f8ef4e4ac9  docs/evidence-R13/ce-repro.sh
