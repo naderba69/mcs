@@ -4,8 +4,9 @@
 #
 #   make -C tests smoke          run the smoke test
 #   make -C tests no-profile     assert an empty config is refused, not a segfault
-BIN     ?= ../bin/multics-r82a-dev-x64
-CFG      = multics-live.cfg
+BIN       ?= ../bin/multics-r82a-dev-x64
+STOCK_BIN ?= ../bin/multics-r82a-stock-x64
+CFG        = multics-live.cfg
 HTTPPORT = 15500
 
 # SAFETY: the stability recipes use process-wide `pkill -9 '^multics'` cleanup.

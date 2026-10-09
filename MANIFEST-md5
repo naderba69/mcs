@@ -1,12 +1,13 @@
-# MANIFEST-md5 — current freeze R14 (2026-10-09, D68-D75): 422 file rows.
+# MANIFEST-md5 — current freeze R14 (2026-10-09, D68-D76): 425 file rows.
 # All four release x64 flavours plus the persistent dev binary were rebuilt on the
 # post-M6 tree: stock c151a83365695e089831d8f66609e650; stats
 # 3687df6f94b6106f171c5d7f1207bffe; queue ef1f3fe88a0669dfb0b4fe13b2644974;
 # queue-stats 1dfff7bb689424e080c1f77c8852034d; dev bin/multics-r82a-dev-x64
-# c130fd476fb9206b7b4419f46f59a8be.
-# `docs/evidence-R14/md5check-post-m6.log` is the final verification transcript
-# and is intentionally excluded. The D74 predecessor `md5check-post-r14.log` is
-# also excluded as its own historical check output; the manifest does not self-pin.
+# c130fd476fb9206b7b4419f46f59a8be. D76 changes only the stability test path.
+# `docs/evidence-R14/md5check-post-d76.log` is the final verification transcript
+# and is intentionally excluded. The D75/D74 predecessors `md5check-post-m6.log`
+# and `md5check-post-r14.log` are historical check outputs and are also excluded;
+# the manifest does not self-pin.
 
 # Historical freeze: reopened for TASK R12 (2026-10-01, D66)
 # R13 (2026-10-07, D67) reopened the freeze one more time: the refused
@@ -43,6 +44,8 @@
 #   stats f6d29d2e8585f08537b6b645d4df6666
 
 
+
+
 f0797a4e62b6311fcaceb579f111c26b  .gitignore
 f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 3d1f58b385a7a0eea720c3c59c3bdd29  bin-frozen-D53/multics-r82a-stock-x64
@@ -57,10 +60,10 @@ c151a83365695e089831d8f66609e650  bin/multics-r82a-stock-x64
 a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 2c0c47e7cdb35fbcfcdeeeaa92d09f5c  docs/BLACKSCREEN.md
 797863f9c6d87675f97e3965189f7c45  docs/BUILD-PATCHES.md
-98e0982205122fea80f8fa6b14900555  docs/DECISIONS.md
+ce19691161d8bed12de56c7b3f4f6ab0  docs/DECISIONS.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
 aeb042c9d76386556797ef105b123531  docs/FIELD-GUIDE-ar.md
-bc6faf0e8e52dd4b1d2eb05b0cc12730  docs/INDEX-ar.md
+e035c8f277f8a400d09598b3cb7ce01e  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
 70ab1bccd5e598d5ec3b59a888ba17d8  docs/ORIGIN.md
 c16b39bad6ebc83d5ad5bae1c1cc90f1  docs/PATCH-PLAN.md
@@ -100,7 +103,7 @@ dc3268a24a0f7177ff921ea11340870b  docs/REPORT-4.4-ar.md
 49c8d6cab73ff7e307fc190258b5889e  docs/REPORT-R1-ar.md
 c2de2dea646a9b520a434e18f5ee2243  docs/REPORT-R11-ar.md
 e6fd8c0948529cc5aa1fe050001a9f85  docs/REPORT-R12-ar.md
-9f9e7b1bada7939ba57d44e03c6c32c7  docs/REPORT-R13-ar.md
+935467031e3dbb21f19e5574d4ccf36f  docs/REPORT-R13-ar.md
 ede8a2aed9f7037d351c6e88e9eb21ed  docs/REPORT-R2-ar.md
 599b4e686cb35416567ad041a24e6d7e  docs/REPORT-R3-ar.md
 a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
@@ -108,10 +111,10 @@ a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
 7b949b5abf74a03f7e67a9e044614b1c  docs/REPORT-R8-ar.md
-83b4abedf613ecb1126d6e12332e7e71  docs/ROADMAP-ar.md
-d57acacf94659d85b7e7ee0941de3eab  docs/RUNBOOK-cold-restore-ar.md
+0fe639d441fc0af9b803794b0c2b71b4  docs/ROADMAP-ar.md
+e4ef11bc08e9c5a9d5e630d8ab103e87  docs/RUNBOOK-cold-restore-ar.md
 96a82c4540dce04760fd4c7221f51ef9  docs/SCOPE.md
-20c14032c9e0c816dabf41732efb642d  docs/STATUS.md
+54edb84ca1e4b0b4f6f41fbd60094bae  docs/STATUS.md
 b4221d3be6966b31fd89181f0f64ade4  docs/all310-run.log
 5f07fcb601071d3677f382f9c3d9a83c  docs/all311-run.log
 e7eabf1e4afbf7775a4816bd34906c33  docs/all312-run.log
@@ -165,6 +168,9 @@ b0e5d996c96fe3894a8718b460bc2029  docs/evidence-R14/d70-sha1-rodata.log
 4df14a09e78a90023bbde2bab44c833b  docs/evidence-R14/d71-jm-fail-logs/.jm-b.log
 843ae0826fe4e9ea6874f748834df9bf  docs/evidence-R14/d71-jm-fail-logs/.jm-srv.cfg
 fe20cf66d05fb6fac4a4c2b8adcbf124  docs/evidence-R14/d71-jm-in-suite.log
+0236347a792608ed6c81a0145eb01d86  docs/evidence-R14/d76-fullwing.log
+b25cf9341f7f1678fdf6be8d1561b72f  docs/evidence-R14/d76-stability-path.log
+3f593cfdea88d6d7f5c9d27a163023f7  docs/evidence-R14/docrefs-post-d76.log
 c21869c3377e2bb9411332d63666ab07  docs/evidence-R14/docrefs-post-m5.log
 6757e53960c8111dbd59fadc7d90eb3f  docs/evidence-R14/docrefs-post-m6.log
 5f0919d641c575a6619635ad340d2c8c  docs/evidence-R14/m1-align-test.out
@@ -444,7 +450,7 @@ af09ddc7d479b76a2bd9a9bbc69aef24  src/twin.c
 49b46f0c904d8e80aae752ac4c98d406  src/twin.h
 3260272b8bddbec232a45f08976e110d  start-multics.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-a5ca01bfe2517729d6baec85dc5eacfc  tests/Makefile
+616422bb50b0e4a3e407117fc0c0b952  tests/Makefile
 18c61809bd0c26f837f6cb5609586805  tests/UNSAFE-API-LINT.md
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 518ab2e1a2864eee5bab964fc612aa4f  tests/ca-bite.c
@@ -461,7 +467,7 @@ b2caeeac7e48b211710f9236a020fdb7  tests/multics-live.cfg
 45fd5df42eb90b259a77baf3a0e42eff  tests/ncserver.c
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
-043c6196605b1872478678c5d4ecfbed  tests/stability.mk
+c35df4b623b43bea8a0b1b33313f4e5c  tests/stability.mk
 c5b4c8d0d6d7150879805849cfbd78c7  tests/telnetprobe.py
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c
 bbe04d1798836389d43769af579ce031  tests/unsafe-api-baseline.tsv

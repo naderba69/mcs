@@ -1,0 +1,12 @@
+precondition: make-x64/x64/multics absent
+  [ ok ] stock: started and still alive after 6 s
+  [ ok ] stock: HTTP answered 200
+  [ ok ] stock: SIGHUP terminates it (r82a has no hot-reload handler)
+  [ ok ] stock: restarted cleanly and HTTP answered 200 again
+  [ ok ] stock: shut down
+  [ ok ] configured: started and still alive after 6 s
+  [ ok ] configured: HTTP answered 200
+  [ ok ] configured: SIGHUP terminates it (r82a has no hot-reload handler)
+  [ ok ] configured: restarted cleanly and HTTP answered 200 again
+  [ ok ] configured: shut down
+postcondition: make-x64/x64/multics remains absent

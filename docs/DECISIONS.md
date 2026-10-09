@@ -3702,8 +3702,12 @@ three failures because it hard-codes the now-absent `../make-x64/x64/multics`
 path. The other targets continued under `-k`, including the M6 CSP target,
 which passed. The raw run also has one `-Wunused-function` warning in
 `tests/cxpeer.c`. This is a separate M4/test-path gap, not evidence against the
-M6 gate; it remains open for a separate D76 follow-up and is not counted as a
-green full wing.
+M6 gate. It was handled separately in D76; the targeted stock/configured
+stability test then passed 10/10 with `make-x64/x64/multics` absent. A full
+post-D76 `make -k all` attempt followed, but the 900-second command wait expired
+during the ASan-backed `ps` profile regression without an aggregate or exit
+status. Its partial transcript is `docs/evidence-R14/d76-fullwing.log`; no
+post-D76 all-green claim is made.
 
 **Risk / rollback.** The bit reuses an unused flag and changes no structure
 layout, packed protocol field, wire format, or locking. All validity writes
@@ -3714,3 +3718,33 @@ pointer presence as a substitute for identity validity.
 **Scope.** M6 is complete. M5 remains partial (1256 legacy unbounded calls),
 M2 remains blocked on cross toolchains, and the 66 semantic `docrefs` notices
 remain open for manual review; D75 does not claim those items closed.
+
+
+## D76 -- R14/M4, the stability smoke test must use the persistent stock binary (2026-10-09)
+
+**Situation.** After the five release flavours are built, the recipes remove
+`make-x64/x64/`. `tests/Makefile` already pointed `BIN` at the persistent dev
+copy and `STATS_BIN` at the persistent stats copy, but the stock leg of the
+`stability` target still launched `../make-x64/x64/multics`. The post-M6 full
+wing therefore recorded three stock smoke failures (457 other `[ ok ]` results,
+rc 2) while the configured/dev leg and M6 regression passed.
+
+**Decision.** Add `STOCK_BIN ?= ../bin/multics-r82a-stock-x64` beside `BIN` in
+`tests/Makefile`, and have the stock leg call `run_one $(STOCK_BIN) stock`.
+The test must not depend on an ephemeral build directory surviving a release
+recipe.
+
+**Verification.** Removed the ignored generated `make-x64/x64/` build directory,
+asserted `make-x64/x64/multics` was absent, then ran
+`make -s -C tests MCS_WING_OK=1 stability`. Both the persistent stock binary and
+configured dev binary started, returned HTTP 200, terminated on SIGHUP, restarted
+cleanly, and shut down: **10 `[ ok ]`, 0 `[FAIL]`, rc 0**. The absent stock path
+remained absent after the test. Evidence: `docs/evidence-R14/d76-stability-path.log`.
+A full post-D76 `make -k all` attempt timed out at 900 seconds in the ASan-backed
+`ps` regression without a final aggregate or exit code; its partial transcript is
+`docs/evidence-R14/d76-fullwing.log`. The D75 pre-fix complete transcript remains
+`m6-fullwing.log`; neither record represents a post-D76 green wing.
+
+**Risk / rollback.** This changes only the test binary path; no server or wire
+behavior changes. Rollback is to restore the old recipe line, with the known
+failure after any release target that removes `x64/`.

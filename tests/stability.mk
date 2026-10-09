@@ -110,7 +110,7 @@ stability:
 	}; \
 	\
 	rc=0; \
-	run_one ../make-x64/x64/multics stock || rc=1; \
+	run_one $(STOCK_BIN) stock || rc=1; \
 	sleep 2; \
 	run_one $(BIN) configured || rc=1; \
 	rm -f $(STAB_CFG); \
