@@ -140,7 +140,9 @@ release-dev:
 # NULL and the first fprintf crashed. The test now mkdirs its directory and
 # guards its fixtures (xopen), so running it right after test_monjson is kept
 # as the standing regression for exactly that folklore.
-test: x64/test_m1align x64/test_cachequeue x64/test_cwconsensus x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates
+test: lint-unsafe-apis x64/test_safestr x64/test_m1align x64/test_cachequeue x64/test_cwconsensus x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates
+	./x64/test_safestr
+	@echo
 	./x64/test_cachequeue
 	@echo
 	./x64/test_cwconsensus
@@ -347,8 +349,18 @@ x64/test_loginthrottle: test_loginthrottle.c ../src/loginthrottle.c ../src/login
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -DMCS_LT_NOGLOBALS -o $@ test_loginthrottle.c ../src/loginthrottle.c
 
+# TASK M5a (R14): bounded copy/append/format helpers and explicit truncation tests.
+x64/test_safestr: test_safestr.c ../src/safe_string.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_safestr.c
+
+# R14/M5: block new unbounded string API call sites before the unit suite runs.
+lint-unsafe-apis:
+	python3 ../tests/lint_unsafe_apis.py --self-test
+	python3 ../tests/lint_unsafe_apis.py
+
 # TASK R4 (D58): the reputation ledger, ladder and file
-x64/test_peerrep: test_peerrep.c ../src/peerrep.c ../src/peerrep.h
+x64/test_peerrep: test_peerrep.c ../src/peerrep.c ../src/peerrep.h ../src/safe_string.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_peerrep.c ../src/peerrep.c -lpthread
 x64/test_cwlog: test_cwlog.c ../src/cwlog.c ../src/cwlog.h ../src/dcwstats.h
@@ -489,4 +501,4 @@ x64/probe_parsequotes: probe_parsequotes.c ../src/parser.c ../src/parser.h
 	@mkdir -p x64
 	$(CC) -O1 -g -m64 -std=gnu89 -fpack-struct -fsanitize=address -o $@ probe_parsequotes.c ../src/parser.c
 
-.PHONY: link test distclean release release-stats release-dev release-queue release-queue-stats print-cflags print-srcs memcheck
+.PHONY: link test distclean release release-stats release-dev release-queue release-queue-stats print-cflags print-srcs memcheck lint-unsafe-apis

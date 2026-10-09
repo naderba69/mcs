@@ -63,7 +63,7 @@ chmod +x ../bin/* ../dist/* 2>/dev/null
 
 ```
 cd mcs/make-x64
-make test                       # 26/26 وحدات، 1382 فحصاً / 0 فشل (28 ملخصاً)
+make test                       # 38 هدف اختبار، 1391 فحصاً / 0 فشل (29 ملخص نتيجة)
 ./memcheck.sh                   # MEMCHECK: clean (استثناء سباقات TSan = D49)
 cd ../tests
 make smoke no-profile pq        # الثنائية الحية: إقلاع، رفض فارغ، قيم مقتبسة طويلة

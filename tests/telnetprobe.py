@@ -10,6 +10,8 @@ Each mode prints ONE line; the recipe decides what it means.
     telnetprobe.py idle  <port> [wait_s]  -> "closed after N.Ns" | "still open after Ns"
     telnetprobe.py cap   <port> <hold>    -> the sentence the extra session gets
     telnetprobe.py login <port> <user> <pass> -> "console" | "silent:<first bytes>"
+    telnetprobe.py update-pass <port> <telnet-user> <telnet-pass>
+        -> "rejected; session-alive" when an overlong CCCAM password is refused
 
 Exit status is always 0: this is a measuring instrument, the assertions live
 in the recipe (same split as cedcw.py and autelnet.py).
@@ -67,9 +69,48 @@ def login(port, user, password):
     print("console" if b"help" in d else "silent:%r" % d[:40])
 
 
+def recv_until(sock, marker):
+    data = b""
+    sock.settimeout(5)
+    while marker not in data:
+        chunk = sock.recv(1024)
+        if not chunk:
+            break
+        data += chunk
+    return data
+
+
+def update_pass(port, user, password):
+    sock = socket.create_connection(("127.0.0.1", port), 5)
+    try:
+        recv_until(sock, b"Login:")
+        sock.sendall((user + "\r\n").encode("ascii"))
+        recv_until(sock, b"Password:")
+        sock.sendall((password + "\r\n").encode("ascii"))
+        recv_until(sock, b"[command]: ")
+
+        too_long = "A" * 80
+        command = "UPDATE CCCAM 1 m5user {} * 1\r\n".format(too_long)
+        sock.sendall(command.encode("ascii"))
+        response = recv_until(sock, b"[command]: ")
+
+        sock.sendall(b"STAT\r\n")
+        status = recv_until(sock, b"[command]: ")
+        if (b"CCcam password too long (max 63 bytes), unchanged." in response
+                and b"Total Profiles:" in status
+                and b"Total CCcam Servers:" in status):
+            print("rejected; session-alive")
+        else:
+            print("unexpected: response={!r} status={!r}".format(response[-180:], status[-180:]))
+    except (OSError, socket.timeout) as error:
+        print("probe-error: {}".format(error))
+    finally:
+        sock.close()
+
+
 def main():
     if len(sys.argv) < 3:
-        print("usage: telnetprobe.py idle|cap|login <port> [...]")
+        print("usage: telnetprobe.py idle|cap|login|update-pass <port> [...]")
         return 0
     mode, port = sys.argv[1], int(sys.argv[2])
     if mode == "idle":
@@ -78,6 +119,8 @@ def main():
         cap(port, int(sys.argv[3]) if len(sys.argv) > 3 else 3)
     elif mode == "login":
         login(port, sys.argv[3], sys.argv[4])
+    elif mode == "update-pass":
+        update_pass(port, sys.argv[3], sys.argv[4])
     else:
         print("unknown mode")
     return 0

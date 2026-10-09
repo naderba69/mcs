@@ -36,6 +36,7 @@
 #include "debug.h"
 #include "convert.h"
 #include "tools.h"
+#include "safe_string.h"
 #include "threads.h"
 #include "ecmdata.h"
 
@@ -185,7 +186,8 @@ static void *telnet_login_session(struct telnet_conn_data *tcd)
 		return NULL;
 	}
 	login_note_success(myip); /* TASK R3 (D57): a good login forgives the typos */
-	strcpy(buf, "\r\n\r\ntype 'help' for command list\r\n");write(fd, buf, strlen(buf) );
+	mcs_strlcpy(buf, "\r\n\r\ntype 'help' for command list\r\n", sizeof(buf));
+	write(fd, buf, strlen(buf) );
 
 	while ( 1 ) {
 		writes(fd, "\r\n[command]: ");
@@ -469,8 +471,12 @@ static void *telnet_login_session(struct telnet_conn_data *tcd)
 						// pass
 						if (!parse_str(str)) continue;
 						if ( strcmp(str, "*") ) {
+							if (strlen(str) >= sizeof(cli->pass)) {
+								writes(fd, "CCcam password too long (max 63 bytes), unchanged.\r\n");
+								continue;
+							}
 							if ( strcmp(cli->pass, str) ) {
-								strcpy(cli->pass, str);
+								mcs_strlcpy(cli->pass, str, sizeof(cli->pass));
 								// disconnect
 								if (cli->connection.status>0) cc_disconnect_cli(cli);
 							}
@@ -505,8 +511,12 @@ static void *telnet_login_session(struct telnet_conn_data *tcd)
 						// pass
 						if (!parse_str(str)) continue;
 						if ( strcmp(str, "*") ) {
+							if (strlen(str) >= sizeof(cli->pass)) {
+								writes(fd, "mgcamd password too long (max 63 bytes), unchanged.\r\n");
+								continue;
+							}
 							if ( strcmp(cli->pass, str) ) {
-								strcpy(cli->pass, str);
+								mcs_strlcpy(cli->pass, str, sizeof(cli->pass));
 								// disconnect
 								if (cli->connection.status>0) mg_disconnect_cli(cli);
 							}

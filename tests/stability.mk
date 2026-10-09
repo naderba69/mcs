@@ -4992,26 +4992,29 @@ tl1:
 # parallel sessions, and the default allowlist is empty (= everyone). One peer
 # could inflate the thread table from a single socket loop.
 #
-# ONE SERVER with TELNET TIMEOUT: 3 and TELNET MAXCLIENTS: 3, THREE SCENARIOS:
+# ONE SERVER with TELNET TIMEOUT: 3 and TELNET MAXCLIENTS: 3, FOUR SCENARIOS:
 #   A. a session that says nothing is ended BY THE SERVER within the timeout,
 #      and the log names the reason ("[TELNET IDLE]");
 #   B. with three sessions open, the fourth gets one sentence and no thread --
 #      and the log carries "[TELNET LIMIT]" with the count;
 #   C. once the idle ones are gone the slots come back: a proper login reaches
-#      the console (the fix bounds the door, it does not weld it shut).
+#      the console (the fix bounds the door, it does not weld it shut);
+#   D. an 80-byte CCCAM password update is rejected before the 64-byte field,
+#      and the authenticated session remains able to answer STAT.
 #
-# Ports: HTTP 17001, telnet 17002, newcamd 17003.
+# Ports: HTTP 17001, telnet 17002, newcamd 17003, cccam 17004.
 # ---------------------------------------------------------------------------
 TL2_HPORT = 17001
 TL2_TPORT = 17002
 TL2_NPORT = 17003
+TL2_CCCAM_PORT = 17004
 
 .PHONY: tl2
 
 tl2:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@$(MCS_KILL_MULTICS); sleep 1; true
-	@printf 'HTTP PORT: $(TL2_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nTELNET PORT: $(TL2_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\nTELNET TIMEOUT: 3\nTELNET MAXCLIENTS: 3\n\n' > .tl2.cfg; \
+	@printf 'HTTP PORT: $(TL2_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nTELNET PORT: $(TL2_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\nTELNET TIMEOUT: 3\nTELNET MAXCLIENTS: 3\nCCCAM PORT: $(TL2_CCCAM_PORT)\nF: m5user oldpass\n\n' > .tl2.cfg; \
 	printf '[ tl2 ]\nNEWCAMD PORT: $(TL2_NPORT)\nUSER: u1 p1\n' >> .tl2.cfg; \
 	rm -f .tl2-srv.log; \
 	# stdbuf: the server is killed with -9 at the end, so a block-buffered
@@ -5031,8 +5034,10 @@ tl2:
 	sleep 4; \
 	c=$$(python3 telnetprobe.py login $(TL2_TPORT) admin admin); \
 	case "$$c" in console) echo "  [ ok ] C: the slots came back after the idle close (login reached the console)";; *) echo "[FAIL] C: login after the idle close said '$$c'"; ok=0;; esac; \
+	p=$$(python3 telnetprobe.py update-pass $(TL2_TPORT) admin admin); \
+	case "$$p" in "rejected; session-alive") echo "  [ ok ] D: overlong CCCAM password rejected, session remains live";; *) echo "[FAIL] D: overlong password probe: $$p"; ok=0;; esac; \
 	alive=0; kill -0 $$(cat .tl2.pid) 2>/dev/null && alive=1; \
 	if [ "$$alive" = "1" ]; then echo "  [ ok ] the server survived the whole sequence"; else echo "[FAIL] the server died"; ok=0; fi; \
 	if grep -qi "segmentation\|SIGSEGV\|AddressSanitizer\|stack-buffer" .tl2-srv.log; then echo "[FAIL] the server log shows a crash marker"; ok=0; fi; \
 	kill $$(cat .tl2.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .tl2.pid) 2>/dev/null; $(MCS_KILL_MULTICS); rm -f .tl2.pid .tl2.cfg; \
-	if [ "$$ok" = "1" ]; then echo "tl2: 7/7 ok"; else echo "tl2: FAILED"; exit 1; fi
+	if [ "$$ok" = "1" ]; then echo "tl2: 8/8 ok"; else echo "tl2: FAILED"; exit 1; fi

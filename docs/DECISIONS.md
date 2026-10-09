@@ -3625,3 +3625,29 @@ opt-in (`docs/evidence-R14/m38-explicit-optin-wing.log`): rc 0, 453 result
 lines beginning with `[ ok ]`, zero result lines beginning with `[FAIL]`.
 The 20 `[FAIL]` tokens elsewhere in that raw log are text echoed from recipe
 bodies, not failed assertions.
+
+
+## D74 -- R14/M5a, bounded string wrappers and a no-growth fence (2026-10-09)
+
+**Situation.** The report's string-API audit found a large legacy inventory of
+`strcpy`, `strcat`, and `sprintf` calls in `src/`. Replacing thousands of
+formatting operations in one pass would be unsafe without a bounded migration
+path; continuing to add new unbounded calls would make that debt grow.
+
+**Decision.** Add explicit-capacity helpers in `src/safe_string.h`:
+`mcs_strlcpy`, `mcs_strlcat`, and `mcs_snprintf`. Migrate the telnet password
+updates to reject values that do not fit the 64-byte field, and pass the IPv4
+buffer capacity through the peer-reputation formatter. Add a checked-in
+fingerprint inventory and a lexical guard that ignores comments/string literals
+but rejects new or changed `strcpy`/`strcat`/`sprintf` call expressions. The
+baseline is a migration fence, not a proof that existing call sites are safe;
+refreshing it requires review of the source diff.
+
+**Verification.** The self-test proves all three APIs are found, comments and
+literals are ignored, and an added call is rejected. `make -C make-x64 test`
+passes 1391 checks (including `test_safestr` 9/9), and the guard reports 1256
+existing call sites with zero additions. The live `tl2` target rejects an
+80-byte CCCAM password before writing the 64-byte field and keeps the telnet
+session responsive (8/8). Four call sites were removed from the pre-M5a
+inventory; 1256 legacy call sites remain and M5 stays open. Evidence:
+`docs/evidence-R14/m5-unsafe-api-gate.log`.

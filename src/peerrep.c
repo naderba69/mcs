@@ -11,6 +11,7 @@
 #include <arpa/inet.h>
 
 #include "peerrep.h"
+#include "safe_string.h"
 
 extern char config_file[256];   /* main.c -- only used to derive the default file */
 
@@ -38,9 +39,12 @@ static int  pr_th_ban      = 50;
  * gone. Naming a stage now goes through peerrep_stage_name() in peerrep.h, so
  * monjson.c and telnet.c share one table instead of carrying their own. */
 
-static void fmt_ip(char *dst, uint32_t ip)
+static void fmt_ip(char *dst, size_t dst_size, uint32_t ip)
 {
-	sprintf(dst, "%u.%u.%u.%u", 0xFF&(ip), 0xFF&(ip>>8), 0xFF&(ip>>16), 0xFF&(ip>>24));
+	if (!dst || dst_size == 0) return;
+	if (mcs_snprintf(dst, dst_size, "%u.%u.%u.%u", 0xFF&(ip), 0xFF&(ip>>8),
+	                 0xFF&(ip>>16), 0xFF&(ip>>24)) < 0)
+		dst[0] = '\0';
 }
 
 static struct peerrep_rec *pr_find(uint32_t ip, uint16_t port)
@@ -181,7 +185,7 @@ void peerrep_save(void)
 	fprintf(f, "# peer reputation -- stage 1=distrust 2=isolate 3=ban (written by MultiCS, TASK R4/D58)\n");
 	for (i=0; i<pr_count; i++) {
 		char ipstr[24];
-		fmt_ip(ipstr, pr_tab[i].ip);
+		fmt_ip(ipstr, sizeof(ipstr), pr_tab[i].ip);
 		fprintf(f, "%s:%u %d %d %s\n", ipstr, pr_tab[i].port, pr_tab[i].stage, pr_tab[i].events,
 			pr_tab[i].lastreason[0] ? pr_tab[i].lastreason : "unknown");
 	}

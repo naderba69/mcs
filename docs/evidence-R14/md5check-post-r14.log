@@ -1,4 +1,4 @@
-R14 final freeze: 407 file rows (MANIFEST-md5 self-excluded; this verification log excluded by policy).
+R14 final freeze: 415 file rows (MANIFEST-md5 self-excluded; this verification log excluded by policy).
 .gitignore: OK
 bin-frozen-D53/multics-r82a-stats-x64: OK
 bin-frozen-D53/multics-r82a-stock-x64: OK
@@ -121,6 +121,7 @@ docs/evidence-R14/d71-jm-fail-logs/.jm-a.log: OK
 docs/evidence-R14/d71-jm-fail-logs/.jm-b.log: OK
 docs/evidence-R14/d71-jm-fail-logs/.jm-srv.cfg: OK
 docs/evidence-R14/d71-jm-in-suite.log: OK
+docs/evidence-R14/docrefs-post-m5.log: OK
 docs/evidence-R14/m1-align-test.out: OK
 docs/evidence-R14/m1-freshbuild.log: OK
 docs/evidence-R14/m1-ubsan-probe.log: OK
@@ -130,12 +131,14 @@ docs/evidence-R14/m3-m4-path-smoke.log: OK
 docs/evidence-R14/m38-explicit-optin-wing.log: OK
 docs/evidence-R14/m38-guard-checks.log: OK
 docs/evidence-R14/m38-jm-optin.log: OK
+docs/evidence-R14/m5-unsafe-api-gate.log: OK
 docs/evidence-R14/md5check.log: OK
 docs/evidence-R14/tl2-post-R14.out: OK
 docs/evidence-R14/tl2-srv.log: OK
 docs/evidence-R14/wing-post-m36.log: OK
 docs/evidence-R14/wing-targets-post-m1.log: OK
 docs/evidence-R14/x64-flavours-post-m38.log: OK
+docs/evidence-R14/x64-flavours-post-m5.log: OK
 docs/interference-R12/postfix-trap-peerA.log: OK
 docs/interference-R12/postfix-trap-peerB.log: OK
 docs/interference-R12/postfix-trap-srv.log: OK
@@ -256,6 +259,7 @@ make-x64/test_peerrep.c: OK
 make-x64/test_phase1cfg.c: OK
 make-x64/test_retry_detect.c: OK
 make-x64/test_rotation.c: OK
+make-x64/test_safestr.c: OK
 make-x64/test_trust.c: OK
 make-x64/test_trustagg.c: OK
 make-x64/test_trustlife.c: OK
@@ -356,6 +360,7 @@ src/pipe.c: OK
 src/pipe.h: OK
 src/retry_detect.h: OK
 src/rotation.h: OK
+src/safe_string.h: OK
 src/setdcw.c: OK
 src/sha1.c: OK
 src/sha1.h: OK
@@ -389,6 +394,7 @@ src/twin.h: OK
 start-multics.sh: OK
 tests/.dbg-pr.cfg: OK
 tests/Makefile: OK
+tests/UNSAFE-API-LINT.md: OK
 tests/autelnet.py: OK
 tests/ca-bite.c: OK
 tests/cachepeer.c: OK
@@ -397,6 +403,7 @@ tests/cedcw.py: OK
 tests/cxpeer.c: OK
 tests/docrefs.sh: OK
 tests/dt-probe.c: OK
+tests/lint_unsafe_apis.py: OK
 tests/multics-filter.cfg: OK
 tests/multics-live.cfg: OK
 tests/ncclient.c: OK
@@ -406,5 +413,4 @@ tests/sp-peer.c: OK
 tests/stability.mk: OK
 tests/telnetprobe.py: OK
 tests/u-probe.c: OK
-
-SUMMARY: rows=407 OK=407 FAILED=0 md5sum_rc=0
+tests/unsafe-api-baseline.tsv: OK

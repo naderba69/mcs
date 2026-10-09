@@ -1,9 +1,9 @@
-# MANIFEST-md5 — current freeze R14 (2026-10-09, D68-D73): 407 file rows.
-# All four release x64 flavours plus the persistent dev binary were rebuilt from R14
-# tree: stock 6e0f962c7e4d47ad3d0ead5b46ca1713; stats
-# 59d3a04e114934ec93ef4b220ea41749; queue 08013bdef08f9eef60ad2c2753a392ac;
-# queue-stats 5188da7386d29581b90a6876069ea651; dev bin/multics-r82a-dev-x64
-# a6ead38b16d60db46d917f024b202fc5.
+# MANIFEST-md5 — current freeze R14 (2026-10-09, D68-D74): 415 file rows.
+# All four release x64 flavours plus the persistent dev binary were rebuilt on the
+# post-M5a tree: stock e6d87e983ad86d44ec5682a085d98fe1; stats
+# 1f2252f51dc5cd5aba767aefa22fe3a9; queue 445c3e7e866fe22bd658663798cc4efb;
+# queue-stats 0eb31d81eaeade9162e58480846f4e90; dev bin/multics-r82a-dev-x64
+# fca8945ee09a2519132e4e967b3f6f79.
 # `docs/evidence-R14/md5check-post-r14.log` is the final verification transcript
 # and is intentionally excluded; all other workspace files in the manifest scope
 # (including historical evidence) are pinned. The manifest does not self-pin.
@@ -44,20 +44,20 @@ f0797a4e62b6311fcaceb579f111c26b  .gitignore
 f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 3d1f58b385a7a0eea720c3c59c3bdd29  bin-frozen-D53/multics-r82a-stock-x64
 800177a56d2f4e6f3a0a0ce5dac71c95  bin/multics-r82a-arm
-a6ead38b16d60db46d917f024b202fc5  bin/multics-r82a-dev-x64
+fca8945ee09a2519132e4e967b3f6f79  bin/multics-r82a-dev-x64
 dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
-5188da7386d29581b90a6876069ea651  bin/multics-r82a-queue-stats-x64
-08013bdef08f9eef60ad2c2753a392ac  bin/multics-r82a-queue-x64
+0eb31d81eaeade9162e58480846f4e90  bin/multics-r82a-queue-stats-x64
+445c3e7e866fe22bd658663798cc4efb  bin/multics-r82a-queue-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-59d3a04e114934ec93ef4b220ea41749  bin/multics-r82a-stats-x64
-6e0f962c7e4d47ad3d0ead5b46ca1713  bin/multics-r82a-stock-x64
+1f2252f51dc5cd5aba767aefa22fe3a9  bin/multics-r82a-stats-x64
+e6d87e983ad86d44ec5682a085d98fe1  bin/multics-r82a-stock-x64
 a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 2c0c47e7cdb35fbcfcdeeeaa92d09f5c  docs/BLACKSCREEN.md
 797863f9c6d87675f97e3965189f7c45  docs/BUILD-PATCHES.md
-cdd9968820d4ce28657cec2b1627c787  docs/DECISIONS.md
+0b4f40bfec0959156d3b6d3da8ebb019  docs/DECISIONS.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
 aeb042c9d76386556797ef105b123531  docs/FIELD-GUIDE-ar.md
-bb7d6f015cfe82fd9ecddcf7c04524fc  docs/INDEX-ar.md
+0d9b7e89f4eba4be22c7b66de165fab1  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
 70ab1bccd5e598d5ec3b59a888ba17d8  docs/ORIGIN.md
 c16b39bad6ebc83d5ad5bae1c1cc90f1  docs/PATCH-PLAN.md
@@ -97,7 +97,7 @@ dc3268a24a0f7177ff921ea11340870b  docs/REPORT-4.4-ar.md
 49c8d6cab73ff7e307fc190258b5889e  docs/REPORT-R1-ar.md
 c2de2dea646a9b520a434e18f5ee2243  docs/REPORT-R11-ar.md
 e6fd8c0948529cc5aa1fe050001a9f85  docs/REPORT-R12-ar.md
-2aa53f94156f7b2d22dbd3d2ed6eba69  docs/REPORT-R13-ar.md
+36a0c126daf8b1dc019131f609ee02e5  docs/REPORT-R13-ar.md
 ede8a2aed9f7037d351c6e88e9eb21ed  docs/REPORT-R2-ar.md
 599b4e686cb35416567ad041a24e6d7e  docs/REPORT-R3-ar.md
 a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
@@ -106,9 +106,9 @@ a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
 7b949b5abf74a03f7e67a9e044614b1c  docs/REPORT-R8-ar.md
 92d2efb1d9af68fb0a479342b0ef4bce  docs/ROADMAP-ar.md
-d6857fa1c000d3fc6f8bb1c54f7dc8aa  docs/RUNBOOK-cold-restore-ar.md
+cd529428b2f62354c2bc897b2f3f25a0  docs/RUNBOOK-cold-restore-ar.md
 96a82c4540dce04760fd4c7221f51ef9  docs/SCOPE.md
-93478753999d6bc8630ed0c7502e58ff  docs/STATUS.md
+38b6ca782ac6f5ac15211e317d2f2a59  docs/STATUS.md
 b4221d3be6966b31fd89181f0f64ade4  docs/all310-run.log
 5f07fcb601071d3677f382f9c3d9a83c  docs/all311-run.log
 e7eabf1e4afbf7775a4816bd34906c33  docs/all312-run.log
@@ -162,6 +162,7 @@ b0e5d996c96fe3894a8718b460bc2029  docs/evidence-R14/d70-sha1-rodata.log
 4df14a09e78a90023bbde2bab44c833b  docs/evidence-R14/d71-jm-fail-logs/.jm-b.log
 843ae0826fe4e9ea6874f748834df9bf  docs/evidence-R14/d71-jm-fail-logs/.jm-srv.cfg
 fe20cf66d05fb6fac4a4c2b8adcbf124  docs/evidence-R14/d71-jm-in-suite.log
+c21869c3377e2bb9411332d63666ab07  docs/evidence-R14/docrefs-post-m5.log
 5f0919d641c575a6619635ad340d2c8c  docs/evidence-R14/m1-align-test.out
 37503301a107bf07794fb8337e02b31c  docs/evidence-R14/m1-freshbuild.log
 32906dad4856b340f0c36e8dd0120fa9  docs/evidence-R14/m1-ubsan-probe.log
@@ -171,12 +172,14 @@ bc7813ff83be0aed439ce3b71e46cc9f  docs/evidence-R14/m3-m4-path-smoke.log
 3a4bb334b76acbaf88747d4be0256d28  docs/evidence-R14/m38-explicit-optin-wing.log
 f7766de4545e8b44997abcb288073e9d  docs/evidence-R14/m38-guard-checks.log
 6a559ad8ce5fbe625d9b97fe1bb8c61c  docs/evidence-R14/m38-jm-optin.log
+5a312b3e26c9cdf3114e21132e54a481  docs/evidence-R14/m5-unsafe-api-gate.log
 f29f82bc1d6453b3675760f75e8ef6d3  docs/evidence-R14/md5check.log
 a78184a01b70f8344b86b854175ca905  docs/evidence-R14/tl2-post-R14.out
 53f943406a3953ad7e7e7baa35a78ad3  docs/evidence-R14/tl2-srv.log
 19134dadf7833e1c1a545f727a78fc79  docs/evidence-R14/wing-post-m36.log
 63068879bbf1884da78bdd4b930c08ae  docs/evidence-R14/wing-targets-post-m1.log
 3fc923594b7eeefd3951fc1d87f0141b  docs/evidence-R14/x64-flavours-post-m38.log
+bbecfc6396cc0f26bc8d755eba76756d  docs/evidence-R14/x64-flavours-post-m5.log
 5f1db57b3ded74be65bbc0548d139323  docs/interference-R12/postfix-trap-peerA.log
 42e60170d3dd5792ebaaad8aa290bf71  docs/interference-R12/postfix-trap-peerB.log
 6a298707d580ca98c336970053c97883  docs/interference-R12/postfix-trap-srv.log
@@ -256,7 +259,7 @@ d5a9c3c36d35a0eec7f0db9d56c40d2a  make-cross/Makefile
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
 71db1eb7a48e9eadf5b006e521c7c068  make-cross/cross-mipsel/multics
 dd70e1f361729a919b007241f311c9b1  make-cross/cross-sh4/multics
-47b1226c590716af980abb9d54917c8d  make-x64/Makefile
+270fc3f01a1694bf6772af4950e4a022  make-x64/Makefile
 5c98aaff223e50ce10cf75f59d0aeb96  make-x64/memcheck.sh
 846da9f9d1b473bb531ac20393fc0613  make-x64/memcheck.supp
 441ca78d955dc9a8fc2eb605d4ec8856  make-x64/port_gnu89.h
@@ -297,6 +300,7 @@ f440a50e6a2954d2a40ef15e199e8eb1  make-x64/test_peerrep.c
 c71506027ee47807470aa5a24f9eb917  make-x64/test_phase1cfg.c
 4df0c75184de25ad42c1cdd6e256994a  make-x64/test_retry_detect.c
 ee478157f48579b1cfde0fdfbcee5f75  make-x64/test_rotation.c
+4d29b1034a9e35dc9a2f4efd5868c664  make-x64/test_safestr.c
 266a1130913160ff4a5d4b324075ac20  make-x64/test_trust.c
 0e58c1b87132ab91e211b0acae5b2faf  make-x64/test_trustagg.c
 6a9b188611bd6f5e373df0313928fcb8  make-x64/test_trustlife.c
@@ -391,12 +395,13 @@ c28e17f42aac86e19ec6503bb404be90  src/parser.c
 e3086627448872c5e7877d062482f09f  src/parser.h
 34b20abd921ed0890f62e90dda6662ec  src/peer_cards.h
 118d245b0660cf1c2ebfe0a1327118a9  src/peer_origin.h
-48113745bbb2cec45910246b8a15ac54  src/peerrep.c
+e6575bf0b4df014cd291273be6047ddb  src/peerrep.c
 424da734160236cd5122482d6174afdf  src/peerrep.h
 a48798bae8164f81881cc399303de5f1  src/pipe.c
 2ec7efd881ac921456edc5ef1dbd4c5a  src/pipe.h
 498ef7d66dca93cac1598b1d4c3bc333  src/retry_detect.h
 b82ecc6a2bf38bc2c56aee7dd1f095c8  src/rotation.h
+5380165627ddc7328fbfc70bd310e53c  src/safe_string.h
 424d9cff7650109ce1c9583e0019b705  src/setdcw.c
 79d97753d299214e9fa5291e100ea43e  src/sha1.c
 378b5329a2d6161e14e5a56719596e27  src/sha1.h
@@ -411,7 +416,7 @@ f37fa4ae3957d631026291664fd4c42e  src/srv-mgcamd.c
 a2e39360d2668d6116359c7df914294a  src/srv-newcamd.c
 e8a505e621f834e456c441491482c657  src/srv-radegast.c
 1f738df5156f04b48eabce52fcf0fd9d  src/statsline.h
-55bd355d74d397767fb3fc58a23c783a  src/telnet.c
+ed26d015e8cededff6b767dde7d09b7e  src/telnet.c
 e79043a4563b3f9a8cf0acacc292f691  src/telnet.h
 3276e29ab436ad2694698a0a1ea9be7a  src/th-cfg.c
 f79f0bec8fa0d48f1d16950b820aa08f  src/th-date.c
@@ -430,6 +435,7 @@ af09ddc7d479b76a2bd9a9bbc69aef24  src/twin.c
 3260272b8bddbec232a45f08976e110d  start-multics.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
 c8b13a0d2245c0c3992517e23b2f1962  tests/Makefile
+18c61809bd0c26f837f6cb5609586805  tests/UNSAFE-API-LINT.md
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 518ab2e1a2864eee5bab964fc612aa4f  tests/ca-bite.c
 5081b47e7ffe26768c6f69153719d4e4  tests/cachepeer.c
@@ -438,12 +444,14 @@ c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 640f76a98e8bcdcd38eaed9e33f26bc7  tests/cxpeer.c
 b5cf4be5602fcf8a63af62118e18f288  tests/docrefs.sh
 a16adeb896de5c72ffea07012c9c44d3  tests/dt-probe.c
+11b6ac77678b3ee8fc8b2e6a3a10d1e0  tests/lint_unsafe_apis.py
 be36a40834f6b8b4be29de871b8843a5  tests/multics-filter.cfg
 b2caeeac7e48b211710f9236a020fdb7  tests/multics-live.cfg
 26566d656bd6e5da2e27dd21771a206b  tests/ncclient.c
 45fd5df42eb90b259a77baf3a0e42eff  tests/ncserver.c
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
-a3e9b82d0d6c890986be67056cfc5710  tests/stability.mk
-1e55990a315e42fa0bd2fa5087d1a732  tests/telnetprobe.py
+e028762f357cd6f78fbbb9a000ac5c86  tests/stability.mk
+c5b4c8d0d6d7150879805849cfbd78c7  tests/telnetprobe.py
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c
+bbe04d1798836389d43769af579ce031  tests/unsafe-api-baseline.tsv
