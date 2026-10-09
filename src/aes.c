@@ -676,7 +676,7 @@ static const uint32_t rcon[] = {
 /**
  * Expand the cipher key into the encryption key schedule.
  */
-/* TASK R14 (D68): the schedule lives in key->rd_key, and -fpack-struct gives
+/* TASK R14 (D69): the schedule lives in key->rd_key, and -fpack-struct gives
  * AES_KEY alignment 1 -- taking that member's address hands the AES code a
  * possibly-unaligned uint32_t* (a real fault on arm/mipsel/sh4, merely a
  * missed warning on x86-64). These wrappers work on an aligned local copy;
@@ -693,7 +693,7 @@ static int aes_set_encrypt_key_rk(const unsigned char *userKey, const int bits,
 	if (bits != 128 && bits != 192 && bits != 256)
 		return -2;
 
-	/* rk comes in from the wrapper, already aligned (R14/D68) */
+	/* rk comes in from the wrapper, already aligned (R14/D69) */
 
 	if (bits==128)
 		key->rounds = 10;
@@ -806,7 +806,7 @@ static int aes_set_decrypt_key_rk(const unsigned char *userKey, const int bits,
 	if (status < 0)
 		return status;
 
-	/* R14 (D68): copy the schedule the encrypt-key call just built into
+	/* R14 (D69): copy the schedule the encrypt-key call just built into
 	 * the aligned buffer the wrapper handed us. */
 	memcpy(rk, key->rd_key, sizeof(uint32_t) * 4 * (AES_MAXNR + 1));
 
@@ -861,7 +861,7 @@ int AES_set_decrypt_key(const unsigned char *userKey, const int bits,
  */
 void AES_encrypt(const unsigned char *in, unsigned char *out,
 		 const AES_KEY *key) {
-	/* R14 (D68): work on an aligned copy of the schedule -- &key->rd_key
+	/* R14 (D69): work on an aligned copy of the schedule -- &key->rd_key
 	 * may be under-aligned under -fpack-struct. */
 	uint32_t rk_local[4 *(AES_MAXNR + 1)];
 	const uint32_t *rk_src;
@@ -1058,7 +1058,7 @@ void AES_encrypt(const unsigned char *in, unsigned char *out,
  */
 void AES_decrypt(const unsigned char *in, unsigned char *out,
 		 const AES_KEY *key) {
-	/* R14 (D68): work on an aligned copy of the schedule -- &key->rd_key
+	/* R14 (D69): work on an aligned copy of the schedule -- &key->rd_key
 	 * may be under-aligned under -fpack-struct. */
 	uint32_t rk_local[4 *(AES_MAXNR + 1)];
 	const uint32_t *rk_src;

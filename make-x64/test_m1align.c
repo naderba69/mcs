@@ -205,7 +205,7 @@ int main(void)
 			(long)!memcmp(b1, b2, 64), 1);
 	}
 
-	printf("-- read-only input >= 64 bytes (D69: the transform used to write"
+	printf("-- read-only input >= 64 bytes (D70: the transform used to write"
 		" into the caller's buffer) --\n");
 	{
 		/* .rodata on purpose: writing here is a SIGSEGV, not a surprise

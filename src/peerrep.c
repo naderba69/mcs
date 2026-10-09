@@ -34,19 +34,9 @@ static int  pr_th_ban      = 50;
 
 /* ------------------------------------------------------------------ */
 
-/* TASK R13 (D67): dead code -- nothing calls it (monjson.c has its own
- * mj_stagename). The unit build's -Wall caught it; kept, marked, and listed
- * for deletion in REPORT-R13-ar.md. */
-__attribute__((unused))
-static const char *stage_name(int st)
-{
-	switch (st) {
-	case PEERREP_STAGE_DISTRUST: return "distrust";
-	case PEERREP_STAGE_ISOLATE:  return "isolate";
-	case PEERREP_STAGE_BAN:      return "ban";
-	default:                     return "monitor";
-	}
-}
+/* TASK R14 (M36): the dead stage_name() copy that lived here until R14 is
+ * gone. Naming a stage now goes through peerrep_stage_name() in peerrep.h, so
+ * monjson.c and telnet.c share one table instead of carrying their own. */
 
 static void fmt_ip(char *dst, uint32_t ip)
 {

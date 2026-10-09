@@ -1775,7 +1775,7 @@ test_cfgfield: the bounded credential copy (TASK 3.8)
   [ ok ] SHA1("") with the context in a packed holder               da39a3ee5e6b4b0d3255bfef95601890afd80709
   [ ok ] SHA1_Transform on an unaligned state == aligned state      = 1
   [ ok ] ...and it leaves the caller's block byte-identical         = 1
--- read-only input >= 64 bytes (D69: the transform used to write into the caller's buffer) --
+-- read-only input >= 64 bytes (D70: the transform used to write into the caller's buffer) --
   [ ok ] SHA1 over 128 read-only bytes completes                    = 1
   [ ok ] SHA1(128 read-only bytes) == hashlib                       272049b5add909ae0ed72e347781e50e3670f4dd
   [ ok ] the read-only buffer is byte-identical afterwards          = 1

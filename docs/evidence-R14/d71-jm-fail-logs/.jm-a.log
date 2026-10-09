@@ -1,0 +1,24 @@
+PEER: bound 127.0.0.1:16943, target 127.0.0.1:16942, cw=10203060405060F070809080A0B0C010
+PEER: got MultiCS ping (peer id 0001)
+PEER: sent TYPE_HELLO_ACK -- recvport and ping are now set server-side
+PEER: advertised card 18840000
+PEER: ignored packet type 19 (len 6)
+PEER: got request sid 0065 hash 49AB094D
+PEER: replied CW for ch 1884:0000 sid 0065 hash 49AB094D mark 1 (1/64)
+PEER: ignored packet type 2 (len 29)
+PEER: got request sid 0067 hash 649E21CF
+PEER: replied CW for ch 1884:0000 sid 0067 hash 649E21CF mark 1 (2/64)
+PEER: ignored packet type 2 (len 29)
+PEER: got request sid 0069 hash CAB89B51
+PEER: replied CW for ch 1884:0000 sid 0069 hash CAB89B51 mark 1 (3/64)
+PEER: got request sid 006B hash E5ABB3D3
+PEER: replied CW for ch 1884:0000 sid 006B hash E5ABB3D3 mark 1 (4/64)
+PEER: got request sid 006D hash BF300B55
+PEER: replied CW for ch 1884:0000 sid 006D hash BF300B55 mark 1 (5/64)
+PEER: got request sid 006F hash DA2323D7
+PEER: replied CW for ch 1884:0000 sid 006F hash DA2323D7 mark 1 (6/64)
+PEER: got request sid 0071 hash 0EDAFB59
+PEER: replied CW for ch 1884:0000 sid 0071 hash 0EDAFB59 mark 1 (7/64)
+PEER: got MultiCS ping (peer id 0001)
+PEER: sent TYPE_HELLO_ACK -- recvport and ping are now set server-side
+PEER: ignored packet type 19 (len 6)

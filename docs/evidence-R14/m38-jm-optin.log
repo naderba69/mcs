@@ -1,0 +1,12 @@
+make: Entering directory '/home/user/mcs/tests'
+  [ ok ] phase 1: the stranger's /json is the same 401 every page pays
+  [ ok ] phase 2: the document parses and carries the six sections
+  [ ok ] phase 3: the dcwstats section carries every named counter as integers
+  [ ok ] phase 4: the ladder section shows the armed thresholds and an empty list
+  [ ok ] phase 5: the online honest peer is a row with a ping and no ladder record
+  [ ok ] phase 6: the flood really escalated (the evidence is live, not read back)
+  [ ok ] phase 7: the live ladder record is in the document (distrust or beyond, 3+ events -- the 150 ms flood keeps climbing)
+  [ ok ] phase 8: the record is merged into the row, and a stats build shows the flood in cycle-contradiction
+make: Leaving directory '/home/user/mcs/tests'
+
+M38_JM_EXPLICIT_OPTIN_RC=0

@@ -123,18 +123,18 @@ void SHAPrintContext(SHA_CTX *context, char *msg){
 #endif /* VERBOSE */
 
 /* Hash a single 512-bit block. This is the core of the algorithm. */
-/* TASK R14 (D68): the callers pass &context->state, where context is a
+/* TASK R14 (D69): the callers pass &context->state, where context is a
  * packed struct (-fpack-struct): taking that member's address is exactly the
  * -Waddress-of-packed-member case, and on the strict-alignment targets
  * (arm/mipsel/sh4) a misaligned uint32_t access is not a style question.
  * The state now travels through an aligned local: in on entry, out on exit.
  * Same values, same output -- the unit suite pins the digests. */
-/* TASK R14 (D69): the expansion below writes the message schedule back through
+/* TASK R14 (D70): the expansion below writes the message schedule back through
  * `block`, so the old `block = (CHAR64LONG16*)buffer` arm wrote into the
  * caller's buffer -- including the read-only one SHA1_Update hands it via its
  * `const uint8_t *data`. For any input of 64+ bytes living in .rodata (a
  * literal, a const table) that is a straight SIGSEGV, and a silent corruption
- * for a writable one. TASK R14 (D68) already made the state travel through an
+ * for a writable one. TASK R14 (D69) already made the state travel through an
  * aligned local; the block travels through one too now, aligned on purpose --
  * block->l[i] is a uint32_t access, and the caller's buffer is a packed
  * context member under -fpack-struct. A *local* copy (never the old static

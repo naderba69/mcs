@@ -2156,7 +2156,7 @@ TL_STATE = .tl-trust
 .PHONY: tl
 tl: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; $(MCS_KILL_MULTICS); \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(TL_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-tl\nTELNET PORT: 16670\n'; \
@@ -2321,7 +2321,7 @@ HA_CFG2  = .ha2.cfg
 .PHONY: ha
 ha:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; $(MCS_KILL_MULTICS); \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(HA_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-ha\nTELNET PORT: $(HA_TPORT)\n\n'; \
@@ -2419,7 +2419,7 @@ XS_KEY   = 0102030405060708091011121314
 .PHONY: xs
 xs:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; $(MCS_KILL_MULTICS); \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(XS_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-xs\n\n'; \
@@ -2490,7 +2490,7 @@ DL_KEY   = 0102030405060708091011121314
 .PHONY: dl
 dl:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; $(MCS_KILL_MULTICS); \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(DL_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-dl\n\n'; \
@@ -2588,7 +2588,7 @@ $(CABITE): ca-bite.c
 
 ca: $(CACHEPEER) $(NCCLIENT) $(CABITE)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; $(MCS_KILL_MULTICS); \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(CA_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-ca\n'; \
@@ -2704,7 +2704,7 @@ CU_KEY   = 0102030405060708091011121314
 
 cu: $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .ncclient.bin 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .ncclient.bin 2>/dev/null; sleep 1; true
 	@A63=$$(printf 'A%.0s' $$(seq 1 63)); P63=$$(printf 'P%.0s' $$(seq 1 63)); \
 	A70=$$(printf 'A%.0s' $$(seq 1 70)); P70=$$(printf 'P%.0s' $$(seq 1 70)); \
 	{ printf 'HTTP PORT: $(CU_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
@@ -2813,7 +2813,7 @@ $(SPPEER): sp-peer.c
 sp: $(SPPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 -x '.sp-peer.bin' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
-	  pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .sp-peer.bin .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
+	  $(MCS_KILL_MULTICS); pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .sp-peer.bin .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
 	@{ printf 'HTTP PORT: $(SP_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-sp\n'; \
 	   printf 'CACHE PORT: $(SP_CACHE)\n'; \
@@ -2909,7 +2909,7 @@ ps:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@command -v curl >/dev/null || { echo "curl required"; exit 1; }
 	@make -C ../make-x64 x64/multics-asan >/dev/null 2>&1 || { echo "asan build failed"; exit 1; }
-	@pkill -9 -x multics-asan 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@pkill -9 -x multics-asan 2>/dev/null; $(MCS_KILL_MULTICS); sleep 1; true
 	@{ printf 'HTTP PORT: $(PS_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nHTTP TITLE: mcs-ps\n'; \
 	   printf 'TRUSTED-CACHE-FIRST: '; printf 'X%.0s' $$(seq 1 255); printf '\n'; \
 	   printf 'SERVER '; printf 'S%.0s' $$(seq 1 255); printf ' desc 127.0.0.1 1 u p 0\n\n'; \
@@ -3002,7 +3002,7 @@ u: $(UPROBE)
 	@chmod +x $(UPROBE) 2>/dev/null || true   # make can skip the build rule after a restored workspace; do not depend on the bit surviving
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@command -v curl >/dev/null || { echo "curl required"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@{ printf 'HTTP PORT: $(U_HPORT)\nHTTP USER: '; printf 'A%.0s' $$(seq 1 70); printf '\n'; \
 	   printf 'HTTP PASS: '; printf 'P%.0s' $$(seq 1 70); printf '\n'; \
 	   printf 'HTTP TITLE: mcs-u\nTELNET PORT: $(U_TPORT)\nTELNET USER: '; \
@@ -3079,7 +3079,7 @@ xe:
 	if [ $$? -eq 0 ]; then \
 	  echo "  [ ok ] the ASan probe: production xmlescape stays inside its frame (pre-fix: stack-buffer-overflow WRITE)"; \
 	else echo "[FAIL] ASan probe reports an overflow:"; cat .xe-probe.log | head -8; exit 1; fi
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@{ printf 'HTTP PORT: $(X_PORT)\nHTTP TITLE: m&cs-xe\n\n[ xe&38 ]\nCAID: 1884\nPORT: 16761\nNEWCAMD PORT: 0\n'; } > $(X_CFG); \
 	ok=1; \
 	rm -f .xe-srv.log; \
@@ -3154,7 +3154,7 @@ DCS_PORT = 16770
 DCS_CFG  = .dcs.cfg
 # Not DS_CFG: that name belongs to the dstruct target, and a later
 # assignment would silently retarget it (make variables are global).
-STATS_BIN = ../dist/multics-r82a-stats-x64
+STATS_BIN ?= ../bin/multics-r82a-stats-x64
 
 .PHONY: ds
 
@@ -3162,7 +3162,7 @@ ds:
 	@make -s -C ../make-x64 release-stats > /dev/null || { echo "[FAIL] stats release build"; exit 1; }
 	@make -s -C ../make-x64 link > /dev/null || { echo "[FAIL] dev build"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@ok=1; \
 	{ printf 'HTTP PORT: $(DCS_PORT)\nDCW STATS: ON\n\n[ d38 ]\nCAID: 1884\nPORT: 16771\nNEWCAMD PORT: 0\nDCW TIMEOUT: 1500\n'; } > $(DCS_CFG); \
 	rm -f .ds1.log; \
@@ -3185,7 +3185,7 @@ ds:
 	if [ "$$n" = "2" ] && [ "$$chg" -ge "1" ]; then \
 	  echo "  [ ok ] file reload: the reset runs, the line re-arms (2x + Config file Changed)"; \
 	else echo "[FAIL] reload: DCW STATS: ON x$$n (want 2), Changed x$$chg"; ok=0; fi; \
-	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); sleep 1; \
 	{ printf 'HTTP PORT: $(DCS_PORT)\n\n[ d38 ]\nCAID: 1884\nPORT: 16771\nNEWCAMD PORT: 0\n'; } > $(DCS_CFG); \
 	rm -f .ds2.log; \
 	stdbuf -o0 -e0 $(STATS_BIN) -C $(DCS_CFG) -v > .ds2.log 2>&1 & srv=$$!; \
@@ -3193,7 +3193,7 @@ ds:
 	if grep -q "DCW STATS" .ds2.log; then \
 	  echo "[FAIL] the default is not silent"; ok=0; \
 	else echo "  [ ok ] no line, no counters: the default stays silent"; fi; \
-	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); sleep 1; \
 	{ printf 'HTTP PORT: $(DCS_PORT)\nDCW STATS: BOGUS\n\n[ d38 ]\nCAID: 1884\nPORT: 16771\nNEWCAMD PORT: 0\n'; } > $(DCS_CFG); \
 	rm -f .ds3.log; \
 	stdbuf -o0 -e0 $(STATS_BIN) -C $(DCS_CFG) -v > .ds3.log 2>&1 & srv=$$!; \
@@ -3201,7 +3201,7 @@ ds:
 	if grep -q "DCW STATS: OFF" .ds3.log; then \
 	  echo "  [ ok ] a typo reads OFF, visibly (BOGUS -> DCW STATS: OFF)"; \
 	else echo "[FAIL] a typo did not land OFF"; ok=0; fi; \
-	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); sleep 1; \
 	stdbuf -o0 -e0 $(BIN) -C $(DCS_CFG) -v > .ds4.log 2>&1 & srv=$$!; \
 	sleep 4; \
 	if strings $(BIN) 2>/dev/null | grep -q "this build has no dcwstats counters"; then \
@@ -3215,7 +3215,7 @@ ds:
 	else echo "[FAIL] stock build did not finish parsing"; ok=0; fi; \
 	kill $$srv 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
-	pkill -9 '^multics' 2>/dev/null; \
+	$(MCS_KILL_MULTICS); \
 	[ "$$ok" = "1" ] || exit 1
 
 # ---------------------------------------------------------------------------
@@ -3260,7 +3260,7 @@ dt: $(DT_PROBE) $(CACHEPEER)
 	@make -s -C ../make-x64 release-stats > /dev/null || { echo "[FAIL] stats release build"; exit 1; }
 	@make -s -C ../make-x64 link > /dev/null || { echo "[FAIL] dev build"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@ok=1; \
 	{ printf 'HTTP PORT: $(DT_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(DT_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
@@ -3312,7 +3312,7 @@ dt: $(DT_PROBE) $(CACHEPEER)
 	    print "  [ ok ] dcwstats reset zeroed every counter"; \
 	    print "  [ ok ] help lists dcwstats"; \
 	  }' .dt-proof.txt || ok=0; \
-	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); sleep 1; \
 	{ printf 'HTTP PORT: $(DT_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(DT_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
 	  printf '\n[ dt ]\nCAID: 1884\nPORT: $(DT_NPORT)\nNEWCAMD PORT: 0\n'; } > $(DT_CFG); \
@@ -3323,7 +3323,7 @@ dt: $(DT_PROBE) $(CACHEPEER)
 	if grep -q "dcwstats: OFF" .dt-off.txt && grep -q "null/half-null 0" .dt-off.txt; then \
 	  echo "  [ ok ] no line, gathering OFF, counters zero"; \
 	else echo "[FAIL] OFF readout"; cat .dt-off.txt; ok=0; fi; \
-	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); sleep 1; \
 	{ printf 'HTTP PORT: $(DT_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(DT_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
 	  printf 'DCW STATS: ON\n\n[ dt ]\nCAID: 1884\nPORT: $(DT_NPORT)\nNEWCAMD PORT: 0\n'; } > $(DT_CFG); \
@@ -3345,7 +3345,7 @@ dt: $(DT_PROBE) $(CACHEPEER)
 	else echo "[FAIL] stock build did not finish parsing"; ok=0; fi; \
 	kill $$srv 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
-	pkill -9 '^multics' 2>/dev/null; \
+	$(MCS_KILL_MULTICS); \
 	[ "$$ok" = "1" ] || exit 1
 
 # ---------------------------------------------------------------------------
@@ -3384,7 +3384,7 @@ dw: $(DT_PROBE) $(CACHEPEER)
 	@make -s -C ../make-x64 release-stats > /dev/null || { echo "[FAIL] stats release build"; exit 1; }
 	@make -s -C ../make-x64 link > /dev/null || { echo "[FAIL] dev build"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@ok=1; \
 	{ printf 'HTTP PORT: $(DW_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(DW_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
@@ -3431,7 +3431,7 @@ dw: $(DT_PROBE) $(CACHEPEER)
 	if grep -q "null/half-null</td><td>0" .dw-page.html; then \
 	  echo "[FAIL] the matched count is zero -- the rejection was lost before the compare"; ok=0; \
 	else echo "  [ ok ] the matched null/half-null count is not zero"; fi; \
-	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); sleep 1; \
 	{ printf 'HTTP PORT: $(DW_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(DW_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
 	  printf '\n[ dw ]\nCAID: 1884\nPORT: $(DW_NPORT)\nNEWCAMD PORT: 0\n'; } > $(DW_CFG); \
@@ -3445,7 +3445,7 @@ dw: $(DT_PROBE) $(CACHEPEER)
 	if grep -q "DCW stats</b> OFF" .dw-off.html && grep -q "null/half-null</td><td>0" .dw-off.html && grep -q "dcwstats: OFF" .dw-off-tel.txt; then \
 	  echo "  [ ok ] no config line: page and telnet both say OFF and zero"; \
 	else echo "[FAIL] OFF readout"; ok=0; fi; \
-	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); sleep 1; \
 	{ printf 'HTTP PORT: $(DW_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(DW_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
 	  printf 'DCW STATS: ON\n\n[ dw ]\nCAID: 1884\nPORT: $(DW_NPORT)\nNEWCAMD PORT: 0\n'; } > $(DW_CFG); \
@@ -3468,7 +3468,7 @@ dw: $(DT_PROBE) $(CACHEPEER)
 	else echo "[FAIL] stock build did not finish parsing"; ok=0; fi; \
 	kill $$srv 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
-	pkill -9 '^multics' 2>/dev/null; \
+	$(MCS_KILL_MULTICS); \
 	[ "$$ok" = "1" ] || exit 1
 
 # ---------------------------------------------------------------------------
@@ -3493,7 +3493,7 @@ fl:
 	@make -s -C ../make-x64 x64/probe_cardsids > /dev/null || { echo "[FAIL] cardsids probe build"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@test -x $(FL_PROBE) || { echo "[FAIL] probe missing"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@ok=1; \
 	rm -f .fl-probe.log; \
 	$(FL_PROBE) > .fl-probe.log 2>&1; prc=$$?; \
@@ -3537,7 +3537,7 @@ fl:
 	if grep -qi "segmentation\|SIGSEGV" .fl-srv.log; then echo "[FAIL] logged a segfault"; ok=0; fi; \
 	kill $$srv 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
-	pkill -9 '^multics' 2>/dev/null; \
+	$(MCS_KILL_MULTICS); \
 	rm -f $(FL_CFG) .fl-probe.log .fl-srv.log .fl-page.html; \
 	[ "$$ok" = "1" ] || exit 1
 
@@ -3570,7 +3570,7 @@ bd: $(CACHEPEER) $(NCCLIENT)
 	@make -s -C ../make-x64 link > /dev/null || { echo "[FAIL] dev build"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@test -x $(STATS_BIN) || { echo "[FAIL] stats release missing"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@ok=1; \
 	{ printf 'HTTP PORT: $(BD_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(BD_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
@@ -3602,7 +3602,7 @@ bd: $(CACHEPEER) $(NCCLIENT)
 	  echo "  [ ok ] the server enforced the one listed key"; \
 	else echo "[FAIL] the list was not enforced"; ok=0; fi; \
 	kill $$peer $$srv 2>/dev/null; sleep 1; kill -9 $$peer $$srv 2>/dev/null; \
-	pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	$(MCS_KILL_MULTICS); sleep 1; \
 	rm -f .bd-peer.log .bd-cli.log .bd-srv.log .bd-page.html; \
 	stdbuf -o0 -e0 ./$(CACHEPEER) $(BD_CACHE) $(BD_PEER) $(BD_OTHER) 1 > .bd-peer.log 2>&1 & peer=$$!; \
 	sleep 1; \
@@ -3635,7 +3635,7 @@ bd: $(CACHEPEER) $(NCCLIENT)
 	  echo "  [ ok ] removing the line reloads and clears the list"; \
 	else echo "[FAIL] the list was not cleared on reload"; ok=0; fi; \
 	kill $$peer $$srv 2>/dev/null; sleep 1; kill -9 $$peer $$srv 2>/dev/null; \
-	pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	$(MCS_KILL_MULTICS); sleep 1; \
 	rm -f .bd-srv.log .bd-peer.log .bd-cli.log .bd-page.html; \
 	stdbuf -o0 -e0 ./$(CACHEPEER) $(BD_CACHE) $(BD_PEER) $(BD_LISTED) 1 > .bd-peer.log 2>&1 & peer=$$!; \
 	sleep 1; \
@@ -3654,7 +3654,7 @@ bd: $(CACHEPEER) $(NCCLIENT)
 	else echo "[FAIL] off-by-default (delivered $$n)"; ok=0; fi; \
 	kill $$peer $$srv 2>/dev/null; sleep 1; kill -9 $$peer $$srv 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
-	pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	$(MCS_KILL_MULTICS); sleep 1; \
 	{ printf 'HTTP PORT: $(BD_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'CACHE PORT: $(BD_CACHE)\n'; \
 	  printf 'CACHE PEER: 127.0.0.1:$(BD_PEER) { csp=1 }\nCACHE FILTER: OFF\n'; \
@@ -3682,7 +3682,7 @@ bd: $(CACHEPEER) $(NCCLIENT)
 	kill $$srv $$peer 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
 	kill -9 $$peer 2>/dev/null; \
-	pkill -9 '^multics' 2>/dev/null; \
+	$(MCS_KILL_MULTICS); \
 	rm -f $(BD_CFG) .bd-srv.log .bd-stock.log .bd-peer.log .bd-cli.log .bd-page.html; \
 	[ "$$ok" = "1" ] || exit 1
 
@@ -3714,7 +3714,7 @@ pf: $(CACHEPEER) $(NCCLIENT)
 	@make -s -C ../make-x64 link > /dev/null || { echo "[FAIL] dev build"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@test -x $(STATS_BIN) || { echo "[FAIL] stats release missing"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@{ printf 'HTTP PORT: $(PF_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(PF_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
 	  printf 'DCW STATS: ON\nCACHE PORT: $(PF_CACHE)\n'; \
@@ -3750,7 +3750,7 @@ pf: $(CACHEPEER) $(NCCLIENT)
 	  echo "  [ ok ] the profile that inherits the global gate did not receive it"; \
 	else echo "[FAIL] strict profile received the bad key ($$n)"; ok=0; fi; \
 	kill $$peer $$srv 2>/dev/null; sleep 1; kill -9 $$peer $$srv 2>/dev/null; \
-	pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	$(MCS_KILL_MULTICS); sleep 1; \
 	rm -f .pf-good.log .pf-peer.log .pf-cli.log; \
 	stdbuf -o0 -e0 ./$(CACHEPEER) $(PF_CACHE) $(PF_PEER) $(PF_GOOD) 1 > .pf-peer.log 2>&1 & peer=$$!; \
 	sleep 1; \
@@ -3769,7 +3769,7 @@ pf: $(CACHEPEER) $(NCCLIENT)
 	  echo "  [ ok ] that same profile still receives a key that passes"; \
 	else echo "[FAIL] strict profile good key (delivered $$n, http $$code)"; ok=0; fi; \
 	kill $$peer $$srv 2>/dev/null; sleep 1; kill -9 $$peer $$srv 2>/dev/null; \
-	pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	$(MCS_KILL_MULTICS); sleep 1; \
 	rm -f .pf-stock.log .pf-peer.log .pf-cli.log; \
 	stdbuf -o0 -e0 ./$(CACHEPEER) $(PF_CACHE) $(PF_PEER) $(PF_BAD) 1 > .pf-peer.log 2>&1 & peer=$$!; \
 	sleep 1; \
@@ -3792,7 +3792,7 @@ pf: $(CACHEPEER) $(NCCLIENT)
 	kill $$srv $$peer 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
 	kill -9 $$peer 2>/dev/null; \
-	pkill -9 '^multics' 2>/dev/null; \
+	$(MCS_KILL_MULTICS); \
 	if [ "$$ok" = "1" ]; then rm -f $(PF_CFG) .pf-srv.log .pf-good.log .pf-stock.log .pf-peer.log .pf-cli.log; \
 	else echo "[FAIL] logs kept under tests/.pf-*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
@@ -3823,7 +3823,7 @@ FS_CW    = 11223366445566FF77889998AABBCC31
 fs: $(CACHEPEER) $(NCCLIENT)
 	@make -s -C ../make-x64 link > /dev/null || { echo "[FAIL] dev build"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@{ printf 'HTTP PORT: $(FS_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(FS_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
 	  printf 'CACHE PORT: $(FS_CACHE)\n'; \
@@ -3848,7 +3848,7 @@ fs: $(CACHEPEER) $(NCCLIENT)
 	  echo "  [ ok ] a push that arrives while the ECM is waiting is still delivered"; \
 	else echo "[FAIL] live waiter (delivered $$n)"; ok=0; fi; \
 	kill $$peer $$srv 2>/dev/null; sleep 1; kill -9 $$peer $$srv 2>/dev/null; \
-	pkill -9 '^multics' 2>/dev/null; sleep 1; \
+	$(MCS_KILL_MULTICS); sleep 1; \
 	rm -f .fs-srv.log .fs-peer.log .fs-cli.log; \
 	{ printf 'HTTP PORT: $(FS_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(FS_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
@@ -3887,7 +3887,7 @@ fs: $(CACHEPEER) $(NCCLIENT)
 	kill $$srv $$peer 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
 	kill -9 $$peer 2>/dev/null; \
-	pkill -9 '^multics' 2>/dev/null; \
+	$(MCS_KILL_MULTICS); \
 	if [ "$$ok" = "1" ]; then rm -f $(FS_CFG) .fs-srv.log .fs-peer.log .fs-cli.log; \
 	else echo "[FAIL] logs kept under tests/.fs-*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
@@ -3922,7 +3922,7 @@ $(CARDFILL): cardfill.c
 pc: $(CARDFILL) $(NCCLIENT)
 	@make -s -C ../make-x64 link > /dev/null || { echo "[FAIL] dev build"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@{ printf 'HTTP PORT: $(PC_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(PC_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n'; \
 	  printf 'CACHE PORT: $(PC_CACHE)\n'; \
@@ -3982,7 +3982,7 @@ pc: $(CARDFILL) $(NCCLIENT)
 	kill $$srv $$peer 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
 	kill -9 $$peer 2>/dev/null; \
-	pkill -9 '^multics' 2>/dev/null; \
+	$(MCS_KILL_MULTICS); \
 	if [ "$$ok" = "1" ]; then rm -f $(PC_CFG) .pc-srv.log .pc-peer.log .pc-hit.log .pc-miss.log .pc-cache.html .pc-peer.html; \
 	else echo "[FAIL] logs kept under tests/.pc-*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
@@ -4006,7 +4006,7 @@ RS_CFG   = .rs.cfg
 rs:
 	@make -s -C ../make-x64 link > /dev/null || { echo "[FAIL] dev build"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@{ printf 'HTTP PORT: $(RS_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	  printf 'TELNET PORT: $(RS_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n\n'; \
 	  printf '[rs]\nCAID: 1884\nPORT: $(RS_NPORT)\nUSER: ua pa\n'; } > $(RS_CFG); \
@@ -4040,7 +4040,7 @@ rs:
 	if grep -q "bind port failed" .rs-srv.log; then echo "[FAIL] a port was still held"; ok=0; \
 	else echo "  [ ok ] no port was left held"; fi; \
 	if grep -qi "segmentation\\|SIGSEGV" .rs-srv.log; then echo "[FAIL] logged a segfault"; ok=0; fi; \
-	pkill -9 '^multics' 2>/dev/null; \
+	$(MCS_KILL_MULTICS); \
 	if [ "$$ok" = "1" ]; then rm -f $(RS_CFG) .rs-srv.log; \
 	else echo "[FAIL] logs kept under tests/.rs-*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
@@ -4188,7 +4188,7 @@ cy: $(CACHEPEER) $(NCCLIENT)
 	start_srv() { stdbuf -o0 -e0 $(CY_BIN) -C $(CY2_CFG) -v > .cy2-srv.log 2>&1 & srv=$$!; \
 	  for i in $$(seq 1 25); do curl -s -m 2 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(CY2_HPORT)/ 2>/dev/null | grep -q 200 && break; sleep 1; done; \
 	  sleep 2; }; \
-	kill_srv() { kill -9 $$srv 2>/dev/null; sleep 1; pkill -9 '^multics' 2>/dev/null; sleep 1; }; \
+	kill_srv() { kill -9 $$srv 2>/dev/null; sleep 1; $(MCS_KILL_MULTICS); sleep 1; }; \
 	start_peer() { \
 	  [ "$$peer" != "0" ] && { kill -9 $$peer 2>/dev/null; sleep 0.5; }; \
 	  rm -f .cy2-peer.log; \
@@ -4276,7 +4276,7 @@ AU_CFG4   = .au4.cfg
 .PHONY: au
 au:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@{ printf 'HTTP PORT: $(AU1_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-au1\nTELNET PORT: $(AU1_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n\n'; \
 	   printf '[ au1 ]\nNEWCAMD PORT: 0\n'; } > $(AU_CFG1); \
@@ -4352,7 +4352,7 @@ au:
 	else echo "  [ ok ] phase 3: the compliant server's log is clean"; fi; \
 	kill $$srv1 $$srv2 $$srv3 $$srv4 2>/dev/null; sleep 1; \
 	for s in $$srv1 $$srv2 $$srv3 $$srv4; do kill -9 $$s 2>/dev/null; done; \
-	pkill -9 '^multics' 2>/dev/null; \
+	$(MCS_KILL_MULTICS); \
 	if [ "$$ok" = "1" ]; then rm -f $(AU_CFG1) $(AU_CFG2) $(AU_CFG3) $(AU_CFG4) .au*-srv.log; \
 	else echo "[FAIL] logs kept under tests/.au*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
@@ -4398,7 +4398,7 @@ PR_REP    = .pr.rep
 .PHONY: pr
 pr:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@$(MCS_KILL_MULTICS); pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(PR_REP) $(PR_CFG) .pr-srv.log .pr-a.log .pr-b.log .pr-cli.log multics.peers; \
 	{ printf 'HTTP PORT: $(PR_HPORT)\nHTTP USER: a\nHTTP PASS: a\nHTTP TITLE: mcs-pr\nTELNET PORT: $(PR_TPORT)\nTELNET USER: a\nTELNET PASS: a\nDCW STATS: ON\n'; \
 	   printf 'CACHE PORT: $(PR_CACHE)\nCACHE FILTER: OFF\n'; \
@@ -4454,7 +4454,7 @@ pr:
 	breq2=$$(grep -c "got request" .pr-b.log); \
 	if [ "$$breq2" -ge 1 ]; then echo "  [ ok ] phase 5: the recovered peer receives finds again (B $$breq2)"; else echo "[FAIL] phase 5: the recovered peer is still shunned"; ok=0; fi; \
 	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; \
-	pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
+	$(MCS_KILL_MULTICS); pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then rm -f $(PR_REP) $(PR_CFG) .pr-srv.log .pr-a.log .pr-b.log .pr-cli.log multics.peers; \
 	else echo "[FAIL] logs kept under tests/.pr*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
@@ -4480,6 +4480,13 @@ JM_CFG    = .jm-srv.cfg
 JM_REP    = .jm.rep
 
 .PHONY: jm
+# TASK R14 (D71): the readiness wait this recipe was missing. A peer only
+# becomes askable after its ping round-trip, and the 2026-10-08 wing run drove
+# the 20 find attempts in the seconds BEFORE B logged "come Online", so B never
+# saw a TYPE_REQUEST and phases 6-8 had nothing to read (the target passed on
+# an isolated re-run, which is what made it a recipe bug rather than a server
+# one). The wait below is bounded at 20 s and changes no assertion; the try
+# loop's sleep is 3 s like the pr target's, not 1.
 # HOP-LOOP NOTES (keep this text ABOVE the recipe -- a comment line inside
 # a backslash-continued recipe breaks the shell chain and orphans $$ok and
 # $$srv for the epilogue): the loop hops a FRESH sid every try because a
@@ -4492,7 +4499,7 @@ JM_REP    = .jm.rep
 # phase 8 reads -- hence the break on B's own 'got request' + sleep 8.
 jm:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@$(MCS_KILL_MULTICS); pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(JM_REP) $(JM_CFG) .jm-srv.log .jm-a.log .jm-b.log .jm.json multics.peers; \
 	{ printf 'HTTP PORT: $(JM_HPORT)\nHTTP USER: a\nHTTP PASS: a\nHTTP TITLE: mcs-jm\nTELNET PORT: $(JM_TPORT)\nTELNET USER: a\nTELNET PASS: a\nDCW STATS: ON\n'; \
 	   printf 'CACHE PORT: $(JM_CACHE)\nCACHE FILTER: OFF\n'; \
@@ -4514,14 +4521,15 @@ jm:
 	curl -s -u a:a http://127.0.0.1:$(JM_HPORT)/json > .jm.json; \
 	if python3 -c "import json; d=json.load(open('.jm.json')); rows=[r for r in d['cache_peers'] if r['port']==$(JM_A)]; assert rows and rows[0]['ping']>0 and rows[0]['rep_stage']==-1"; then echo "  [ ok ] phase 5: the online honest peer is a row with a ping and no ladder record"; else echo "[FAIL] phase 5: the honest peer's row is missing or wrong"; ok=0; fi; \
 	env CP_CYCLE_MARK=2 CP_REPUSH_MS=150 stdbuf -o0 -e0 ./$(CACHEPEER) $(JM_CACHE) $(JM_B) "$(PR_CW)" 64 > .jm-b.log 2>&1 & pb=$$!; \
-	for i in $$(seq 1 20); do grep -q "got request" .jm-b.log && break; sid=$$(printf '%02X' $$(( 100 + (i % 14) ))); NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(JM_NPORT) u1 p1 $(PR_KEY) 0 1884 0x$$sid > /dev/null 2>&1; sleep 1; done; \
+	for i in $$(seq 1 40); do grep -q "cache: Peer (127.0.0.1:$(JM_B)) come Online" .jm-srv.log && break; sleep 0.5; done; \
+	for i in $$(seq 1 20); do grep -q "got request" .jm-b.log && break; sid=$$(printf '%02X' $$(( 100 + (i % 14) ))); NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(JM_NPORT) u1 p1 $(PR_KEY) 0 1884 0x$$sid > /dev/null 2>&1; sleep 3; done; \
 	for i in $$(seq 1 60); do grep -q "ESCALATED to DISTRUST" .jm-srv.log && break; sleep 0.5; done; \
 	sleep 8; \
 	grep -q "ESCALATED to DISTRUST" .jm-srv.log && echo "  [ ok ] phase 6: the flood really escalated (the evidence is live, not read back)" || { echo "[FAIL] phase 6: no distrust escalation to read"; ok=0; }; \
 	curl -s -u a:a http://127.0.0.1:$(JM_HPORT)/json > .jm.json; \
 	if python3 -c "import json; d=json.load(open('.jm.json')); recs=[r for r in d['peerrep']['peers'] if r['peer']=='127.0.0.1:$(JM_B)']; assert recs and 1<=recs[0]['stage']<=3 and recs[0]['events']>=3"; then echo "  [ ok ] phase 7: the live ladder record is in the document (distrust or beyond, 3+ events -- the 150 ms flood keeps climbing)"; else echo "[FAIL] phase 7: the live ladder record is missing from the document"; ok=0; fi; \
 	if python3 -c "import json; d=json.load(open('.jm.json')); rows=[r for r in d['cache_peers'] if r['port']==$(JM_B)]; st=d['dcwstats']; assert rows and 1<=rows[0]['rep_stage']<=3 and rows[0]['rep_events']>=3 and rows[0]['rep_last'] and (st['on']==0 or st['cycle-contradiction']>=3)"; then echo "  [ ok ] phase 8: the record is merged into the row, and a stats build shows the flood in cycle-contradiction"; else echo "[FAIL] phase 8: the row merge did not happen"; ok=0; fi; \
-	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
+	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then rm -f $(JM_REP) $(JM_CFG) .jm-srv.log .jm-a.log .jm-b.log .jm.json multics.peers; else echo "[FAIL] logs kept under tests/.jm*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
 
@@ -4552,7 +4560,7 @@ PM_CFG    = .pm-srv.cfg
 .PHONY: pm
 pm:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@$(MCS_KILL_MULTICS); pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(PM_CFG) .pm-srv.log .pm-a.log .pm-b.log .pm-cli.log; \
 	{ printf 'HTTP PORT: $(PM_HPORT)\nHTTP USER: a\nHTTP PASS: a\nHTTP TITLE: mcs-pm\nTELNET PORT: $(PM_TPORT)\nTELNET USER: a\nTELNET PASS: a\nDCW STATS: ON\n'; \
 	   printf 'CACHE PORT: $(PM_CACHE)\nCACHE FILTER: OFF\n\n'; \
@@ -4580,7 +4588,7 @@ pm:
 	wall_ms=$$(( (t1 - t0) / 1000000 )); cpu_ms=$$(( (utime1 - utime0) * 10 )); \
 	echo "PM: binary=$(BIN)"; \
 	echo "PM: delivered=$$deliv/100  wall_ms=$$wall_ms  pushes_applied=$$pushes  cpu_ms=$$cpu_ms  rss_hwm_kb=$${hwm1:-?}  queue_dropped=$$qtally"; \
-	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; 
+	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); pkill -9 -x '.cachepeer.bin' 2>/dev/null;
 	@echo "PM: logs kept under tests/.pm-*"
 
 # ---------------------------------------------------------------------------
@@ -4600,7 +4608,7 @@ SK_CSS    = .sk-override.css
 .PHONY: sk
 sk:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1
+	@$(MCS_KILL_MULTICS); sleep 1
 	@rm -f $(SK_CFG) $(SK_CSS) .sk-*.log .sk-*.html .sk-*.hdr; \
 	{ printf 'HTTP PORT: $(SK_HPORT)\nHTTP USER: admin\nHTTP PASS: secret\nTELNET PORT: 0\n\n[ sk ]\nCAID: 1884\nPORT: $(SK_NPORT)\nNEWCAMD PORT: 0\n'; } > $(SK_CFG); \
 	ok=1; \
@@ -4649,7 +4657,7 @@ sk:
 	if [ "$$cj" = "401" ]; then \
 	  echo "  [ ok ] a dead token cannot read /json either (the logout really locked it)"; \
 	else echo "[FAIL] /json with dead token gave $$cj"; ok=0; fi; \
-	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); \
 	sleep 1; \
 	{ printf 'HTTP PORT: $(SK_HPORT)\nHTTP USER: admin\nHTTP PASS: secret\nTELNET PORT: 0\nFILE STYLESHEET: "$(SK_CSS)"\n\n[ sk ]\nCAID: 1884\nPORT: $(SK_NPORT)\nNEWCAMD PORT: 0\n'; } > $(SK_CFG); \
 	printf '/* operator override */\nbody{background:#000;}\n' > $(SK_CSS); \
@@ -4660,7 +4668,7 @@ sk:
 	if grep -q 'rel="stylesheet"' .sk-ovr.html && ! grep -q "<style type=" .sk-ovr.html && [ "$$o1" = "/* operator" ]; then \
 	  echo "  [ ok ] the stock FILE STYLESHEET override still wins with a plain link"; \
 	else echo "[FAIL] stylesheet override"; ok=0; fi; \
-	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); \
 	if [ "$$ok" = "1" ]; then rm -f $(SK_CFG) $(SK_CSS) .sk-*.log .sk-*.html .sk-*.hdr .sk-json.out; else echo "[FAIL] logs kept under tests/.sk-*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
 
@@ -4689,7 +4697,7 @@ CN_REP    = .cn.rep
 .PHONY: cn
 cn:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@$(MCS_KILL_MULTICS); pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(CN_CFG) $(CN_REP) .cn-*.log .cn-*.cfg .cn-cli*.log; \
 	ok=1; \
 	echo "  [ -- ] P1: consensus OFF, stock first-wins"; \
@@ -4704,7 +4712,7 @@ cn:
 	if [ "$$n1" = "1" ] && [ "$$c1" = "0" ]; then \
 	  echo "  [ ok ] P1: OFF delivers exactly as stock and says nothing"; \
 	else echo "[FAIL] P1 (delivered $$n1, consensus lines $$c1)"; ok=0; fi; \
-	kill $$srv $$pf $$ph 2>/dev/null; sleep 1; kill -9 $$srv $$pf $$ph 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	kill $$srv $$pf $$ph 2>/dev/null; sleep 1; kill -9 $$srv $$pf $$ph 2>/dev/null; $(MCS_KILL_MULTICS); \
 	echo "  [ -- ] P2: consensus ON, a lone honest peer is held then released"; \
 	{ printf 'HTTP PORT: $(CN_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(CN_CACHE)\nCACHE FILTER: OFF\nCACHE CONSENSUS: ON\nCACHE CONSENSUS WINDOW: 600\nCACHE PEER: 127.0.0.1:16972\n\n[ cn ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CN_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\n\n'; } > $(CN_CFG); \
 	stdbuf -o0 -e0 $(BIN) -C $(CN_CFG) -v > .cn2-srv.log 2>&1 & srv=$$!; sleep 3; \
@@ -4716,7 +4724,7 @@ cn:
 	if [ "$$n2" = "1" ] && [ "$$h2" -ge 1 ]; then \
 	  echo "  [ ok ] P2: the lone key is held for corroboration, then released by the window"; \
 	else echo "[FAIL] P2 (delivered $$n2, releases $$h2)"; ok=0; fi; \
-	kill $$srv $$ph 2>/dev/null; sleep 1; kill -9 $$srv $$ph 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	kill $$srv $$ph 2>/dev/null; sleep 1; kill -9 $$srv $$ph 2>/dev/null; $(MCS_KILL_MULTICS); \
 	echo "  [ -- ] P3/P4: two honest voters deliver early; the late fake never lands"; \
 	{ printf 'HTTP PORT: $(CN_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(CN_CACHE)\nCACHE FILTER: OFF\nCACHE CONSENSUS: ON\nCACHE CONSENSUS WINDOW: 600\nCACHE PEER: 127.0.0.1:16971\nCACHE PEER: 127.0.0.1:16972\nCACHE PEER: 127.0.0.1:16973\n\n[ cn ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CN_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\nUSER: u2 p1\nUSER: u3 p1\nUSER: u4 p1\n\n'; } > $(CN_CFG); \
 	stdbuf -o0 -e0 $(BIN) -C $(CN_CFG) -v > .cn3-srv.log 2>&1 & srv=$$!; sleep 3; \
@@ -4739,7 +4747,7 @@ cn:
 	if [ "$$n4" = "1" ] && [ "$$g4" = "1" ] && [ "$$b4" = "0" ] && [ "$$h4" -ge 2 ]; then \
 	  echo "  [ ok ] P4: with the fake listening, the clean key still delivered and the fake never landed"; \
 	else echo "[FAIL] P4 (delivered $$n4 good $$g4 bad $$b4 holds $$h4)"; ok=0; fi; \
-	kill $$srv $$pf $$ph $$ph2 2>/dev/null; sleep 1; kill -9 $$srv $$pf $$ph $$ph2 2>/dev/null; pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
+	kill $$srv $$pf $$ph $$ph2 2>/dev/null; sleep 1; kill -9 $$srv $$pf $$ph $$ph2 2>/dev/null; $(MCS_KILL_MULTICS); pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then rm -f $(CN_CFG) $(CN_REP) .cn-*.log .cn-cli*.log; else echo "[FAIL] logs kept under tests/.cn-*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
 
@@ -4794,7 +4802,7 @@ RI_KEY   = 0102030405060708091011121314
 .PHONY: ri
 ri: .ncclient.bin .cachepeer.bin
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@$(MCS_KILL_MULTICS); pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(RI_CFG) .ri-srv.log .ri-a.log .ri-b.log .ri-cli.log; \
 	{ printf 'HTTP PORT: $(RI_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: $(RI_TPORT)\nDCW STATS: ON\nCACHE PORT: $(RI_CACHE)\nCACHE FILTER: OFF\n\n[ ri ]\nCAID: 1884\nPROVIDERS: 0\nSID LIST: 0064.81 0065.81\nPORT: $(RI_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nDCWFILTER CYCLE: YES\nUSER: u1 p1\nUSER: u2 p1\n\nCACHE PEER: 127.0.0.1:$(RI_A) { csp=1; fwd=1 }\nCACHE PEER: 127.0.0.1:$(RI_B) { csp=1; fwd=1 }\n'; } > $(RI_CFG); \
 	ok=1; \
@@ -4821,7 +4829,7 @@ ri: .ncclient.bin .cachepeer.bin
 	if grep -q "DELIVERED A CONTROL WORD" .ri-cli.log && [ "$$ref2" -ge 2 ]; then \
 	  echo "  [ ok ] P2: the second round trips too ($$ref2 refusals total -- per-reply, never per-key)"; \
 	else echo "[FAIL] P2 (refusals $$ref2)"; ok=0; fi; \
-	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$pa $$pb $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$pa $$pb $$srv 2>/dev/null; $(MCS_KILL_MULTICS); \
 	if [ "$$ok" = "1" ]; then rm -f $(RI_CFG) .ri-srv.log .ri-a.log .ri-b.log .ri-cli.log; \
 	else echo "[FAIL] logs kept under tests/.ri-*"; fi; \
 	[ "$$ok" = "1" ]
@@ -4829,7 +4837,7 @@ ri: .ncclient.bin .cachepeer.bin
 vl:
 	@test -x ../bin/multics-r82a-stats-x64 || { echo "build first: make -C ../make-x64 release-stats"; exit 1; }
 	@test -x ../bin/multics-r82a-stock-x64 || { echo "stock release missing: make -C ../make-x64 release"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@$(MCS_KILL_MULTICS); pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(VL_CFG) .vl-*.log; \
 	ok=1; \
 	echo "  [ -- ] P1: a lone honest key is HELD, then DELIVERED by the window"; \
@@ -4848,7 +4856,7 @@ vl:
 	if [ "$$held1" -ge 1 ] && [ "$$dlvr1" -ge 1 ] && [ "$$cw1" -ge 1 ] && [ "$$jon1" = "1" ] && [ "$$jn1" -ge 2 ]; then \
 	  echo "  [ ok ] P1: held row, delivered row, the key bytes on the page, /json agrees (count $$jn1)"; \
 	else echo "[FAIL] P1 (held $$held1, delivered $$dlvr1, cw $$cw1, json on $$jon1 count $$jn1)"; ok=0; fi; \
-	kill $$srv $$ph 2>/dev/null; sleep 1; kill -9 $$srv $$ph 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	kill $$srv $$ph 2>/dev/null; sleep 1; kill -9 $$srv $$ph 2>/dev/null; $(MCS_KILL_MULTICS); \
 	echo "  [ -- ] P2: the delayed fake loses the weighted decision -> a REFUSED row"; \
 	{ printf 'HTTP PORT: $(VL_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(VL_CACHE)\nCACHE FILTER: OFF\nCACHE CONSENSUS: ON\nCACHE CONSENSUS WINDOW: 300\nCACHE PEER: 127.0.0.1:$(VL_PEER)\nCACHE PEER: 127.0.0.1:16834\nCACHE PEER: 127.0.0.1:16835\n\n[ vl ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(VL_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\n\n'; } > $(VL_CFG); \
 	stdbuf -o0 -e0 ../bin/multics-r82a-stats-x64 -C $(VL_CFG) -v > .vl2-srv.log 2>&1 & srv=$$!; sleep 3; \
@@ -4863,7 +4871,7 @@ vl:
 	if [ "$$ref2" -ge 1 ] && [ "$$mis2" -ge 1 ]; then \
 	  echo "  [ ok ] P2: the fake sits on the page as refused / consensus-mismatch"; \
 	else echo "[FAIL] P2 (refused $$ref2, mismatch $$mis2)"; ok=0; fi; \
-	kill $$srv $$ph $$ph2 $$pf 2>/dev/null; sleep 1; kill -9 $$srv $$ph $$ph2 $$pf 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	kill $$srv $$ph $$ph2 $$pf 2>/dev/null; sleep 1; kill -9 $$srv $$ph $$ph2 $$pf 2>/dev/null; $(MCS_KILL_MULTICS); \
 	echo "  [ -- ] P3: 400 fresh-key answers fill the ring to 100/100"; \
 	{ printf 'HTTP PORT: $(VL_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(VL_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(VL_PEER)\n\n[ vl ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(VL_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nDCWFILTER CHECKSUM: OFF\nUSER: u1 p1\n\n'; } > $(VL_CFG); \
 	stdbuf -o0 -e0 ../bin/multics-r82a-stats-x64 -C $(VL_CFG) -v > .vl3-srv.log 2>&1 & srv=$$!; sleep 3; \
@@ -4879,7 +4887,7 @@ vl:
 	elif [ "$$full3" -ge 1 ] && [ "$$dl3" -ge 1 ] && [ "$$jn3" = "100" ]; then \
 	  echo "  [ ok ] P3: the ring is full (100/100, json count $$jn3) and the server lives"; \
 	else echo "[FAIL] P3 (full $$full3, delivered $$dl3, json $$jn3)"; ok=0; fi; \
-	kill $$srv $$ph 2>/dev/null; sleep 1; kill -9 $$srv $$ph 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	kill $$srv $$ph 2>/dev/null; sleep 1; kill -9 $$srv $$ph 2>/dev/null; $(MCS_KILL_MULTICS); \
 	echo "  [ -- ] P4: the stock flavour has no /cwlog route at all"; \
 	{ printf 'HTTP PORT: $(VL_HPORT)\nHTTP USER: a\nHTTP PASS: a\nCACHE PORT: $(VL_CACHE)\n\n[ vl ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(VL_NPORT)\nUSER: u1 p1\n\n'; } > $(VL_CFG); \
 	stdbuf -o0 -e0 ../bin/multics-r82a-stock-x64 -C $(VL_CFG) -v > .vl4-srv.log 2>&1 & srv=$$!; \
@@ -4889,7 +4897,7 @@ vl:
 	if [ "$$cw4" != "200" ] && [ "$$home4" = "200" ]; then \
 	  echo "  [ ok ] P4: stock answers 200 on / and does NOT serve /cwlog ($$cw4)"; \
 	else echo "[FAIL] P4 (/cwlog $$cw4, / $$home4)"; ok=0; fi; \
-	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; $(MCS_KILL_MULTICS); \
 	if [ "$$ok" = "1" ]; then echo "vl: 4/4 ok"; else echo "vl: FAILED"; exit 1; fi
 
 # ---------------------------------------------------------------------------
@@ -4910,7 +4918,7 @@ OH_NPORT = 16997
 
 oh:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@printf 'HTTP PORT: $(OH_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n\n' > .oh.cfg; \
 	printf '[ oh ]\nNEWCAMD PORT: $(OH_NPORT)\nUSER: u1 p1\n' >> .oh.cfg; \
 	rm -f .oh-srv.log; \
@@ -4930,7 +4938,7 @@ oh:
 	  code2=$$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(OH_HPORT)/); \
 	  [ "$$code2" = "200" ] && break; sleep 1; done; \
 	if [ "$$code2" = "200" ]; then echo "  [ ok ] the next request still answers 200"; else echo "[FAIL] the next request answered $$code2"; ok=0; fi; \
-	kill $$(cat .oh.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .oh.pid) 2>/dev/null; pkill -9 '^multics' 2>/dev/null; rm -f .oh.pid .oh.cfg; \
+	kill $$(cat .oh.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .oh.pid) 2>/dev/null; $(MCS_KILL_MULTICS); rm -f .oh.pid .oh.cfg; \
 	if [ "$$ok" = "1" ]; then echo "oh: 3/3 ok"; else echo "oh: FAILED"; exit 1; fi
 
 # ---------------------------------------------------------------------------
@@ -4955,7 +4963,7 @@ TL1_NPORT = 17000
 
 tl1:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@printf 'HTTP PORT: $(TL1_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nTELNET PORT: $(TL1_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\n\n' > .tl1.cfg; \
 	printf '[ tl1 ]\nNEWCAMD PORT: $(TL1_NPORT)\nUSER: u1 p1\n' >> .tl1.cfg; \
 	rm -f .tl1-srv.log; \
@@ -4973,7 +4981,7 @@ tl1:
 	if grep -qi "segmentation\|SIGSEGV\|AddressSanitizer\|stack-buffer" .tl1-srv.log; then echo "[FAIL] the server log shows a crash marker"; ok=0; fi; \
 	good=$$(python3 -c "import socket; s=socket.create_connection(('127.0.0.1',$(TL1_TPORT)),5); s.recv(200); s.sendall(b'admin\r\n'); s.recv(200); s.sendall(b'admin\r\n'); s.settimeout(5); d=s.recv(400); s.close(); print('answered' if b'help' in d else 'silent: '+repr(d[:40]))" 2>&1 | tail -1); \
 	if [ "$$good" = "answered" ]; then echo "  [ ok ] and a well-formed login still gets the console (the fix is not a mute)"; else echo "[FAIL] the console did not answer a proper login: $$good"; ok=0; fi; \
-	kill $$(cat .tl1.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .tl1.pid) 2>/dev/null; pkill -9 '^multics' 2>/dev/null; rm -f .tl1.pid .tl1.cfg; \
+	kill $$(cat .tl1.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .tl1.pid) 2>/dev/null; $(MCS_KILL_MULTICS); rm -f .tl1.pid .tl1.cfg; \
 	if [ "$$ok" = "1" ]; then echo "tl1: 4/4 ok"; else echo "tl1: FAILED"; exit 1; fi
 
 # ---------------------------------------------------------------------------
@@ -5002,7 +5010,7 @@ TL2_NPORT = 17003
 
 tl2:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@$(MCS_KILL_MULTICS); sleep 1; true
 	@printf 'HTTP PORT: $(TL2_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nTELNET PORT: $(TL2_TPORT)\nTELNET USER: admin\nTELNET PASS: admin\nTELNET TIMEOUT: 3\nTELNET MAXCLIENTS: 3\n\n' > .tl2.cfg; \
 	printf '[ tl2 ]\nNEWCAMD PORT: $(TL2_NPORT)\nUSER: u1 p1\n' >> .tl2.cfg; \
 	rm -f .tl2-srv.log; \
@@ -5026,5 +5034,5 @@ tl2:
 	alive=0; kill -0 $$(cat .tl2.pid) 2>/dev/null && alive=1; \
 	if [ "$$alive" = "1" ]; then echo "  [ ok ] the server survived the whole sequence"; else echo "[FAIL] the server died"; ok=0; fi; \
 	if grep -qi "segmentation\|SIGSEGV\|AddressSanitizer\|stack-buffer" .tl2-srv.log; then echo "[FAIL] the server log shows a crash marker"; ok=0; fi; \
-	kill $$(cat .tl2.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .tl2.pid) 2>/dev/null; pkill -9 '^multics' 2>/dev/null; rm -f .tl2.pid .tl2.cfg; \
+	kill $$(cat .tl2.pid) 2>/dev/null; sleep 1; kill -9 $$(cat .tl2.pid) 2>/dev/null; $(MCS_KILL_MULTICS); rm -f .tl2.pid .tl2.cfg; \
 	if [ "$$ok" = "1" ]; then echo "tl2: 7/7 ok"; else echo "tl2: FAILED"; exit 1; fi

@@ -15,7 +15,7 @@ typedef struct {
 
 #define SHA_DIGEST_LENGTH 20
 
-void SHA1_Transform(void *statep, const uint8_t buffer[64]); /* TASK R14 (D68): void* -- the callers hand it a packed member */
+void SHA1_Transform(void *statep, const uint8_t buffer[64]); /* TASK R14 (D69): void* -- the callers hand it a packed member */
 
 void SHA1_Init(SHA_CTX* context);
 void SHA1_Update(SHA_CTX* context, const uint8_t* data, const size_t len);

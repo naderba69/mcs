@@ -13,6 +13,8 @@
 #   make release    -> ../dist/multics-r82a-stock-x64   (stock r82a logic)
 #   make release-stats
 #                   -> ../dist/multics-r82a-stats-x64   (+ dcwstats counters)
+#   make release-dev
+#                   -> ../bin/multics-r82a-dev-x64      (persistent unstripped dev build)
 #   make distclean
 #
 # NOTE: this directory is called make-x64 rather than build/ because `build`
@@ -117,6 +119,15 @@ release-stats:
 	@mkdir -p ../bin && cp $(DIST)/multics-r82a-stats-x64 ../bin/
 	@echo "persistent copy: ../bin/multics-r82a-stats-x64"
 	@nm x64/multics | grep -c dcwstats | sed 's/^/  dcwstats symbols (expect 2): /'
+	@rm -rf x64
+
+# Development binary used by the live suite. Keep it unstripped for debugging,
+# but persist it outside the snapshot-excluded x64/ build directory so release
+# flavour rebuilds do not make tests depend on an ephemeral artifact.
+release-dev:
+	@rm -rf x64 && $(MAKE) --no-print-directory link
+	@mkdir -p ../bin && cp x64/multics ../bin/multics-r82a-dev-x64
+	@echo "persistent dev copy: ../bin/multics-r82a-dev-x64"
 	@rm -rf x64
 
 # ---------------------------------------------------------------------------
@@ -478,4 +489,4 @@ x64/probe_parsequotes: probe_parsequotes.c ../src/parser.c ../src/parser.h
 	@mkdir -p x64
 	$(CC) -O1 -g -m64 -std=gnu89 -fpack-struct -fsanitize=address -o $@ probe_parsequotes.c ../src/parser.c
 
-.PHONY: link test distclean release release-stats print-cflags print-srcs memcheck
+.PHONY: link test distclean release release-stats release-dev release-queue release-queue-stats print-cflags print-srcs memcheck

@@ -1,4 +1,13 @@
-# MANIFEST-md5 — freeze manifest, reopened for TASK R12 (2026-10-01, D66)
+# MANIFEST-md5 — current freeze R14 (2026-10-09, D68-D73): 407 file rows.
+# All four release x64 flavours plus the persistent dev binary were rebuilt from R14
+# tree: stock 6e0f962c7e4d47ad3d0ead5b46ca1713; stats
+# 59d3a04e114934ec93ef4b220ea41749; queue 08013bdef08f9eef60ad2c2753a392ac;
+# queue-stats 5188da7386d29581b90a6876069ea651; dev bin/multics-r82a-dev-x64
+# a6ead38b16d60db46d917f024b202fc5.
+# `docs/evidence-R14/md5check-post-r14.log` is the final verification transcript
+# and is intentionally excluded; all other workspace files in the manifest scope
+# (including historical evidence) are pinned. The manifest does not self-pin.
+# Historical freeze: reopened for TASK R12 (2026-10-01, D66)
 # R13 (2026-10-07, D67) reopened the freeze one more time: the refused
 # push stopped testifying (six cwreuse_offer sites), the HTTP header reader
 # stopped writing one byte past its stack buffer, two '=' that should have
@@ -31,24 +40,28 @@
 # The D53 frozen pair is preserved byte-exact under bin-frozen-D53/ and pinned here.
 # Fingerprints (frozen D53 -> preserved): stock 3d1f58b385a7a0eea720c3c59c3bdd29,
 #   stats f6d29d2e8585f08537b6b645d4df6666
+f0797a4e62b6311fcaceb579f111c26b  .gitignore
 f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 3d1f58b385a7a0eea720c3c59c3bdd29  bin-frozen-D53/multics-r82a-stock-x64
 800177a56d2f4e6f3a0a0ce5dac71c95  bin/multics-r82a-arm
+a6ead38b16d60db46d917f024b202fc5  bin/multics-r82a-dev-x64
 dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
+5188da7386d29581b90a6876069ea651  bin/multics-r82a-queue-stats-x64
+08013bdef08f9eef60ad2c2753a392ac  bin/multics-r82a-queue-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-c27528de35fd6811eca3898c7523182d  bin/multics-r82a-stats-x64
-d775ec147b492beb4ec8c42eba8256a9  bin/multics-r82a-stock-x64
+59d3a04e114934ec93ef4b220ea41749  bin/multics-r82a-stats-x64
+6e0f962c7e4d47ad3d0ead5b46ca1713  bin/multics-r82a-stock-x64
 a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 2c0c47e7cdb35fbcfcdeeeaa92d09f5c  docs/BLACKSCREEN.md
 797863f9c6d87675f97e3965189f7c45  docs/BUILD-PATCHES.md
-1288eef195aa21e8cde3989b6f39d860  docs/DECISIONS.md
+cdd9968820d4ce28657cec2b1627c787  docs/DECISIONS.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
 aeb042c9d76386556797ef105b123531  docs/FIELD-GUIDE-ar.md
-330db4436bec7e00387f135f5dd7ac95  docs/INDEX-ar.md
+bb7d6f015cfe82fd9ecddcf7c04524fc  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
 70ab1bccd5e598d5ec3b59a888ba17d8  docs/ORIGIN.md
 c16b39bad6ebc83d5ad5bae1c1cc90f1  docs/PATCH-PLAN.md
-b3e9b0715ac9bd6c55df190336999b93  docs/PROJECT-PLAN-ar.md
+01d2a5038132f31f73ff16221359c7e3  docs/PROJECT-PLAN-ar.md
 18258348daf1543bf56d92fb1d688d5a  docs/REPORT-2.10-ar.md
 b3e959b303ed5f418d0f35bd8504bc75  docs/REPORT-2.4-ar.md
 c6435be14ff5ddf781634598123a2ae2  docs/REPORT-2.5-ar.md
@@ -82,6 +95,9 @@ ecd24c21b8f6ad58953c1619ba069fe4  docs/REPORT-4.2-ar.md
 dc3268a24a0f7177ff921ea11340870b  docs/REPORT-4.4-ar.md
 50560ae57edb199775c88dedd66b0d4d  docs/REPORT-4.5-ar.md
 49c8d6cab73ff7e307fc190258b5889e  docs/REPORT-R1-ar.md
+c2de2dea646a9b520a434e18f5ee2243  docs/REPORT-R11-ar.md
+e6fd8c0948529cc5aa1fe050001a9f85  docs/REPORT-R12-ar.md
+2aa53f94156f7b2d22dbd3d2ed6eba69  docs/REPORT-R13-ar.md
 ede8a2aed9f7037d351c6e88e9eb21ed  docs/REPORT-R2-ar.md
 599b4e686cb35416567ad041a24e6d7e  docs/REPORT-R3-ar.md
 a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
@@ -90,9 +106,9 @@ a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
 7b949b5abf74a03f7e67a9e044614b1c  docs/REPORT-R8-ar.md
 92d2efb1d9af68fb0a479342b0ef4bce  docs/ROADMAP-ar.md
-e2b4152bf7a3ec2a661e54ad10db26eb  docs/RUNBOOK-cold-restore-ar.md
+d6857fa1c000d3fc6f8bb1c54f7dc8aa  docs/RUNBOOK-cold-restore-ar.md
 96a82c4540dce04760fd4c7221f51ef9  docs/SCOPE.md
-d2779e9928d21c5bdccbf7571a324f71  docs/STATUS.md
+93478753999d6bc8630ed0c7502e58ff  docs/STATUS.md
 b4221d3be6966b31fd89181f0f64ade4  docs/all310-run.log
 5f07fcb601071d3677f382f9c3d9a83c  docs/all311-run.log
 e7eabf1e4afbf7775a4816bd34906c33  docs/all312-run.log
@@ -102,6 +118,71 @@ e7eabf1e4afbf7775a4816bd34906c33  docs/all312-run.log
 696358897edcbd7e4748fcfe8bae4f34  docs/all37-run.log
 48188daa295df33298ed53f1326d1e9d  docs/all38-run.log
 b4f2772066e269642b5b67726fdcf930  docs/all39-run.log
+1c9205664fb37e5c13c4a1db264aa62a  docs/evidence-R13/.ce-nc1.out
+98dc64f1a9d6fff3d1088558296da059  docs/evidence-R13/.ce-nc2.out
+7aae94703cd2f254270a1d5c1a9582be  docs/evidence-R13/.ce-s1.log
+01c0b4aba433986531b586debb9f582a  docs/evidence-R13/.ce-s2.log
+bfd3ecd7a60ff316f3ee3da95eb3c997  docs/evidence-R13/.ce-s3.log
+d41d8cd98f00b204e9800998ecf8427e  docs/evidence-R13/.oh-srv.log
+25fcd334fe6caa66ecab4df5bfbb9ab0  docs/evidence-R13/ce-post-R13-default.out
+3cc611d948f2d57ef579b7aa6aa600a3  docs/evidence-R13/ce-post-R13.out
+8a4ae5b8dd435301960e97f8ef4e4ac9  docs/evidence-R13/ce-repro.sh
+25e4d3ceebed39527bb24f3eb017d41a  docs/evidence-R13/ce2-srv.log
+46ce3cf0a3a82f8875e9ac580c35c0a8  docs/evidence-R13/concurrency-collision.log
+c0c07aa7b7140be82e93d97ca27b7ff8  docs/evidence-R13/cr2-s2.log
+eaa4ad3a5ab138da5468221d48519824  docs/evidence-R13/exp-A.cfg
+2e713dd8ff98baad2accedc49607105f  docs/evidence-R13/exp-A.log
+eaa4ad3a5ab138da5468221d48519824  docs/evidence-R13/exp-B.cfg
+8d5c2b97d04b165c223767bc111c65d1  docs/evidence-R13/exp-B.log
+eaa4ad3a5ab138da5468221d48519824  docs/evidence-R13/exp-C.cfg
+0e3fb1338d358c316bc620192cd0599c  docs/evidence-R13/exp-C.log
+603e56039be92002ef1ca365e849407a  docs/evidence-R13/exp.sh
+6456011c6e6ddff5e59a6889bf27bc3d  docs/evidence-R13/fullwing-final.log
+c6dd291cc456d21983a8cdf53005e0c1  docs/evidence-R13/fullwing-partial-r13a.log
+1e010a433d38fba5ee9732635994bc66  docs/evidence-R13/fullwing-r13-pretelnet.log
+0801bf433b8ded3082ba4a3bdfe33656  docs/evidence-R13/impl.log
+97d42649f9b2dae09e56249b4e6694d8  docs/evidence-R13/md5check.log
+817cd57221f6ab63fa966ad98b428892  docs/evidence-R13/memcheck-exec-mode.log
+a1c57061bea6dfaed52edec6f4a83198  docs/evidence-R13/memcheck-live-post-R13.log
+a2fecac4f83af3ba400ad25f87bb56ae  docs/evidence-R13/memcheck-stale-srclist.log
+0aca131084cc4d744dbb815ea1ce73ff  docs/evidence-R13/memcheck-units-post-R13.log
+f38efbf98d1257f48db2bc23b39991cf  docs/evidence-R13/oh-post-R13.out
+2dc6b775a82e0ea5804dfcdeea7098fb  docs/evidence-R13/pkill-comm-live.log
+41800598a6e4e63dc0bc6f1002adb8f0  docs/evidence-R13/preflight-live.log
+f9db95a15c40c4e7bb6fe6a71a27220e  docs/evidence-R13/tl1-post-R13.out
+d41d8cd98f00b204e9800998ecf8427e  docs/evidence-R13/tl1-srv.log
+0bfb2bc01f3d7d1b67ac2b517bad5108  docs/evidence-R13/unit.log
+89a526e3e9a0f1597735c1365e76bbc0  docs/evidence-R13/wing2.log
+aa487e95ce2568b999cbf576f5cc26ba  docs/evidence-R13/wing3.log
+9ca8a4c3c93e5a4e80eaea1469798ae6  docs/evidence-R14/ce-after-ncclient-dep.out
+d134501b7099977a0591b8ff1273499a  docs/evidence-R14/ce-missing-ncclient-dep.log
+b0e5d996c96fe3894a8718b460bc2029  docs/evidence-R14/d70-sha1-rodata.log
+971f00902ae20cf19cb16e2bd2801997  docs/evidence-R14/d70-sha1-rodata.sh
+5047deaeb33e130627b9028c851e65c2  docs/evidence-R14/d71-jm-fail-logs/.jm-a.log
+4df14a09e78a90023bbde2bab44c833b  docs/evidence-R14/d71-jm-fail-logs/.jm-b.log
+843ae0826fe4e9ea6874f748834df9bf  docs/evidence-R14/d71-jm-fail-logs/.jm-srv.cfg
+fe20cf66d05fb6fac4a4c2b8adcbf124  docs/evidence-R14/d71-jm-in-suite.log
+5f0919d641c575a6619635ad340d2c8c  docs/evidence-R14/m1-align-test.out
+37503301a107bf07794fb8337e02b31c  docs/evidence-R14/m1-freshbuild.log
+32906dad4856b340f0c36e8dd0120fa9  docs/evidence-R14/m1-ubsan-probe.log
+7c549871dd14e95bad3f1a8c04a0ed63  docs/evidence-R14/m1-ubsan-probe.sh
+b0eb30177902a40c7325b32450352c91  docs/evidence-R14/m1-unit-suite.log
+bc7813ff83be0aed439ce3b71e46cc9f  docs/evidence-R14/m3-m4-path-smoke.log
+3a4bb334b76acbaf88747d4be0256d28  docs/evidence-R14/m38-explicit-optin-wing.log
+f7766de4545e8b44997abcb288073e9d  docs/evidence-R14/m38-guard-checks.log
+6a559ad8ce5fbe625d9b97fe1bb8c61c  docs/evidence-R14/m38-jm-optin.log
+f29f82bc1d6453b3675760f75e8ef6d3  docs/evidence-R14/md5check.log
+a78184a01b70f8344b86b854175ca905  docs/evidence-R14/tl2-post-R14.out
+53f943406a3953ad7e7e7baa35a78ad3  docs/evidence-R14/tl2-srv.log
+19134dadf7833e1c1a545f727a78fc79  docs/evidence-R14/wing-post-m36.log
+63068879bbf1884da78bdd4b930c08ae  docs/evidence-R14/wing-targets-post-m1.log
+3fc923594b7eeefd3951fc1d87f0141b  docs/evidence-R14/x64-flavours-post-m38.log
+5f1db57b3ded74be65bbc0548d139323  docs/interference-R12/postfix-trap-peerA.log
+42e60170d3dd5792ebaaad8aa290bf71  docs/interference-R12/postfix-trap-peerB.log
+6a298707d580ca98c336970053c97883  docs/interference-R12/postfix-trap-srv.log
+436051e109fbd86c498ceadf2ad27d97  docs/interference-R12/prefix-trap-peerA.log
+0e6e947bc80bec168b04bc55922f69c7  docs/interference-R12/prefix-trap-peerB.log
+50089ca0c80e310665828ed739730fb7  docs/interference-R12/prefix-trap-srv.log
 574520526a33503c383d6a04f4fd418c  docs/memcheck-4.1/RESULT.txt
 18f729814a296c77545d5c0464463afe  docs/memcheck-4.1/asan-empty.cfg
 b205ff45e1a407a2ed1084848c4e999a  docs/memcheck-4.1/asan-empty.log
@@ -171,11 +252,11 @@ f139cb1ca08140a0f9a8b34b21164207  docs/soak-4.2/rss.txt
 2f7317ce7fadd7349e1fc8118f21de88  docs/soak-4.2/soak.cfg
 d41d8cd98f00b204e9800998ecf8427e  docs/soak-4.2/stats-samples.txt
 3d1edd866c83d7fec162e2b3fa333561  docs/soak-4.2/telnet-end.txt
-a1a4c6908cb92319e0d923ebf04febbe  make-cross/Makefile
+d5a9c3c36d35a0eec7f0db9d56c40d2a  make-cross/Makefile
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
 71db1eb7a48e9eadf5b006e521c7c068  make-cross/cross-mipsel/multics
 dd70e1f361729a919b007241f311c9b1  make-cross/cross-sh4/multics
-a5b834807c0dda78bb027877a0f22b81  make-x64/Makefile
+47b1226c590716af980abb9d54917c8d  make-x64/Makefile
 5c98aaff223e50ce10cf75f59d0aeb96  make-x64/memcheck.sh
 846da9f9d1b473bb531ac20393fc0613  make-x64/memcheck.supp
 441ca78d955dc9a8fc2eb605d4ec8856  make-x64/port_gnu89.h
@@ -188,12 +269,14 @@ d30fd66474b2a43205372a03357c2939  make-x64/probe_xmlescape.c
 08313763fd3c361428f746a50b30f884  make-x64/test_cacheex_gates.c
 677d9d83815f530c53e4a960a780fc10  make-x64/test_cacheguard.c
 83158acf2cb9741481045def26699dc9  make-x64/test_cachepref.c
+d916c151f93eeccd95ef6736672e9234  make-x64/test_cachequeue.c
 36de7c2344981f4c4afc86ccc22cdb28  make-x64/test_cfgfield.c
 a36bd1a2e1aa829838d52d68efeec6f1  make-x64/test_cw_reuse.c
 ce291fab152b37e7d66216fcf94c88af  make-x64/test_cwcm.c
 827aab4adba85649bc31fb885d1f066c  make-x64/test_cwconsensus.c
 6268cc63c8aad9b16bff4533f2fee62d  make-x64/test_cwcycle.c
 93e634a95d93edce5197017472aa896d  make-x64/test_cwentropy.c
+f485032a4154a2c18956159904b5d015  make-x64/test_cwlog.c
 592ad843a1381949dcc4109a9b25821f  make-x64/test_cwneg.c
 1c750692c5ee23b7f20e5bcd7d1b0efa  make-x64/test_cwplaus.c
 7c404814ed5429d63a4671658adf21cd  make-x64/test_cwtime.c
@@ -205,6 +288,7 @@ dea07d147e62ff1203b2d9a17d8a486a  make-x64/test_debugcore.c
 066a660817a29e57b1faca730f5a6d3a  make-x64/test_htmlesc.c
 15838758f10383b15d76cfa4e0199c8f  make-x64/test_ledger.c
 c2d996fde09ea4f48c58a3ddd65723c2  make-x64/test_loginthrottle.c
+08e6f5b76add360a03c150e76adc4256  make-x64/test_m1align.c
 1b39e2c3f8ec88c499df397285e351b3  make-x64/test_monjson.c
 a6b70555324a3fe05ad469089ad1a0fa  make-x64/test_parser.c
 e8559395f1ec707de919eb21cb25f9f5  make-x64/test_peer_origin.c
@@ -220,7 +304,7 @@ ee478157f48579b1cfde0fdfbcee5f75  make-x64/test_rotation.c
 8f344455d313a0ab0056531f8c080dff  multics-sample.cfg
 d41d8cd98f00b204e9800998ecf8427e  multics.log
 218dbc305a63fc6db26cd6cea14df741  src/Makefile
-9533dd19966d1dbb335233507c767b89  src/aes.c
+8cb3334f2342d6a3160779a8bad48377  src/aes.c
 766debbafdfb42b5ddfa03d8b73f35d8  src/aes.h
 e800b282eb691e359d879b946c9cbfbd  src/base64.c
 5bfc6763c9d8a524dd9b70b597949e54  src/bmsearch.c
@@ -243,7 +327,7 @@ d5160d103896f38661a331cc752966e8  src/cli-newcamd.c
 27b8049f341f967a683b629546d61635  src/cli-radegast.c
 bdb0eddd13cf80f88014595bda5c71a7  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-0585302d66333c448aaaef708c9dd7c3  src/config.c
+afb97d822beb0307b519a1c460495675  src/config.c
 4d406f27582e66d60d015c93f87b4606  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
@@ -254,10 +338,10 @@ b16d84a4e7da4b3e2061013e34d621cf  src/cw1cycle
 ef24af4db6fbeeb9e3157cd3fcca8bee  src/cwcm.h
 9a794fd26685c7662472d20a31b5aad0  src/cwconsensus.c
 a990ad6e03b6c94721fbe5aba5a22205  src/cwconsensus.h
-b90b439e0ffda467a6e8c6879111b4bb  src/cwlog.c
-138f7a14305eec2f856c15705613536a  src/cwlog.h
 14c205365abfd5795d09d9402fec3acc  src/cwcycle.h
 40e70b3c7fd6078aae44ddfb71d01750  src/cwentropy.h
+b90b439e0ffda467a6e8c6879111b4bb  src/cwlog.c
+138f7a14305eec2f856c15705613536a  src/cwlog.h
 b892e9b95fab633f57b3181437ed909a  src/cwneg.h
 3f91deb6f6e08ea1e1b381649a9d3e68  src/cwplaus.h
 cf3422e7e10e69479e6bf53fa8cacbf8  src/cwtime.h
@@ -292,11 +376,11 @@ ac7cbc70f6a75229e763945fd612b5d8  src/ledger.h
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
 9e168d468691895550ebf38883f77025  src/main.c
 7c9b369b98079fa723d5f8cb9eea74f9  src/main.h
-c0b01b7562cd6e450abced778967200f  src/md5.c
+be6572c906740a7ce199bfcd7073d0c5  src/md5.c
 99fc08532a6cf0afc9360597c2a848be  src/md5.h
-97eea03690c52d3baa8c9a6b4c9ad9fc  src/monjson.c
+7271c6c4f24de14d2815db54daf3a510  src/monjson.c
 cbb5fd8a43f8fc1e767c950a6ca2645d  src/monjson.h
-e4f88bd767d3c3f02cc79348ca1ec2f4  src/msg-camd35.c
+c415b5614da8d06b396c4c9ebc5a7779  src/msg-camd35.c
 09c96d2e39bffa03a7da1cdfc36cd065  src/msg-cccam.c
 4a8d58b02dee86dac925170f55efb018  src/msg-cccam.h
 956c35d7131fe42abd9ffb69b8110294  src/msg-newcamd.c
@@ -307,15 +391,15 @@ c28e17f42aac86e19ec6503bb404be90  src/parser.c
 e3086627448872c5e7877d062482f09f  src/parser.h
 34b20abd921ed0890f62e90dda6662ec  src/peer_cards.h
 118d245b0660cf1c2ebfe0a1327118a9  src/peer_origin.h
-10888f93b4e56a769e61ad75fad35338  src/peerrep.c
-97fa99edb2d8c260138272e9eaa668f7  src/peerrep.h
+48113745bbb2cec45910246b8a15ac54  src/peerrep.c
+424da734160236cd5122482d6174afdf  src/peerrep.h
 a48798bae8164f81881cc399303de5f1  src/pipe.c
 2ec7efd881ac921456edc5ef1dbd4c5a  src/pipe.h
 498ef7d66dca93cac1598b1d4c3bc333  src/retry_detect.h
 b82ecc6a2bf38bc2c56aee7dd1f095c8  src/rotation.h
 424d9cff7650109ce1c9583e0019b705  src/setdcw.c
-193aeae3fb6e68449c2281c4b07d9773  src/sha1.c
-f245f7e5032e0752df586d67ed24942a  src/sha1.h
+79d97753d299214e9fa5291e100ea43e  src/sha1.c
+378b5329a2d6161e14e5a56719596e27  src/sha1.h
 c7398b08fecfec0ed8b0b496d84476bd  src/sockets.c
 0dbfdc97f166c184ccc2c6732c4b06c1  src/sockets.h
 fb2edccde50a9b1452fc4fb530b1e21b  src/srv-camd35.c
@@ -327,7 +411,7 @@ f37fa4ae3957d631026291664fd4c42e  src/srv-mgcamd.c
 a2e39360d2668d6116359c7df914294a  src/srv-newcamd.c
 e8a505e621f834e456c441491482c657  src/srv-radegast.c
 1f738df5156f04b48eabce52fcf0fd9d  src/statsline.h
-99dff2aabfcd757e05cb8f836c024350  src/telnet.c
+55bd355d74d397767fb3fc58a23c783a  src/telnet.c
 e79043a4563b3f9a8cf0acacc292f691  src/telnet.h
 3276e29ab436ad2694698a0a1ea9be7a  src/th-cfg.c
 f79f0bec8fa0d48f1d16950b820aa08f  src/th-date.c
@@ -345,7 +429,7 @@ af09ddc7d479b76a2bd9a9bbc69aef24  src/twin.c
 49b46f0c904d8e80aae752ac4c98d406  src/twin.h
 3260272b8bddbec232a45f08976e110d  start-multics.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-d90f9079f840ca37458f8cde6cea1120  tests/Makefile
+c8b13a0d2245c0c3992517e23b2f1962  tests/Makefile
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 518ab2e1a2864eee5bab964fc612aa4f  tests/ca-bite.c
 5081b47e7ffe26768c6f69153719d4e4  tests/cachepeer.c
@@ -360,60 +444,6 @@ b2caeeac7e48b211710f9236a020fdb7  tests/multics-live.cfg
 45fd5df42eb90b259a77baf3a0e42eff  tests/ncserver.c
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
-a7a08b06283647e636ac292e664a0762  tests/stability.mk
-d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c
-c2de2dea646a9b520a434e18f5ee2243  docs/REPORT-R11-ar.md
-e6fd8c0948529cc5aa1fe050001a9f85  docs/REPORT-R12-ar.md
-50089ca0c80e310665828ed739730fb7  docs/interference-R12/prefix-trap-srv.log
-436051e109fbd86c498ceadf2ad27d97  docs/interference-R12/prefix-trap-peerA.log
-0e6e947bc80bec168b04bc55922f69c7  docs/interference-R12/prefix-trap-peerB.log
-6a298707d580ca98c336970053c97883  docs/interference-R12/postfix-trap-srv.log
-5f1db57b3ded74be65bbc0548d139323  docs/interference-R12/postfix-trap-peerA.log
-42e60170d3dd5792ebaaad8aa290bf71  docs/interference-R12/postfix-trap-peerB.log
-b5f0348d9161346972011757baa32621  bin/multics-r82a-queue-x64
-c4a1a7e0647c04ad3466abcec98f7869  bin/multics-r82a-queue-stats-x64
-d916c151f93eeccd95ef6736672e9234  make-x64/test_cachequeue.c
-f485032a4154a2c18956159904b5d015  make-x64/test_cwlog.c
-f0797a4e62b6311fcaceb579f111c26b  .gitignore
-93e96eb891de21e361e7f8873c851fea  docs/REPORT-R13-ar.md
-25fcd334fe6caa66ecab4df5bfbb9ab0  docs/evidence-R13/ce-post-R13-default.out
-3cc611d948f2d57ef579b7aa6aa600a3  docs/evidence-R13/ce-post-R13.out
-8a4ae5b8dd435301960e97f8ef4e4ac9  docs/evidence-R13/ce-repro.sh
-25e4d3ceebed39527bb24f3eb017d41a  docs/evidence-R13/ce2-srv.log
-c0c07aa7b7140be82e93d97ca27b7ff8  docs/evidence-R13/cr2-s2.log
-eaa4ad3a5ab138da5468221d48519824  docs/evidence-R13/exp-A.cfg
-2e713dd8ff98baad2accedc49607105f  docs/evidence-R13/exp-A.log
-eaa4ad3a5ab138da5468221d48519824  docs/evidence-R13/exp-B.cfg
-8d5c2b97d04b165c223767bc111c65d1  docs/evidence-R13/exp-B.log
-eaa4ad3a5ab138da5468221d48519824  docs/evidence-R13/exp-C.cfg
-0e3fb1338d358c316bc620192cd0599c  docs/evidence-R13/exp-C.log
-603e56039be92002ef1ca365e849407a  docs/evidence-R13/exp.sh
-c6dd291cc456d21983a8cdf53005e0c1  docs/evidence-R13/fullwing-partial-r13a.log
-0801bf433b8ded3082ba4a3bdfe33656  docs/evidence-R13/impl.log
-97d42649f9b2dae09e56249b4e6694d8  docs/evidence-R13/md5check.log
-f38efbf98d1257f48db2bc23b39991cf  docs/evidence-R13/oh-post-R13.out
-0bfb2bc01f3d7d1b67ac2b517bad5108  docs/evidence-R13/unit.log
-89a526e3e9a0f1597735c1365e76bbc0  docs/evidence-R13/wing2.log
-aa487e95ce2568b999cbf576f5cc26ba  docs/evidence-R13/wing3.log
-7aae94703cd2f254270a1d5c1a9582be  docs/evidence-R13/.ce-s1.log
-01c0b4aba433986531b586debb9f582a  docs/evidence-R13/.ce-s2.log
-bfd3ecd7a60ff316f3ee3da95eb3c997  docs/evidence-R13/.ce-s3.log
-1c9205664fb37e5c13c4a1db264aa62a  docs/evidence-R13/.ce-nc1.out
-98dc64f1a9d6fff3d1088558296da059  docs/evidence-R13/.ce-nc2.out
-d41d8cd98f00b204e9800998ecf8427e  docs/evidence-R13/.oh-srv.log
-46ce3cf0a3a82f8875e9ac580c35c0a8  docs/evidence-R13/concurrency-collision.log
-6456011c6e6ddff5e59a6889bf27bc3d  docs/evidence-R13/fullwing-final.log
-1e010a433d38fba5ee9732635994bc66  docs/evidence-R13/fullwing-r13-pretelnet.log
-817cd57221f6ab63fa966ad98b428892  docs/evidence-R13/memcheck-exec-mode.log
-a1c57061bea6dfaed52edec6f4a83198  docs/evidence-R13/memcheck-live-post-R13.log
-a2fecac4f83af3ba400ad25f87bb56ae  docs/evidence-R13/memcheck-stale-srclist.log
-0aca131084cc4d744dbb815ea1ce73ff  docs/evidence-R13/memcheck-units-post-R13.log
-2dc6b775a82e0ea5804dfcdeea7098fb  docs/evidence-R13/pkill-comm-live.log
-41800598a6e4e63dc0bc6f1002adb8f0  docs/evidence-R13/preflight-live.log
-f9db95a15c40c4e7bb6fe6a71a27220e  docs/evidence-R13/tl1-post-R13.out
-d41d8cd98f00b204e9800998ecf8427e  docs/evidence-R13/tl1-srv.log
+a3e9b82d0d6c890986be67056cfc5710  tests/stability.mk
 1e55990a315e42fa0bd2fa5087d1a732  tests/telnetprobe.py
-9ca8a4c3c93e5a4e80eaea1469798ae6  docs/evidence-R14/ce-after-ncclient-dep.out
-d134501b7099977a0591b8ff1273499a  docs/evidence-R14/ce-missing-ncclient-dep.log
-a78184a01b70f8344b86b854175ca905  docs/evidence-R14/tl2-post-R14.out
-53f943406a3953ad7e7e7baa35a78ad3  docs/evidence-R14/tl2-srv.log
+d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c

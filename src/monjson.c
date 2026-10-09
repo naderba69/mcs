@@ -28,10 +28,7 @@
 #include "monjson.h"
 #include "dcwstats.h"     /* DCW_REJ_COUNT + dcwstats_reason_name() */
 #include "cwlog.h"        /* TASK R11 (D65): verdict/reason names   */
-
-/* stage names -- the same words the ladder logs, telnet PEERREP prints
- * and the reputation file stores. */
-static const char *const mj_stagename[] = { "monitor", "distrust", "isolate", "ban" };
+#include "peerrep.h"      /* TASK R14 (M36): peerrep_stage_name()   */
 
 int monjson_escape(char *dst, int dstcap, const char *src)
 {
@@ -204,7 +201,7 @@ int monjson_build(char *buf, int cap, const struct monjson_in *in)
 		mjfmt(&o, "%u.%u.%u.%u:%d", 0xFFu&(r->ip), 0xFFu&(r->ip>>8), 0xFFu&(r->ip>>16), 0xFFu&(r->ip>>24), r->port);
 		mjput(&o, "\",");
 		mjkv_int(&o, "stage", r->stage, 1);
-		mjkv_strq(&o, "stage_name", (r->stage>=0 && r->stage<=3) ? mj_stagename[r->stage] : "", 1);
+		mjkv_strq(&o, "stage_name", (r->stage>=0 && r->stage<=3) ? peerrep_stage_name(r->stage) : "", 1);
 		mjkv_int(&o, "events", r->events, 1);
 		mjkv_strq(&o, "last", r->reason, 0);
 		mjput(&o, "}");
@@ -231,7 +228,7 @@ int monjson_build(char *buf, int cap, const struct monjson_in *in)
 		mjkv_int(&o, "hits", (long)w->hitnb, 1);
 		mjkv_int(&o, "disabled", w->disabled ? 1 : 0, 1);
 		mjkv_int(&o, "rep_stage", w->rep_stage, 1);
-		mjkv_strq(&o, "rep_stage_name", (w->rep_stage>=0 && w->rep_stage<=3) ? mj_stagename[w->rep_stage] : "", 1);
+		mjkv_strq(&o, "rep_stage_name", (w->rep_stage>=0 && w->rep_stage<=3) ? peerrep_stage_name(w->rep_stage) : "", 1);
 		mjkv_int(&o, "rep_events", w->rep_events, 1);
 		mjkv_strq(&o, "rep_last", w->rep_reason, 0);
 		mjput(&o, "}");

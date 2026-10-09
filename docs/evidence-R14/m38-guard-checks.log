@@ -1,0 +1,24 @@
+
+$ make -C tests preflight
+make: Entering directory '/home/user/mcs/tests'
+refusing stability suite: it can kill every process named multics*
+run only on a dedicated disposable test machine with MCS_WING_OK=1
+make: *** [Makefile:53: preflight] Error 2
+make: Leaving directory '/home/user/mcs/tests'
+RC=2
+
+$ make -C tests -k all
+make: Entering directory '/home/user/mcs/tests'
+Makefile:48: *** refusing all: set MCS_WING_OK=1 only on a dedicated disposable test/development machine.  Stop.
+make: Leaving directory '/home/user/mcs/tests'
+RC=2
+
+UNAUTHORIZED_KILL_TARGETS_BLOCKED=31/31 (au bd ca cn cu cy dl ds dt dw fl fs ha jm oh pc pf pm pr ps ri rs sk sp tl tl1 tl2 u vl xe xs)
+
+$ make -C tests MCS_WING_OK=1 preflight
+make: Entering directory '/home/user/mcs/tests'
+make: Leaving directory '/home/user/mcs/tests'
+RC=0
+
+ACTIVE_MULTICS_AFTER_CHECKS=0
+STATIC_AUDIT: sites=70; guarded_targets=31; ungated_literal_sites=0; listed_targets_match_recipe_sites=yes; all_phony=yes

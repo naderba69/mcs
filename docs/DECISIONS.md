@@ -3407,3 +3407,221 @@ final family is stock `5be15281...`, stats `0c0a5841...`, queue `a8e9b161...`,
 queue-stats `e325203d...`, dev `a0be49c6...` (REPORT-R13-ar.md §8.3). The
 `88a3bf29` family in STATUS and the `9bb6a247` family here are both
 intermediate builds of R13; only §8.3 is authoritative.
+
+## D68 -- TASK R14a, the console that could be held open for free: idle
+## timeout, session ceiling, and the refused `ce` dependency (2026-10-08)
+
+**Situation.** `telnet.c` had no `SO_RCVTIMEO` and no session limit, and the
+allow-list default is empty (= everybody). One unauthenticated client could
+connect, send zero bytes, and hold a thread for ever; N clients held N
+threads. This was the first item of the R14 plan (REPORT-R13-ar.md §6, M35)
+because it was the only one-sided, unauthenticated resource exhaustion left
+in the tree.
+
+**Decision.** `TELNET TIMEOUT` (default 300 s, 0 = off) is armed on the
+socket before the first read and every console read goes through
+`telnet_recv()`, which says `[TELNET IDLE]` out loud when the timer fires
+instead of letting a silent disconnect look like the client left.
+`TELNET MAXCLIENTS` (default 64, 0 = off) is a gate at the accept door, before
+the thread is created, counted by a counter with its own mutex that is never
+held across I/O; the refusal is one line ("too many sessions, bye.\r\n") plus
+`[TELNET LIMIT]` with the number. Both values are read from the config and
+copied on the SIGHUP path as well.
+
+**Also fixed, same round.** `tests/stability.mk`: the `ce` recipe drives
+`$(NCCLIENT)` twice in the logs but never declared it as a prerequisite, so
+`make ce` failed with "not found" buried in `.ce-nc2.out` (F21/O30).
+
+**Verification.** New live target `tl2` 7/7 (a silent session is closed by the
+server itself in 3 s and logs why; three open sessions and the fourth is
+refused with one sentence, no thread created; seats come back afterwards).
+Instrument: `tests/telnetprobe.py` (idle/cap/login modes -- the recipe owns
+the verdict, the tool prints one line). Evidence: `docs/evidence-R14/tl2-*`,
+`ce-after-ncclient-dep.out`; `FULLWING_R14_RC=0` on the full wing of that
+round.
+
+## D69 -- TASK R14b, the packed-member family: from 12 warnings to zero, and
+## the undefined behaviour UBSan proves was there (2026-10-08)
+
+**Situation.** `-fpack-struct` is kept on purpose (it is the wire contract),
+which gives `AES_KEY`, `SHA_CTX` and `struct MD5Context` alignment 1. Twelve
+`-Waddress-of-packed-member` warnings were the visible part: `sha1.c:211,213`,
+`md5.c:224,227`, `aes.c:691,792,842,1033`, `config.c:1707,1812,1837,1874`.
+The invisible part is that the code took a member address and used it through
+a 4-byte-aligned pointer type: `rk = key->rd_key` in AES, the state parameter
+of both digest transforms, and `&cli->ucrc` in the config parser. On x86-64
+that only costs a warning; on arm/mipsel/sh4 (all three are shipped builds in
+`bin/`) it is SIGBUS.
+
+**Decision.** `memcpy` an aligned local, at the point where the member address
+would otherwise meet the aligned type. `SHA1_Transform`/`__md5_Transform` take
+`void *statep` and copy the state in and out; AES gets two internal workers
+taking an aligned schedule buffer plus two wrappers that copy the result into
+the member (zeroing the buffer first so the unused tail of the schedule is
+deterministic instead of stack garbage), and `AES_encrypt`/`AES_decrypt` copy
+the schedule to an aligned local before touching it; the camd35 data path gets
+`camd35_init_data_store()` in `msg-camd35.c`, whose parameters are `void *` on
+purpose so that no 4-byte-aligned pointer is ever derived from a packed
+member.
+
+The alternative -- `__attribute__((aligned(4)))` on `rd_key` in `aes.h` -- was
+measured and rejected: it keeps the size (244) but changes the alignment of
+every struct that embeds an `AES_KEY` and produced **41 new warnings** across
+`cli-camd35.c`, `cli-cs378x.c`, `srv-camd35.c`, `srv-cs378x.c` and
+`cacheex.c`, i.e. it moves the problem instead of solving it. (`#pragma
+pack(push,4)` is not an option either: GCC ignores it under `-fpack-struct`
+and warns `-Wpragmas`.)
+
+**Verification.** Clean rebuild `rm -rf make-x64/x64 && make -C make-x64 link`
+=> 0 warnings / 0 errors (was 12). `make test` => 1382 ok / 0 failed / 28
+targets (was 1352/27): the new `make-x64/test_m1align.c` adds 30 checks --
+nothing in the suite touched MD5/SHA-1/AES before it, even though those three
+produce `ecmd5` and the camd35 handshake keys. It builds with `-fpack-struct`
+proves the offsets really are odd (`%4 == 1`), then runs FIPS-197 C.1
+(AES-128, both directions), RFC-1321 (MD5) and RFC-3174 (SHA-1) through
+under-aligned holders, compares the store path against the direct path byte by
+byte, and checks the schedule tail is zeroed. `docs/evidence-R14/`
+`m1-ubsan-probe.sh`: a single driver through an object at an odd offset
+reports **47 misaligned accesses and exit 1** on the pre-M1 sources
+(`aes.c:700-715,848-851,934-1015`, `sha1.c:144-148,173-177`) and **exit 0 with
+zero reports** on the current tree, with identical functional output. This is
+the step that turns O1 from warning hygiene into removed undefined behaviour.
+Dev fingerprint `cad188f4c9d82e7e0da365fe0a09a776`.
+
+## D70 -- TASK R14b (found by the new test), the SHA-1 transform was writing
+## into its caller's buffer -- a SIGSEGV waiting for the first long input
+## (2026-10-08)
+
+**Situation.** The FreeBSD SHA-1 expands the message schedule in place through
+`block`, and the arm that computed it was `block = (CHAR64LONG16*)buffer`:
+`SHA1_Transform` wrote 64 bytes into whatever buffer it was handed. Its only
+in-loop caller is `SHA1_Update`, which passes `const uint8_t *data` straight
+through (`sha1.c:223`). Any input of 64 bytes or more living in read-only
+memory (a literal, a `const` table) therefore dies with SIGSEGV, and any
+writable input is silently corrupted -- the caller's ECM/ECM-like buffer would
+carry the expanded schedule afterwards. Nothing had ever caught it because
+every `SHA1_Update` call in the tree is 16 bytes (`cli-cccam.c:96`,
+`srv-cccam.c:285`, `srv-freecccam.c:98`), which never enters the block loop,
+and no test in the suite passed more than 64 bytes to MD5 or SHA-1.
+
+**Decision.** The block travels through a local, aligned copy
+(`uint8_t workspace[64] __attribute__((aligned(4)))`) inside
+`SHA1_Transform`. Not the file's old `SHA1HANDSOFF` arm: that used a *static*
+workspace, which would have made the transform thread-unsafe -- and the rest
+of this project is threaded. `block->l[i]` is now a 32-bit access on a
+guaranteed-aligned address (it was also reaching into a packed context member
+before). Matrix: MD5 does not have this defect -- it builds `x[16]` locally and
+reads the block byte-wise -- and the same probe proves it.
+
+**Verification.** `docs/evidence-R14/d70-sha1-rodata.sh` (re-runnable):
+against `src/sha1.c` at `27bb871` the probe exits **139** (SIGSEGV); against
+the current tree it prints the digest, `input-mutated=0`, and the 128-byte
+(two-block) digest equals `hashlib.sha1` byte for byte:
+`272049b5add909ae0ed72e347781e50e3670f4dd`. Pinned as a test case in
+`make-x64/test_m1align.c` (read-only 128-byte input for both MD5 and SHA-1,
+plus "the caller's block is byte-identical afterwards").
+
+## D71 -- TASK R14c, the `jm` target that failed only inside the wing: a
+## recipe race, not a server bug (2026-10-08)
+
+**Situation.** The first full wing on the M1 tree (R14b-1) ended with
+`make: *** [stability.mk:4496: jm] Error 1`. Phases 1-5 passed; phase 6 could
+not find the "DISTRUST" escalation it exists to read; phases 7-8 read the
+ladder record out of `/json` and failed because there was nothing to read.
+The same target passed when run alone -- both before and after the wing -- so
+the difference had to be timing, not code. The recipe drove its flood loop (20
+tries) in the first seconds after the cachepeer B process started, while the
+server only asks B for DCWs after B's ping round-trip:
+`cache: Peer (127.0.0.1:<port>) come Online`. In a wing the preceding targets
+leave the machine busy, so B was still offline for all 20 tries; a flood
+nobody answers never produces a `TYPE_REQUEST`, and no escalation can follow.
+
+**Decision.** Add a bounded readiness wait before the flood loop (20 s max,
+the same `grep "come Online"` the operator would use) and raise the try-loop
+sleep from 1 s to 3 s -- the value the `pr` target already uses. No assertion
+changed, no server source touched. The target still demands its eight phases
+and the escalation it reads is still live evidence from the running document.
+
+**Verification (before M38 added the opt-in).** `make -C tests jm` alone:
+rc 0, 8/8, both before and after the edit. The equivalent current invocation
+is `make -C tests MCS_WING_OK=1 jm`; the post-M38 full wing below also runs
+`jm` under this explicit opt-in. The earlier wing evidence is
+`docs/evidence-R14/wing-targets-post-m1.log`; the two measured arms sit side
+by side in `docs/evidence-R14/d71-jm-in-suite.log` (before: phases 6-8 FAIL +
+`Error 1` in the R14b-1 wing; after: 8/8).
+
+**Not a server bug.** Said out loud because the red target looked like one:
+the failing run's own log shows B never reached "come Online" before the flood
+loop ended, so the server had nothing to report to `/json`. The fix lives
+entirely in `tests/stability.mk`.
+
+## D72 -- TASK R14d, build hygiene: the last two C++/C-only flags, the two
+## intentional truncation warnings, and a document row that pointed at a log
+## that was never kept (2026-10-08)
+
+**Situation.** Three small things that the round's measurements made visible.
+(1) `make-cross/Makefile` still carried `-fpermissive` and
+`-Wno-return-mismatch`, the flags F18 removed from `make-x64` (O25). (2) The
+unit build prints two `-Wformat-truncation` warnings
+(`src/cacheguard.h:136` reached from `make-x64/test_cacheguard.c`, and
+`src/statsline.h:191` reached from `test_phase1cfg.c`) -- both because those
+tests hand the formatter a deliberately small buffer to exercise the
+truncation edge; the library build itself is 0/0. (3) `REPORT-R13-ar.md` §8.1
+listed `docs/evidence-R13/wing-targets-post-r13.log`, which does not exist:
+the concentrated nine-target loop left only its nine-line summary
+(`wing3.log`) in the tree.
+
+**Decision.** Remove both flags from `make-cross` (the flag set is now the
+same as `make-x64`'s minus `-m64`). Keep the two truncation warnings visible
+rather than hiding them with `-Wno-format-truncation`: they mark exactly the
+buffer-size questions the tests ask, and a blanket suppression would also hide
+the same pattern if it ever appears in `src/`. Repair the §8.1 row to name
+`wing3.log`, state openly that the detailed log was not kept, and give the
+command that regenerates it (`make -C tests MCS_WING_OK=1 cy au pr jm pq sk cn vl ri`; such
+a log was produced on the M1 tree as
+`docs/evidence-R14/wing-targets-post-m1.log`).
+
+**Also in the same pass (M36).** The ladder's stage names were spelled out
+three times -- a dead `stage_name()` in `peerrep.c`, `mj_stagename[]` in
+`monjson.c`, `sn[]` in `telnet.c` -- so renaming a stage would have left two
+copies behind. They now come from one `peerrep_stage_name()` in `peerrep.h`
+(`__attribute__((unused))` so includers that do not use it stay
+warning-clean). The old tables returned the same four words for the same
+values, and the `/json` document and the `PEERREP` command were compared
+before/after on the same inputs: byte-identical.
+
+**Verification.** The new flag set compiles three representative sources
+natively (`sha1.c`, `aes.c`, `config.c`) with zero warnings; a real cross build
+still needs the cross toolchain and stays with M2 (O2). The truncation
+warnings are counted in `docs/evidence-R14/m1-unit-suite.log` (2), the library
+build in `m1-freshbuild.log` (0).
+
+
+## D73 -- TASK R14e / M38, make the destructive test wing opt-in (2026-10-09)
+
+**Situation.** `tests/stability.mk` uses process-wide `pkill -9 '^multics'`
+for cleanup. The old `preflight` protected only `make all`; invoking one
+kill-bearing target directly bypassed it. On a host running a production
+`multics` daemon, a test could therefore terminate the unrelated daemon.
+
+**Decision.** `tests/Makefile` now documents that the live wing is for a
+dedicated, disposable development/test machine, never production. The explicit
+opt-in is `MCS_WING_OK=1`; without it `preflight` fails with status 2. The
+parse-time guard rejects `all` and all 31 kill-bearing goals before any recipe,
+even under `make -k`; those targets also depend on `preflight`, which checks for
+an already-running `multics*` process. All 70 process-wide kill sites in
+`stability.mk` go through `MCS_KILL_MULTICS`, whose default expansion also
+refuses to kill (defense in depth if a future target is omitted from the list).
+Current safe invocation examples are
+`make -C tests MCS_WING_OK=1 all` and
+`make -C tests MCS_WING_OK=1 jm`.
+
+**Verification.** `docs/evidence-R14/m38-guard-checks.log`: default
+`preflight`, `all -k`, and all 31 direct kill-bearing targets refused with rc 2;
+the opt-in preflight passed with no active `multics` process. Static audit: 70
+macro sites, 31 matching guarded targets, zero ungated literal sites. Standalone
+`jm` with the flag is 8/8 (`m38-jm-optin.log`). The full wing was then run with the
+opt-in (`docs/evidence-R14/m38-explicit-optin-wing.log`): rc 0, 453 result
+lines beginning with `[ ok ]`, zero result lines beginning with `[FAIL]`.
+The 20 `[FAIL]` tokens elsewhere in that raw log are text echoed from recipe
+bodies, not failed assertions.

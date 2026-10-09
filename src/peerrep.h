@@ -41,6 +41,24 @@
 #define PEERREP_STAGE_BAN       3   /* disabled + pinned in the file */
 
 #define PEERREP_MAX_SLOTS   64
+/* TASK R14 (M36): the stage names live here now -- ONE table for the enum
+ * above. They used to be spelled out three times (a dead copy in peerrep.c,
+ * mj_stagename[] in monjson.c, sn[] in telnet.c), so renaming a stage would
+ * have silently left two of the three behind. `unused` is on purpose: most
+ * includers only want the API below and must stay warning-clean.
+ * Stage 0 (PEERREP_STAGE_NONE) and anything out of range read "monitor",
+ * which is exactly what the two old tables returned. */
+__attribute__((unused))
+static const char *peerrep_stage_name(int st)
+{
+	switch (st) {
+	case PEERREP_STAGE_DISTRUST: return "distrust";
+	case PEERREP_STAGE_ISOLATE:  return "isolate";
+	case PEERREP_STAGE_BAN:      return "ban";
+	default:                     return "monitor";
+	}
+}
+
 #define PEERREP_REASON_MAX  32
 #define PEERREP_FILE_MAX    256
 

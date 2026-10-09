@@ -4,9 +4,23 @@
 #
 #   make -C tests smoke          run the smoke test
 #   make -C tests no-profile     assert an empty config is refused, not a segfault
-BIN     ?= ../make-x64/x64/multics
+BIN     ?= ../bin/multics-r82a-dev-x64
 CFG      = multics-live.cfg
 HTTPPORT = 15500
+
+# SAFETY: the stability recipes use process-wide `pkill -9 '^multics'` cleanup.
+# Run them only on a dedicated disposable test/development machine, never on a
+# production host. Every kill-bearing target requires this explicit opt-in:
+#   make -C tests MCS_WING_OK=1 all
+# The same gate applies when invoking one target directly.
+MCS_WING_OK ?= 0
+ifeq ($(MCS_WING_OK),1)
+MCS_WING_AUTHORIZED := 1
+MCS_KILL_MULTICS := pkill -9 '^multics' 2>/dev/null
+else
+MCS_WING_AUTHORIZED := 0
+MCS_KILL_MULTICS := { echo "refusing process-wide multics kill: set MCS_WING_OK=1 only on a dedicated test machine" >&2; exit 2; }
+endif
 
 .PHONY: pm jm sk cn smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs ce cy au pr soak pq oh tl1 tl2 preflight all
 include stability.mk
@@ -20,8 +34,28 @@ include stability.mk
 # A precise per-target lock is still worth adding on top (M33 in REPORT-R13-ar.md).
 all: preflight smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs ce cy au pr jm pq sk cn vl ri oh tl1 tl2
 
+# These recipes contain a process-wide multics cleanup. Keep this list in sync
+# with MCS_KILL_MULTICS uses in stability.mk; the command-level gate below is a
+# second line of defense if a new kill site is omitted here.
+MCS_KILL_TARGETS := au bd ca cn cu cy dl ds dt dw fl fs ha jm oh pc pf pm pr ps ri rs sk sp tl tl1 tl2 u vl xe xs
+$(MCS_KILL_TARGETS): preflight
+
+# Fail while parsing, not as an ordinary prerequisite: even `make -k all`
+# must not keep running non-destructive targets after refusing the wing.
+ifeq ($(MCS_WING_AUTHORIZED),0)
+MCS_UNAUTHORIZED_GOALS := $(filter all $(MCS_KILL_TARGETS),$(MAKECMDGOALS))
+ifneq ($(strip $(MCS_UNAUTHORIZED_GOALS)),)
+$(error refusing $(MCS_UNAUTHORIZED_GOALS): set MCS_WING_OK=1 only on a dedicated disposable test/development machine)
+endif
+endif
+
 preflight:
-	@n=$$(ps -eo comm= | grep -c '^multics' || true); \
+	@if [ "$(MCS_WING_AUTHORIZED)" != "1" ]; then \
+	  echo "refusing stability suite: it can kill every process named multics*" >&2; \
+	  echo "run only on a dedicated disposable test machine with MCS_WING_OK=1" >&2; \
+	  exit 2; \
+	fi; \
+	n=$$(ps -eo comm= | grep -c '^multics' || true); \
 	if [ "$$n" != "0" ]; then \
 	  echo "refusing to start: $$n multics process(es) already running -- another wing is probably active"; \
 	  echo "stop it first, or run the single target you want"; \

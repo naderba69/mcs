@@ -1,21 +1,21 @@
 #!/bin/sh
-# D69 probe: does SHA1_Update() survive a >= 64-byte input that lives in
+# D70 probe: does SHA1_Update() survive a >= 64-byte input that lives in
 # read-only memory?
 #
 # The FreeBSD-derived SHA1_Transform() expands the message schedule in place
 # through `block`, so the arm that did `block = (CHAR64LONG16*)buffer` wrote
 # into the caller's buffer -- and SHA1_Update() hands it a `const uint8_t *`.
-# With ./src/sha1.c before TASK R14 (D69) this probe dies with SIGSEGV; with
+# With ./src/sha1.c before TASK R14 (D70) this probe dies with SIGSEGV; with
 # the fix (local aligned copy of the block) it prints the digest, which is
 # compared against Python's hashlib in the same script.
 #
-#   usage: docs/evidence-R14/d69-sha1-rodata.sh <path-to-sha1.c> [workdir]
+#   usage: docs/evidence-R14/d70-sha1-rodata.sh <path-to-sha1.c> [workdir]
 #
 # Expected before the fix: "rc=139"  (SIGSEGV)
 # Expected after  the fix: "rc=0" and matching digests.
 set -u
 
-SRC="${1:?usage: d69-sha1-rodata.sh <sha1.c> [workdir]}"
+SRC="${1:?usage: d70-sha1-rodata.sh <sha1.c> [workdir]}"
 WORK="${2:-/tmp/d69probe}"
 mkdir -p "$WORK"
 INC="$(cd "$(dirname "$SRC")" && pwd)"

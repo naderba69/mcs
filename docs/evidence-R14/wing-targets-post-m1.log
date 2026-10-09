@@ -1,0 +1,87 @@
+# make -C tests -k cy au pr jm pq sk cn vl ri
+# The concentrated nine-target loop of REPORT-R13-ar.md SS8.1, re-generated on
+# the R14 tree (M1/D69 + M36 + D71 recipe wait).  Result: 69 `[ ok ]`, 0
+# `[FAIL]`, rc 0 (trailer at the bottom).  Raw output follows.
+#
+=== cy scenario 1: baseline (gate unset) ===
+  [ ok ] baseline: stock r82a already refuses the wrong-half key at ingest (client saw decode-failed)
+  [ ok ] baseline: disarmed gate stays silent (stock refusal is invisible)
+  [ ok ] baseline: cycle-contradiction 0 (stock has no accounting)
+=== cy scenario 2: gate armed ===
+  [ ok ] armed: the wrong-half key never reached the client (decode-failed)
+  [ ok ] armed: the refusal is logged with its reason
+  [ ok ] armed: cycle-contradiction 1
+  [ ok ] armed: the agreeing key crossed and was served
+  [ ok ] armed: the agreeing delivery did not count
+  [ ok ] phase 1: wrong logins are denied
+  [ ok ] phase 1: three wrong logins took 2ms total -- the stock door answers instantly
+  [ ok ] phase 1: wrong Basic credentials get instant 401s
+  [ ok ] phase 1: the log stays silent (off = stock, byte for byte)
+  [ ok ] phase 2: the guesses paid 250/253ms, 500/503ms, 1000/1003ms (base 250, doubling)
+  [ ok ] phase 2: the right password logs in right away (44ms)
+  [ ok ] phase 2: a good login reset the count -- the next typo is 250ms again (252ms)
+  [ ok ] phase 2: the http door pays too (0.500818s for the first wrong Basic)
+  [ ok ] phase 2: correct http credentials still open the page
+  [ ok ] phase 2: the log said why -- failure #3, delaying 1000ms
+  [ ok ] phase 3: the listed address logs in
+  [ ok ] phase 3: and opens the http page
+  [ ok ] phase 3: the stranger's telnet connection closes before any credential
+  [ ok ] phase 3: the stranger's http request never becomes a page ('000')
+  [ ok ] phase 3: the refusal is logged with the address
+  [ ok ] phase 3: the compliant server's log is clean
+  [ ok ] phase 1: the honest find is served by the lone honest peer
+  [ ok ] phase 2: the third confirmed event escalated to distrust
+  [ ok ] phase 2: the file carries B's record (stage 3 at check time -- the 250 ms flood keeps climbing past distrust)
+  [ ok ] phase 3: the fresh channel was asked to A only (A 3, B 1) -- distrust means we stop asking
+  [ ok ] phase 3: the sixth event escalated to isolate (4 and 5 still landed: distrust listens)
+  [ ok ] phase 3: the isolated peer's pushes are refused at the door
+  [ ok ] phase 3: keeping the pushes coming walked B to ban (arrivals counted, reason signed)
+  [ ok ] phase 3: the file pinned the ban (stage 3)
+  [ ok ] phase 3: the pings to the banned peer stopped
+  [ ok ] phase 3: the ledger froze at the ban (10 events, drops past FLAG_DISABLE are stock-silent)
+  [ ok ] phase 4: after the restart the file re-arms the ban, said once
+  [ ok ] phase 4: the mesh still serves through the honest peer
+  [ ok ] phase 5: after the operator removed the line, the mesh is whole again
+  [ ok ] phase 5: the recovered peer receives finds again (B 2)
+  [ ok ] phase 1: the stranger's /json is the same 401 every page pays
+  [ ok ] phase 2: the document parses and carries the six sections
+  [ ok ] phase 3: the dcwstats section carries every named counter as integers
+  [ ok ] phase 4: the ladder section shows the armed thresholds and an empty list
+  [ ok ] phase 5: the online honest peer is a row with a ping and no ladder record
+  [ ok ] phase 6: the flood really escalated (the evidence is live, not read back)
+  [ ok ] phase 7: the live ladder record is in the document (distrust or beyond, 3+ events -- the 150 ms flood keeps climbing)
+  [ ok ] phase 8: the record is merged into the row, and a stats build shows the flood in cycle-contradiction
+  [ ok ] HTTP / answered 200 with an overlong quoted config
+  [ ok ] the server survived the overlong quoted config (pre-fix: ASan stack-buffer-overflow at read_config:2017)
+  [ ok ] the truncated title (400 -> 254) is on the home page
+  [ ok ] one Basic login mints a 256-bit session token (HttpOnly, SameSite=Strict)
+  [ ok ] the skin is internal and self-contained: inline css, viewport, zero external refs
+  [ ok ] the token alone opens every page -- no password re-send
+  [ ok ] the door did not move: a forged token and a stranger both take the same 401
+  [ ok ] logout expires the cookie and the dead token is refused
+  [ ok ] Arabic is a real mode: rtl html, Arabic menu, the cookie carries it across pages
+  [ ok ] ?lang=en flips straight back to LTR English
+  [ ok ] /style.css still serves the builtin skin for legacy tools
+  [ ok ] a dead token cannot read /json either (the logout really locked it)
+  [ ok ] the stock FILE STYLESHEET override still wins with a plain link
+  [ -- ] P1: consensus OFF, stock first-wins
+  [ ok ] P1: OFF delivers exactly as stock and says nothing
+  [ -- ] P2: consensus ON, a lone honest peer is held then released
+  [ ok ] P2: the lone key is held for corroboration, then released by the window
+  [ -- ] P3/P4: two honest voters deliver early; the late fake never lands
+  [ ok ] P3: two honest voters corroborate and deliver BEFORE the window
+  [ ok ] P4: with the fake listening, the clean key still delivered and the fake never landed
+  [ -- ] P1: a lone honest key is HELD, then DELIVERED by the window
+  [ ok ] P1: held row, delivered row, the key bytes on the page, /json agrees (count 2)
+  [ -- ] P2: the delayed fake loses the weighted decision -> a REFUSED row
+  [ ok ] P2: the fake sits on the page as refused / consensus-mismatch
+  [ -- ] P3: 400 fresh-key answers fill the ring to 100/100
+  [ ok ] P3: the ring is full (100/100, json count 100) and the server lives
+  [ -- ] P4: the stock flavour has no /cwlog route at all
+  [ ok ] P4: stock answers 200 on / and does NOT serve /cwlog (000)
+vl: 4/4 ok
+  [ -- ] P1: the trap -- same key, B's wrong mark answers first, A is +400 ms
+  [ ok ] P1: the wrong mark is refused (1) AND the honest +400 ms reply delivers -- no node poison
+  [ -- ] P2: a fresh key on a fresh channel -- the mesh is whole
+  [ ok ] P2: the second round trips too (2 refusals total -- per-reply, never per-key)
+FOCUSED_RC=0
