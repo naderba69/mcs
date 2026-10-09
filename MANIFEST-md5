@@ -46,6 +46,7 @@
 
 
 
+
 f0797a4e62b6311fcaceb579f111c26b  .gitignore
 f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 3d1f58b385a7a0eea720c3c59c3bdd29  bin-frozen-D53/multics-r82a-stock-x64
@@ -168,7 +169,7 @@ b0e5d996c96fe3894a8718b460bc2029  docs/evidence-R14/d70-sha1-rodata.log
 4df14a09e78a90023bbde2bab44c833b  docs/evidence-R14/d71-jm-fail-logs/.jm-b.log
 843ae0826fe4e9ea6874f748834df9bf  docs/evidence-R14/d71-jm-fail-logs/.jm-srv.cfg
 fe20cf66d05fb6fac4a4c2b8adcbf124  docs/evidence-R14/d71-jm-in-suite.log
-0236347a792608ed6c81a0145eb01d86  docs/evidence-R14/d76-fullwing.log
+9af0bac4edcdd309dcb2bc4024870f4e  docs/evidence-R14/d76-fullwing.log
 b25cf9341f7f1678fdf6be8d1561b72f  docs/evidence-R14/d76-stability-path.log
 3f593cfdea88d6d7f5c9d27a163023f7  docs/evidence-R14/docrefs-post-d76.log
 c21869c3377e2bb9411332d63666ab07  docs/evidence-R14/docrefs-post-m5.log
