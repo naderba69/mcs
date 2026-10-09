@@ -284,8 +284,8 @@ void decryptcache(uint8_t *buf, int len)
 #define CACHE_FLAG_REPSENT    0x08
 // Forward cache to peers
 #define CACHE_FLAG_FWD        0x10
-// Cacheex Reply Sent
-#define CACHEEX_FLAG_REPSENT  0x20
+// A full ECM identity is present in ecmd5 (set only from the local ECM pipe).
+#define CACHE_FLAG_ECMD5_VALID 0x20
 
 
 typedef enum { NO_CYCLE=0, CW0CYCLE=1, CW1CYCLE=2} cwcycle_t;
@@ -331,6 +331,37 @@ struct __attribute__ ((__packed__)) cache_data {
 
 	ECM_DATA *ecm;
 };
+
+#ifdef CACHEEX
+/*
+ * The CSP wire format carries only a 32-bit hash, not the full ECM MD5.
+ * Establish the cache entry's MD5 provenance only when it arrives from the
+ * local ECM pipe; a peer-created entry must never make arbitrary bytes look
+ * like a valid reuse identity.
+ */
+static void cache_set_ecmd5(struct cache_data *pcache, const uint8_t ecmd5[16])
+{
+	memcpy(pcache->ecmd5, ecmd5, sizeof(pcache->ecmd5));
+	pcache->flags |= CACHE_FLAG_ECMD5_VALID;
+}
+
+/*
+ * Deterministic M6 test seam: CSP has no MD5 field, so fill the otherwise
+ * absent bytes with key-derived garbage when explicitly requested. This lets
+ * the live regression test prove that invalid bytes are rejected even when
+ * they differ between services; the validity flag remains clear.
+ */
+static void cache_test_csp_md5_poison(struct cache_data *req)
+{
+	int i;
+	if (!getenv("MCS_TEST_CSP_ECMD5_POISON")) return;
+	for (i = 0; i < (int)sizeof(req->ecmd5); i++) {
+		req->ecmd5[i] = (uint8_t)((req->sid >> ((i & 1) * 8))
+					 ^ (req->hash >> ((i & 3) * 8))
+					 ^ (0xA5u + (unsigned)i * 17u));
+	}
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -513,7 +544,15 @@ struct cache_data *cache_new( struct cache_data *newdata )
 	pcache->hash = newdata->hash;
 	pcache->provid = newdata->provid;
 #ifdef CACHEEX
-	memcpy( pcache->ecmd5, newdata->ecmd5, 16);
+	/*
+	 * Retain the bytes for cache-exchange forwarding, but do not call them a
+	 * local ECM identity. CSP TYPE_REQUEST/TYPE_REPLY normally zero-initialize
+	 * `req` because their wire format has no MD5 (the M6 regression hook can
+	 * poison the absent bytes deliberately); validity is set only by
+	 * cache_set_ecmd5() when a local ECM-pipe message supplies the digest.
+	 */
+	memcpy(pcache->ecmd5, newdata->ecmd5, sizeof(pcache->ecmd5));
+	pcache->flags &= (uint8_t)~CACHE_FLAG_ECMD5_VALID;
 #endif
 	return pcache;
 }
@@ -2144,6 +2183,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
 			// Check Status
 			if (IS_DISABLED(peer->flags)) break;
+			memset(&req, 0, sizeof(req));
 			// Get DATA
 			req.tag = buf[1];
 			req.sid = (buf[2]<<8) | buf[3];
@@ -2200,6 +2240,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			}
 			// Check Integrity
 			if (buf[12]!=buf[1]) break;
+			memset(&req, 0, sizeof(req));
 			// SetUp Request
 			req.tag = buf[1];
 			req.sid = (buf[2]<<8) | buf[3];
@@ -2207,6 +2248,9 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.caid = (buf[6]<<8) | buf[7];
 			req.hash = (buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
 			req.provid = 0;
+#ifdef CACHEEX
+			cache_test_csp_md5_poison(&req);
+#endif
 
 			pthread_mutex_lock( &prg.lockcache );
 
@@ -2242,35 +2286,15 @@ void cache_recvmsg(struct cacheserver_data *cache)
 					}
 #ifdef CACHEEX
 						/*
-						 * TASK 1.3 / 1.5 for the CSP cache path -- the one CW source the six
-						 * cache-exchange sites cannot see.
-						 *
-						 * D11 skipped this path on the grounds that the CSP reply carries no
-						 * ecmd5 and the `req` here is a stack local whose ecmd5 field is
-						 * uninitialised. Both are true of `req`, and neither is true of the cache
-						 * entry: pipe_cache_find() copies ecm->ecmd5 into pcache->ecmd5 in both of
-						 * its branches (:675 and :693) under this same #ifdef. So the identity is
-						 * available after all -- fetched from the entry, never read off `req`.
-						 *
-						 * It is also the RIGHT identity. The six cache-exchange sites offer the
-						 * ecmd5 that arrived on the wire, computed by the sender over its copy of
-						 * the ECM. Offering a locally-computed ecmd5 alongside a wire-computed one
-						 * for the same ECM would make one key look like two, and reuse is the one
-						 * proof GR3 lets act on -- a false proof here is worse than the poisoning
-						 * it is meant to catch. This path uses the local identity only, and CSP
-						 * origins are flagged PEER_CSP, which none of the six sites ever sets, so
-						 * the same CW can never be offered twice under two different identities.
-						 *
-						 * No new locking: prg.lockcache is already held here (:1635), which is
-						 * what cache_purge_sweep() requires and what every other cwreuse_offer()
-						 * call site has. Nothing is added to the ECM thread's hot path.
-						 *
-						 * Same SID is never proof (GR6, enforced inside cwreuse_offer), and the
-						 * purge is scoped to this one channel (GR4).
+						 * M6: a CSP TYPE_REPLY has no full ECM MD5. Only use an
+						 * identity explicitly populated from a local ECM-pipe message;
+						 * a fresh peer-created entry (including an unsolicited push) is
+						 * deliberately MD5-invalid and must not vote on reuse.
+						 * prg.lockcache is already held for this path.
 						 */
 						{
 							struct cache_data *pc = cache_fetch(&req);
-							if (pc) {
+							if (pc && (pc->flags & CACHE_FLAG_ECMD5_VALID)) {
 								uint32_t now = GetTickCount();
 								if ( cwreuse_offer( &cwreuse_tab, cw, pc->ecmd5, 1,
 									                    req.caid, req.sid, req.provid, now ) == CWREUSE_PROOF ) {
@@ -2852,7 +2876,6 @@ void cache_pipe_recvmsg()
 
 #ifdef CACHEEX
 				if (len==16+sizeof(void*)+16+16) memcpy( pcache->prevcw, req.prevcw, 16);
-				memcpy( pcache->ecmd5, req.ecmd5, 16 );
 #else
 				if (len==16+sizeof(void*)+16) memcpy( pcache->prevcw, req.prevcw, 16);
 #endif
@@ -2871,7 +2894,6 @@ void cache_pipe_recvmsg()
 				pcache->provid = req.provid;
 #ifdef CACHEEX
 				if (len==16+sizeof(void*)+16+16) memcpy( pcache->prevcw, req.prevcw, 16);
-				memcpy( pcache->ecmd5, req.ecmd5, 16 );
 #else
 				if (len==16+sizeof(void*)+16) memcpy( pcache->prevcw, req.prevcw, 16);
 #endif
@@ -2951,6 +2973,9 @@ void cache_pipe_recvmsg()
 				}
 
 			}
+#ifdef CACHEEX
+			cache_set_ecmd5(pcache, req.ecmd5);
+#endif
 			break;
 
 
@@ -2967,6 +2992,9 @@ void cache_pipe_recvmsg()
 			 * request to peers is dropped; the ECM's server flow is unchanged. */
 			if (!pcache) break;
 			pcache->ecm = req.ecm;
+#ifdef CACHEEX
+			cache_set_ecmd5(pcache, req.ecmd5);
+#endif
 			/* TASK 3.6: same arm guard -- the REQUEST rides the pipe too, and
 			 * its waiter can be answered or failed before the cache thread gets
 			 * here. */
@@ -2994,6 +3022,9 @@ void cache_pipe_recvmsg()
 			 * failed); it is dropped -- its sender's client was already served
 			 * and nothing else is waiting on it. */
 			if (!pcache) break;
+#ifdef CACHEEX
+			cache_set_ecmd5(pcache, req.ecmd5);
+#endif
 			//Check & update DCW
 			struct cw_cache_data *cwdata = pcache->cwdata;
 			while (cwdata) {

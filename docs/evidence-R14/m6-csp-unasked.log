@@ -1,0 +1,6 @@
+  [ ok ] M6: both seeded peers completed the CSP handshake (2 online)
+  [ ok ] M6: each peer sent at least two unsolicited pushes (8 / 8)
+  [ ok ] M6: server accepted 2 CSP cache replies (GR10 path)
+  [ ok ] M6: poisoned invalid MD5 bytes produced no CW REUSE PROOF
+  [ ok ] M6: server stayed alive throughout the unsolicited-push test
+  [ ok ] M6: CSP reuse proof requires an explicitly valid local ECM MD5

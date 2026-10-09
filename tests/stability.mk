@@ -359,6 +359,77 @@ cwreuse: $(CACHEPEER) $(NCCLIENT)
 	exit $$rc
 
 # ---------------------------------------------------------------------------
+# M6 regression: two peers send the same CW in unsolicited CSP TYPE_REPLY
+# packets for different services, with no local ECM ever creating either
+# cache entry. A test-only seam poisons each absent MD5 with a different,
+# deterministic value; the server must still accept the CWs without treating
+# those invalid bytes as two distinct ECM identities.
+CSPU_HPORT = 15930
+CSPU_CACHE = 15931
+CSPU_PEER_A = 15932
+CSPU_PEER_B = 15933
+CSPU_NPORT = 15934
+CSPU_TPORT = 15935
+CSPU_CFG = .csp-unasked.cfg
+CSPU_CW = 11223366445566FF77889998AABBCC31
+
+.PHONY: cspunasked
+cspunasked: $(CACHEPEER)
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@command -v curl >/dev/null || { echo "curl required"; exit 1; }
+	@{ printf 'HTTP PORT: $(CSPU_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
+	   printf 'HTTP TITLE: mcs-csp-unasked\nTELNET PORT: $(CSPU_TPORT)\n'; \
+	   printf 'CACHE PORT: $(CSPU_CACHE)\n'; \
+	   printf 'CACHE PEER: 127.0.0.1:$(CSPU_PEER_A) { csp=1 }\n'; \
+	   printf 'CACHE PEER: 127.0.0.1:$(CSPU_PEER_B) { csp=1 }\n'; \
+	   printf 'CACHE FILTER: OFF\nCACHE FORWARD: OFF\n\n'; \
+	   printf '[ cspmd5test ]\nCAID: 1884\nPORT: $(CSPU_NPORT)\nUSER: u1 p1\n'; } > $(CSPU_CFG); \
+	peer_a=""; peer_b=""; srv=""; \
+	stopall() { for p in "$$srv" "$$peer_a" "$$peer_b"; do [ -n "$$p" ] && kill "$$p" 2>/dev/null || true; done; \
+	  for p in "$$srv" "$$peer_a" "$$peer_b"; do [ -n "$$p" ] || continue; \
+	    for i in 1 2 3 4 5; do kill -0 "$$p" 2>/dev/null || break; kill -9 "$$p" 2>/dev/null || true; sleep 0.2; done; \
+	  done; }; \
+	trap 'stopall' EXIT HUP INT TERM; \
+	CP_REPUSH_MS=400 CP_REPUSH_SAME=1 CP_PUSH_HASH=11223344 CP_PUSH_SID=0064 CP_PUSH_CAID=1884 CP_PUSH_TAG=80 \
+	  stdbuf -o0 -e0 ./$(CACHEPEER) $(CSPU_CACHE) $(CSPU_PEER_A) $(CSPU_CW) 1 > .cspu-a.log 2>&1 & peer_a=$$!; \
+	CP_REPUSH_MS=400 CP_REPUSH_SAME=1 CP_PUSH_HASH=55667788 CP_PUSH_SID=0065 CP_PUSH_CAID=1884 CP_PUSH_TAG=80 \
+	  stdbuf -o0 -e0 ./$(CACHEPEER) $(CSPU_CACHE) $(CSPU_PEER_B) $(CSPU_CW) 1 > .cspu-b.log 2>&1 & peer_b=$$!; \
+	MCS_TEST_CSP_ECMD5_POISON=1 stdbuf -o0 -e0 $(BIN) -C $(CSPU_CFG) -v > .cspu-srv.log 2>&1 & srv=$$!; \
+	code=000; for i in $$(seq 1 30); do \
+	  code=$$(curl -s -m 2 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(CSPU_HPORT)/); \
+	  [ "$$code" = "200" ] && break; sleep 1; done; \
+	if [ "$$code" != "200" ]; then echo "  [FAIL] M6: server did not answer HTTP ($$code)"; cat .cspu-srv.log; exit 1; fi; \
+	ready=0; for i in $$(seq 1 40); do \
+	  if grep -q "advertised card" .cspu-a.log && grep -q "advertised card" .cspu-b.log; then ready=1; break; fi; \
+	  sleep 0.25; done; \
+	pushed_a=0; pushed_b=0; accepted=0; \
+	for i in $$(seq 1 40); do \
+	  pushed_a=$$(grep -c "unsolicited push #" .cspu-a.log || true); \
+	  pushed_b=$$(grep -c "unsolicited push #" .cspu-b.log || true); \
+	  accepted=$$(grep -c "cache(GR10): not re-pushing" .cspu-srv.log || true); \
+	  [ "$$pushed_a" -ge 2 ] && [ "$$pushed_b" -ge 2 ] && [ "$$accepted" -ge 2 ] && break; \
+	  sleep 0.25; done; \
+	if kill -0 $$srv 2>/dev/null; then survived=1; else survived=0; fi; \
+	online=$$(grep -c "come Online" .cspu-srv.log || true); \
+	proofs=$$(grep -c "CW REUSE PROOF" .cspu-srv.log || true); \
+	stopall; trap - EXIT HUP INT TERM; \
+	ok=1; \
+	if [ "$$ready" = "1" ] && [ "$$online" -ge 2 ]; then echo "  [ ok ] M6: both seeded peers completed the CSP handshake ($$online online)"; \
+	else echo "  [FAIL] M6: peer handshakes incomplete (ready=$$ready, online=$$online)"; ok=0; fi; \
+	if [ "$$pushed_a" -ge 2 ] && [ "$$pushed_b" -ge 2 ]; then echo "  [ ok ] M6: each peer sent at least two unsolicited pushes ($$pushed_a / $$pushed_b)"; \
+	else echo "  [FAIL] M6: unsolicited push counts were $$pushed_a / $$pushed_b"; ok=0; fi; \
+	if [ "$$accepted" -ge 2 ]; then echo "  [ ok ] M6: server accepted $$accepted CSP cache replies (GR10 path)"; \
+	else echo "  [FAIL] M6: server recorded only $$accepted accepted CSP replies"; ok=0; fi; \
+	if [ "$$proofs" = "0" ]; then echo "  [ ok ] M6: poisoned invalid MD5 bytes produced no CW REUSE PROOF"; \
+	else echo "  [FAIL] M6: $$proofs invalid CW REUSE PROOF(s) from unrequested pushes"; ok=0; fi; \
+	if [ "$$survived" = "1" ]; then echo "  [ ok ] M6: server stayed alive throughout the unsolicited-push test"; \
+	else echo "  [FAIL] M6: server exited during the unsolicited-push test"; ok=0; fi; \
+	if grep -qi "segmentation\|SIGSEGV" .cspu-srv.log; then echo "  [FAIL] M6: server log contains a crash marker"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then echo "  [ ok ] M6: CSP reuse proof requires an explicitly valid local ECM MD5"; fi; \
+	rm -f $(CSPU_CFG) .cspu-srv.log .cspu-a.log .cspu-b.log; \
+	[ "$$ok" = "1" ]
+
+# ---------------------------------------------------------------------------
 # TASK 1.7 -- TRUSTED-CACHE-FIRST, proven at runtime.
 #
 # WHAT IT ASSERTS

@@ -311,10 +311,10 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 			 *
 			 * Safe here and only here: on the cache-exchange paths `cacheex.ecmd5`
 			 * is decoded from the message, so the 128-bit ECM identity is real.
-			 * The CSP TYPE_REPLY path (clustredcache.c, `cache_setdcw(&req,...)`)
-			 * carries a 32-bit hash and no ecmd5 at all, so `req.ecmd5` there is
-			 * uninitialised stack and must never be offered -- feeding it in would
-			 * manufacture proofs out of garbage.
+			 * The CSP TYPE_REPLY path (clustredcache.c) carries only a 32-bit
+			 * hash; its cache entry may vote only when CACHE_FLAG_ECMD5_VALID
+			 * records a digest supplied by a local ECM-pipe message. Fresh or
+			 * peer-only entries are not eligible to manufacture a proof.
 			 *
 			 * R13 (D67) note: the OBSERVE-ONLY wording that stood here was stale.
 			 * The proof path below is the TASK 1.5 action -- it scores

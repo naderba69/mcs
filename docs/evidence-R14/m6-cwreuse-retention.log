@@ -1,0 +1,8 @@
+  [ ok ] two services, one key: both ECMs answered with the same cw
+  [ ok ] two services, one key: 1 reuse proof(s), as required
+  [ ok ] two services, one key: 1 purge(s), as required
+  [ ok ] two services, one key: server survived
+  [ ok ] GR6: one service, one key: both ECMs answered with the same cw
+  [ ok ] GR6: one service, one key: 0 reuse proof(s), as required
+  [ ok ] GR6: one service, one key: 0 purge(s), as required
+  [ ok ] GR6: one service, one key: server survived

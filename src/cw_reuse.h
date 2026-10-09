@@ -25,9 +25,10 @@
  *
  * Keyed on `ecmd5` (128-bit, `ecmdata.h:63` and `clustredcache.c:320`), never on
  * `hash`, which is a 32-bit bucket index (`clustredcache.c:314`) and collides.
- * If CACHEEX is off, ecmd5 is not populated, and the caller must pass
- * `ecmd5_valid == 0` — the detector then returns REUSE_NONE unconditionally
- * rather than silently falling back to the 32-bit hash (D5).
+ * When a full ECM identity is unavailable or untrusted (including CACHEEX-off
+ * builds and peer-only CSP entries), the caller must pass `ecmd5_valid == 0` —
+ * the detector then returns REUSE_NONE unconditionally rather than silently
+ * falling back to the 32-bit hash (D5, M6).
  *
  * Fixed size, no allocation, no I/O (GR9). The table lives in .bss.
  */

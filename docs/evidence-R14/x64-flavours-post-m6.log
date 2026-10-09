@@ -1,0 +1,18 @@
+built ../dist/multics-r82a-stock-x64
+persistent copy: ../bin/multics-r82a-stock-x64 (dist/ does not survive workspace snapshots)
+  dcwstats symbols (expect 0): 0
+built ../dist/multics-r82a-stats-x64
+persistent copy: ../bin/multics-r82a-stats-x64
+  dcwstats symbols (expect 2): 2
+built ../dist/multics-r82a-queue-x64 (CACHE_QUEUE: bounded cache queue, D60)
+persistent copy: ../bin/multics-r82a-queue-x64
+  cachequeue symbols (expect 7+): 15
+built ../dist/multics-r82a-queue-stats-x64 (CACHE_QUEUE + dcwstats)
+persistent copy: ../bin/multics-r82a-queue-stats-x64
+  cachequeue symbols (expect 7+): 15
+persistent dev copy: ../bin/multics-r82a-dev-x64
+  [ ok ] bin/multics-r82a-stock-x64 -h rc=0
+  [ ok ] bin/multics-r82a-stats-x64 -h rc=0
+  [ ok ] bin/multics-r82a-queue-x64 -h rc=0
+  [ ok ] bin/multics-r82a-queue-stats-x64 -h rc=0
+  [ ok ] bin/multics-r82a-dev-x64 -h rc=0

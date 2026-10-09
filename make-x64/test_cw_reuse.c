@@ -84,9 +84,9 @@ int main(void)
 		cwreuse_offer(&t, cw_a, md5_1, 1, CAID, 100, PROV, 1100), CWREUSE_NONE);
 
 	/*
-	 * D5: with CACHEEX off, ecmd5 is not populated. The detector must go inert
-	 * rather than quietly fall back to the 32-bit hash and start producing
-	 * proofs out of bucket collisions.
+	 * D5/M6: when no trusted full ECM identity is available (CACHEEX-off or
+	 * peer-only CSP entry), the detector must stay inert rather than quietly
+	 * fall back to the 32-bit hash and start proving bucket collisions.
 	 */
 	cwreuse_reset(&t);
 	cwreuse_offer(&t, cw_a, md5_1, 0, CAID, 100, PROV, 1000);

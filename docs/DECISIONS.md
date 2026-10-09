@@ -3651,3 +3651,66 @@ existing call sites with zero additions. The live `tl2` target rejects an
 session responsive (8/8). Four call sites were removed from the pre-M5a
 inventory; 1256 legacy call sites remain and M5 stays open. Evidence:
 `docs/evidence-R14/m5-unsafe-api-gate.log`.
+
+
+## D75 -- R14/M6, CSP must not promote absent MD5 bytes into a reuse identity (2026-10-09)
+
+**Situation.** CSP `TYPE_REQUEST`/`TYPE_REPLY` packets carry the 32-bit ECM
+hash but no full ECM MD5. The stack `req` used by the CSP receive path was not
+fully initialized, while `cache_new()` copied its 16 `ecmd5` bytes into the
+cache entry. The seventh `cwreuse_offer()` site then treated any fetched entry
+as a valid MD5 witness. This could turn arbitrary/stale bytes from unsolicited
+CSP pushes into a false cross-service reuse proof. It is also incorrect to
+solve this by using the ECM pointer as a validity test: send-pipe state and
+identity provenance are separate concerns. A full MD5 received from a
+cache-exchange peer is useful wire data for forwarding, but is not thereby a
+locally validated ECM identity.
+
+**Decision.** Replace the unused `CACHEEX_FLAG_REPSENT` bit (`0x20`; confirmed
+unused in the source tree) with `CACHE_FLAG_ECMD5_VALID`. Set it only through
+`cache_set_ecmd5()` when the internal ECM pipe supplies the digest; clear it
+when `cache_new()` creates an entry from peer data, while retaining the raw
+bytes for cache-exchange forwarding. Zero-initialize both CSP request/reply
+records before populating their wire fields. The CSP reuse path now requires
+both an entry and the explicit validity bit; it does not infer validity from
+`ecm != NULL` or from nonzero MD5 bytes.
+
+The opt-in regression seam `MCS_TEST_CSP_ECMD5_POISON` fills CSP's absent MD5
+with deterministic, key-derived garbage (different for the two service IDs)
+without setting the validity bit. It is only activated by the test recipe.
+
+**Verification.** `make -s -C make-x64 test`: **1391 passed, 0 failed**;
+there are four compiler warnings in the test build (two unused static helper
+warnings in `safe_string.h`, and the two previously documented small-buffer
+`-Wformat-truncation` warnings in `test_cacheguard` and `test_phase1cfg`). All
+five x64 flavours rebuilt successfully, emitted no build warnings/errors, and
+returned 0 for `-h`. The live `cspunasked` regression completed both CSP
+handshakes, observed 8 unsolicited pushes from each peer and two accepted
+replies, produced no `CW REUSE PROOF`, and kept the server alive. Temporarily
+removing the validity gate made the regression fail with one invalid proof;
+the gate was restored and the test passed. The separate `cwreuse` retention
+test still observes one proof and one purge for different services, and zero
+of each for the same service.
+
+Evidence: `docs/evidence-R14/m6-unit-suite.log`,
+`m6-csp-unasked.log`, `m6-guard-ablation.log`, `m6-cwreuse-retention.log`,
+`m6-fullwing.log`, and `x64-flavours-post-m6.log`.
+
+A full `make -k all` attempt after the release rebuild returned 2: 457 assertions
+passed, but the stock subcase of the pre-existing `stability` target produced
+three failures because it hard-codes the now-absent `../make-x64/x64/multics`
+path. The other targets continued under `-k`, including the M6 CSP target,
+which passed. The raw run also has one `-Wunused-function` warning in
+`tests/cxpeer.c`. This is a separate M4/test-path gap, not evidence against the
+M6 gate; it remains open for a separate D76 follow-up and is not counted as a
+green full wing.
+
+**Risk / rollback.** The bit reuses an unused flag and changes no structure
+layout, packed protocol field, wire format, or locking. All validity writes
+remain inside the existing cache lock. If a regression appears, revert the
+D75 change as a unit; do not restore the old uninitialized-byte path or use
+pointer presence as a substitute for identity validity.
+
+**Scope.** M6 is complete. M5 remains partial (1256 legacy unbounded calls),
+M2 remains blocked on cross toolchains, and the 66 semantic `docrefs` notices
+remain open for manual review; D75 does not claim those items closed.

@@ -1,0 +1,9 @@
+M6 guard-ablation check (temporary build with the validity guard removed):
+persistent dev copy: ../bin/multics-r82a-dev-x64
+  [ ok ] M6: both seeded peers completed the CSP handshake (2 online)
+  [ ok ] M6: each peer sent at least two unsolicited pushes (8 / 8)
+  [ ok ] M6: server accepted 2 CSP cache replies (GR10 path)
+  [FAIL] M6: 1 invalid CW REUSE PROOF(s) from unrequested pushes
+  [ ok ] M6: server stayed alive throughout the unsolicited-push test
+make: *** [stability.mk:380: cspunasked] Error 1
+EXPECTED: the regression target failed when the explicit validity guard was removed.

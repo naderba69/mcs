@@ -1,0 +1,604 @@
+  [ ok ] HTTP / answered 200
+  [ ok ] empty config refused with exit 1 (was SIGSEGV/139)
+  [ ok ] DCWFILTER REPEAT parsed
+  [ ok ] DCWFILTER CHECKSUM parsed
+  [ ok ] unknown sub-option reported by name
+  [ ok ] SOFT-FAIL-WINDOW parsed
+  [ ok ] RETRY-WINDOW clamped 10 -> 500 ms
+  [FAIL] stock: died during startup
+  [FAIL] stock: HTTP answered '000'
+  [ ok ] stock: SIGHUP terminates it (r82a has no hot-reload handler)
+  [FAIL] stock: after restart HTTP answered '000'
+  [ ok ] stock: shut down
+  [ ok ] configured: started and still alive after 6 s
+  [ ok ] configured: HTTP answered 200
+  [ ok ] configured: SIGHUP terminates it (r82a has no hot-reload handler)
+  [ ok ] configured: restarted cleanly and HTTP answered 200 again
+  [ ok ] configured: shut down
+make: *** [stability.mk:41: stability] Error 1
+  (http poll: 200)
+  ncclient: MultiCS Newcamd client harness
+    [ ok ] stage 1: connected and read the 14-byte keymod
+           keymod = F433D1BDCDEB5DD2557C5DDF2406
+    [ ok ] stage 2: the 'MCS' marker verifies -- this is MultiCS
+    [ ok ] stage 3: login key derived
+           sessionkey = D32DC5D28FD12F005971A2407D27F500
+    [ ok ] stage 4: login sent (41 bytes, md5-crypt = $1$abcdefgh$wfBfK8YL8MFpMAYtvMlvA.)
+    [ ok ] stage 5: LOGIN_ACK -- the server accepted the client
+           post-login key: des_login_key_get(deskey, passwdcrypt (len 34))
+           post-login sessionkey = B220B0F90DA62100685C69618DAA0200
+           cs_message_send returned 90, socket fd=3
+           poll(300) right after send -> 0, revents=0x0 (0x10=HUP 0x8=POLLERR)
+    [ ok ] stage 6: ECM 1/2 sent (64 bytes, ch 1884:000000:0064)
+           reply type 0x80, len=3, dcw=
+    [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
+    [ ok ] stage 6: ECM 2/2 sent (64 bytes, ch 1884:000000:0064)
+           reply type 0x80, len=3, dcw=
+    [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
+  == 6 stages passed ==
+  [ ok ] the server answered both ECMs (decode-failed is correct with no card server)
+  [ ok ] the server SURVIVED both ECMs -- regression guard for the NULL ecm deref
+  [ ok ] a real Newcamd client drove the real server through the ECM path
+  [ ok ] the client RECEIVED A CONTROL WORD, twice
+  [ ok ] and it is exactly the CW the peer pushed
+  [ ok ] the server accepted the cache peer
+  [ ok ] TASK 1.0b: GR10 suppressed the re-push at runtime
+  [ ok ] TASK 1.2: RETRY_HARD detected at runtime
+  [ ok ] TASK 1.1: origin is DCW_SOURCE_CACHE / PEER_CSP|1, as GR1 requires
+  [ ok ] TASK 1.6: rotation recorded the source to avoid
+  [ ok ] the server survived the whole sequence
+  [ ok ] two services, one key: both ECMs answered with the same cw
+  [ ok ] two services, one key: 1 reuse proof(s), as required
+  [ ok ] two services, one key: 1 purge(s), as required
+  [ ok ] two services, one key: server survived
+  [ ok ] GR6: one service, one key: both ECMs answered with the same cw
+  [ ok ] GR6: one service, one key: 0 reuse proof(s), as required
+  [ ok ] GR6: one service, one key: 0 purge(s), as required
+  [ ok ] GR6: one service, one key: server survived
+  [ ok ] M6: both seeded peers completed the CSP handshake (2 online)
+  [ ok ] M6: each peer sent at least two unsolicited pushes (8 / 8)
+  [ ok ] M6: server accepted 2 CSP cache replies (GR10 path)
+  [ ok ] M6: poisoned invalid MD5 bytes produced no CW REUSE PROOF
+  [ ok ] M6: server stayed alive throughout the unsolicited-push test
+  [ ok ] M6: CSP reuse proof requires an explicitly valid local ECM MD5
+  [ ok ] learned the ecm hash for sid 0064: a1669c0c
+  [ ok ] ON: 8 retry events fed the trust engine
+  [ ok ] ON: the working client still got all 6 cw(s)
+  [ ok ] ON: 13 deferral(s) of the unverified cache entry
+  [ ok ] ON: deferring still left the client answered (3 cw(s)) -- no black screen
+  [ ok ] ON: server survived
+  [ ok ] OFF: 8 retry events fed the trust engine
+  [ ok ] OFF: the working client still got all 6 cw(s)
+  [ ok ] OFF: no deferral, stock behaviour kept
+  [ ok ] OFF: the same entry WAS served, so ON is what withheld it
+  [ ok ] OFF: server survived
+  [ ok ] the client still received a control word (2)
+  [ ok ] and it is exactly the structurally impossible key, untouched
+  [ ok ] TASK 1.8: the scan ran on the real delivery path (1 line(s))
+  [ ok ] GR1: attributed to DCW_SOURCE_CACHE(1) / PEER_CSP|1, not to a card server
+  [ ok ] and the line says so: evidence, not a filter
+  [ ok ] the peer re-pushed the SAME key 3 times after the first delivery
+  [ ok ] TASK 1.8: the repeats produced no further line (3 pushes, 1 report)
+  [ ok ] the server survived the whole sequence
+  [ ok ] the option was parsed and reported at startup
+  [ ok ] and so was STATS-WINDOW
+  [ ok ] the events below the limit were counted and tolerated (2 line(s))
+  [ ok ] exactly ONE avoidance line -- one log line per confirmed event, not one per bad cw
+  [ ok ] and exactly 2 below-limit lines: events 1 and 2 tolerated, event 3 avoided
+  [ ok ] the avoidance line says the limit was reached, not merely that a retry happened
+  [ ok ] STATS-WINDOW emitted 3 summary line(s)
+  [ ok ] and the line reports the limit actually in force, not the default
+  [ ok ] the client was answered throughout (4 cw(s)) -- the tolerance black-screened nothing
+  [ ok ] server survived
+  [ ok ] ON: 3 s window: the reuse proof placed exactly 1 mark
+  [ ok ] ON: 3 s window: 1 expire line(s), as required
+  [ ok ] ON: 3 s window: the expire line names the SAME channel (1884:000000:00c8) and source the mark line named (GR8)
+  [ ok ] ON: 3 s window: and the window it expired against
+  [ ok ] ON: 3 s window: server survived
+  [ ok ] OFF: the default: the reuse proof placed exactly 1 mark
+  [ ok ] OFF: the default: 0 expire line(s), as required
+  [ ok ] OFF: the default: server survived
+  [ ok ] a disagreement alone accused nobody -- GR3, no client failure, no proof
+  [ ok ] phase 1's client was served a key: it is a failure, not a delivery, that accuses
+  [ ok ] and nothing was marked for it either
+  [ ok ] the disagreement WAS recorded: 1 dispute, 0 self, 0 proof
+  [ ok ] exactly ONE mismatch line for one confirmed event
+  [ ok ] GR1: the accused source (1/65538) is the one the client held a key from
+  [ ok ] the dissenter (1/65537) is named and is NOT the accused
+  [ ok ] the cache entry was marked, on the accused source and no other
+  [ ok ] the ledger counted exactly one proof and no self-disputes
+  [ ok ] every failure had an identity to be placed against (0 unplaced)
+  [ ok ] the client kept being served (3 cw(s)): a proof must not black-screen a channel
+  [ ok ] the re-asks were classified as retries (2), not zaps
+  [ ok ] server survived
+  [ ok ] the peer measured its own pair of keys: 3 bit flips, checksum still valid
+  [ ok ] phase 1's honest key really was delivered (so its silence means something)
+  [ ok ] no entropy and no collision verdict on honest traffic (GR3: it must stay quiet)
+  [ ok ] and the stats line counts zero of each, not just the log
+  [ ok ] phase 2 delivered the derived key itself, so the verdict is about the key that arrived
+  [ ok ] exactly ONE collision line for one derived key
+  [ ok ] and the server measured the same 3 bits the peer intended
+  [ ok ] GR1: both keys came from the same source, so the verdict is attributable
+  [ ok ] the line names BOTH keys, byte for byte as the peer pushed them (GR8: exact evidence)
+  [ ok ] the derived key is not also accused of low entropy (the two halves are independent)
+  [ ok ] the stats summary counts exactly one same-source near miss (waited for the window, not for a sleep)
+  [ ok ] server survived
+  [ ok ] the card server connected and advertised CAID 1884
+  [ ok ] the evidence lines are back: the SERVER filter is a FILTER, not an addition (DBG_ALL=0), and the window is 2 s on a 5 s wakeup
+  [ info ] phase1-honest: 16 ECM(s) on 16 distinct services, 16 control words delivered so far
+  [ ok ] phase 1: 16 honest replies (55-75 ms, floor 42 ms) produced NO verdict of any kind
+  [ ok ] and the stats line agrees: 0 fast, 0 flat, so the silence is a measurement and not an absence
+  [ info ] phase2-metronome: 40 ECM(s) on 40 distinct services, 56 control words delivered so far
+  [ ok ] phase 2: 40 replies at exactly 55 ms are reported as a metronome
+  [ ok ] and the line says in words that it is not proof, so it cannot be read as an accusation
+  [ ok ] and it did NOT score: trust is still 0 sources -- FLAT is outside CWT_SCOREMASK (GR3)
+  [ ok ] a 55 ms reply was never called fast: the floor is a floor and 55 > 42
+  [ info ] phase3-instant: 8 ECM(s) on 8 distinct services, 64 control words delivered so far
+  [ ok ] phase 3: instant answers are reported once per service: 8 lines for 8 services
+  [ ok ] and the line states what makes it impossible rather than just scoring it
+  [ ok ] and THIS one scored: trust went 0 -> 8 sources, one per service -- GR4 granularity, shown live
+  [ ok ] and the stats line counts every reply of both kinds, including the ones the report window suppressed
+  [ ok ] the card server confirms it answered instantly
+  [ ok ] and that it took its metronome turns
+  [ ok ] every client was served throughout: 64 of 64 control words delivered, none of this cost a viewer anything
+  [ ok ] server survived
+  [ ok ] the first cache peer is online and has advertised its card
+  [ info ] phase1-honest: 4 request(s), 4 control word(s) delivered so far
+  [ ok ] phase 1: four honest keys reached four clients (the positive control)
+  [ ok ] and produced no plausibility line at all
+  [ ok ] with the stats line agreeing: every key of full shape, none one-group, no patterns
+  [ info ] trust before any forgery: 0 source(s)
+  [ info ] phase2a-two-forged: 2 request(s), 4 control word(s) delivered so far
+  [ ok ] phase 2a: two forged keys are counted and NOT convicted -- two is not a pattern
+  [ info ] phase2b-four-forged: 2 request(s), 4 control word(s) delivered so far
+  [ ok ] phase 2b: the third key crossed the line and produced exactly ONE line
+  [ ok ] and it names WHICH group is broken (4) -- one damaged byte, not four accidents
+  [ ok ] and carries the count and the rate the verdict was formed on (GR8: the evidence, not just the verdict)
+  [ ok ] and says in words that delivery was not touched (no silent action)
+  [ ok ] the stats line counts all four damaged keys, not only the one that was reported
+  [ ok ] and exactly one pattern was announced while every key stayed counted
+  [ ok ] and it SCORED: trust went 0 -> 1 entr(ies), for the service that crossed the line (GR4)
+  [ ok ] GR2/GR3: refused keys produced no proof, no reuse proof, no rotation -- a refused key is a timeout, not an accusation
+  [ ok ] and no client received anything from that peer: the checksum filter refused all four forged keys (4 delivery(s) before, 4 after)
+  [ ok ] and the collision layer stayed quiet: the forged keys are 57-70 bits apart, far past its 16-bit threshold
+  [ info ] phase3-one-in-eleven: 11 request(s), 14 control word(s) delivered so far
+  [ ok ] phase 3: one forged key in eleven (9 %, under the 20 % line) on a FRESH source added no line
+  [ ok ] it is still counted (five one-group keys in total) and simply never becomes a pattern
+  [ ok ] and the pattern count stayed at 1, so phase 3 changed no score at all
+  [ ok ] and every valid key in all three phases reached its client (4 + 10): none of this cost a viewer anything
+  [ info ] the third peer reported 1 broken key(s) and 10 repaired one(s)
+  [ ok ] and its own instrument confirms the 1-in-11 mix the phase was built from
+  [ ok ] server survived
+  [ ok ] the peer is online and has advertised its card
+  [ ok ] phase 1: three declared keys, correctly marked, all three delivered
+  [ ok ] and an agreeing source earned no cycle line at all
+  [ ok ] the stats line reads: offered 3 (3 marked, 0 contra), handed 3 (0 stale, 0 unverified, 0 lines)
+  [ ok ] phase 2: both contradictory keys were refused before any client (deliveries stayed 3)
+  [ ok ] phase 2: the contradiction produced exactly ONE line -- the second key throttled (one per window)
+  [ ok ] and it names the halves: the ECM declared CW0 and the peer declared CW1
+  [ ok ] and says WHERE it saw it (offered by the peer, not handed to a client)
+  [ ok ] and says in words that nothing was done -- a measurement, not an action
+  [ ok ] GR3: a declared cycle is evidence, not proof -- trust stayed at 0 source(s)
+  [ ok ] the stats line reads: offered 5 (5 marked, 2 contra), handed 3 (0 stale, 0 unverified, 1 line)
+  [ ok ] phase 3: the undeclared key was refused by the gate (deliveries 3) and earned NO new line
+  [ ok ] and the layer kept the two apart: offered 6 but only 5 marked -- silence counted, never accused
+  [ ok ] server survived
+  [ ok ] the peer is online and has advertised its card
+  [ ok ] phase 2: the reuse proof filed the key itself, exactly once (CW NEGATIVE MARK)
+  [ ok ] and the mark says in words what it now guarantees
+  [ ok ] phase 3: the third offer of the same poison was refused, one line
+  [ ok ] and the refusal names the moment it acted: before any client
+  [ ok ] and says in words that the refusal moved no score and disabled nothing
+  [ ok ] the reuse proof(s) behind the mark: 2
+  [ ok ] GR3 in the positive direction: exactly the two pre-proof deliveries happened, the third reply reached nobody
+  [ ok ] the stats line remembers: 1 live, 1 proven, 1 refused, 1 line
+  [ ok ] server survived
+  [ ok ] the peer is online and has advertised its card
+  [ ok ] phase 1: three honest keys, three deliveries
+  [ ok ] the mirror layer saw all three and said nothing: mirror 3 keys, 0 complement-built
+  [ ok ] phase 2: both mirror keys PASSED the checksum layer and were DELIVERED (deliveries 3 -> 5)
+  [ ok ] and 2.4 read them as full shape: zero plausibility lines -- the construction is invisible to every structural layer
+  [ ok ] the mirror layer counted both silently: mirror 5 keys, 2 complement-built, still no line (two keys are not a pattern)
+  [ ok ] and no score moved on two keys (GR3: one key never convicts)
+  [ ok ] phase 3: the third mirror key crossed the pattern -- exactly ONE line
+  [ ok ] and it names the construction: the second half is the complement of the first
+  [ ok ] and carries the pair count the verdict was formed on (GR8)
+  [ ok ] and says in words that delivery was not touched
+  [ ok ] the mirror key was delivered anyway -- the layer observes, it does not gate (the gate belongs to a later decision)
+  [ ok ] and it SCORED: trust went 0 -> 1 entr(ies) -- edit evidence, softly (GR3/GR4)
+  [ ok ] no cross-fire: fresh keys triggered no reuse proof and no negative memory
+  [ ok ] the stats line remembers: mirror 6 keys, 3 complement-built, 1 pattern
+  [ ok ] server survived
+  [ ok ] peer B is online at the cache server
+  [ ok ] phase 1: three services, three honest keys, three deliveries
+  [ ok ] the coarse tier watched and said nothing: no crossing, nobody below the line
+  [ ok ] phase 2: the fixed key came back for a second service -- one CW-reuse proof
+  [ ok ] and a third service completes the second proof
+  [ ok ] two proofs on one (peer, caid) cross the coarse line: exactly ONE sentence
+  [ ok ] and it names the counts that did it: 2 proof(s), on this caid
+  [ ok ] and it says what the brake is NOT: nothing is disconnected, no client touched
+  [ ok ] the stats line remembers: 1 1 0
+  [ ok ] B answered all three poisoned services: the brake arms on the second OFFER, after the ask
+  [ ok ] phase 3: B's share of the fan-out is skipped -- its request count froze at 3
+  [ ok ] and A is asked instead: 1 request(s) answered -- the skip is per-peer, not a blackout
+  [ ok ] the client got its key anyway: one more delivery, from A (skipping a poisoner costs a client nothing)
+  [ ok ] the stats line carries the brake: 1 1 1
+  [ ok ] server survived
+  [ ok ] phase 1: three services, three honest deliveries
+  [ ok ] the guard watched honest traffic and said nothing: cache guard 0 short, 0 unconfigured
+  [ ok ] phase 2: the stranger's pushes are SEEN now -- exactly one line in the window
+  [ ok ] and the line names the sender: 127.0.0.1:16643
+  [ ok ] the stats remember: cache guard 0 short, 2 unconfigured
+  [ ok ] and stock's treatment is unchanged: a dark sender still delivers nothing (deliveries stay 3)
+  [ ok ] phase 3: A's truncated reply is dropped before any parse -- exactly one line
+  [ ok ] and it names the evidence: 8 bytes against a 13-byte minimum
+  [ ok ] the stats remember: cache guard 1 short, 26 unconfigured
+  [ ok ] A's next reply, intact, delivers: the gate costs a well-formed sender nothing
+  [ ok ] two events, two lines, no noise: the window kept its word
+  [ ok ] server survived
+  [ ok ] phase 1: two services, two honest deliveries -- the rig is alive
+  [ ok ] the cache thread is writing snapshots: 9 ok, none failed
+  [ ok ] phase 2: the reused poison key is proven and filed (one CW NEGATIVE MARK)
+  [ ok ] the conviction is on disk: exactly one NG line in the state file
+  [ ok ] idle past the grace, the fade relaxed the condemned entries: 7 move(s)
+  [ ok ] the fine tier is on disk too: 2 TF line(s)
+  [ ok ] phase 3: the restart read its state back -- the loader spoke once, at startup
+  [ ok ] the conviction came back: at least one negative entry restored
+  [ ok ] the garbage line was refused whole and counted, nothing half-applied
+  [ ok ] the stats remember both: 1 negative restored, 1 bad line
+  [ ok ] the first fresh offer of the same poison is refused at ingest after the restart
+  [ ok ] and it is the restored conviction biting, not a new one: no second mark
+  [ ok ] deliveries unchanged: the pre-proof two only, the third reached nobody
+  [ ok ] no snapshot failure across both runs (fade/snapshots '0 1 0')
+  [ ok ] server survived
+  [ ok ] phase 1: the right credentials open the page
+  [ ok ] no credentials: 401
+  [ ok ] wrong credentials: 401
+  [ ok ] a 400-char Basic payload is refused without decoding (pass[256] stays pass[256])
+  [ ok ] 30 header lines: the parser stops at 20, the request is still just unauthorised
+  [ ok ] a 600-byte header value is truncated at the field, not past it
+  [ ok ] a 700-byte request line wrote nothing past path[512], and the server still serves
+  [ ok ] a POST body with 40 pairs stops at postlist's 20, still 401
+  [ ok ] phase 3: the pass-only file that stock served wide open answers 401 now
+  [ ok ] and the same parser probes get the same refusals on it
+  [ ok ] both servers' logs are clean: no crash, no backtrace, all probes survived
+  [ ok ] both servers survived
+  [ ok ] no page carries the raw username markup (index, newcamd, client detail, debug)
+  [ ok ] the escaped form is what the pages render: 2 page(s) show &lt;script&gt;
+  [ ok ] the interface still serves: index answered 200
+  [ ok ] the poisoned name logged in fine (the fix is at render, not at login)
+  [ ok ] the server log is clean
+  [ ok ] server survived
+  [ ok ] the 62-char name flowed through the layers: 5 ring line(s) name it
+  [ ok ] /debug renders the named lines escaped: 5 occurrence(s)
+  [ ok ] the name appears whole (max legal), the LINE bounded: longest run 
+  [ ok ] a 900-char login attempt is refused as unknown user, and the refusal line itself is clamped (longest B-run: 0)
+  [ ok ] the interface still serves
+  [ ok ] the server log is clean
+  [ ok ] server survived
+  [ ok ] the server SURVIVED the refused cache-table allocation (pre-fix: SIGSEGV on the first ECM)
+  [ ok ] every failed attempt said so, once, bounded: 10 line(s) for two ECMs
+  [ ok ] the bite really fired: 10 table allocation(s) refused
+  [ ok ] the interface still serves with the cache table missing
+  [ ok ] the phase-1 server log is clean
+  [ ok ] phase 2: a real cache peer's CW was delivered to a real client (the guards did not touch the happy path)
+  [ ok ] and it is exactly the CW the peer pushed
+  [ ok ] the fresh table was allocated and the peer came online
+  [ ok ] the clean run survived the whole sequence
+  [ ok ] exactly two parse warnings, one per truncated field, naming the config lines
+  [ ok ] the control pair logs in untouched
+  [ ok ] the 70-char name entry logs in through its truncated 63-char form (pre-fix: the stored name was mangled with the password's bytes)
+  [ ok ] the 70-char password entry logs in through its truncated form (pre-fix: userhash was destroyed, 'unknown user' for its own pass)
+  [ ok ] the pre-fix failure signature is gone: no configured user is 'unknown'
+  [ ok ] the server log is clean
+  [ ok ] server survived
+  [ ok ] phase 1: the peer recorded the server's request for the hash
+  [ ok ] phase 1: the first waiter died (cache-only profile, silent peer)
+  [ ok ] phase 3: the stored key answers peer requests (6/6) -- the auto-answer gate is open
+  [ ok ] phase 4: the SAME ECM from a second client is served from the stored key
+  [ ok ] and it is exactly the key the peer pushed
+  [ ok ] the server survived the whole sequence
+  [ ok ] the real server boots under ASan with three 255-char config tokens
+  [ ok ] the server is alive after the parse
+  [ ok ] zero AddressSanitizer reports (pre-fix: 8 stack-buffer-overflow WRITEs)
+  [ ok ] the profile parsed to the end: newcamd port came up
+  [ ok ] the plain -O2 binary boots the identical config
+  [ ok ] and the plain binary parsed the profile to the end too
+  [ ok ] http accepts the truncated 63-char credential (pre-fix: 401)
+  [ ok ] telnet accepts the truncated 63-char pair and reaches the prompt (pre-fix: FAIL)
+  [ ok ] exactly four house-format warnings: both fields, both surfaces
+  [ ok ] the config parsed to the end
+  [ ok ] the server survived
+  [ ok ] stats build: the line arms the counters (DCW STATS: ON)
+  [ ok ] the config parsed to the end
+  [ ok ] profile DCW TIMEOUT: 1500 still applied (the STATS sub-word did not swallow it)
+  [ ok ] file reload: the reset runs, the line re-arms (2x + Config file Changed)
+  [ ok ] no line, no counters: the default stays silent
+  [ ok ] a typo reads OFF, visibly (BOGUS -> DCW STATS: OFF)
+  [ ok ] stock build: the line parses but is inert, one warning says so
+  [ ok ] the stock build parsed the same config to the end
+  [ ok ] a rejected all-zero CW moved the null/half-null counter
+  [ ok ] dcwstats: ON, null/half-null 4 (a bad sub-word left it)
+  [ ok ] dcwstats reset zeroed every counter
+  [ ok ] help lists dcwstats
+  [ ok ] no line, gathering OFF, counters zero
+  [ ok ] stock build answers once and names the release to use
+  [ ok ] stock help still lists the command
+  [ ok ] the stock build parsed the same config to the end
+  [ ok ] home page 200 and the rejected CW is on it
+  [ ok ] the home page still renders (200, uptime, table, </html>)
+  [ ok ] the refresh fragment carries the table and is not a second document
+  [ ok ] every counter on the page matches telnet and the refresh fragment
+  [ ok ] the matched null/half-null count is not zero
+  [ ok ] no config line: page and telnet both say OFF and zero
+  [ ok ] stock page renders and names the release, with no counter table
+  [ ok ] the stock build parsed the same config to the end
+  [ ok ] the ASan probe: production xmlescape stays inside its frame (pre-fix: stack-buffer-overflow WRITE)
+  [ ok ] /profiles renders (200)
+  [ ok ] the profile name arrives escaped (xe&amp;38)
+  [ ok ] no raw unescaped name in the page
+  [ ok ] /servers renders (200)
+  [ ok ] no truncation warning for honest values
+  [ ok ] the config parsed to the end
+  [ ok ] the server survived
+[18:18:36.187] !!! CARDSIDS: prov:sid 000000:0164 at floor -100; a later success still recovers
+counter after 100 failures: -100
+counter after 50 more failures: -100
+[18:18:36.187] !!! CARDSIDS: prov:sid 000000:0164 recovered from the floor
+counter after one success: 0
+counter two failures from zero: -2
+counter one success from -2: 0
+counter positive then failure: 0
+ceiling after 100 successes: 100
+ceiling after 10 more: 100
+ceiling after a failure: 100
+[18:18:36.187] !!! CARDSIDS: prov:sid 000001:0164 at floor -100; a later success still recovers
+first provider while second is floored: -2
+second provider at its own floor: -100
+[ ok ] production cardsids_update: floor holds, a success recovers
+  [ ok ] the counter is shown at -100
+  [ ok ] 50 further failures did not push past -100
+  [ ok ] one success returned the counter to 0
+  [ ok ] the floor line fired once per provider, the recovery once, and the extra failures stayed quiet
+  [ ok ] the +100 ceiling is unchanged
+  [ ok ] the profile page shows DCW MAXFAILED 100, the gate that reads this counter
+  [ ok ] the server parsed DCW MAXFAILED and finished starting
+  [ ok ] the server survived
+  [ ok ] the listed key was not delivered
+  [ ok ] bad-dcw-list counted 1
+  [ ok ] the server enforced the one listed key
+  [ ok ] a key that is not on the list was delivered, and bad-dcw-list stayed 0
+  [ ok ] removing the line reloads and clears the list
+  [ ok ] no BAD-DCW line: that key is delivered, and the list stays off
+  [ ok ] the stock build rejects the listed key too
+  [ ok ] the server survived
+  [ ok ] the profile override was parsed
+  [ ok ] the profile with checksum off received the key
+  [ ok ] the profile that inherits the global gate did not receive it
+  [ ok ] that same profile still receives a key that passes
+  [ ok ] the stock build honors the profile override too
+  [ ok ] the server survived
+  [ ok ] a push that arrives while the ECM is waiting is still delivered
+  [ ok ] the ECM failed before the delayed push was applied
+  [ ok ] the client received nothing after the failure
+  [ ok ] the in-flight push was refused
+  [ ok ] the server did not send a key after the failure
+  [ ok ] the server survived
+  [ ok ] the peer advertised 1024 cards
+  [ ok ] the server stored 1024 cards
+  [ ok ] the listed card is on the page
+  [ ok ] the unlisted card is not on the page
+  [ ok ] a listed card was requested and the key was delivered
+  [ ok ] the server asked the peer for the listed card
+  [ ok ] an unlisted card was not decoded
+  [ ok ] the server did not ask for the unlisted card
+  [ ok ] the server survived a 1024-card list
+  [ ok ] the server answered before restart
+  [ ok ] after restart the page answered again
+  [ ok ] the old process exited
+  [ ok ] restart logged Restarting and Stopped
+  [ ok ] the new process bound the page port
+  [ ok ] no port was left held
+  [warn] ARCHITECTURE.md:140 -> srv-newcamd.c:985 : no identifier from that sentence near it (cs_check_sendcw is at 1003)
+  [warn] ARCHITECTURE.md:142 -> srv-newcamd.c:862 : no identifier from that sentence near it (cs_senddcw_cli is at 880)
+  [warn] ARCHITECTURE.md:206 -> clustredcache.c:1590 : no identifier from that sentence near it (cw_cache_data is at 1532)
+  [warn] ARCHITECTURE.md:207 -> clustredcache.c:1594 : no identifier from that sentence near it (cw_cache_data is at 1532)
+  [warn] ARCHITECTURE.md:221 -> httpserver.c:3707 : no identifier from that sentence near it (getpeerbyid is at 3879)
+  [warn] ARCHITECTURE.md:263 -> setdcw.c:654 : no identifier from that sentence near it (srctype is at 630)
+  [warn] ARCHITECTURE.md:274 -> srv-newcamd.c:829 : no identifier from that sentence near it (DCW_SOURCE_CSCLIENT is at 847)
+  [warn] ARCHITECTURE.md:277 -> httpserver.c:2992 : no identifier from that sentence near it (src2string is at 3155)
+  [warn] ARCHITECTURE.md:331 -> setdcw.c:589 : no identifier from that sentence near it (lockecm is at 607)
+  [warn] ARCHITECTURE.md:379 -> config.c:1246 : no identifier from that sentence near it (threshold is at 1466)
+  [warn] ARCHITECTURE.md:380 -> config.c:1264 : no identifier from that sentence near it (SERVICE is at 1484)
+  [warn] ARCHITECTURE.md:382 -> config.c:1292 : no identifier from that sentence near it (STATS is at 1511)
+  [warn] ARCHITECTURE.md:385 -> config.c:5748 : no identifier from that sentence near it (update_cache_servers is at 6289)
+  [warn] ARCHITECTURE.md:389 -> config.c:207 : no identifier from that sentence near it (init_config is at 236)
+  [warn] ARCHITECTURE.md:408 -> httpserver.c:7041 : no identifier from that sentence near it (fopen is at 7114)
+  [warn] ARCHITECTURE.md:409 -> httpserver.c:98 : no identifier from that sentence near it (HTTP_UPDATE_DIV is at 117)
+  [warn] ARCHITECTURE.md:443 -> clustredcache.c:1035 : no identifier from that sentence near it (cache_send_fwdreply is at 1196)
+  [warn] ARCHITECTURE.md:458 -> config.c:3076 : no identifier from that sentence near it (CACHE is at 2846)
+  [warn] ARCHITECTURE.md:484 -> main.c:1389 : no identifier from that sentence near it (trust_lock is at 1423)
+  [warn] ARCHITECTURE.md:525 -> clustredcache.c:372 : no identifier from that sentence near it (MAX_CACHE_INDEX is at 394)
+  [warn] ARCHITECTURE.md:611 -> main.c:1389 : no identifier from that sentence near it (STAT_DCW_SUCCESS is at 1603)
+  [warn] ARCHITECTURE.md:612 -> main.c:1431 : no identifier from that sentence near it (RETRY_HARD is at 1645)
+  [warn] ARCHITECTURE.md:613 -> srv-newcamd.c:862 : no identifier from that sentence near it (cs_senddcw_cli is at 880)
+  [warn] ARCHITECTURE.md:614 -> main.c:1154 : no identifier from that sentence near it (agreement is at 1361)
+  [warn] ARCHITECTURE.md:678 -> setdcw.c:532 : no identifier from that sentence near it (STAT_DCW_SUCCESS is at 609)
+  [warn] ARCHITECTURE.md:679 -> main.c:1171 : no identifier from that sentence near it (cwentropy_lowdiv is at 1378)
+  [warn] ARCHITECTURE.md:961 -> clustredcache.c:676 : no identifier from that sentence near it (put_ecm2cache is at 824)
+  [warn] ARCHITECTURE.md:962 -> clustredcache.c:541 : no identifier from that sentence near it (checkcycle is at 653)
+  [warn] ARCHITECTURE.md:976 -> setdcw.c:678 : no identifier from that sentence near it (clients_check_sendcw is at 715)
+  [warn] ARCHITECTURE.md:1046 -> clustredcache.c:1872 : no identifier from that sentence near it (cache_purge_mark is at 2313)
+  [warn] ARCHITECTURE.md:1047 -> clustredcache.c:1496 : no identifier from that sentence near it (cache_setdcw is at 1657)
+  [warn] ARCHITECTURE.md:1678 -> config.c:3819 : no identifier from that sentence near it (maxfailedecm is at 4151)
+  [warn] ARCHITECTURE.md:1693 -> config.c:6530 : no identifier from that sentence near it (dcw_badlist_commit is at 6877)
+  [warn] ARCHITECTURE.md:1696 -> th-cfg.c:51 : no identifier from that sentence near it (dcw_badlist_commit is at 74)
+  [warn] ARCHITECTURE.md:1698 -> config.c:6625 : no identifier from that sentence near it (dcw_badlist_commit is at 6877)
+  [warn] BLACKSCREEN.md:182 -> dcw.c:214 : no identifier from that sentence near it (ishalfnulledcw is at 230)
+  [warn] BLACKSCREEN.md:182 -> dcw.h:25 : no identifier from that sentence near it (ishalfnulledcw is at 45)
+  [warn] BLACKSCREEN.md:212 -> clustredcache.c:541 : no identifier from that sentence near it (checkcycle is at 653)
+  [warn] DECISIONS.md:105 -> srv-newcamd.c:895 : no identifier from that sentence near it (enablefreeze is at 911)
+  [warn] DECISIONS.md:161 -> srv-newcamd.c:985 : no identifier from that sentence near it (cs_check_sendcw is at 1003)
+  [warn] DECISIONS.md:176 -> config.c:5795 : no identifier from that sentence near it (remove_newcamd_clients is at 6336)
+  [warn] DECISIONS.md:309 -> clustredcache.c:1706 : no identifier from that sentence near it (cache_setdcw is at 1657)
+  [warn] DECISIONS.md:2202 -> clustredcache.c:955 : no identifier from that sentence near it (cards is at 1042)
+  [warn] DECISIONS.md:2480 -> config.c:2017 : no identifier from that sentence near it (read_config is at 878)
+  [warn] DECISIONS.md:2571 -> clustredcache.c:753 : no identifier from that sentence near it (put_ecm2cache is at 824)
+  [warn] DISCUSSION.md:10 -> clustredcache.c:1609 : no identifier from that sentence near it (cache_setdcw is at 1657)
+  [warn] DISCUSSION.md:94 -> config.c:4103 : no identifier from that sentence near it (cw1cycle is at 4644)
+  [warn] DISCUSSION.md:206 -> main.c:2638 : no identifier from that sentence near it (REVISION_STR is at 2673)
+  [warn] ORIGIN.md:51 -> clustredcache.c:562 : no identifier from that sentence near it (get_cache2ecm is at 682)
+  [warn] ORIGIN.md:79 -> config.c:6926 : no identifier from that sentence near it (cfg_set_id_counters is at 7428)
+  [warn] ORIGIN.md:119 -> main.c:2230 : no identifier from that sentence near it (DCW_SOURCE_MGCLIENT is at 2258)
+  [warn] REPORT-3.7-ar.md:18 -> config.c:845 : no identifier from that sentence near it (read_config is at 878)
+  [warn] REPORT-4.4-ar.md:17 -> clustredcache.c:1706 : no identifier from that sentence near it (cache_setdcw is at 1657)
+  [warn] REPORT-R13-ar.md:242 -> telnet.c:280 : no identifier from that sentence near it (dcwstats_reset is at 300)
+  [warn] REPORT-R13-ar.md:299 -> config.c:2914 : no identifier from that sentence near it (sprintf is at 3096)
+  [warn] REPORT-R13-ar.md:299 -> cli-newcamd.c:310 : no identifier from that sentence near it (sprintf is at 93)
+  [warn] REPORT-R13-ar.md:303 -> config.c:2634 : no identifier from that sentence near it (CWCHECK is at 2652)
+  [warn] SCOPE.md:54 -> clustredcache.c:541 : no identifier from that sentence near it (checkcycle is at 653)
+  [warn] SCOPE.md:55 -> clustredcache.c:1609 : no identifier from that sentence near it (CACHE is at 1713)
+  [warn] STATUS.md:27 -> srv-cccam.c:534 : no identifier from that sentence near it (struct is at 572)
+  [warn] STATUS.md:27 -> config.c:3015 : no identifier from that sentence near it (struct is at 3036)
+  [warn] STATUS.md:306 -> main.c:2581 : no identifier from that sentence near it (install_handler is at 2616)
+  [warn] STATUS.md:311 -> main.c:2581 : no identifier from that sentence near it (install_handler is at 2616)
+  [warn] STATUS.md:475 -> clustredcache.c:1561 : no identifier from that sentence near it (cache_setdcw is at 1657)
+  [warn] STATUS.md:624 -> clustredcache.c:1561 : no identifier from that sentence near it (cache_setdcw is at 1657)
+  [warn] STATUS.md:660 -> clustredcache.c:1561 : no identifier from that sentence near it (cache_setdcw is at 1657)
+  doc-ref sweep: 436 references checked, 0 out of range
+  doc-ref content check (advisory): 345 inspected, 66 worth a second look
+cxpeer.c:155:12: warning: 'cx_msg_recv' defined but not used [-Wunused-function]
+  155 | static int cx_msg_recv(int fd, struct cc_crypt_block *rb, uint8_t *buf)
+      |            ^~~~~~~~~~~
+=== ce scenario 1: baseline (no gates) ===
+  [ ok ] the cacheex peer logged in through the real handshake
+  [ ok ] baseline: the good push answered the pending ECM
+  dcwstats: ON
+  accepted 2
+  checksum 0
+  null/half-null 0
+  repeat-3-bytes 0
+  bad-dcw-list 0
+  cacheex-local-only 0
+  cacheex-fake-cw 0
+  cacheex-confirm-wait 0
+  [ ok ] baseline: all three gate counters at zero
+=== ce scenario 2: gates armed ===
+  [ ok ] the unsolicited push was sent by the peer
+  [ ok ] the confirmed push crossed the floor and was served
+  dcwstats: ON
+  accepted 4
+  checksum 0
+  null/half-null 0
+  repeat-3-bytes 0
+  bad-dcw-list 0
+  cacheex-local-only 1
+  cacheex-fake-cw 1
+  cacheex-confirm-wait 1
+  [ ok ] LOCAL_ONLY dropped the unsolicited push
+  [ ok ] BLOCK_FAKE_CW dropped the corrupted key
+  [ ok ] CWCHECK held the first unconfirmed arrival
+=== ce scenario 3: parser notices ===
+  [ ok ] MAXHOP_LG says it is not implemented
+  [ ok ] CWCHECK 9 clamped to the cap 5
+=== cy scenario 1: baseline (gate unset) ===
+  [ ok ] baseline: stock r82a already refuses the wrong-half key at ingest (client saw decode-failed)
+  [ ok ] baseline: disarmed gate stays silent (stock refusal is invisible)
+  [ ok ] baseline: cycle-contradiction 0 (stock has no accounting)
+=== cy scenario 2: gate armed ===
+  [ ok ] armed: the wrong-half key never reached the client (decode-failed)
+  [ ok ] armed: the refusal is logged with its reason
+  [ ok ] armed: cycle-contradiction 1
+  [ ok ] armed: the agreeing key crossed and was served
+  [ ok ] armed: the agreeing delivery did not count
+  [ ok ] phase 1: wrong logins are denied
+  [ ok ] phase 1: three wrong logins took 4ms total -- the stock door answers instantly
+  [ ok ] phase 1: wrong Basic credentials get instant 401s
+  [ ok ] phase 1: the log stays silent (off = stock, byte for byte)
+  [ ok ] phase 2: the guesses paid 250/253ms, 500/503ms, 1000/1003ms (base 250, doubling)
+  [ ok ] phase 2: the right password logs in right away (46ms)
+  [ ok ] phase 2: a good login reset the count -- the next typo is 250ms again (253ms)
+  [ ok ] phase 2: the http door pays too (0.500709s for the first wrong Basic)
+  [ ok ] phase 2: correct http credentials still open the page
+  [ ok ] phase 2: the log said why -- failure #3, delaying 1000ms
+  [ ok ] phase 3: the listed address logs in
+  [ ok ] phase 3: and opens the http page
+  [ ok ] phase 3: the stranger's telnet connection closes before any credential
+  [ ok ] phase 3: the stranger's http request never becomes a page ('000')
+  [ ok ] phase 3: the refusal is logged with the address
+  [ ok ] phase 3: the compliant server's log is clean
+  [ ok ] phase 1: the honest find is served by the lone honest peer
+  [ ok ] phase 2: the third confirmed event escalated to distrust
+  [ ok ] phase 2: the file carries B's record (stage 3 at check time -- the 250 ms flood keeps climbing past distrust)
+  [ ok ] phase 3: the fresh channel was asked to A only (A 3, B 1) -- distrust means we stop asking
+  [ ok ] phase 3: the sixth event escalated to isolate (4 and 5 still landed: distrust listens)
+  [ ok ] phase 3: the isolated peer's pushes are refused at the door
+  [ ok ] phase 3: keeping the pushes coming walked B to ban (arrivals counted, reason signed)
+  [ ok ] phase 3: the file pinned the ban (stage 3)
+  [ ok ] phase 3: the pings to the banned peer stopped
+  [ ok ] phase 3: the ledger froze at the ban (10 events, drops past FLAG_DISABLE are stock-silent)
+  [ ok ] phase 4: after the restart the file re-arms the ban, said once
+  [ ok ] phase 4: the mesh still serves through the honest peer
+  [ ok ] phase 5: after the operator removed the line, the mesh is whole again
+  [ ok ] phase 5: the recovered peer receives finds again (B 2)
+  [ ok ] phase 1: the stranger's /json is the same 401 every page pays
+  [ ok ] phase 2: the document parses and carries the six sections
+  [ ok ] phase 3: the dcwstats section carries every named counter as integers
+  [ ok ] phase 4: the ladder section shows the armed thresholds and an empty list
+  [ ok ] phase 5: the online honest peer is a row with a ping and no ladder record
+  [ ok ] phase 6: the flood really escalated (the evidence is live, not read back)
+  [ ok ] phase 7: the live ladder record is in the document (distrust or beyond, 3+ events -- the 150 ms flood keeps climbing)
+  [ ok ] phase 8: the record is merged into the row, and a stats build shows the flood in cycle-contradiction
+  [ ok ] HTTP / answered 200 with an overlong quoted config
+  [ ok ] the server survived the overlong quoted config (pre-fix: ASan stack-buffer-overflow at read_config:2017)
+  [ ok ] the truncated title (400 -> 254) is on the home page
+  [ ok ] one Basic login mints a 256-bit session token (HttpOnly, SameSite=Strict)
+  [ ok ] the skin is internal and self-contained: inline css, viewport, zero external refs
+  [ ok ] the token alone opens every page -- no password re-send
+  [ ok ] the door did not move: a forged token and a stranger both take the same 401
+  [ ok ] logout expires the cookie and the dead token is refused
+  [ ok ] Arabic is a real mode: rtl html, Arabic menu, the cookie carries it across pages
+  [ ok ] ?lang=en flips straight back to LTR English
+  [ ok ] /style.css still serves the builtin skin for legacy tools
+  [ ok ] a dead token cannot read /json either (the logout really locked it)
+  [ ok ] the stock FILE STYLESHEET override still wins with a plain link
+  [ -- ] P1: consensus OFF, stock first-wins
+  [ ok ] P1: OFF delivers exactly as stock and says nothing
+  [ -- ] P2: consensus ON, a lone honest peer is held then released
+  [ ok ] P2: the lone key is held for corroboration, then released by the window
+  [ -- ] P3/P4: two honest voters deliver early; the late fake never lands
+  [ ok ] P3: two honest voters corroborate and deliver BEFORE the window
+  [ ok ] P4: with the fake listening, the clean key still delivered and the fake never landed
+  [ -- ] P1: a lone honest key is HELD, then DELIVERED by the window
+  [ ok ] P1: held row, delivered row, the key bytes on the page, /json agrees (count 2)
+  [ -- ] P2: the delayed fake loses the weighted decision -> a REFUSED row
+  [ ok ] P2: the fake sits on the page as refused / consensus-mismatch
+  [ -- ] P3: 400 fresh-key answers fill the ring to 100/100
+  [ ok ] P3: the ring is full (100/100, json count 100) and the server lives
+  [ -- ] P4: the stock flavour has no /cwlog route at all
+  [ ok ] P4: stock answers 200 on / and does NOT serve /cwlog (000)
+vl: 4/4 ok
+  [ -- ] P1: the trap -- same key, B's wrong mark answers first, A is +400 ms
+  [ ok ] P1: the wrong mark is refused (1) AND the honest +400 ms reply delivers -- no node poison
+  [ -- ] P2: a fresh key on a fresh channel -- the mesh is whole
+  [ ok ] P2: the second round trips too (2 refusals total -- per-reply, never per-key)
+  [ ok ] the server answers 200 before the flood
+  [ note ] the 3000-byte header came back as '000' (000 = dropped, which is the contract)
+  [ ok ] the server survived a header larger than its 2048-byte buffer
+  [ ok ] the next request still answers 200
+oh: 3/3 ok
+  [ ok ] the server answers 200 before the probe
+  [ ok ] a single-byte line was delivered to the telnet console
+  [ ok ] the server survived a line that cannot be CRLF-terminated
+  [ ok ] and a well-formed login still gets the console (the fix is not a mute)
+tl1: 4/4 ok
+  [ ok ] the server answers 200 before the probe
+  [ ok ] A: the server ended a silent session itself (closed after 3.1s; the timeout is 3s)
+  [ ok ] A: and said why in the log ([TELNET IDLE])
+  [ ok ] B: the fourth session was refused with a sentence ('too many sessions, bye.')
+  [ ok ] B: and the refusal is in the log with the count ([TELNET LIMIT])
+  [ ok ] C: the slots came back after the idle close (login reached the console)
+  [ ok ] D: overlong CCCAM password rejected, session remains live
+  [ ok ] the server survived the whole sequence
+tl2: 8/8 ok
+make: Target 'all' not remade because of errors.
