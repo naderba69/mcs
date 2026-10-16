@@ -11,7 +11,8 @@
 #   make            build          -> x64/multics
 #   make test       8 + 19 unit tests against the real ../src/dcw.c
 #   make release    -> ../dist/multics-r82a-stock-x64   (stock r82a logic)
-#   make release-stats
+#   make release-stats -> ../bin/multics.x64 (THE fixed delivery name, R34)
+#   make release-stats (detail)
 #                   -> ../dist/multics-r82a-stats-x64   (+ dcwstats counters)
 #   make distclean
 #
@@ -113,6 +114,8 @@ release-stats:
 	@echo "built $(DIST)/multics-r82a-stats-x64"
 	@mkdir -p ../bin && cp $(DIST)/multics-r82a-stats-x64 ../bin/
 	@echo "persistent copy: ../bin/multics-r82a-stats-x64"
+	@cp $(DIST)/multics-r82a-stats-x64 ../bin/multics.x64
+	@echo "fixed delivery name: ../bin/multics.x64 (always this name, R34/D85)"
 	@nm x64/multics | grep -c dcwstats | sed 's/^/  dcwstats symbols (expect 2): /'
 	@rm -rf x64
 

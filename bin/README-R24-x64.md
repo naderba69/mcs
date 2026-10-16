@@ -2,6 +2,18 @@
 
 Filename kept for compatibility; the contents are the current builds.
 
+## ⭐ The delivered binary — ALWAYS named `multics.x64` (R34/D85)
+
+```
+File: bin/multics.x64    <- run this one; the name never changes
+MD5: 4be83e2c325be87ca12e9f80aecf08e4
+Size: 779 KB
+Flavour: full build (stock logic + /cwlog verdict ring)
+Build/refresh: make -C make-x64 release-stats   (rewrites bin/multics.x64)
+Run: ./bin/multics.x64 -C multics-r24-optimized.cfg -b
+     (or start-production.sh, which already points here)
+```
+
 ## Current (rebuilt every round from src/)
 
 ### multics-r82a-stock-x64 — the production binary

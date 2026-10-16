@@ -2,12 +2,12 @@
 # ============================================================
 # MultiCS r82a - Production Start Script
 # Version: R32 (2026-10-16)
-# Binary: bin/multics-r82a-stock-x64 (the maintained release build)
+# Binary: bin/multics.x64 (the fixed delivery name; build: make -C make-x64 release-stats)
 # Profiles: 71 profiles, guarded live by `make -C tests prof`
 # Status: Production Ready ✅
 # ============================================================
 
-BINARY="bin/multics-r82a-stock-x64"
+BINARY="bin/multics.x64"
 CONFIG="multics-r24-optimized.cfg"
 
 # Check binary
@@ -24,7 +24,7 @@ fi
 
 # Stop existing instance
 echo "🛑 Stopping existing instances..."
-pkill -f multics-r82a-stock-x64 2>/dev/null
+pkill -f bin/multics.x64 2>/dev/null
 sleep 2
 
 # Start server
@@ -38,7 +38,7 @@ echo ""
 sleep 3
 
 # Check if running
-if pgrep -f multics-r82a-stock-x64 > /dev/null; then
+if pgrep -f bin/multics.x64 > /dev/null; then
     echo "✅ MultiCS started successfully!"
     echo ""
     echo "Web/Telnet: the HTTP PORT / TELNET PORT of your config file"

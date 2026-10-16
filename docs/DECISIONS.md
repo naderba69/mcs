@@ -3613,3 +3613,20 @@ labelled, never rewritten.
 **Verification.** No src code changed. Unit suite all-pass;
 tests/prof 5/5 on the final tree; `md5sum -c MANIFEST-md5`
 reports no failures.
+
+## D85 (R34) — The delivered binary has one fixed name: bin/multics.x64
+
+At the user's request ("I want its name fixed: multics.x64"), the
+stats-flavour release now also publishes `bin/multics.x64`, and
+that is the name operators run: start-production.sh points at it,
+the READMEs lead with it. Rationale: scripts and muscle memory
+should never chase per-round filenames; the name is constant,
+only the bytes advance. Release internals keep their descriptive
+names (stock/stats) for the manifest and fingerprint discipline.
+
+**Verification.** Both releases rebuilt byte-identical to the
+committed R31 fingerprints (stats 4be83e2c…, stock 3d2fdfa4…), so
+bin/multics.x64 == the proven stats build. Live boot of
+bin/multics.x64 itself with the shipped profiles file included:
+HTTP 200, CACHE PROTECTION/ATTEST lines parsed, profile servers
+up (prof's 5/5 port proof stands on the same bytes).

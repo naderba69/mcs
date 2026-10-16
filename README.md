@@ -29,7 +29,7 @@ All features are **opt-in per peer** (default OFF = stock r82a behavior) to pres
 ```bash
 cd make-x64
 make release              # stock binary
-make release-stats        # stats binary (with /cwlog page)
+make release-stats        # stats binary (with /cwlog page) — also published under the FIXED delivery name bin/multics.x64
 make release-queue        # queue binary
 make release-queue-stats  # queue+stats binary
 ```

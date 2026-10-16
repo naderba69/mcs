@@ -1,18 +1,16 @@
-# MANIFEST-md5 — regenerated at R33 (2026-10-16, D84) over every
-# tracked file in the tree. The R12-era pins were stale against the
-# shipped R31 binaries and have been recomputed from the files
-# themselves. Verify with: md5sum -c MANIFEST-md5
+# MANIFEST-md5 — regenerated at R34 (2026-10-16, D85): bin/multics.x64
+# joins the pinned set as the fixed delivery name. Verify: md5sum -c MANIFEST-md5
 428cdd714d901f806fdea2dc3dd3540a  .gitignore
-1362af04e8c0dec96954b2b28e88367f  CHANGELOG.md
+0b91a297b6978e946c101a5987691ac4  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
-9767e99f758c174d9b53f8aa50139926  README-PRODUCTION.md
-d3f6c201736ecada59b4e71f4e026430  README.md
+eabb7c8bc48742e3ddcfdf0138743369  README-PRODUCTION.md
+441fee89ffd6bd53fe8ae99e4edc5e9b  README.md
 60e7ba6de9e6d79b916869342dddce86  RESOURCE-OPTIMIZATION-GUIDE.md
 f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 3d1f58b385a7a0eea720c3c59c3bdd29  bin-frozen-D53/multics-r82a-stock-x64
-486289243550881f2e0bf322a26f5eed  bin/README-R24-x64.md
+c21a433e8d75f49d63f8c49197ce0b05  bin/README-R24-x64.md
 800177a56d2f4e6f3a0a0ce5dac71c95  bin/multics-r82a-arm
 dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
@@ -28,7 +26,7 @@ a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 1a94d24e74f0002ee55ef7e9c3519711  docs/COMPAT-ar.md
 c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 14f1aa728369d3b5aa87e65f2e4f97bd  docs/CONFIG-REFERENCE-ar.md
-0eedecb7bb6d31995df5909804e95a04  docs/DECISIONS.md
+abc67616425002218ec676868736e420  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
 ac34b472c64edeb8add820f90d34f3d7  docs/FIELD-GUIDE-ar.md
@@ -260,7 +258,7 @@ a1a4c6908cb92319e0d923ebf04febbe  make-cross/Makefile
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
 71db1eb7a48e9eadf5b006e521c7c068  make-cross/cross-mipsel/multics
 dd70e1f361729a919b007241f311c9b1  make-cross/cross-sh4/multics
-3b4613707b0829a7f879ece4f9ec0666  make-x64/Makefile
+69162e130f0f202232fec5208cf448da  make-x64/Makefile
 650fd7a14c324c80ce132d7f17016244  make-x64/memcheck.sh
 846da9f9d1b473bb531ac20393fc0613  make-x64/memcheck.supp
 441ca78d955dc9a8fc2eb605d4ec8856  make-x64/port_gnu89.h
@@ -528,7 +526,7 @@ af09ddc7d479b76a2bd9a9bbc69aef24  src/twin.c
 4d88a20fe6f5f0fcaa92a9b21d191a31  src/udpfast.h
 8da4e1dcee1e463bb58b353ca3cf0a5f  src/zerohandoff.h
 3df6fdaba14614992ffcf0c168682c2b  src/zerolatency.h
-3242e74ff660f1aed707547629e39523  start-production.sh
+49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
 efe16b7547e28ec9e13ead030cfdb8f5  tests/Makefile
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
@@ -548,3 +546,4 @@ b15af4b90f3df83d9880d9601260f980  tests/r107peer.c
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
 79dcd20c07c4a044043533af9b7062c6  tests/stability.mk
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c
+4be83e2c325be87ca12e9f80aecf08e4  bin/multics.x64

@@ -6,6 +6,16 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R34 — Fixed Delivery Name: bin/multics.x64 (2026-10-16)
+
+**Decision:** D85
+
+### Changed
+- **`make -C make-x64 release-stats` now also publishes `bin/multics.x64`** — the one fixed name operators run, per the user's request. `start-production.sh` and the READMEs point at it; descriptive internal names (stock/stats) remain for fingerprint discipline.
+
+### Verification
+- Both releases rebuilt **byte-identical** to the committed R31 fingerprints (stats `4be83e2c…`, stock `3d2fdfa4…`) — no code changed, nothing re-proven by proxy: `bin/multics.x64` itself booted live with the shipped profiles (HTTP 200, shield lines parsed).
+
 ## R33 — Whole-Tree Refresh: Every File Tells the Current Truth (2026-10-16)
 
 **Decision:** D84
