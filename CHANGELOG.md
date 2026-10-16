@@ -6,6 +6,24 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R33 — Whole-Tree Refresh: Every File Tells the Current Truth (2026-10-16)
+
+**Decision:** D84
+
+### Fixed
+- **`start-production.sh` used `-c`, a flag the binary does not have** — it would have started with the default config, not the shipped profiles. Now `-C` with the maintained `bin/multics-r82a-stock-x64`; counts corrected (71 profiles).
+- **`MANIFEST-md5` certified R12 hashes against R31 binaries** — regenerated over every tracked file; `md5sum -c` is meaningful again.
+
+### Changed
+- Entry docs updated to measured fact: `README.md` (R26–R32 delivery list), `README-PRODUCTION.md` and `bin/README-R24-x64.md` (sizes/MD5s recomputed from the files), `docs/STATUS.md` (current block on top), `docs/INDEX-ar.md` (R26–R32 report index).
+- Era documents (R22–R24 reports and guides) keep their text under an explicit "historical document" banner pointing at the living references — labelled, never rewritten.
+
+### Removed
+- **`optimize-profiles.py` / `-v2` / `-v3`** — generators whose only product was the dead R24 config; the shipped cfg is now maintained directly and guarded by `tests/prof`.
+
+### Verification
+- No src code changed. Unit suite all-pass; `tests/prof` 5/5; `md5sum -c MANIFEST-md5` clean.
+
 ## R32 — The Shipped Profiles, Rewritten Honestly and Guarded Live (2026-10-16)
 
 **Decision:** D83 · **Report:** `docs/REPORT-R32-ar.md`

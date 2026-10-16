@@ -1,13 +1,13 @@
 #!/bin/bash
 # ============================================================
 # MultiCS r82a - Production Start Script
-# Version: R12 (Stable)
-# Binary: 756 KB (multics-r82a-stock-x64)
-# Profiles: 72 profiles optimized
+# Version: R32 (2026-10-16)
+# Binary: bin/multics-r82a-stock-x64 (the maintained release build)
+# Profiles: 71 profiles, guarded live by `make -C tests prof`
 # Status: Production Ready ✅
 # ============================================================
 
-BINARY="bin/multics-r82a-x64"
+BINARY="bin/multics-r82a-stock-x64"
 CONFIG="multics-r24-optimized.cfg"
 
 # Check binary
@@ -24,25 +24,24 @@ fi
 
 # Stop existing instance
 echo "🛑 Stopping existing instances..."
-pkill -f multics-r82a-x64 2>/dev/null
+pkill -f multics-r82a-stock-x64 2>/dev/null
 sleep 2
 
 # Start server
 echo "🚀 Starting MultiCS r82a (Production)..."
-echo "Binary: $BINARY (756 KB)"
-echo "Config: $CONFIG (72 profiles)"
+echo "Binary: $BINARY"
+echo "Config: $CONFIG (71 profiles)"
 echo ""
-./$BINARY -c $CONFIG -b
+./$BINARY -C "$CONFIG" -b
 
 # Wait for startup
 sleep 3
 
 # Check if running
-if pgrep -f multics-r82a-x64 > /dev/null; then
+if pgrep -f multics-r82a-stock-x64 > /dev/null; then
     echo "✅ MultiCS started successfully!"
     echo ""
-    echo "Web Interface: http://localhost:15500"
-    echo "Telnet: telnet localhost 15502"
+    echo "Web/Telnet: the HTTP PORT / TELNET PORT of your config file"
     echo ""
     echo "To check status:"
     echo "  ps aux | grep multics"

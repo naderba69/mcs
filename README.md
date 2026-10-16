@@ -12,6 +12,13 @@ A hardened fork of MultiCS r82a (x86_64) focused on **cache exchange integrity**
 - **MAXHOP_LG** (R18): Multi-hop cacheex relay (up to 10 nodes, wire ceiling).
 - **cccam client platform** (R19): Live-tested `getcsbycaidprov` path via real cccam ECM requests.
 - **CacheEx visibility** (R20): Per-peer counters (push/relay/drop/filter/loop) on `/cwlog`, `/json`, and telnet — no config key needed.
+- **Unified modern-CA layer** (R26–R27): all modern CA systems handled in one format layer (`CA MODERN`), plus SHA-256 / BISS / BISS2 with the lost-answer race fixed.
+- **Fake-CW kill gate** (R28): `DCWFILTER PATTERN` refuses shaped manufactured keys at delivery time.
+- **Independent-source consensus** (R29): `CACHE CONSENSUS SOURCES: 3` — nine lines echoing one fake never count as agreement.
+- **Receiver attestation** (R30–R31): `CACHE ATTEST: 2` — distinct clients re-asking too soon after the same delivered bytes file those bytes (300 s+), the stored entry is purged, and the shared ECM is retired. All client protocols attest; `CACHE PROTECTION: STANDARD` arms the whole stack in one line.
+- **Honest shipped profiles** (R32): `multics-r24-optimized.cfg` — 71 profiles, every line verified against the real parser, guarded live by `tests/prof`.
+
+Start from `multics-r24-optimized.cfg` (profiles + shield) and `docs/FIELD-GUIDE-ar.md` (the field guide). Full history: `CHANGELOG.md`; per-round Arabic reports: `docs/REPORT-R*-ar.md`.
 
 All features are **opt-in per peer** (default OFF = stock r82a behavior) to preserve backward compatibility.
 

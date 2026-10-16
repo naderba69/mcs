@@ -3584,3 +3584,32 @@ measured) -- probes every profile port with a real connection:
 each passed standalone (`ce` 10/10, `jm` 8/8; both previously
 reproduced with stock binaries failing worse), remainder green
 incl. fz 2/2, at 3/3. Releases untouched and still clean.
+
+## D84 (R33) — Whole-tree refresh: every file tells the current truth
+
+The user asked to update all files and push. The audit found the
+same drift class as R32, spread wider: MANIFEST-md5 pinned
+binaries that no longer match the shipped ones (it certified R12
+hashes against R31 builds); README-PRODUCTION quoted the old "72
+profiles / 17 systems" fiction; start-production.sh invoked the
+server with `-c`, a flag the binary does not have, so it would
+have started with the default config instead of the shipped one;
+three optimize-profiles*.py generators existed whose only product
+was the dead R24 config; a dozen era documents presented
+themselves as current guidance for systems that are dead code.
+
+**Decision.** Entry documents are updated to measured fact
+(README, README-PRODUCTION, bin/README, STATUS, INDEX -- sizes
+and MD5s recomputed from the files themselves); the start script
+uses the real `-C` flag and the maintained stock binary; the
+three dead generators are deleted (their product,
+multics-r24-optimized.cfg, is now maintained directly and guarded
+by tests/prof); era documents keep their text as history under an
+explicit "historical document" banner pointing at the living
+references; MANIFEST-md5 is regenerated over every tracked file
+so the tree can be verified with `md5sum -c` again. History is
+labelled, never rewritten.
+
+**Verification.** No src code changed. Unit suite all-pass;
+tests/prof 5/5 on the final tree; `md5sum -c MANIFEST-md5`
+reports no failures.

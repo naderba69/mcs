@@ -268,21 +268,23 @@ BISS SHARE: Received CW from client USER1 for 2600:000000:1234
 
 ### 1. Binary (التطبيق)
 ```
-File: bin/multics-r82a-x64
-Size: 752 KB
-MD5: 3118c0ab436a71318ff9cb90105b1e25
-Build: make release-stats
-Features: All 17 systems + DCW stats
-Status: ✅ Production Ready
+File: bin/multics-r82a-stock-x64 (default) / bin/multics-r82a-stats-x64 (with /cwlog)
+Size: 771 KB stock / 779 KB stats
+MD5: 3d2fdfa4930f592c08acd367b3ade764 (stock) / 4be83e2c325be87ca12e9f80aecf08e4 (stats)
+Build: make -C make-x64 release / release-stats
+Features: the R26-R32 hardening stack (unified CA layer, fake-CW gate,
+consensus SOURCES, receiver attestation, PROTECTION recipe) — every
+feature opt-in, default OFF = stock r82a behaviour
+Status: ✅ Production Ready (R32, 2026-10-16 — see CHANGELOG.md)
 ```
 
 ### 2. Configuration (الإعدادات)
 ```
 File: multics-r24-optimized.cfg
-Size: 50 KB
-Profiles: 72 profiles
-Lines: 1900+ lines
-Status: ✅ Optimized for Speed & Stability
+Size: 21 KB
+Profiles: 71 profiles, one uniform live-tested stability block
+Lines: 1010 lines — every line verified against the real parser (R32)
+Status: ✅ Guarded live by `make -C tests prof` (all 71 ports probed)
 ```
 
 ### 3. Start Script (سكريبت التشغيل)
