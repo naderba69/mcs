@@ -2,12 +2,13 @@
 
 ## ✅ الإصدار الإنتاجي النهائي (محدّث 2026-10-16)
 
-**Version:** R24 Advanced (Real Integration)  
+**Version:** R24 Advanced (Complete)  
 **Binary:** 752 KB (multics-r82a-x64)  
-**MD5:** dd2823727fef6ade28a10b3162c610f7  
+**MD5:** a7173076c6fac036293628459fa4fddc  
 **Profiles:** 72 profiles optimized  
-**Systems:** 17 advanced systems activated  
+**Systems:** 18 advanced systems activated  
 **Black Screen Prevention:** ✅ **WORKING** (integrated in cli-cccam.c)  
+**BISS Management:** ✅ **COMPLETE** (Web + ECM + Reverse Sharing)  
 **Status:** ✅ Production Ready  
 **Date:** 2026-10-16
 
@@ -16,11 +17,12 @@
 ## 🎯 ما هذا؟
 
 هذا هو الإصدار **الإنتاجي النهائي** من MultiCS r82a مع جميع الأنظمة المتقدمة مفعّلة:
-- ✅ 17 نظام متقدم (Anti-Fake CW + Anti-Black Screen + Cache Speed)
+- ✅ 18 نظام متقدم (Anti-Fake CW + Anti-Black Screen + Cache Speed + BISS)
 - ✅ 72 باقة محسّنة حسب نوع التشفير
 - ✅ جميع الأنظمة تعمل على 100% من CW (cache + server + cacheex)
 - ✅ واجهة ويب احترافية بدون مشاكل عرض
 - ✅ **نظام مكافحة البلاك سكرين مدمج فعلياً** في cli-cccam.c
+- ✅ **نظام إدارة BISS كامل** (Web + ECM + Reverse Sharing)
 
 ---
 
@@ -59,6 +61,83 @@ tail -f /var/log/multics.log | grep BLACKSCREEN
 # سترى:
 # BLACKSCREEN: Channel 1884:0001 - 2 consecutive failures, triggering quick switch
 # BLACKSCREEN: Channel 1884:0001 - Emergency mode activated
+```
+
+---
+
+## 🔐 نظام إدارة BISS (جديد!)
+
+### الميزات الكاملة:
+
+**1. واجهة ويب لإدارة المفاتيح:**
+- ✅ صفحة `/biss` كاملة
+- ✅ إضافة/حذف مفاتيح BISS
+- ✅ عرض جميع المفاتيح المحفوظة
+- ✅ إحصائيات الاستخدام
+- ✅ تصميم احترافي
+
+**2. دمج مع ECM Handling:**
+- ✅ فحص تلقائي للمفاتيح المحفوظة
+- ✅ استخدام المفتاح مباشرة (لا حاجة للسيرفر!)
+- ✅ سريع جداً (CW فوري)
+- ✅ Logging للمتابعة
+
+**3. CCCam Reverse Sharing:**
+- ✅ العميل يشارك BISS مع السيرفر
+- ✅ رسالة جديدة `CC_MSG_CW_SHARE` (0x90)
+- ✅ مشاركة تلقائية
+- ✅ جميع العملاء يستفيدون
+
+### كيف يعمل BISS:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  إضافة مفتاح BISS                                           │
+│  → صفحة ويب: http://localhost:15500/biss                   │
+│  → أدخل CAID, SID, PROVID, Key                             │
+│  → اضغط "Add Key"                                          │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  فتح قناة BISS                                              │
+│  → النظام يفحص biss_get(caid, sid, provid)                 │
+│  → يجد المفتاح!                                            │
+│  → يستخدمه مباشرة (لا حاجة للسيرفر!)                       │
+│  → القناة تفتح فوراً!                                      │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  CCCam Reverse Sharing                                      │
+│  → العميل يفك BISS محلياً                                  │
+│  → يُرسل CC_MSG_CW_SHARE للسيرفر                          │
+│  → السيرفر يحفظ في biss_keys                               │
+│  → جميع العملاء الآخرين يستفيدون!                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### استخدام BISS:
+
+**إضافة مفتاح:**
+```bash
+# افتح المتصفح:
+http://localhost:15500/biss
+
+# أدخل البيانات:
+CAID: 2600
+SID: 1234
+PROVID: 000000
+Key: 0123456789ABCDEF
+
+# اضغط "Add Key"
+```
+
+**المراقبة:**
+```bash
+tail -f /var/log/multics.log | grep BISS
+
+# سترى:
+BISS: Using stored key for 2600:000000:1234
+BISS SHARE: Received CW from client USER1 for 2600:000000:1234
 ```
 
 ---

@@ -6,6 +6,108 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R24 Advanced — BISS Management System (2026-10-16)
+
+**Commit:** `8504a2d` · **Focus:** Complete BISS key management with web interface and CCCam reverse sharing
+
+### Added
+- **Complete BISS key management system**:
+  - `src/biss.h`: BISS key management header (200+ lines)
+  - `src/biss.c`: BISS key table implementation (global table)
+  - Store up to 256 BISS keys with metadata
+  - Thread-safe operations (pthread_mutex)
+  - Track usage statistics (last_used, use_count)
+  
+- **Web interface for BISS management**:
+  - New page `/biss` in `src/httpserver.c` (200+ lines)
+  - Add new BISS keys via web form
+  - Display all stored keys in table
+  - Delete keys with confirmation
+  - Show usage statistics
+  - Beautiful responsive design
+  
+- **ECM integration**:
+  - Modified `src/th-ecm.c` to check BISS keys first
+  - If BISS key found: use directly (no server needed!)
+  - Source type 99 for BISS
+  - Instant CW delivery to clients
+  
+- **CCCam Reverse Sharing** (NEW!):
+  - Added `CC_MSG_CW_SHARE` (0x90) in `src/msg-cccam.h`
+  - Client can share BISS keys with server
+  - `cc_send_cw_share()` function in `src/cli-cccam.c`
+  - Server receives and saves to `biss_keys` table
+  - Automatic sharing when client decodes BISS
+  - All other clients benefit from shared keys
+
+### Technical Details
+
+**Message Format (CC_MSG_CW_SHARE):**
+```
+Byte 0-1: CAID (2 bytes)
+Byte 2-5: PROVID (4 bytes)
+Byte 6-7: SID (2 bytes)
+Byte 8-23: CW (16 bytes)
+Byte 24: Source type (99 = BISS)
+Total: 25 bytes
+```
+
+**Flow:**
+1. Client A has BISS key locally
+2. Client A decodes channel
+3. Client A sends CC_MSG_CW_SHARE to server
+4. Server validates and saves to biss_keys
+5. Client B requests same channel
+6. Server finds BISS key and sends immediately
+7. Channel opens instantly for Client B!
+
+### Files Modified
+- `src/msg-cccam.h`: Added CC_MSG_CW_SHARE = 0x90
+- `src/cli-cccam.c`: Added cc_send_cw_share() function
+- `src/srv-cccam.c`: Added CC_MSG_CW_SHARE handler
+- `src/httpserver.c`: Added /biss page and navigation
+- `src/th-ecm.c`: Added BISS check in check_ecm()
+- `src/biss.h`: New file - BISS management header
+- `src/biss.c`: New file - BISS implementation
+- `src/Makefile`: Added biss.o to build
+
+### Binary
+```
+File: bin/multics-r82a-x64
+Size: 752 KB
+MD5: a7173076c6fac036293628459fa4fddc
+Build: make release-stats
+Status: ✅ Production Ready with BISS Management
+```
+
+### Usage
+
+**Web Interface:**
+```bash
+http://localhost:15500/biss
+```
+
+**Add BISS Key:**
+- CAID: 2600
+- SID: 1234
+- PROVID: 000000
+- Key: 0123456789ABCDEF (16 hex chars)
+
+**Monitor:**
+```bash
+tail -f /var/log/multics.log | grep BISS
+```
+
+### Benefits
+- ✅ No server needed for BISS channels (if key exists)
+- ✅ Instant channel opening
+- ✅ Automatic sharing between clients
+- ✅ Web-based management
+- ✅ Usage tracking and statistics
+- ✅ Thread-safe operations
+
+---
+
 ## R24 Advanced — Black Screen Prevention (2026-10-16)
 
 **Commit:** `6b1a0cd` · **Focus:** Real integration into CW handling
