@@ -68,6 +68,7 @@
 #include "cwplaus.h"	/* TASK 2.4 plausibility scoring, used by setdcw.c (below) */
 #include "cwcycle.h"	/* TASK 2.5 cache key cycle/parity visibility (observe only) */
 #include "cwneg.h"	/* TASK 2.6 negative memory: a proven-bad key is never delivered twice */
+#include "cwattest.h"	/* TASK R30 (D81) receiver attestation: independent clients file a key */
 #include "cwcm.h"	/* TASK 2.7 complement-mirror detection on delivered keys */
 #include "cacheguard.h"	/* TASK 2.9 cache protocol guard, used by clustredcache.c (below) */
 #include "trustlife.h"	/* TASK 2.10 trust lifecycle: fade + persistence, used by th-cfg.c / clustredcache.c */
@@ -1059,6 +1060,104 @@ static void cm_note(int srctype, int srcid, const uint8_t *key,
  * and lifted by cache_purge_unmark() (GR8).
  */
 struct purge_table purge_tab;
+
+/*
+ * TASK R30 (D81) -- receiver attestation. `cwattest_tab` remembers keys
+ * that DISTINCT clients independently re-asked for too soon after the
+ * same delivered bytes -- the flood scenario negative memory can never
+ * see, because echoed agreement produces no dispute to prove from.
+ * Notes arrive ONLY from srv-newcamd's RETRY_HARD classification, only
+ * when the operator armed CACHE ATTEST, and only for keys a cache
+ * source delivered (the gate below lives at cache ingest, so the bytes
+ * it can protect are exactly those). On the crossing the filing ALSO
+ * files a TASK 1.5 purge mark against the recorded origin, so the
+ * stored entry stops being served instead of only refusing re-ingest.
+ *
+ * One leaf mutex, held only across the table arithmetic (the cwneg
+ * discipline). Nothing here scores or disables a source (GR3): the
+ * trust engine keeps that job from the same RETRY_HARD event; this
+ * table only remembers bytes, and only for CWATTEST_TTL_MS.
+ */
+pthread_mutex_t cwattest_lock = PTHREAD_MUTEX_INITIALIZER;
+struct cwattest_table cwattest_tab;
+unsigned long cwattest_filed = 0; /* keys filed by attestation            */
+unsigned long cwattest_hits  = 0; /* offers refused because of a filing   */
+unsigned long cwattest_lines = 0; /* filing/refusal lines written         */
+
+/* Defined after clustredcache.c (the sweep's DCW_ERROR lives there). */
+static void attest_purge(int srctype, int srcid, uint16_t caid,
+                         uint32_t provid, uint16_t sid, uint32_t ticks_now);
+
+/*
+ * Record one receiver's attestation. Called from srv-newcamd on
+ * RETRY_HARD with the DELIVERY-TIME source recorded in `lastecm`
+ * (GR1) and the delivered bytes themselves. No-ops entirely unless
+ * CACHE ATTEST is armed, so the default build is stock.
+ */
+static void attest_note(uint32_t clientid, const uint8_t *cw,
+                        uint16_t caid, uint32_t provid, uint16_t sid,
+                        int srctype, int srcid, uint32_t ticks_now)
+{
+	struct cwattest_ev ev;
+	char line[640];
+	int required, n;
+
+	required = cfg.cache.attest;
+	if (required < 2 || !cw) return;
+	if (srctype != DCW_SOURCE_CACHE) return;
+
+	pthread_mutex_lock(&cwattest_lock);
+	cwattest_note(&cwattest_tab, cw, caid, provid, sid,
+	              (uint8_t)srctype, (uint32_t)srcid, clientid,
+	              required, ticks_now, CWATTEST_TTL_MS, &ev);
+	pthread_mutex_unlock(&cwattest_lock);
+
+	if (!ev.crossed) return;
+
+	cwattest_filed++;
+	/* The stored entry must stop being served too: purge its origin for
+	 * this channel (attest_purge, defined after clustredcache.c below
+	 * because the sweep's DCW_ERROR lives there). */
+	attest_purge(srctype, srcid, caid, provid, sid, ticks_now);
+	n = cwattest_format_filed(&ev, required, CWATTEST_TTL_MS,
+	                          line, (int)sizeof(line));
+	if (n > 0) {
+		cwattest_lines++;
+		debugf(DBG_ERROR," !!! %s\n", line);
+	}
+}
+
+/*
+ * The gate. Returns 1 when the key stands filed by attestation and
+ * MUST NOT be stored or served: cache_setdcw() returns DCW_ERROR
+ * immediately after, beside the negative-memory gate. No-ops when
+ * CACHE ATTEST is not armed.
+ */
+static int attest_gate(const uint8_t *cw, uint16_t caid, uint32_t provid,
+                       uint16_t sid, uint32_t ticks_now)
+{
+	struct cwattest_hit_ev ev;
+	char line[640];
+	int hit, n;
+
+	if (cfg.cache.attest < 2 || !cw) return 0;
+
+	pthread_mutex_lock(&cwattest_lock);
+	hit = cwattest_hit(&cwattest_tab, cw, caid, provid, sid,
+	                   ticks_now, CWATTEST_TTL_MS, &ev);
+	if (hit) cwattest_hits++;
+	pthread_mutex_unlock(&cwattest_lock);
+
+	if (!hit) return 0;
+
+	if (ev.fired) {
+		cwattest_lines++;
+		n = cwattest_format(&ev, CWATTEST_TTL_MS, line, (int)sizeof(line));
+		if (n > 0)
+			debugf(DBG_ERROR," !!! %s\n", line);
+	}
+	return 1;
+}
 
 /*
  * TASK 1.6 — channels whose last key was bad, by source. Read by
@@ -2099,6 +2198,29 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid);
 int pipe_send_cacheex_push_cache(struct cache_data *pcache, uint8_t *cw, uint8_t *nodeid);
 
 #include "clustredcache.c"
+
+/*
+ * TASK R30 (D81) -- the purge half of a filing, defined here because
+ * cache_purge_sweep()'s DCW_ERROR mark is clustredcache.c's own. The
+ * stored entry stops being served at once, exactly as a reuse proof
+ * stops it (TASK 1.5); the sweep requires prg.lockcache, which the
+ * client thread does not hold, so it is taken here -- attest_note has
+ * already released the attestation lock, so no locks ever nest.
+ */
+static void attest_purge(int srctype, int srcid, uint16_t caid,
+                         uint32_t provid, uint16_t sid, uint32_t ticks_now)
+{
+	pthread_mutex_lock(&prg.lockcache);
+	if ( cache_purge_mark(&purge_tab, (uint8_t)srctype, (uint32_t)srcid,
+	                      caid, sid, provid, ticks_now) ) {
+		int npurged = cache_purge_sweep(&purge_tab, (uint8_t)srctype,
+		                                (uint32_t)srcid, caid, sid, provid,
+		                                DCW_ERROR);
+		debugf(DBG_ERROR," !!! CACHE PURGE: ch %04x:%06x:%04x marked %d cached cw(s) from source %d/%u (receiver attestation)\n",
+		       caid, provid, sid, npurged, srctype, (unsigned)srcid);
+	}
+	pthread_mutex_unlock(&prg.lockcache);
+}
 
 #include "cli-common.c"
 #include "cli-newcamd.c"

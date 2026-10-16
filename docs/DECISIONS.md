@@ -3380,3 +3380,85 @@ stays dead code) and receiver-attestation punishment
 not agreed scope; the armed SOURCES+PATTERN stack plus the existing
 ladder covers the reported flood without new default risk. They
 remain available as future opt-in work.
+
+## D81 (R30) — Receiver attestation: independent clients file the fake's bytes (CACHE ATTEST)
+
+**Context.** The field complaint behind R29/R30 was precise: the
+user's cache and lines are flooded with fake control words, and the
+same fake can arrive from nine sources at once. D62/D80 consensus
+counts DISTINCT KEYS, not echoes, and D79's pattern gate kills shaped
+fakes — but a random-shaped echoed fake has no shape and plenty of
+"independent" voters, and it produces no disagreement anywhere: every
+source says the same bytes, so the agreement ledger (2.1) can never
+form a proof, and negative memory (2.6) — which files bytes ONLY on a
+GR3 proof — never sees it. The bytes are delivered, the client
+re-asks, the entry survives, the next client gets the same bytes.
+The one unused signal in that scenario is the receivers themselves:
+clients DO come back too soon, and until now that observation fed
+only per-source trust scores (SOFT), never the bytes.
+
+**Rejected on the evidence (recorded so it is not re-proposed):**
+punishing the delivering server through `dcw_on_failure`. Its sole
+caller (cli-cccam.c, on ECM_NOK2) is an upstream server's explicit
+"not mine" answer — legitimate, not a fake — so punishing it would
+score honest servers and violate GR1/GR3; the counter itself only
+stamps log words ("quick switch/emergency") and `dcw_needs_emergency`
+has no caller. Punishment on PROOF already exists end-to-end (ledger
+PROOF -> trust + rotation BAD-CW-LIMIT 1 + `cwn_note` + purge in
+`ledger_act`). Also finally dropped: `cwexpire.h`, dead code about
+cwlearn patterns, unrelated to any live path.
+
+**Decision.** A new pure module, `src/cwattest.h` (cwneg's
+header-only discipline), armed by **`CACHE ATTEST: <2..4>`**
+(default 0/absent = OFF; 1 arms as 2 — one client can never file a
+key alone; >4 clamps to 4). On srv-newcamd's existing RETRY_HARD
+classification, when the delivered key came from a cache source and
+the ledger did not already prove it, `attest_note()` records the
+client (by connection id) against the DELIVERED bytes
+(`cli->lastecm.dcw`, GR1: the delivery-time origin). The table is
+keyed like cwneg — FNV-1a digest of the 16 bytes + (CAID, PROVID),
+SID as evidence only, for cwneg's measured reason. When the armed
+number of DISTINCT clients has attested within one TTL:
+
+1. the bytes are FILED for `CWATTEST_TTL_MS` (300 s) — strong
+   evidence, not proof, so unlike cwneg the filing EXPIRES and the
+   key must earn it anew (unit-pinned at the exact TTL edge);
+2. a TASK 1.5 purge mark + immediate sweep (under `prg.lockcache`,
+   from a definition placed after clustredcache.c because the sweep's
+   `DCW_ERROR` lives there) stops the stored entry being served;
+3. `attest_gate()` in `cache_setdcw`, beside `cwn_gate`, refuses any
+   re-offer of the filed bytes before storage, agreement counting or
+   delivery — to any client, from any source, on any service of the
+   provider.
+
+Every filing and first-per-window refusal writes one GR8 sentence
+stating the chain (how many independent clients, whose delivery, the
+TTL, "not a GR3 proof: no score moved, no source disabled"). Nothing
+here scores or disables a source: the same RETRY_HARD keeps feeding
+trust/rotation exactly as before. OFF = stock: note and gate both
+return before touching anything; the stock release binary carries 0
+dcwstats symbols as always.
+
+**Scope honesty (same boundary as cwneg, measured live in this
+round's test):** the protections act at ingest and at FIND. A shared
+ECM_DATA already committed SUCCESS keeps answering identical ECMs
+from `ecm->cw` until its timeout — stock r82a behaviour that cwneg
+proofs share; the live test therefore attests on one service and
+spares the third client on a sister service (the `nt` target's
+precedent), which is also the real-world shape: the next crypto
+period and every other service of the provider are protected
+immediately, and no new period can re-ingest the bytes while filed.
+
+**Verification.** `test_cwattest` 29/29 (distinct counting, one
+client never files, TTL edge, slow-drip window, thresholds 2..4,
+LRU bound, GR8 sentences, NULL safety). Live `tests/at` (17050+,
+in `make all`) 2/2: stock delivers the same fake to client 1 AND
+client 3; with `CACHE ATTEST: 2` the second distinct client's
+re-ask files the bytes (`CW ATTEST FILED`), the stored entry is
+purged (1 cw swept), the peer's re-offer on the sister service is
+refused at ingest (`CW ATTEST: ch ...`), and client 3 receives
+nothing. Full suite: pre-`ce` segment 379 ok, `ce` re-verified
+10/10 standalone (its one failure was reproduced with the STOCK
+HEAD binary under load — environment flake, unrelated), remainder
+80 ok incl. fz 2/2 and at 2/2; unit suite all-pass; release /
+release-stats clean.

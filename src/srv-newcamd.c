@@ -604,6 +604,26 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						}
 
 						/*
+						 * TASK R30 (D81) -- receiver attestation.
+						 *
+						 * The same hard retry, read as a receiver's vote on the
+						 * BYTES: this client was handed `lastecm.dcw` and came
+						 * back too soon. One client is inference (GR3); the
+						 * armed number of DISTINCT clients re-asking after the
+						 * same bytes is independent receivers attesting one
+						 * fact, and files the bytes for a TTL (cwattest.h).
+						 * Skipped when the ledger already PROVED this key --
+						 * proof memory (cwneg) is permanent and outranks a
+						 * filing. No-op unless CACHE ATTEST is armed; only
+						 * cache-delivered keys can be filed (attest_note
+						 * enforces it), since the gate sits at cache ingest.
+						 */
+						if (rcls==RETRY_HARD && !led_proof)
+							attest_note( (uint32_t)cli->id, cli->lastecm.dcw,
+								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
+
+						/*
 						 * TASK 1.6 — the retry IS the recovery opportunity.
 						 *
 						 * A client that got a bad key re-asks 1-3 s later instead of at the

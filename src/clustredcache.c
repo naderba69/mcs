@@ -1738,6 +1738,21 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		return DCW_ERROR;
 	}
 
+	/*
+	 * TASK R30 (D81) -- attestation gate. A key that independent clients
+	 * filed by re-asking too soon after the same delivered bytes gets
+	 * exactly the negative-memory treatment -- refused before storage,
+	 * agreement counting or delivery -- except that the filing EXPIRES
+	 * (CWATTEST_TTL_MS): attestation is strong evidence, not a GR3
+	 * proof. No-op unless CACHE ATTEST is armed.
+	 */
+	if ( attest_gate(cw, req->caid, req->provid, req->sid, GetTickCount()) ) {
+#ifdef MCS_DCWSTATS
+		cwlog_refuse(CWLOG_R_CONVICTED, peerid, req->caid, req->provid, req->sid, cw);
+#endif
+		return DCW_ERROR;
+	}
+
 	// Search for Cache data
 	struct cw_cache_data *cwdata = NULL;
 	struct cache_data *pcache = cache_fetch( req );

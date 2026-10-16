@@ -5051,3 +5051,50 @@ fz: .ncclient.bin .cachepeer.bin
 	if [ "$$ok" = "1" ]; then rm -f $(FZ_CFG) .fz-*.log; echo "fz: 2/2 ok"; \
 	else echo "fz: FAILED (logs kept under tests/.fz-*)"; exit 1; fi
 
+
+# TASK R30 (D81) -- receiver attestation, live: ONE fake line floods the
+# channel; independent clients re-asking too soon after the same bytes
+# file them. 17050+.
+#   P1 (stock, CACHE ATTEST absent): the fake is delivered to client
+#        after client -- nothing any receiver says can stop the bytes
+#        (the hole this task closes);
+#   P2 (CACHE ATTEST: 2): client 1 and client 2 each re-ask too soon
+#        after the same delivered fake; the second distinct attestation
+#        files the bytes (CW ATTEST FILED in the server log) and the
+#        third client never receives them.
+AT_HPORT = 17050
+AT_CACHE = 17051
+AT_NPORT = 17052
+AT_CFG   = .at-srv.cfg
+AT_FAKE  = 9F3AC7A004B2D58B60C5385DFB4D2A72
+AT_KEY   = 0102030405060708091011121314
+
+.PHONY: at
+at: .ncclient.bin .cachepeer.bin
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@rm -f $(AT_CFG) .at-*.log; ok=1; \
+	run_at() { stdbuf -o0 -e0 $(BIN) -C $(AT_CFG) -v > .at$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	  stdbuf -o0 -e0 ./$(CACHEPEER) $(AT_CACHE) 17060 "$(AT_FAKE)" 64 18840000 > .at$$1-f.log 2>&1 & fp=$$!; \
+	  sleep 2; \
+	  NC_ECMS=3 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u1 p1 $(AT_KEY) 0 1884 64 > .at$$1-c1.log 2>&1; \
+	  NC_ECMS=3 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u2 p2 $(AT_KEY) 0 1884 64 > .at$$1-c2.log 2>&1; \
+	  NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u3 p3 $(AT_KEY) 0 1884 C8 > .at$$1-c3.log 2>&1; \
+	  kill -9 $$fp 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; }; \
+	echo "  [ -- ] P1: stock -- the same fake serves every client, attestation absent"; \
+	{ printf 'HTTP PORT: $(AT_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(AT_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:17060\n\n[ at ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(AT_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\nUSER: u2 p2\nUSER: u3 p3\n\n'; } > $(AT_CFG); \
+	run_at 1; \
+	f1=$$(grep -ci "60C5385DFB4D2A72" .at1-c1.log); f3=$$(grep -ci "60C5385DFB4D2A72" .at1-c3.log); \
+	if [ "$$f1" -ge 1 ] && [ "$$f3" -ge 1 ]; then \
+	  echo "  [ ok ] P1: the fake was delivered to client 1 and STILL to client 3 (hole live)"; \
+	else echo "[FAIL] P1 (fake to c1=$$f1, c3=$$f3) -- see .at1-*.log"; ok=0; fi; \
+	echo "  [ -- ] P2: CACHE ATTEST: 2 -- two receivers file the bytes, client 3 is spared"; \
+	{ printf 'HTTP PORT: $(AT_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(AT_CACHE)\nCACHE FILTER: OFF\nCACHE ATTEST: 2\nCACHE PEER: 127.0.0.1:17060\n\n[ at ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(AT_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\nUSER: u2 p2\nUSER: u3 p3\n\n'; } > $(AT_CFG); \
+	run_at 2; \
+	f1=$$(grep -ci "60C5385DFB4D2A72" .at2-c1.log); f3=$$(grep -ci "60C5385DFB4D2A72" .at2-c3.log); \
+	filed=$$(grep -c "CW ATTEST FILED" .at2-srv.log); ref=$$(grep -c "CW ATTEST: ch" .at2-srv.log); \
+	if [ "$$f1" -ge 1 ] && [ "$$filed" -ge 1 ] && [ "$$ref" -ge 1 ] && [ "$$f3" = "0" ]; then \
+	  echo "  [ ok ] P2: filed by independent receivers (server lines $$filed), re-offer refused at ingest ($$ref), client 3 never received the fake"; \
+	else echo "[FAIL] P2 (fake to c1=$$f1, filed=$$filed, refused=$$ref, fake to c3=$$f3) -- see .at2-*.log"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(AT_CFG) .at-*.log; echo "at: 2/2 ok"; \
+	else echo "at: FAILED (logs kept under tests/.at-*)"; exit 1; fi

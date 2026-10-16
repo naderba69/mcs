@@ -3723,6 +3723,24 @@ link_mgcamd_user:
 				}
 			}
 
+			/* TASK R30 (D81): CACHE ATTEST: <0..4> -- distinct clients
+			 * whose too-soon re-asks file the delivered key bytes for a
+			 * TTL. 0/absent = OFF (stock); 1 arms as 2 (one client can
+			 * never file a key alone, GR3). */
+			else if (!strcmp(str,"ATTEST")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) {
+					iparser++;
+					parse_int(str);
+					cfg->cache.attest = atoi(str);
+					if (cfg->cache.attest<0) cfg->cache.attest = 0;
+					else if (cfg->cache.attest==1) cfg->cache.attest = 2;
+					else if (cfg->cache.attest>4) cfg->cache.attest = 4;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE ATTEST: %d\n",file->nbline,iparser-currentline, cfg->cache.attest);
+					continue;
+				}
+			}
+
 			else if (!strcmp(str,"FILTER")) {
 				parse_spaces();
 				if ((*iparser==':')||(*iparser=='=')) {

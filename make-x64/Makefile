@@ -131,6 +131,8 @@ test: x64/test_cachequeue x64/test_cwconsensus x64/test_monjson x64/test_peerrep
 	@echo
 	./x64/test_cwconsensus
 	@echo
+	./x64/test_cwattest
+	@echo
 	./x64/test_monjson
 	@echo
 	./x64/test_peerrep
@@ -354,6 +356,10 @@ x64/test_monjson: test_monjson.c ../src/monjson.c ../src/monjson.h
 x64/test_cachequeue: test_cachequeue.c ../src/cachequeue.c ../src/cachequeue.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cachequeue.c ../src/cachequeue.c -lpthread
+x64/test_cwattest: test_cwattest.c ../src/cwattest.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cwattest.c
+
 x64/test_cwconsensus: test_cwconsensus.c ../src/cwconsensus.c ../src/cwconsensus.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cwconsensus.c ../src/cwconsensus.c -lpthread

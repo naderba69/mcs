@@ -6,6 +6,26 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R30 — Receiver Attestation: Independent Clients File the Fake's Bytes (2026-10-16)
+
+**Decision:** D81 · **Report:** `docs/REPORT-R30-ar.md`
+
+### Added
+- **`CACHE ATTEST: <2..4>`** (default OFF = stock) — when that many DISTINCT clients re-ask too soon after being handed the same key bytes from a cache source, the bytes themselves are filed for 300 s: any re-offer is refused at cache ingest before storage or delivery (any client, any source, any service of the provider), and the stored entry is purge-swept at once. This closes the echoed-flood hole consensus and the pattern gate cannot see: nine lines echoing one random-shaped fake produce no disagreement for the ledger to prove from — but their receivers attest it. One client alone never files (1 arms as 2); attestations must land within one TTL (no slow-drip assembly); the filing expires, unlike GR3 proof memory.
+- **`src/cwattest.h`** (pure, header-only, cwneg discipline) + `test_cwattest` **29/29**; wiring in `main.c` (`attest_note`/`attest_gate`/`attest_purge`), `srv-newcamd.c` (RETRY_HARD tap, skipped when the ledger already proved the key), `clustredcache.c` (gate beside `cwn_gate`), `config.c`/`config.h`.
+- **`tests/at` live target** (in `make all`, 2/2): stock delivers the same fake to client 1 and STILL to client 3; with `CACHE ATTEST: 2` the second distinct receiver files the bytes (`CW ATTEST FILED`), the re-offer is refused at ingest, client 3 is spared.
+
+### Rejected on the evidence (D81 records why)
+- Punishing upstream servers via `dcw_on_failure` on ECM_NOK: that NOK is a legitimate "not mine" answer, not a fake — punishing it violates GR1/GR3; the counter is a log-word stamp with no actor. `cwexpire.h` finally dropped as a candidate (dead cwlearn code).
+
+### Default posture (unchanged promise)
+- ATTEST unset/0: note and gate return before touching anything; every decision is stock r82a.
+
+### Verification
+- `make test` all-pass (incl. test_cwattest 29/29); live suite: 379 ok before `ce`, `ce` 10/10 standalone (its single in-run failure reproduced with the stock HEAD binary under load — environment flake), remainder 80 ok (fz 2/2, at 2/2); release / release-stats clean (0 / 2 dcwstats symbols).
+
+---
+
 ## R29 — Independent-Source Corroboration + Mixed-Layout Build Bug (2026-10-16)
 
 **Decision:** D80 · **Report:** `docs/REPORT-R29-ar.md`

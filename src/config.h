@@ -1383,6 +1383,10 @@ struct config_data
 		/* TASK R29 (D80): distinct voters required for the early
 		 * delivery (0/unset = the engine default 2; 2..8 armed). */
 		int consensus_sources;
+		/* TASK R30 (D81): receiver attestation -- distinct clients
+		 * re-asking too soon after the same delivered bytes files
+		 * those bytes for a TTL (2..4 armed; 0/unset = OFF, stock). */
+		int attest;
 		int hits;  // Total Hits
 		int ihits; // Instant Hits
 		int req; // Request sent
