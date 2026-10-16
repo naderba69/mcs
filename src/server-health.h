@@ -7,11 +7,14 @@
 #ifndef SERVER_HEALTH_H
 #define SERVER_HEALTH_H
 
+#include "resource-config.h"
+
+#if ENABLE_SERVER_HEALTH && HEALTH_MAX_SERVERS > 0
+
 #include <stdint.h>
 #include <time.h>
 #include <pthread.h>
 
-#define HEALTH_MAX_SERVERS 128
 #define HEALTH_WINDOW_SIZE 50  // Track last 50 requests
 
 struct server_health_stats {
@@ -210,5 +213,7 @@ static inline uint32_t server_health_get_timeout(uint32_t server_id) {
     
     return timeout;
 }
+
+#endif /* ENABLE_SERVER_HEALTH */
 
 #endif /* SERVER_HEALTH_H */

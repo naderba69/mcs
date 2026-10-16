@@ -13,6 +13,8 @@
 #ifndef ECM_OPTIMIZATIONS_H
 #define ECM_OPTIMIZATIONS_H
 
+#include "resource-config.h"
+
 #include <stdint.h>
 #include <time.h>
 #include <pthread.h>
@@ -22,7 +24,7 @@
 // OPTIMIZATION #2: INTELLIGENT CACHE MANAGEMENT
 // ============================================================================
 
-#define CACHE_PRIORITY_SLOTS 1024
+#if ENABLE_CACHE_PRIORITY && CACHE_PRIORITY_SLOTS > 0
 
 struct cache_priority_entry {
     uint32_t caid;
@@ -102,6 +104,8 @@ static inline uint8_t cache_priority_get(uint32_t caid, uint32_t provid, uint16_
     pthread_mutex_unlock(&cache_priority_tab.lock);
     return 0;
 }
+
+#endif /* ENABLE_CACHE_PRIORITY */
 
 // ============================================================================
 // OPTIMIZATION #3: SMART ECM PREFETCHING
