@@ -154,7 +154,7 @@ OBJECTS = $(OUTPUT)/sha1.o $(OUTPUT)/des.o $(OUTPUT)/md5.o $(OUTPUT)/aes.o \
 	$(OUTPUT)/dcw.o $(OUTPUT)/convert.o $(OUTPUT)/tools.o $(OUTPUT)/debug.o $(OUTPUT)/parser.o $(OUTPUT)/ipdata.o \
 	$(OUTPUT)/threads.o $(OUTPUT)/sockets.o $(OUTPUT)/msg-newcamd.o $(OUTPUT)/msg-cccam.o $(OUTPUT)/msg-radegast.o $(OUTPUT)/config.o \
 	$(OUTPUT)/ecmdata.o $(OUTPUT)/httpserver.o $(OUTPUT)/telnet.o $(OUTPUT)/main.o \
-	$(OUTPUT)/loginthrottle.o $(OUTPUT)/peerrep.o $(OUTPUT)/cwconsensus.o $(OUTPUT)/monjson.o
+	$(OUTPUT)/loginthrottle.o $(OUTPUT)/peerrep.o $(OUTPUT)/cwconsensus.o $(OUTPUT)/monjson.o $(OUTPUT)/biss.o
 
 # TASK R6 (D60): the bounded cache queue compiles ONLY under CACHE_QUEUE
 # (pass CACHE_QUEUE=1 to make). The default build's OBJECTS line is
