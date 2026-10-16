@@ -652,4 +652,32 @@ int cc_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 	//return 0;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// BISS Reverse Sharing: Client shares CW with Server
+///////////////////////////////////////////////////////////////////////////////
+
+int cc_send_cw_share(struct server_data *srv, uint16_t caid, uint16_t sid, uint32_t provid, uint8_t *cw)
+{
+	unsigned char buf[32];
+	
+	if (!srv || srv->handle <= 0 || !cw) return 0;
+	
+	// Build CW share message
+	buf[0] = caid >> 8;
+	buf[1] = caid & 0xff;
+	buf[2] = provid >> 24;
+	buf[3] = provid >> 16;
+	buf[4] = provid >> 8;
+	buf[5] = provid & 0xff;
+	buf[6] = sid >> 8;
+	buf[7] = sid & 0xff;
+	memcpy(&buf[8], cw, 16);  // 16 bytes CW
+	buf[24] = 99;  // Source: BISS
+	
+	debugf("BISS SHARE: Sending CW to server (%s:%d) for %04X:%06X:%04X\n",
+		srv->host->name, srv->port, caid, provid, sid);
+	
+	return cc_msg_send(srv->handle, &srv->sendblock, CC_MSG_CW_SHARE, 25, buf);
+}
+
 

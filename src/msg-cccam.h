@@ -39,6 +39,7 @@ typedef enum
   CC_MSG_CACHE_PRCW = 0x88,
 #endif
 #endif
+  CC_MSG_CW_SHARE = 0x90,    // Client -> Server: Share CW (BISS reverse)
   CC_MSG_ECM_NOK1 = 0xfe,	// server -> client ecm queue full, card not found
   CC_MSG_ECM_NOK2 = 0xff,	// server -> client
   CC_MSG_NO_HEADER = 0xffff
