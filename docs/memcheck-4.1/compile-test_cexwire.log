@@ -1,0 +1,4 @@
+test_cexwire.c: In function 'main':
+test_cexwire.c:54:59: warning: unused variable 'w' [-Wunused-variable]
+   54 |         uint8_t ecmd5[16], cw[16], nodes[3][8], buf[512], w[256];
+      |                                                           ^

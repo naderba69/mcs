@@ -1,0 +1,8 @@
+In file included from test_monjson.c:12:
+../src/dcwstats.h:81:13: warning: 'dcwstats_reset' defined but not used [-Wunused-function]
+   81 | static void dcwstats_reset(void)
+      |             ^~~~~~~~~~~~~~
+In file included from ../src/monjson.c:29:
+../src/dcwstats.h:81:13: warning: 'dcwstats_reset' defined but not used [-Wunused-function]
+   81 | static void dcwstats_reset(void)
+      |             ^~~~~~~~~~~~~~

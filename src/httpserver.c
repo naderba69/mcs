@@ -1712,7 +1712,6 @@ void http_send_servers(int sock, http_request *req)
 		}			
 		// Send XML CELLS
 		getservercells(srv,cell);
-		for(i=0; i<8; i++) xmlescape( cell[i] );
 		char buf[5000] = "";
 		sprintf( buf, "<server>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n</server>\n",cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6] );
 		http_send_xml( sock, req, buf, strlen(buf));
@@ -1806,7 +1805,6 @@ void http_send_servers(int sock, http_request *req)
 			if ( ((get_list&LIST_CONNECTED)&&(srv->handle>0))||((get_list&LIST_DISCONNECTED)&&(srv->handle<=0)) ) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				{ int i; for(i=0;i<8;i++) xmlescape( cell[i] ); }	/* TASK 3.2 -- the HTML rows get the same treatment the XML branch already had */
 				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
@@ -1820,7 +1818,6 @@ void http_send_servers(int sock, http_request *req)
 			if ( ((get_list&LIST_CONNECTED)&&(srv->handle>0))||((get_list&LIST_DISCONNECTED)&&(srv->handle<=0)) ) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				{ int i; for(i=0;i<8;i++) xmlescape( cell[i] ); }	/* TASK 3.2 -- the HTML rows get the same treatment the XML branch already had */
 				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
@@ -1834,7 +1831,6 @@ void http_send_servers(int sock, http_request *req)
 			if ( ((get_list&LIST_CONNECTED)&&(srv->handle>0))||((get_list&LIST_DISCONNECTED)&&(srv->handle<=0)) ) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				{ int i; for(i=0;i<8;i++) xmlescape( cell[i] ); }	/* TASK 3.2 -- the HTML rows get the same treatment the XML branch already had */
 				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
@@ -1848,7 +1844,6 @@ void http_send_servers(int sock, http_request *req)
 			if ( ((get_list&LIST_CONNECTED)&&(srv->handle>0))||((get_list&LIST_DISCONNECTED)&&(srv->handle<=0)) ) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				{ int i; for(i=0;i<8;i++) xmlescape( cell[i] ); }	/* TASK 3.2 -- the HTML rows get the same treatment the XML branch already had */
 				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}

@@ -276,12 +276,14 @@ void cc_srv_recvmsg(struct server_data *srv)
 						card->ecmok++;
 					}
 
-					if (ecm->dcwstatus!=STAT_DCW_SUCCESS) {
-						static char msg[] = "Good dcw from CCcam server";
-						ecm->statusmsg = msg;
-						debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,cs->id), " <= cw from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
-						ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
-					}
+				if (ecm->dcwstatus!=STAT_DCW_SUCCESS) {
+					static char msg[] = "Good dcw from CCcam server";
+					ecm->statusmsg = msg;
+					debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,cs->id), " <= cw from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
+					/* Black screen prevention: reset failure counter on success */
+					dcw_on_success(ecm->caid, ecm->sid);
+					ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
+				}
 
 					pthread_mutex_unlock(&prg.lockecm); //###
 					wakeup_sendecm(); // Wakeup ecm waiting for availabe servers
@@ -339,8 +341,10 @@ void cc_srv_recvmsg(struct server_data *srv)
 						break;
 					}
 
-					debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
-					cs = ecm->cs;
+				debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
+				/* Black screen prevention: track CW failure */
+				dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
+				cs = ecm->cs;
 
 					if ( cs && (ecm->dcwstatus!=STAT_DCW_SUCCESS) && (srv->retry<cs->option.retry.cccam) ) {
 						if ((GetTickCount()-ecm->recvtime) < (cs->option.server.timeout*ecm->period)) {

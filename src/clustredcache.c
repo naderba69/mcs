@@ -1,4 +1,7 @@
 
+#include "common.h"
+#include <stdlib.h>
+
 void stringtohtml(char *src, char *dest)
 {
 	while ( *src )
