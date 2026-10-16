@@ -2102,6 +2102,7 @@ int pipe_send_cacheex_push_cache(struct cache_data *pcache, uint8_t *cw, uint8_t
 
 #include "cli-common.c"
 #include "cli-newcamd.c"
+#include "server-health.h"
 #ifdef CCCAM_CLI
 #include "cli-cccam.c"
 #endif

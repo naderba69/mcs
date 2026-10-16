@@ -282,6 +282,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 					debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,cs->id), " <= cw from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 					/* Black screen prevention: reset failure counter on success */
 					dcw_on_success(ecm->caid, ecm->sid);
+					/* Server health monitoring: record success */
+					server_health_record_success(srv->id, GetTickCount()-srv->lastecmtime);
 					ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
 				}
 
@@ -344,6 +346,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 				debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 				/* Black screen prevention: track CW failure */
 				dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
+				/* Server health monitoring: record failure */
+				server_health_record_failure(srv->id);
 				cs = ecm->cs;
 
 					if ( cs && (ecm->dcwstatus!=STAT_DCW_SUCCESS) && (srv->retry<cs->option.retry.cccam) ) {
