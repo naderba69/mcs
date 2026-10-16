@@ -5001,3 +5001,53 @@ fk: .ncclient.bin .cachepeer.bin
 	if [ "$$ok" = "1" ]; then rm -f $(FK_CFG) .fk-*.log; echo "fk: 3/3 ok"; \
 	else echo "fk: FAILED (logs kept under tests/.fk-*)"; exit 1; fi
 
+# TASK R29 (D80) -- the operator's scenario, LIVE: a flood of LINES
+# echoing ONE fake, one honest slower line, delivery watched at the
+# client across two ECM cycles (mid-watch freeze surface). 17030+.
+#   P1 (consensus OFF = stock): nine fake lines out-shout the honest
+#        one -- the fake is DELIVERED (the flood works today);
+#   P2 (CACHE CONSENSUS SOURCES: 3 + DCWFILTER PATTERN: ON): the
+#        echoed manufactured fake is refused by shape and counts as
+#        echoes of one key; the honest key serves the client.
+FZ_HPORT = 17030
+FZ_CACHE = 17031
+FZ_NPORT = 17032
+FZ_CFG   = .fz-srv.cfg
+FZ_FAKE  = 9F3AC7A004B2D58B60C5385DFB4D2A72
+FZ_HONEST = 9F3AC7A004B2D58B61FA0964376BD274
+FZ_KEY   = 0102030405060708091011121314
+
+.PHONY: fz
+fz: .ncclient.bin .cachepeer.bin
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@rm -f $(FZ_CFG) .fz-*.log; ok=1; \
+	start_fz() { stdbuf -o0 -e0 $(BIN) -C $(FZ_CFG) -v > .fz$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	  fp=""; i=0; while [ $$i -lt 9 ]; do p=$$((17040 + $$i)); \
+	    stdbuf -o0 -e0 ./$(CACHEPEER) $(FZ_CACHE) $$p "$(FZ_FAKE)" 64 18840000 > .fz$$1-f$$i.log 2>&1 & fp="$$fp $$!"; i=$$((i+1)); done; \
+	  env CP_ANSWER_DELAY_MS=400 stdbuf -o0 -e0 ./$(CACHEPEER) $(FZ_CACHE) 17049 "$(FZ_HONEST)" 64 18840000 > .fz$$1-h.log 2>&1 & hp=$$!; \
+	  sleep 2; \
+	  NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 40 ./$(NCCLIENT) 127.0.0.1 $(FZ_NPORT) u1 p1 $(FZ_KEY) 0 1884 64 > .fz$$1-cli.log 2>&1; \
+	  grep -q "DELIVERED A CONTROL WORD" .fz$$1-cli.log || { sleep 2; NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 40 ./$(NCCLIENT) 127.0.0.1 $(FZ_NPORT) u1 p1 $(FZ_KEY) 0 1884 64 >> .fz$$1-cli.log 2>&1; }; \
+	  kill -9 $$fp $$hp 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; }; \
+	peers9=""; i=0; while [ $$i -lt 9 ]; do peers9="$$peers9 CACHE PEER: 127.0.0.1:$$((17040 + $$i))\n"; i=$$((i+1)); done; \
+	echo "  [ -- ] P1: stock -- nine fake lines vs one honest slower line"; \
+	{ printf 'HTTP PORT: $(FZ_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(FZ_CACHE)\nCACHE FILTER: OFF\n'; printf "$$peers9"; printf 'CACHE PEER: 127.0.0.1:17049\n\n[ fz ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(FZ_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\n\n'; } > $(FZ_CFG); \
+	start_fz 1; \
+	got=$$(grep -c "DELIVERED A CONTROL WORD" .fz1-cli.log); \
+	isfake=$$(grep -ci "60C5385DFB4D2A72" .fz1-cli.log); \
+	if [ "$$got" -ge 1 ] && [ "$$isfake" -ge 1 ]; then \
+	  echo "  [ ok ] P1: the flood wins under stock -- the FAKE was delivered (hole live)"; \
+	else echo "[FAIL] P1 (deliveries $$got, fake-CW $$isfake) -- see .fz1-*.log"; ok=0; fi; \
+	echo "  [ -- ] P2: CONSENSUS SOURCES 3 + PATTERN ON -- honest serves, echoed fake never does"; \
+	{ printf 'HTTP PORT: $(FZ_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(FZ_CACHE)\nCACHE FILTER: OFF\nCACHE CONSENSUS: ON\nCACHE CONSENSUS WINDOW: 600\nCACHE CONSENSUS SOURCES: 3\n'; printf "$$peers9"; printf 'CACHE PEER: 127.0.0.1:17049\n\n[ fz ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(FZ_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nDCWFILTER PATTERN: ON\nUSER: u1 p1\n\n'; } > $(FZ_CFG); \
+	start_fz 2; \
+	got2=$$(grep -c "DELIVERED A CONTROL WORD" .fz2-cli.log); \
+	ishon=$$(grep -ci "61FA0964376BD274" .fz2-cli.log); \
+	isfake2=$$(grep -ci "60C5385DFB4D2A72" .fz2-cli.log); \
+	if [ "$$ishon" -ge 1 ] && [ "$$isfake2" = "0" ]; then \
+	  echo "  [ ok ] P2: the honest key served (deliveries $$got2); the echoed fake never did -- no mid-watch freeze"; \
+	else echo "[FAIL] P2 (deliveries $$got2, honest $$ishon, fake $$isfake2) -- see .fz2-*.log"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(FZ_CFG) .fz-*.log; echo "fz: 2/2 ok"; \
+	else echo "fz: FAILED (logs kept under tests/.fz-*)"; exit 1; fi
+

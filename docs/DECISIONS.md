@@ -3324,3 +3324,59 @@ gate under MCS_DCWFILTER_NOGLOBALS, with per-copy renames for the
 double inclusion and DCW_REJ_COUNT 10→11. The pre-change full live
 suite ended exit=2 but its log body could not be re-read; targeted
 live proofs above are what this decision stands on.
+
+## D80 (R29) — Independent-source corroboration: CACHE CONSENSUS SOURCES, and the mixed-layout build bug
+
+**Context.** The field report behind this round: a viewer's cache
+lines are flooded with fake CWs, and the SAME manufactured fake
+arrives echoed from as many as nine lines. D62's engine already
+counts agreement in distinct peerids with ladder weights — nine
+echoes of one key were never nine votes — but its no-conflict early
+delivery fired on the SECOND distinct voter, so two colluding (or
+two merely duped) lines could still answer a waiting client before
+an honest slower line arrived, freezing the picture mid-watch.
+
+**Decision 1 — `CACHE CONSENSUS SOURCES: <2..8>`** (default 2 =
+D62/stock semantics, byte-for-byte). `cwconsensus_set_min_sources()`
+raises how many DISTINCT voters a key needs before the early
+delivery fires; repeat arrivals from one voter never count as
+corroboration (pinned by test). A key below threshold is still
+released at window expiry (availability first — no black screen),
+and conflicts still settle by weight. Parsed next to
+`CACHE CONSENSUS WINDOW`, clamped 2..8 in config.c, applied from
+clustredcache.c on every armed arrival (0/unset = engine default).
+
+**Proof.** test_cwconsensus 32/32 (new section 12: SOURCES=3 needs
+a third independent voter; same-voter repeats do not count; clean
+weight still wins a conflict; returning to 2 restores D62 exactly).
+Live `tests/fz` 2/2 (in `make all`): nine cache peers echo ONE
+manufactured fake, one honest line answers 400 ms slower, client
+on two ECM cycles — stock delivers the fake (hole live);
+`CONSENSUS: ON / WINDOW: 600 / SOURCES: 3 / PATTERN: ON` delivers
+the honest key on BOTH cycles and the echoed fake never reaches
+the client. The small start delay this costs is the trade the
+operator accepted; mid-watch freezes are what it buys out.
+
+**Decision 2 — the bug the bug-hunt found was in the build, not the
+server.** The live suite failed at cachepref with "server did not
+answer HTTP". Measured root cause (ptrace on the live process):
+cfg.http.handle held the correct fd (29) in memory, but
+httpserver.o read the port number as the handle and polled it —
+POLLNVAL forever, accept never called, both HTTP and Telnet
+threads spinning. src/Makefile's pattern rule named only the .c
+file, so the config.h edit above (one int added to struct
+config_data) rebuilt config.o/main.o and silently linked every
+other object with the old -fpack-struct layout: a mixed-layout
+binary. Any shared-header edit could arm this trap. Fix: every
+object now depends on every header (`HDRS = $(wildcard ../src/*.h)
+$(wildcard *.h)`); a header touch costs one full rebuild, which is
+the point. After a clean rebuild cachepref is 11/11 and the full
+live suite is green end to end (458 ok, 0 fail, exit 0) for the
+first time this round.
+
+**Deliberately not in this round.** Cycle-age expiry (cwexpire.h
+stays dead code) and receiver-attestation punishment
+(dcw_on_failure feeding the ladder automatically) were candidates,
+not agreed scope; the armed SOURCES+PATTERN stack plus the existing
+ladder covers the reported flood without new default risk. They
+remain available as future opt-in work.

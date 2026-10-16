@@ -6,6 +6,25 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R29 — Independent-Source Corroboration + Mixed-Layout Build Bug (2026-10-16)
+
+**Decision:** D80 · **Report:** `docs/REPORT-R29-ar.md`
+
+### Added
+- **`CACHE CONSENSUS SOURCES: <2..8>`** (default 2 = D62/stock exactly) — the consensus engine's no-conflict early delivery now requires that many DISTINCT voters for a key; echoes of one fake from many lines never count as corroboration. Below-threshold keys still release at window expiry (no black screen), conflicts still settle by weight. `cwconsensus_set_min_sources()` clamped 2..8, applied per armed arrival from clustredcache.c. Pinned by test_cwconsensus section 12 (32/32).
+- **`tests/fz` live target** (in `make all`, 2/2): nine peers echo one manufactured fake, one honest line 400 ms slower, client on two ECM cycles — stock delivers the fake; `SOURCES: 3 + PATTERN: ON` delivers the honest key on both cycles, the fake never arrives (no mid-watch freeze).
+
+### Fixed (pre-existing build bug, found by this round's bug-hunt)
+- **Mixed-layout binaries after any shared-header edit** — src/Makefile's pattern rule depended only on the .c file, so adding one int to `struct config_data` rebuilt config.o/main.o while httpserver.o kept the old -fpack-struct layout and read `http.port` as `http.handle`: HTTP/Telnet threads polled their own port numbers (POLLNVAL spin) and never accepted a connection (the cachepref failure). Every object now depends on every header. Clean rebuild: cachepref 11/11, **full live suite green end-to-end (458 ok, 0 fail, exit 0)**.
+
+### Default posture (unchanged promise)
+- SOURCES unset/2 keeps every consensus decision identical to R8; nothing arms itself.
+
+### Verification
+- `make test` exit 0 (incl. test_cwconsensus 32/32); `make -C tests all` exit 0 (458 ok / 0 fail, cachepref 11/11, fk 3/3, fz 2/2, md 3/3).
+
+---
+
 ## R28 — Fake-CW Kill Gate + Black-Screen Prevention (2026-10-16)
 
 **Decision:** D79 · **Report:** `docs/REPORT-R28-ar.md`

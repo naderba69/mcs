@@ -1380,6 +1380,9 @@ struct config_data
 		 * corroboration window in ms (0 -> callers clamp to 400). */
 		int consensus;
 		int consensus_window;
+		/* TASK R29 (D80): distinct voters required for the early
+		 * delivery (0/unset = the engine default 2; 2..8 armed). */
+		int consensus_sources;
 		int hits;  // Total Hits
 		int ihits; // Instant Hits
 		int req; // Request sent

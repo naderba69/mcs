@@ -178,7 +178,18 @@ $(OUTPUT):
 link: $(OBJECTS)
 	$(CC) -o $(OUTPUT)/$(NAME) $(LFLAGS) $(OBJECTS) -lpthread
 
-$(OUTPUT)/%.o: ../src/%.c | $(OUTPUT)
+# TASK R29 (D80): every object depends on every header. The pattern rule
+# used to name only the .c file, so editing a shared header (config.h
+# above all) rebuilt just the objects whose .c had also changed and
+# linked the rest with the OLD struct layout -- a mixed-layout binary.
+# Measured: adding one int to struct config_data left httpserver.o
+# reading http.port where config.o had written http.handle, so the HTTP
+# and Telnet threads polled their own port numbers, spun on POLLNVAL and
+# never accepted a connection (the cachepref live target's failure).
+# A header touch now costs one full rebuild; that is the point.
+HDRS = $(wildcard ../src/*.h) $(wildcard *.h)
+
+$(OUTPUT)/%.o: ../src/%.c $(HDRS) | $(OUTPUT)
 	$(CC) -c $(CFLAGS) $< -o $@
 
 $(OUTPUT)/httpserver.o: ../src/httpserver.h ../src/httpbuffer.c ../src/httpserver.c

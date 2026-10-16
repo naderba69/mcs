@@ -3697,7 +3697,20 @@ link_mgcamd_user:
 				}
 				parse_name(str);
 				uppercase(str);
-				if (!strcmp(str,"WINDOW")) {
+				/* TASK R29 (D80): CACHE CONSENSUS SOURCES: <2..8> */
+				if (!strcmp(str,"SOURCES")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cache.consensus_sources = atoi(str);
+					if (cfg->cache.consensus_sources<2) cfg->cache.consensus_sources = 2;
+					else if (cfg->cache.consensus_sources>8) cfg->cache.consensus_sources = 8;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CONSENSUS SOURCES: %d\n",file->nbline,iparser-currentline, cfg->cache.consensus_sources);
+				}
+				else if (!strcmp(str,"WINDOW")) {
 					parse_spaces();
 					if ((*iparser!=':')&&(*iparser!='=')) {
 						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);

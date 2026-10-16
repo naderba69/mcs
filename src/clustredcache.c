@@ -1844,6 +1844,12 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 * layers' problem (FILTER/THRESHOLD/cacheguard), as documented in D62.
 	 */
 	if (cfg.cache.consensus) {
+		/* TASK R29 (D80): apply the operator's corroboration
+		 * threshold (0/unset = engine default 2). Cheap enough to
+		 * restate per arrival; a config reload takes effect on the
+		 * very next push. */
+		cwconsensus_set_min_sources(cfg.cache.consensus_sources >= 2
+					    ? cfg.cache.consensus_sources : 2);
 		int cw_weight = 1;
 		{
 			struct cachepeer_data *vc_peer = getpeerbyid(peerid);
