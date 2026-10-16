@@ -6,6 +6,229 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R37 — Everything Developed, Merged into the Shipped Profiles (2026-10-16)
+
+**Decision:** D93
+
+### Changed (config only — no code touched)
+- **`CA MODERN: ON` in all 72 profiles** — iCam CAIDs (0963/098D/098E) stop losing valid no-checksum keys; classical systems provably unaffected.
+- **Protections activated in the shipped file:** `PEER REPUTATION: ON` (5/20/50), `DCW STATS: ON`, `HTTP/TELNET LOGIN DELAY: 250`, CACHEEX `BLOCK_FAKE_CW: YES` + `CWCHECK: 2`. Left OFF on purpose, commented in place: `CACHEEX LOCAL_ONLY`, `LOGIN ALLOW`, any global MINTIME.
+- **The file's remaining fictional comment blocks removed** ("55 layers", the R24 fingerprint trailer); headers tell the truth.
+
+### Verification
+- prof 5/5, sc 6/6, fz 2/2, at 3/3, unit suite all-pass; boot log parses every merged line with zero profile-variable warnings. Remaining gaps enumerated honestly in `docs/REPORT-R37-ar.md` (unmerged PR #2, NOPROVCHK unenforced, 28 profiles without MINTIME, deployment secrets by design, full live suite still not run end-to-end).
+
+## R38 — Covering the Gaps (2026-10-16)
+
+**Decisions:** D94–D97
+
+### Added
+- **`CAID FAMILY NOPROVCHK` enforced (D94)** at getcsbycaidprov — the one live site whose stock list is the table default {18,09,0B}; card matching in loadbalance.c deliberately stays on stock's inverse rule (documented in cafamily.h).
+- **SOFTCAM gate proven live (D95)** — `tests sc` is now 8 phases: stored BISS1 key delivers only while the softcam answer is open. Building the control exposed a stock trap (frozen D53 refuses a plain BISS profile's key at the checksum gate identically); `CA MODERN: ON` in the shipped profiles is the remedy, and P8 is its live proof.
+
+### Changed
+- **`DCW MINTIME: 100` completed into 26 profiles (D96)** — the user's 44 existing values are uniformly 100; his pattern completed, BISS/Tandberg exempt. Commented deployment block added before the profiles.
+- **Test fix (D97):** ce's unsolicited push carries its own key — it previously reused the confirmed key, tripping the TASK 1.3 reuse proof in a scheduling race (reproduced on the R35 binary too; no product code at fault).
+
+### Verification
+- **Full live suite run end-to-end**: 384 checks ok; the single failing target (ce) was root-caused to the pre-existing test-design race above, fixed, and passed 3/3 consecutive runs. Unit suite all-pass; prof 5/5, sc 8/8, md 3/3, fz 2/2, at 3/3 on the rebuilt releases; delivered `bin/multics.x64` boots the adopted profiles (HTTP 200, 72 listeners).
+
+## R36 — The User's Written Keys, Implemented; His Config Adopted (2026-10-16)
+
+**Decisions:** D87–D92
+
+### Added (all opt-in, default OFF = stock)
+- **`ENABLE SKIPCWC` + ONLY/EXCLUDE SID lists (D87)** — a CW for a gated SID must prove its DVB-CSA checksum before delivery or cache storage, even with `DCWFILTER CHECKSUM: OFF`. Pure gate in `src/skipcwc.h`; enforced in both delivery funnels and at cache ingest. Unit 15/15; live `tests sc` P1–P3.
+- **`DCW MINTIME` (D88)** — card replies faster than the floor are skipped and logged (`[MINTIME]`); cache replies exempt. Live P4/P5.
+- **`DCW CYCLE_CHECK` (D89)** — now parses as an alias of the existing cycle gate.
+- **`ECM HEADERWLST` + `ENABLE SOFTCAM: NO` (D90)** — ECM header whitelist enforced at `cs_accept_ecm`; softcam (BISS/BISS2) search closable per profile. Live P6.
+- **`CAID FAMILY HALFNULLED` wired (D92)** — R16's orphaned table gained its parser, its global definition, and its three enforcement sites; stock default {09} restored; `test_cafamily` (37/37) registered in the suite.
+
+### Changed
+- **Shipped profiles file is now the user's own `multics-r24-optimized.cfg`** (D91): 72 profiles with his SID lists/timings byte-preserved; ORF - 0D98 given its missing `PORT: 1981`; `DEFAULT DCW MAXFAILED: 0` raised to the floor of 3; the global `DEFAULT DCW MINTIME` dropped (per-profile values kept); verified-dead keys removed with in-file Arabic explanations. `tests prof` 5/5, zero parser warnings.
+
+### Verification
+- New live target `tests sc`: 6/6. Unit suite all-pass (incl. new `test_skipcwc`, revived `test_cafamily`). Regression spot-checks: fz 2/2, at 3/3, md 3/3, pf ok, prof 5/5.
+
+## R35 — Web Pages Un-Mangled: Escape Text, Never the Page's Markup (2026-10-16)
+
+**Decision:** D86
+
+### Fixed
+- **Every listing page printed its own HTML tags as text** — TASK 3.2/3.9 blanket-escaped composed cells on the HTML branches. Raw text fields (user, realname, program, version, statmsg, host names) are now escaped at composition time in all eleven cell builders via the house `html_esc()`; the 37 blanket escapes on HTML branches are gone. XML branches (JS innerHTML refresh) keep their transport escaping untouched.
+- **Servers-page uptime could read 266%** — reconnect-accumulated uptime divided by process life; clamped at 100.
+
+### Verification
+- All ten listing pages fetched live on the delivered `bin/multics.x64`: 200, zero escaped page tags, links render; XSS probe (profile named with a script tag) shows as inert text inside a working link. Unit suite all-pass; `tests/prof` 5/5. Declared limit: the full live suite was interrupted twice and not run to completion this round (first 69 checks passed, zero failures); the change is confined to `src/httpserver.c` rendering.
+
+## R34 — Fixed Delivery Name: bin/multics.x64 (2026-10-16)
+
+**Decision:** D85
+
+### Changed
+- **`make -C make-x64 release-stats` now also publishes `bin/multics.x64`** — the one fixed name operators run, per the user's request. `start-production.sh` and the READMEs point at it; descriptive internal names (stock/stats) remain for fingerprint discipline.
+
+### Verification
+- Both releases rebuilt **byte-identical** to the committed R31 fingerprints (stats `4be83e2c…`, stock `3d2fdfa4…`) — no code changed, nothing re-proven by proxy: `bin/multics.x64` itself booted live with the shipped profiles (HTTP 200, shield lines parsed).
+
+## R33 — Whole-Tree Refresh: Every File Tells the Current Truth (2026-10-16)
+
+**Decision:** D84
+
+### Fixed
+- **`start-production.sh` used `-c`, a flag the binary does not have** — it would have started with the default config, not the shipped profiles. Now `-C` with the maintained `bin/multics-r82a-stock-x64`; counts corrected (71 profiles).
+- **`MANIFEST-md5` certified R12 hashes against R31 binaries** — regenerated over every tracked file; `md5sum -c` is meaningful again.
+
+### Changed
+- Entry docs updated to measured fact: `README.md` (R26–R32 delivery list), `README-PRODUCTION.md` and `bin/README-R24-x64.md` (sizes/MD5s recomputed from the files), `docs/STATUS.md` (current block on top), `docs/INDEX-ar.md` (R26–R32 report index).
+- Era documents (R22–R24 reports and guides) keep their text under an explicit "historical document" banner pointing at the living references — labelled, never rewritten.
+
+### Removed
+- **`optimize-profiles.py` / `-v2` / `-v3`** — generators whose only product was the dead R24 config; the shipped cfg is now maintained directly and guarded by `tests/prof`.
+
+### Verification
+- No src code changed. Unit suite all-pass; `tests/prof` 5/5; `md5sum -c MANIFEST-md5` clean.
+
+## R32 — The Shipped Profiles, Rewritten Honestly and Guarded Live (2026-10-16)
+
+**Decision:** D83 · **Report:** `docs/REPORT-R32-ar.md`
+
+### Changed
+- **`multics-r24-optimized.cfg` rewritten** (2130 → 1010 lines): every remaining line verified REAL against the parser (the old file's 200 distinct keys classified REAL/DEAD; all SF_*/DCW STRICT/DCW MINTIME/CACHEEX PUSH-style dead lines deleted). Global shield = `CACHE PROTECTION: STANDARD` + `CACHE ATTEST TTL: 600` + real DEFAULTs; one uniform live-tested stability block on all **71** profiles (the old file claimed 72). Profile identities (name/CAID/PORT/PROVIDERS) preserved.
+- **`docs/PROFILES-AUDIT-REPORT-ar.md` replaced** with measured numbers instead of the R24 certifications.
+
+### Fixed (latent defects in the shipped file itself)
+- **[ORF - 0D98] had no PORT at all** — assigned the free port 1981; it now binds like the other 70.
+- BISS/Tandberg profiles no longer pretend `ENABLE SOFTCAM` (a dead line) arms anything; they point to the /biss page where the keys really live.
+
+### Added
+- **`tests/prof`** (in `make all`, 5/5): boots the shipped cfg, asserts shield/TTL parsed, HTTP 200, and probes all 71 profile ports with real connections (log-line counting lies under interleaved -v output: 55 apparent starts vs 71 real listeners).
+
+### Verification
+- No src code changed. Live suite: 384 ok incl. prof 5/5; `ce` 10/10 and `jm` 8/8 standalone (known rig flakes, reproduced with stock binaries); fz 2/2, at 3/3; releases clean.
+
+## R31 — Closing the Attestation Gaps (2026-10-16)
+
+**Decision:** D82 · **Report:** `docs/REPORT-R31-ar.md`
+
+### Added
+- **Attestation now counts every client protocol** — cccam, camd35, cs378x, mgcamd and freecccam record the delivered bytes (`lastecm.dcw`) and run the same RETRY_HARD classification into `attest_note`, with per-protocol attester namespaces. Radegast keeps no delivery record and is honestly excluded.
+- **A filing retires the shared ECM** — ECM_DATA that committed the filed bytes as SUCCESS is reset to WAIT, so an identical ECM re-runs the gated find instead of being answered from memory until its timeout (`CW ATTEST ECM` line; live-proven in tests/at P2). The reset takes no lock: callers already hold `prg.lockecm`, and the first live run deadlocked there before this was fixed.
+- **`CACHE ATTEST TTL: <60..3600>`** — operator-sized filing lifetime (default 300 s).
+- **`CACHE PROTECTION: STANDARD`** — the one-line recipe (consensus 600/3 + DCWFILTER PATTERN + ATTEST 2); later lines override pieces. Live-proven in tests/at P3.
+
+### Removed
+- **`src/cwexpire.h`** — dead cwlearn code, referenced only by the unreferenced `r22layers.h` (its include/init stripped there).
+
+### Recorded as boundaries (not code)
+- The first receivers still meet the fake before the threshold files it, and a one-client channel cannot file alone (GR3: one broken box must not judge a key); first-retry rotation/trust already bound the harm.
+- No field test yet — only the operator's real lines can close that.
+
+### Verification
+- Unit suite all-pass; `tests/at` **3/3**; live suite 379 ok + `ce` 10/10 standalone (in-run failure reproduced with stock HEAD failing even baseline — rig timing) + 81 ok remainder (fz 2/2); releases clean (0 / 2).
+
+## R30 — Receiver Attestation: Independent Clients File the Fake's Bytes (2026-10-16)
+
+**Decision:** D81 · **Report:** `docs/REPORT-R30-ar.md`
+
+### Added
+- **`CACHE ATTEST: <2..4>`** (default OFF = stock) — when that many DISTINCT clients re-ask too soon after being handed the same key bytes from a cache source, the bytes themselves are filed for 300 s: any re-offer is refused at cache ingest before storage or delivery (any client, any source, any service of the provider), and the stored entry is purge-swept at once. This closes the echoed-flood hole consensus and the pattern gate cannot see: nine lines echoing one random-shaped fake produce no disagreement for the ledger to prove from — but their receivers attest it. One client alone never files (1 arms as 2); attestations must land within one TTL (no slow-drip assembly); the filing expires, unlike GR3 proof memory.
+- **`src/cwattest.h`** (pure, header-only, cwneg discipline) + `test_cwattest` **29/29**; wiring in `main.c` (`attest_note`/`attest_gate`/`attest_purge`), `srv-newcamd.c` (RETRY_HARD tap, skipped when the ledger already proved the key), `clustredcache.c` (gate beside `cwn_gate`), `config.c`/`config.h`.
+- **`tests/at` live target** (in `make all`, 2/2): stock delivers the same fake to client 1 and STILL to client 3; with `CACHE ATTEST: 2` the second distinct receiver files the bytes (`CW ATTEST FILED`), the re-offer is refused at ingest, client 3 is spared.
+
+### Rejected on the evidence (D81 records why)
+- Punishing upstream servers via `dcw_on_failure` on ECM_NOK: that NOK is a legitimate "not mine" answer, not a fake — punishing it violates GR1/GR3; the counter is a log-word stamp with no actor. `cwexpire.h` finally dropped as a candidate (dead cwlearn code).
+
+### Default posture (unchanged promise)
+- ATTEST unset/0: note and gate return before touching anything; every decision is stock r82a.
+
+### Verification
+- `make test` all-pass (incl. test_cwattest 29/29); live suite: 379 ok before `ce`, `ce` 10/10 standalone (its single in-run failure reproduced with the stock HEAD binary under load — environment flake), remainder 80 ok (fz 2/2, at 2/2); release / release-stats clean (0 / 2 dcwstats symbols).
+
+---
+
+## R29 — Independent-Source Corroboration + Mixed-Layout Build Bug (2026-10-16)
+
+**Decision:** D80 · **Report:** `docs/REPORT-R29-ar.md`
+
+### Added
+- **`CACHE CONSENSUS SOURCES: <2..8>`** (default 2 = D62/stock exactly) — the consensus engine's no-conflict early delivery now requires that many DISTINCT voters for a key; echoes of one fake from many lines never count as corroboration. Below-threshold keys still release at window expiry (no black screen), conflicts still settle by weight. `cwconsensus_set_min_sources()` clamped 2..8, applied per armed arrival from clustredcache.c. Pinned by test_cwconsensus section 12 (32/32).
+- **`tests/fz` live target** (in `make all`, 2/2): nine peers echo one manufactured fake, one honest line 400 ms slower, client on two ECM cycles — stock delivers the fake; `SOURCES: 3 + PATTERN: ON` delivers the honest key on both cycles, the fake never arrives (no mid-watch freeze).
+
+### Fixed (pre-existing build bug, found by this round's bug-hunt)
+- **Mixed-layout binaries after any shared-header edit** — src/Makefile's pattern rule depended only on the .c file, so adding one int to `struct config_data` rebuilt config.o/main.o while httpserver.o kept the old -fpack-struct layout and read `http.port` as `http.handle`: HTTP/Telnet threads polled their own port numbers (POLLNVAL spin) and never accepted a connection (the cachepref failure). Every object now depends on every header. Clean rebuild: cachepref 11/11, **full live suite green end-to-end (458 ok, 0 fail, exit 0)**.
+
+### Default posture (unchanged promise)
+- SOURCES unset/2 keeps every consensus decision identical to R8; nothing arms itself.
+
+### Verification
+- `make test` exit 0 (incl. test_cwconsensus 32/32); `make -C tests all` exit 0 (458 ok / 0 fail, cachepref 11/11, fk 3/3, fz 2/2, md 3/3).
+
+---
+
+## R28 — Fake-CW Kill Gate + Black-Screen Prevention (2026-10-16)
+
+**Decision:** D79 · **Report:** `docs/REPORT-R28-ar.md`
+
+### Added
+- **`DCWFILTER PATTERN: ON|OFF`** (global or per profile, tristate like CYCLE) — refuses generator-shaped fake CWs inside the single accept decision: complement-mirror (5+/6 free pairs, incl. the checksum-repaired variant stock delivered), identical halves, repeated-byte/constant-step/two-value halves. `dcw_pattern_fake()` verdict pinned against dcwstruct/cwcm semantics by `test_cwfake` (35 checks: armed refuses all fakes, delivers honest, 2000-key fuzz clean; disarmed provably still delivers — stock hole pinned). New DCWSTATS reason `pattern-fake` (count 10→11).
+- **`tests/fk` live target** (in `make all`, 3/3): stock delivers the checksum-valid mirror fake (hole documented live); profile-armed refuses it and delivers the honest key behind it; global-armed refuses the staircase fake.
+
+### Default posture (unchanged promise)
+- Gate defaults OFF: every decision is bit-for-bit stock r82a until an operator arms it. Honest-key false-positive risk ~1e-12/key.
+
+### Verification
+- `make test` exit 0 (1510 checks incl. test_cwfake 35/35); release + release-stats clean (dcwstats 0/2); `tests/md` 3/3 and `tests/fk` 3/3 live.
+
+---
+
+## R27 — Live Modern-CA Proof + Gradual Crypto (2026-10-16)
+
+**Decision:** D78 · **Report:** `docs/REPORT-R27-ar.md`
+
+### Added
+- **`tests/md` live target** (in `make all`, 3/3) — cache peer pushes an AES-shaped CW for an iCam 098D profile: delivered with `CA MODERN: ON` (P1), not delivered under stock config (P2); a BISS2 (2610) word added via `/biss?action=add` is listed and delivered whole (P3).
+- **`src/sha256.c/.h`** — FIPS 180-4 SHA-256 (API mirrors sha1.h), pinned by NIST vectors in `make-x64/test_sha256.c` (16 checks incl. the 1,000,000×'a' vector), wired into `make test`.
+- **`cw_session_key_derive()`** — AES-256 session key = SHA-256(passphrase) for the R26 CW transport; empty/NULL passphrases refused; wrong-passphrase keys provably cannot recover the CW.
+
+### Fixed (pre-existing, found by the live proof)
+- **BISS/BISS2 answers raced their own key** — `th-ecm.c` answered waiting clients immediately after the asynchronous `ecm_setdcw()`, so a stored BISS/BISS2 word produced a decode-failed reply milliseconds before the Set-DCW thread committed it. Both branches now let that thread answer after committing; live P3 receives the exact 16-byte word.
+- **`main.o` missed dependencies** — `src/Makefile` now lists the included `setdcw.c`/`loadbalance.c`, ending a stale-object trap.
+
+### Compatibility stance (documented, deliberate)
+- DES/MD5 wire formats (newcamd session, camd35 key, ecmd5 identity) are peer-dictated and unchanged; SHA-256 is the in-tree primitive for future negotiated upgrades. `CA MODERN` semantics and the default-OFF posture from D77 are untouched.
+
+### Verification
+- `make test` exit 0 (incl. test_casystem 48/48, test_sha256 16/16); release + release-stats clean (dcwstats 0/2); `tests/md` 3/3 live.
+
+---
+
+## R26 — Modern CA Layer (2026-10-16)
+
+**Decision:** D77 · **Report:** `docs/REPORT-R26-ar.md` · **Guide:** `docs/MODERN-CA-GUIDE-ar.md`
+
+One registry for today's encryption systems, armed per profile — default OFF, stock behaviour preserved bit-for-bit.
+
+### Added
+- **`src/casystem.h`** — pure CA registry (name / CW format / iCam flag / ECM hash offset for any CAID). Exact rows for iCam VideoGuard (0963/098C/098D/098E/09C4/09CD), BISS1 2600 vs BISS2 2610, DRE 4AE0/4AE1, Verimatrix 5601; family rows for Seca/Viaccess/Irdeto/VideoGuard/Conax/CryptoWorks/PowerVu/BetaCrypt/Nagravision/BISS/DRE/Verimatrix; unknown CAIDs treated as classic CSA.
+- **CA-aware CW gate** — `acceptDCW_for_ca()` (dcw.c) + `acceptDCW_profile_ca()` (config.c) wired at 10 delivery/ingest sites. Per-profile `CA MODERN: ON` skips the DVB-CSA checksum test only for systems whose genuine CWs carry no checksum bytes (AES/CSA3, BISS2, constant-CW). Explicit `DCWFILTER CHECKSUM: ON` still wins; null and BAD-DCW-listed keys are never rescued. Log-only `CA SYSTEM: <caid>` names a bouquet's system/format before arming.
+- **BISS2 support (CAID 2610)** — separate 128-slot table of 16-byte session words (`biss2_*` in biss.h/biss.c); th-ecm serves the full word for 2610 only (never a repeated half); `/biss` accepts 32-hex as BISS2 (16-hex stays BISS1) with its own listing/delete section.
+- **Real CW crypto** — the XOR-with-published-key helper in `advanced-optimizations.h` is now AES-128/192/256 from aes.c; no default session key, session helpers fail closed until `cw_session_key_set()`. No in-tree caller: no wire change.
+
+### Changed
+- **Bounded ECM extraction** — `ecm_getprovid()`/`ecm_getchid()` take `ecmlen` and delegate to `ca_ecm_provid()`/`ca_ecm_chid()` (same results on well-formed ECMs; 0 instead of out-of-bounds reads on malformed ones); all 7 call sites updated. The BetaCrypt hash offset (13) is now the table fact `ca_ecm_hash_offset()` with a truncation guard.
+
+### Fixed (pre-existing, evidenced in the R26 round)
+- **Server crash on any `/biss` add** — 11 live sites called `debugf("...")` passing the format as the flag; `debugf` then read the format string from address `caid` and segfaulted (reproduced live, exit 139). All fixed to `debugf(0, ...)` (httpserver/th-ecm/srv-cccam/cli-cccam/ecm-optimizations), plus the same pair in dcw.c.
+- **Unit suite broken since before R26** — `test_dcw`, `test_dcwfilter`, `test_dcwstruct` (debugf link), `test_dcwstats` (double-inclusion redefinitions), `test_cwlog` (expected R13/R14 verdicts/reasons missing from cwlog.h — `CWLOG_DISPUTED` + reasons 14–17 added). Full `make test` is green again (exit 0).
+
+### Verification
+- `test_casystem` 48/48 (registry, bounded ECM incl. truncated/NULL, OFF-parity vs armed gate, BAD-DCW never rescued, BISS2 isolation) — wired into `make test`.
+- `make test` exit 0; `make release` + `make release-stats` clean (dcwstats symbols 0/2 as expected).
+- Live: stats server with armed `098D / CA MODERN: ON` profile + legacy 1884 profile — BISS1 and BISS2 web adds return 200, both keys listed, server stays alive (previously segfaulted).
+
+---
+
 ## R24 Advanced — Complete Performance Optimization (2026-10-16)
 
 **Commit:** `cf16818` · **Focus:** 9 major performance optimizations + professional profile optimization

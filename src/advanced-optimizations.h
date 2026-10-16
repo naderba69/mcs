@@ -186,31 +186,79 @@ static inline void auto_recovery_trigger(int type) {
 // OPTIMIZATION #8: CW ENCRYPTION (SIMPLIFIED)
 // ============================================================================
 
-// Simple XOR-based encryption for demonstration
-// In production, use AES-256 or similar
+/*
+ * TASK R26 (D77) — this was an XOR with a hard-coded, published
+ * session key (0x12,0x34,...): it encrypted nothing, and worse, it
+ * LOOKED like encryption. It is now the tree's real AES (aes.c,
+ * already linked for camd35/cs378x): one 16-byte CW = one AES block,
+ * key 128/192/256-bit. There is NO default session key any more --
+ * cw_*_with_session() fail closed (return 0, output untouched)
+ * until the operator installs a key with cw_session_key_set().
+ * No in-tree caller used the old functions (verified by grep), so
+ * failing closed breaks no wire: this is a library for future
+ * authenticated transport, not a protocol change. Returns 1 ok.
+ */
+#include "aes.h"
+#include "sha256.h"	/* TASK R27 (D78): the KDF below */
 
-static inline void cw_encrypt(uint8_t *cw, uint8_t *encrypted, uint8_t *key, int key_len) {
-    int i;
-    for (i = 0; i < 16; i++) {
-        encrypted[i] = cw[i] ^ key[i % key_len];
-    }
+static inline int cw_encrypt(uint8_t *cw, uint8_t *encrypted, uint8_t *key, int key_len) {
+    AES_KEY ekey;
+    uint8_t in[16];
+    if (!cw || !encrypted || !key) return 0;
+    if (key_len != 16 && key_len != 24 && key_len != 32) return 0;
+    if (AES_set_encrypt_key(key, key_len * 8, &ekey) != 0) return 0;
+    memcpy(in, cw, 16); /* safe for in-place cw == encrypted */
+    AES_encrypt(in, encrypted, &ekey);
+    return 1;
 }
 
-static inline void cw_decrypt(uint8_t *encrypted, uint8_t *cw, uint8_t *key, int key_len) {
-    // XOR is symmetric
-    cw_encrypt(encrypted, cw, key, key_len);
+static inline int cw_decrypt(uint8_t *encrypted, uint8_t *cw, uint8_t *key, int key_len) {
+    AES_KEY dkey;
+    uint8_t in[16];
+    if (!encrypted || !cw || !key) return 0;
+    if (key_len != 16 && key_len != 24 && key_len != 32) return 0;
+    if (AES_set_decrypt_key(key, key_len * 8, &dkey) != 0) return 0;
+    memcpy(in, encrypted, 16);
+    AES_decrypt(in, cw, &dkey);
+    return 1;
 }
 
-// Simple session key (in production, use proper key exchange)
-static uint8_t session_key[16] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0,
-                                   0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+static uint8_t cw_session_key[32];
+static int cw_session_key_len = 0; /* 0 = unset: session helpers fail closed */
 
-static inline void cw_encrypt_with_session(uint8_t *cw, uint8_t *encrypted) {
-    cw_encrypt(cw, encrypted, session_key, 16);
+static inline int cw_session_key_set(const uint8_t *key, int key_len) {
+    if (!key || (key_len != 16 && key_len != 24 && key_len != 32)) return 0;
+    memcpy(cw_session_key, key, key_len);
+    cw_session_key_len = key_len;
+    return 1;
 }
 
-static inline void cw_decrypt_with_session(uint8_t *encrypted, uint8_t *cw) {
-    cw_decrypt(encrypted, cw, session_key, 16);
+/*
+ * TASK R27 (D78) -- passphrase-derived session key. The session key
+ * is SHA-256(passphrase) used directly as an AES-256 key: a modern
+ * KDF in place of the tree's MD5-era derivations, for NEW keying
+ * only -- no existing wire derivation (camd35 MD5, newcamd DES) is
+ * touched, because peers dictate those. One SHA-256 pass is a key
+ * stretcher, not a password vault: passphrases here key a transport
+ * between cooperating operators, and the derivation is labelled as
+ * such so nobody mistakes it for a password-storage scheme.
+ * Returns 1 when a session key is installed.
+ */
+static inline int cw_session_key_derive(const char *passphrase) {
+    uint8_t digest[SHA256_DIGEST_LENGTH];
+    if (!passphrase || !passphrase[0]) return 0;
+    SHA256((const uint8_t *)passphrase, strlen(passphrase), digest);
+    return cw_session_key_set(digest, SHA256_DIGEST_LENGTH);
+}
+
+static inline int cw_encrypt_with_session(uint8_t *cw, uint8_t *encrypted) {
+    if (!cw_session_key_len) return 0;
+    return cw_encrypt(cw, encrypted, cw_session_key, cw_session_key_len);
+}
+
+static inline int cw_decrypt_with_session(uint8_t *encrypted, uint8_t *cw) {
+    if (!cw_session_key_len) return 0;
+    return cw_decrypt(encrypted, cw, cw_session_key, cw_session_key_len);
 }
 
 // ============================================================================

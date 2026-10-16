@@ -150,7 +150,7 @@ endif
 
 
 # loginthrottle.o: TASK R3 (D57), the login door throttle
-OBJECTS = $(OUTPUT)/sha1.o $(OUTPUT)/des.o $(OUTPUT)/md5.o $(OUTPUT)/aes.o \
+OBJECTS = $(OUTPUT)/sha1.o $(OUTPUT)/sha256.o $(OUTPUT)/des.o $(OUTPUT)/md5.o $(OUTPUT)/aes.o \
 	$(OUTPUT)/dcw.o $(OUTPUT)/convert.o $(OUTPUT)/tools.o $(OUTPUT)/debug.o $(OUTPUT)/parser.o $(OUTPUT)/ipdata.o \
 	$(OUTPUT)/threads.o $(OUTPUT)/sockets.o $(OUTPUT)/msg-newcamd.o $(OUTPUT)/msg-cccam.o $(OUTPUT)/msg-radegast.o $(OUTPUT)/config.o \
 	$(OUTPUT)/ecmdata.o $(OUTPUT)/httpserver.o $(OUTPUT)/telnet.o $(OUTPUT)/main.o \
@@ -178,13 +178,24 @@ $(OUTPUT):
 link: $(OBJECTS)
 	$(CC) -o $(OUTPUT)/$(NAME) $(LFLAGS) $(OBJECTS) -lpthread
 
-$(OUTPUT)/%.o: ../src/%.c | $(OUTPUT)
+# TASK R29 (D80): every object depends on every header. The pattern rule
+# used to name only the .c file, so editing a shared header (config.h
+# above all) rebuilt just the objects whose .c had also changed and
+# linked the rest with the OLD struct layout -- a mixed-layout binary.
+# Measured: adding one int to struct config_data left httpserver.o
+# reading http.port where config.o had written http.handle, so the HTTP
+# and Telnet threads polled their own port numbers, spun on POLLNVAL and
+# never accepted a connection (the cachepref live target's failure).
+# A header touch now costs one full rebuild; that is the point.
+HDRS = $(wildcard ../src/*.h) $(wildcard *.h)
+
+$(OUTPUT)/%.o: ../src/%.c $(HDRS) | $(OUTPUT)
 	$(CC) -c $(CFLAGS) $< -o $@
 
 $(OUTPUT)/httpserver.o: ../src/httpserver.h ../src/httpbuffer.c ../src/httpserver.c
 
 $(OUTPUT)/main.o: ../src/main.c ../src/common.h ../src/httpserver.h ../src/config.h ../src/clustredcache.c ../src/cacheex.c ../src/pipe.c ../src/pipe.h \
-	../src/th-ecm.c ../src/th-cfg.c ../src/th-dns.c ../src/th-date.c ../src/th-srv.c \
+	../src/setdcw.c ../src/loadbalance.c ../src/th-ecm.c ../src/th-cfg.c ../src/th-dns.c ../src/th-date.c ../src/th-srv.c \
 	../src/srv-cccam.c ../src/srv-newcamd.c ../src/srv-mgcamd.c ../src/srv-radegast.c ../src/srv-freecccam.c ../src/srv-camd35.c ../src/srv-cs378x.c \
 	../src/cli-common.c ../src/cli-cccam.c ../src/cli-newcamd.c ../src/cli-radegast.c ../src/cli-camd35.c ../src/cli-cs378x.c
 

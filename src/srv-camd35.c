@@ -124,6 +124,10 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 	if ( (ecm->dcwstatus==STAT_DCW_SUCCESS)&&(ecm->hash==cli->ecm.hash) ) {
 		cli->lastecm.dcwsrctype = ecm->dcwsrctype;
 		cli->lastecm.dcwsrcid = ecm->dcwsrcid;
+		/* TASK R31 (D82): name the delivered key on the record, as
+		 * srv-newcamd does -- receiver attestation files BYTES, so
+		 * the bytes themselves must be remembered. */
+		memcpy( cli->lastecm.dcw, ecm->cw, 16 );
 		cli->lastecm.status=1;
 		cli->ecmok++;
 		cli->lastdcwtime = ticks;
@@ -395,7 +399,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			uint16_t pin = buf[4+16]<<8 | buf[4+17];
 			uint16_t sid = buf[4+8]<<8 | buf[4+9];
 			uint16_t caid = buf[4+10]<<8 | buf[4+11];
-			uint32_t provid = ecm_getprovid( ecmdata, caid );
+			uint32_t provid = ecm_getprovid( ecmdata, ecmlen, caid );
 			if (provid==0) provid = buf[4+12]<<24 | buf[4+13]<<16 | buf[4+14]<<8 | buf[4+15];
 			if ( !caid ) {
 				cli->ecmdenied++;
@@ -425,7 +429,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			}
 			// Check for Accepted sids
 			uint8_t cw1cycle;
-			if ( !accept_sid(cs, provid, sid, ecm_getchid(ecmdata,caid), ecmlen, &cw1cycle) ) {
+			if ( !accept_sid(cs, provid, sid, ecm_getchid(ecmdata,ecmlen,caid), ecmlen, &cw1cycle) ) {
 				cli->ecmdenied++;
 				cs->ecmdenied++;
 				buf[4] = 0x44;
@@ -439,6 +443,19 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			pthread_mutex_lock(&prg.lockecm); //###
 			// Search for ECM
 			ECM_DATA *ecm = search_ecmdata_any(cs, ecmdata,  ecmlen, sid, caid); // dont get failed ecm request from cache
+			/* TASK R31 (D82) -- receiver attestation tap, mirroring
+			 * srv-newcamd's: this client's too-soon re-ask after a
+			 * delivered key is one receiver's vote on the BYTES;
+			 * the armed number of distinct voters files them
+			 * (attest_note). Classification only -- nothing is
+			 * scored or refused here, and nothing runs unless
+			 * CACHE ATTEST is armed. */
+			if ( (cli->lastecm.caid==caid) && (cli->lastecm.prov==provid) && (cli->lastecm.sid==sid) && cli->lastecm.status ) {
+				if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
+					attest_note( ATTEST_TAG_CAMD35 | (uint32_t)cli->id, cli->lastecm.dcw,
+						cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+						cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
+			}
 			int isnew =  ( ecm==NULL );
 			if (ecm) {
 				ecm->lastrecvtime = ticks;

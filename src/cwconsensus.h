@@ -58,6 +58,23 @@ struct cwconsensus_hold {
 void cwconsensus_init(void);
 
 /*
+ * TASK R29 (D80): how many DISTINCT voters a key needs before the
+ * no-conflict early delivery fires. The default stays 2 (D62's
+ * rule, untouched stock semantics for every existing deployment).
+ * Raising it (CACHE CONSENSUS SOURCES: 3..8) hardens the exact
+ * flood the field reports: many lines echoing ONE manufactured key
+ * must no longer masquerade as corroboration -- agreement is
+ * counted in independent voters, never in arrivals, and now the
+ * operator chooses how much independence a key needs before it may
+ * answer a waiting client early. A key that never reaches the
+ * threshold is still released at window expiry (availability
+ * first), and conflicts still settle by weight, so a lone honest
+ * slow line can still beat a fast fake crowd on weight evidence.
+ * Set once from config; values outside 2..8 are clamped.
+ */
+void cwconsensus_set_min_sources(int n);
+
+/*
  * Record one arrival and judge it. weight = the sender's vote weight
  * (0 = distrusted on the ladder, 1 = clean/unknown). window_ms = the
  * corroboration window (caller clamps). loser_cw (may be NULL) receives

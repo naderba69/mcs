@@ -4054,6 +4054,11 @@ rs:
 #
 #   baseline : no gate armed -- a good push for a PENDING newcamd ECM is
 #              delivered, all three gate counters stay zero;
+#   (TASK R38: the unsolicited push uses its OWN key (CE_UNSOL).
+#   It once reused CE_GOOD, and the TASK 1.3 reuse proof -- same
+#   key, two SIDs -- correctly convicted the confirmed key before
+#   it could serve; whether the conviction landed first was a
+#   scheduling race that made this target flap on every build.)
 #   gated    : DEFAULT CACHEEX LOCAL_ONLY/BLOCK_FAKE_CW/CWCHECK armed,
 #              DCWFILTER forced OFF so the fake gate's OWN checksum run is
 #              what catches the corrupted key -- unsolicited push dropped
@@ -4075,6 +4080,7 @@ CE_NPORT  = 15702
 CE_CPORT  = 15703
 CE_CFG    = .ce-srv.cfg
 CE_GOOD   = 01020306112233660A0B0C21515253F6
+CE_UNSOL  = 2122236631323396414243C6515253F6
 CE_KEY    = 0102030405060708091011121314
 
 .PHONY: ce
@@ -4115,7 +4121,7 @@ ce: $(CXPEER)
 	  printf 'CCCAM PORT: $(CE_CPORT)\nF: cxu cxp { cacheex_mode=3; }\n\n'; \
 	  printf '[ cxg ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CE_NPORT)\nENABLE CACHEEX: YES\nDCW TIMEOUT: 9000\nUSER: u1 p1\n'; } > $(CE_CFG); \
 	start_srv; \
-	./$(CXPEER) 127.0.0.1 $(CE_CPORT) cxu cxp "push 1884 0 C8 $(CE_GOOD)" > .ce-peer.out 2>&1; \
+	./$(CXPEER) 127.0.0.1 $(CE_CPORT) cxu cxp "push 1884 0 C8 $(CE_UNSOL)" > .ce-peer.out 2>&1; \
 	grep -q "\[ ok \] push" .ce-peer.out && echo "  [ ok ] the unsolicited push was sent by the peer" || { echo "  [FAIL] the peer could not push"; ok=0; }; \
 	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(CE_NPORT) u1 p1 $(CE_KEY) 0 1884 64 > .ce-nc.out 2>&1 & nc=$$!; \
 	sleep 2; \
@@ -4886,3 +4892,379 @@ vl:
 	else echo "[FAIL] P4 (/cwlog $$cw4, / $$home4)"; ok=0; fi; \
 	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then echo "vl: 4/4 ok"; else echo "vl: FAILED"; exit 1; fi
+
+# TASK R27 (D78) -- the modern-CA layer (R26/D77) proven LIVE, end to
+# end: a cache peer pushes an AES-shaped control word (16 bytes, no
+# CSA checksum bytes) for a VideoGuard-iCam profile (CAID 098D).
+#   P1 (CA MODERN: ON, profile opt-in)  -> the CW is DELIVERED.
+#   P2 (same push, profile opt-in OFF)  -> stock refusal, NO delivery.
+#   P3 (BISS2 2610 via the POST /biss route) -> the 16-byte session
+#        word entered on the web page is DELIVERED to the client.
+# One server restart per phase (config is read at boot). Desk-check
+# fixtures only, like every other live target in this file.
+MD_HPORT = 17010
+MD_CACHE = 17011
+MD_NPORT = 17012
+MD_PEER  = 17013
+MD_CFG   = .md-srv.cfg
+MD_CW    = 9F3AC77104B2D58E61FA09C4376BD205
+MD_BISS  = 7E19C4A05B3D98F26E41AA07C5D3B891
+MD_KEY   = 0102030405060708091011121314
+
+.PHONY: md
+md: .ncclient.bin .cachepeer.bin
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@rm -f $(MD_CFG) .md-*.log; ok=1; \
+	echo "  [ -- ] P1: CA MODERN ON + opted-in 098D profile -- AES-shaped CW must deliver"; \
+	{ printf 'HTTP PORT: $(MD_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(MD_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(MD_PEER)\n\n[ md ]\nCAID: 098D\nCA MODERN: ON\nPROVIDERS: 0\nPORT: $(MD_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n\n'; } > $(MD_CFG); \
+	stdbuf -o0 -e0 $(BIN) -C $(MD_CFG) -v > .md1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(MD_CACHE) $(MD_PEER) "$(MD_CW)" 64 098D0000 > .md1-peer.log 2>&1 & ph=$$!; \
+	for i in $$(seq 1 30); do grep -q "come Online" .md1-srv.log && break; sleep 0.5; done; sleep 1; \
+	NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(MD_NPORT) u1 p1 $(MD_KEY) 0 098D 64 > .md1-cli.log 2>&1; \
+	grep -q "DELIVERED A CONTROL WORD" .md1-cli.log || { sleep 2; NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(MD_NPORT) u1 p1 $(MD_KEY) 0 098D 64 >> .md1-cli.log 2>&1; }; \
+	if grep -q "DELIVERED A CONTROL WORD" .md1-cli.log; then \
+	  echo "  [ ok ] P1: modem-on iCam profile delivers the AES-shaped CW"; \
+	else echo "[FAIL] P1 -- see .md1-*.log"; ok=0; fi; \
+	kill -9 $$ph 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	echo "  [ -- ] P2: CA MODERN stays OFF (stock): the identical push must NOT deliver"; \
+	{ printf 'HTTP PORT: $(MD_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(MD_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(MD_PEER)\n\n[ md ]\nCAID: 098D\nPROVIDERS: 0\nPORT: $(MD_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n\n'; } > $(MD_CFG); \
+	stdbuf -o0 -e0 $(BIN) -C $(MD_CFG) -v > .md2-srv.log 2>&1 & srv=$$!; sleep 3; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(MD_CACHE) $(MD_PEER) "$(MD_CW)" 64 098D0000 > .md2-peer.log 2>&1 & ph=$$!; \
+	for i in $$(seq 1 30); do grep -q "come Online" .md2-srv.log && break; sleep 0.5; done; sleep 1; \
+	NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(MD_NPORT) u1 p1 $(MD_KEY) 0 098D 64 > .md2-cli.log 2>&1; \
+	if grep -q "DELIVERED A CONTROL WORD" .md2-cli.log; then echo "[FAIL] P2: stock config DELIVERED a checksum-less CW -- R26 gate broken live"; ok=0; \
+	else echo "  [ ok ] P2: stock behaviour preserved (no delivery without opt-in)"; fi; \
+	kill -9 $$ph 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	echo "  [ -- ] P3: BISS2 (2610) session word entered via POST /biss must deliver"; \
+	{ printf 'HTTP PORT: $(MD_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(MD_CACHE)\nCACHE FILTER: OFF\n\n[ md ]\nCAID: 2610\nCA MODERN: ON\nPROVIDERS: 0\nPORT: $(MD_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n\n'; } > $(MD_CFG); \
+	stdbuf -o0 -e0 $(BIN) -C $(MD_CFG) -v > .md3-srv.log 2>&1 & srv=$$!; sleep 3; \
+	curl -s -m 3 -u a:a -o /dev/null "http://127.0.0.1:$(MD_HPORT)/biss?action=add&caid=2610&sid=0001&provid=000000&key=$(MD_BISS)"; \
+	bpage=$$(curl -s -m 3 -u a:a "http://127.0.0.1:$(MD_HPORT)/biss"); \
+	NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(MD_NPORT) u1 p1 $(MD_KEY) 0 2610 1 > .md3-cli.log 2>&1; \
+	grep -q "DELIVERED A CONTROL WORD" .md3-cli.log || { sleep 2; NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(MD_NPORT) u1 p1 $(MD_KEY) 0 2610 1 >> .md3-cli.log 2>&1; }; \
+	if grep -q "DELIVERED A CONTROL WORD" .md3-cli.log && printf '%s' "$$bpage" | grep -qi "C5D3B891"; then \
+	  echo "  [ ok ] P3: the /biss BISS2 word is listed and delivered"; \
+	else echo "[FAIL] P3 -- see .md3-*.log"; ok=0; fi; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	if [ "$$ok" = "1" ]; then rm -f $(MD_CFG) .md-*.log; echo "md: 3/3 ok"; \
+	else echo "md: FAILED (logs kept under tests/.md-*)"; exit 1; fi
+
+# TASK R28 (D79) -- fake-CW kill proof, LIVE. One honest-looking
+# cache peer pushes a CHECKSUM-VALID generator fake (a complement
+# mirror with repaired checksum bytes -- the classic fake shape).
+#   P1 (stock: no DCWFILTER PATTERN) -> the fake is DELIVERED
+#        (documents the black-screen hole stock leaves open);
+#   P2 (DCWFILTER PATTERN: ON in the profile) -> the same fake is
+#        refused AND the honest key right behind it is DELIVERED
+#        (no black screen for real keys on an armed profile);
+#   P3 (global DCWFILTER PATTERN: ON) -> staircase fake refused too.
+FK_HPORT = 17020
+FK_CACHE = 17021
+FK_NPORT = 17022
+FK_PEER  = 17023
+FK_CFG   = .fk-srv.cfg
+FK_FAKE  = 9F3AC7A004B2D58B60C5385DFB4D2A72
+FK_MONO  = 80A0C0E00020406061FA0964376BD274
+FK_HONEST = 9F3AC7A004B2D58B61FA0964376BD274
+FK_KEY   = 0102030405060708091011121314
+
+.PHONY: fk
+fk: .ncclient.bin .cachepeer.bin
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@rm -f $(FK_CFG) .fk-*.log; ok=1; \
+	run_fk() { \
+	  stdbuf -o0 -e0 $(BIN) -C $(FK_CFG) -v > .fk$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	  stdbuf -o0 -e0 ./$(CACHEPEER) $(FK_CACHE) $(FK_PEER) "$$2" 64 18840000 > .fk$$1-peer.log 2>&1 & ph=$$!; \
+	  for i in $$(seq 1 30); do grep -q "come Online" .fk$$1-srv.log && break; sleep 0.5; done; sleep 1; \
+	  NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(FK_NPORT) u1 p1 $(FK_KEY) 0 1884 64 > .fk$$1-cli.log 2>&1; \
+	  grep -q "DELIVERED A CONTROL WORD" .fk$$1-cli.log || { sleep 2; NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(FK_NPORT) u1 p1 $(FK_KEY) 0 1884 64 >> .fk$$1-cli.log 2>&1; }; \
+	  kill -9 $$ph 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	}; \
+	echo "  [ -- ] P1: stock -- the checksum-valid mirror fake must show the hole"; \
+	{ printf 'HTTP PORT: $(FK_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(FK_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(FK_PEER)\n\n[ fk ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(FK_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n\n'; } > $(FK_CFG); \
+	run_fk 1 "$(FK_FAKE)"; \
+	if grep -q "DELIVERED A CONTROL WORD" .fk1-cli.log; then \
+	  echo "  [ ok ] P1: stock delivers the fake (hole documented -- arm PATTERN to close it)"; \
+	else echo "[FAIL] P1: even stock refused it -- fixture or path broken, see .fk1-*.log"; ok=0; fi; \
+	echo "  [ -- ] P2: PATTERN ON in profile -- fake refused, honest key delivered"; \
+	{ printf 'HTTP PORT: $(FK_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(FK_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(FK_PEER)\n\n[ fk ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(FK_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nDCWFILTER PATTERN: ON\nUSER: u1 p1\n\n'; } > $(FK_CFG); \
+	run_fk 2 "$(FK_FAKE)"; \
+	if grep -q "DELIVERED A CONTROL WORD" .fk2-cli.log; then echo "[FAIL] P2: the mirror fake was DELIVERED under PATTERN ON"; ok=0; \
+	else echo "  [ ok ] P2a: the fake is refused under PATTERN ON"; fi; \
+	run_fk 3 "$(FK_HONEST)"; \
+	mv .fk3-cli.log .fk2h-cli.log; mv .fk3-srv.log .fk2h-srv.log; mv .fk3-peer.log .fk2h-peer.log; \
+	if grep -q "DELIVERED A CONTROL WORD" .fk2h-cli.log; then \
+	  echo "  [ ok ] P2b: the honest key is DELIVERED under PATTERN ON (no black screen)"; \
+	else echo "[FAIL] P2b: honest key refused under PATTERN ON -- see .fk2h-*.log"; ok=0; fi; \
+	echo "  [ -- ] P3: PATTERN ON globally -- the staircase fake is refused too"; \
+	{ printf 'HTTP PORT: $(FK_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(FK_CACHE)\nCACHE FILTER: OFF\nDCWFILTER PATTERN: ON\nCACHE PEER: 127.0.0.1:$(FK_PEER)\n\n[ fk ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(FK_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n\n'; } > $(FK_CFG); \
+	run_fk 4 "$(FK_MONO)"; \
+	mv .fk4-cli.log .fk3-cli.log; mv .fk4-srv.log .fk3-srv.log; mv .fk4-peer.log .fk3-peer.log; \
+	if grep -q "DELIVERED A CONTROL WORD" .fk3-cli.log; then echo "[FAIL] P3: the staircase fake was DELIVERED under global PATTERN ON"; ok=0; \
+	else echo "  [ ok ] P3: global PATTERN ON refuses the staircase fake"; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(FK_CFG) .fk-*.log; echo "fk: 3/3 ok"; \
+	else echo "fk: FAILED (logs kept under tests/.fk-*)"; exit 1; fi
+
+# TASK R29 (D80) -- the operator's scenario, LIVE: a flood of LINES
+# echoing ONE fake, one honest slower line, delivery watched at the
+# client across two ECM cycles (mid-watch freeze surface). 17030+.
+#   P1 (consensus OFF = stock): nine fake lines out-shout the honest
+#        one -- the fake is DELIVERED (the flood works today);
+#   P2 (CACHE CONSENSUS SOURCES: 3 + DCWFILTER PATTERN: ON): the
+#        echoed manufactured fake is refused by shape and counts as
+#        echoes of one key; the honest key serves the client.
+FZ_HPORT = 17030
+FZ_CACHE = 17031
+FZ_NPORT = 17032
+FZ_CFG   = .fz-srv.cfg
+FZ_FAKE  = 9F3AC7A004B2D58B60C5385DFB4D2A72
+FZ_HONEST = 9F3AC7A004B2D58B61FA0964376BD274
+FZ_KEY   = 0102030405060708091011121314
+
+.PHONY: fz
+fz: .ncclient.bin .cachepeer.bin
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@rm -f $(FZ_CFG) .fz-*.log; ok=1; \
+	start_fz() { stdbuf -o0 -e0 $(BIN) -C $(FZ_CFG) -v > .fz$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	  fp=""; i=0; while [ $$i -lt 9 ]; do p=$$((17040 + $$i)); \
+	    stdbuf -o0 -e0 ./$(CACHEPEER) $(FZ_CACHE) $$p "$(FZ_FAKE)" 64 18840000 > .fz$$1-f$$i.log 2>&1 & fp="$$fp $$!"; i=$$((i+1)); done; \
+	  env CP_ANSWER_DELAY_MS=400 stdbuf -o0 -e0 ./$(CACHEPEER) $(FZ_CACHE) 17049 "$(FZ_HONEST)" 64 18840000 > .fz$$1-h.log 2>&1 & hp=$$!; \
+	  sleep 2; \
+	  NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 40 ./$(NCCLIENT) 127.0.0.1 $(FZ_NPORT) u1 p1 $(FZ_KEY) 0 1884 64 > .fz$$1-cli.log 2>&1; \
+	  grep -q "DELIVERED A CONTROL WORD" .fz$$1-cli.log || { sleep 2; NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 40 ./$(NCCLIENT) 127.0.0.1 $(FZ_NPORT) u1 p1 $(FZ_KEY) 0 1884 64 >> .fz$$1-cli.log 2>&1; }; \
+	  kill -9 $$fp $$hp 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; }; \
+	peers9=""; i=0; while [ $$i -lt 9 ]; do peers9="$$peers9 CACHE PEER: 127.0.0.1:$$((17040 + $$i))\n"; i=$$((i+1)); done; \
+	echo "  [ -- ] P1: stock -- nine fake lines vs one honest slower line"; \
+	{ printf 'HTTP PORT: $(FZ_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(FZ_CACHE)\nCACHE FILTER: OFF\n'; printf "$$peers9"; printf 'CACHE PEER: 127.0.0.1:17049\n\n[ fz ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(FZ_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\n\n'; } > $(FZ_CFG); \
+	start_fz 1; \
+	got=$$(grep -c "DELIVERED A CONTROL WORD" .fz1-cli.log); \
+	isfake=$$(grep -ci "60C5385DFB4D2A72" .fz1-cli.log); \
+	if [ "$$got" -ge 1 ] && [ "$$isfake" -ge 1 ]; then \
+	  echo "  [ ok ] P1: the flood wins under stock -- the FAKE was delivered (hole live)"; \
+	else echo "[FAIL] P1 (deliveries $$got, fake-CW $$isfake) -- see .fz1-*.log"; ok=0; fi; \
+	echo "  [ -- ] P2: CONSENSUS SOURCES 3 + PATTERN ON -- honest serves, echoed fake never does"; \
+	{ printf 'HTTP PORT: $(FZ_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(FZ_CACHE)\nCACHE FILTER: OFF\nCACHE CONSENSUS: ON\nCACHE CONSENSUS WINDOW: 600\nCACHE CONSENSUS SOURCES: 3\n'; printf "$$peers9"; printf 'CACHE PEER: 127.0.0.1:17049\n\n[ fz ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(FZ_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nDCWFILTER PATTERN: ON\nUSER: u1 p1\n\n'; } > $(FZ_CFG); \
+	start_fz 2; \
+	got2=$$(grep -c "DELIVERED A CONTROL WORD" .fz2-cli.log); \
+	ishon=$$(grep -ci "61FA0964376BD274" .fz2-cli.log); \
+	isfake2=$$(grep -ci "60C5385DFB4D2A72" .fz2-cli.log); \
+	if [ "$$ishon" -ge 1 ] && [ "$$isfake2" = "0" ]; then \
+	  echo "  [ ok ] P2: the honest key served (deliveries $$got2); the echoed fake never did -- no mid-watch freeze"; \
+	else echo "[FAIL] P2 (deliveries $$got2, honest $$ishon, fake $$isfake2) -- see .fz2-*.log"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(FZ_CFG) .fz-*.log; echo "fz: 2/2 ok"; \
+	else echo "fz: FAILED (logs kept under tests/.fz-*)"; exit 1; fi
+
+
+# TASK R30 (D81) -- receiver attestation, live: ONE fake line floods the
+# channel; independent clients re-asking too soon after the same bytes
+# file them. 17050+.
+#   P1 (stock, CACHE ATTEST absent): the fake is delivered to client
+#        after client -- nothing any receiver says can stop the bytes
+#        (the hole this task closes);
+#   P2 (CACHE ATTEST: 2): client 1 and client 2 each re-ask too soon
+#        after the same delivered fake; the second distinct attestation
+#        files the bytes (CW ATTEST FILED in the server log), the
+#        sister-service client never receives them, and -- TASK R31 --
+#        a fourth client re-asking the SAME ECM on the SAME service
+#        is spared too (the filing retires the shared ECM);
+#   P3 (TASK R31): CACHE PROTECTION: STANDARD alone arms the stack;
+#        two attestations against a random-shaped key file it and the
+#        third client is spared.
+AT_HPORT = 17050
+AT_CACHE = 17051
+AT_NPORT = 17052
+AT_CFG   = .at-srv.cfg
+AT_FAKE  = 9F3AC7A004B2D58B60C5385DFB4D2A72
+AT_KEY   = 0102030405060708091011121314
+
+.PHONY: at
+at: .ncclient.bin .cachepeer.bin
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@rm -f $(AT_CFG) .at-*.log; ok=1; \
+	run_at() { stdbuf -o0 -e0 $(BIN) -C $(AT_CFG) -v > .at$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	  stdbuf -o0 -e0 ./$(CACHEPEER) $(AT_CACHE) 17060 "$${AT_PEER_CW:-$(AT_FAKE)}" 64 18840000 > .at$$1-f.log 2>&1 & fp=$$!; \
+	  sleep 2; \
+	  NC_ECMS=3 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u1 p1 $(AT_KEY) 0 1884 64 > .at$$1-c1.log 2>&1; \
+	  NC_ECMS=3 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u2 p2 $(AT_KEY) 0 1884 64 > .at$$1-c2.log 2>&1; \
+	  NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u3 p3 $(AT_KEY) 0 1884 C8 > .at$$1-c3.log 2>&1; \
+	  NC_ECMS=1 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u1 p1 $(AT_KEY) 0 1884 64 > .at$$1-c4.log 2>&1; \
+	  kill -9 $$fp 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; }; \
+	echo "  [ -- ] P1: stock -- the same fake serves every client, attestation absent"; \
+	{ printf 'HTTP PORT: $(AT_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(AT_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:17060\n\n[ at ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(AT_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\nUSER: u2 p2\nUSER: u3 p3\n\n'; } > $(AT_CFG); \
+	run_at 1; \
+	f1=$$(grep -ci "60C5385DFB4D2A72" .at1-c1.log); f3=$$(grep -ci "60C5385DFB4D2A72" .at1-c3.log); \
+	if [ "$$f1" -ge 1 ] && [ "$$f3" -ge 1 ]; then \
+	  echo "  [ ok ] P1: the fake was delivered to client 1 and STILL to client 3 (hole live)"; \
+	else echo "[FAIL] P1 (fake to c1=$$f1, c3=$$f3) -- see .at1-*.log"; ok=0; fi; \
+	echo "  [ -- ] P2: CACHE ATTEST: 2 -- two receivers file the bytes, client 3 is spared"; \
+	{ printf 'HTTP PORT: $(AT_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(AT_CACHE)\nCACHE FILTER: OFF\nCACHE ATTEST: 2\nCACHE PEER: 127.0.0.1:17060\n\n[ at ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(AT_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\nUSER: u2 p2\nUSER: u3 p3\n\n'; } > $(AT_CFG); \
+	run_at 2; \
+	f1=$$(grep -ci "60C5385DFB4D2A72" .at2-c1.log); f3=$$(grep -ci "60C5385DFB4D2A72" .at2-c3.log); f4=$$(grep -ci "60C5385DFB4D2A72" .at2-c4.log); \
+	filed=$$(grep -c "CW ATTEST FILED" .at2-srv.log); ref=$$(grep -c "CW ATTEST: ch" .at2-srv.log); ret=$$(grep -c "CW ATTEST ECM" .at2-srv.log); \
+	if [ "$$f1" -ge 1 ] && [ "$$filed" -ge 1 ] && [ "$$ref" -ge 1 ] && [ "$$f3" = "0" ] && [ "$$f4" = "0" ] && [ "$$ret" -ge 1 ]; then \
+	  echo "  [ ok ] P2: filed by independent receivers (server lines $$filed), re-offer refused at ingest ($$ref), sister-service client spared, and the shared ECM was retired ($$ret) so the same-ECM client got nothing"; \
+	else echo "[FAIL] P2 (fake to c1=$$f1, filed=$$filed, refused=$$ref, fake to c3=$$f3, fake to c4=$$f4, retired=$$ret) -- see .at2-*.log"; ok=0; fi; \
+	echo "  [ -- ] P3: CACHE PROTECTION: STANDARD only -- the one-line recipe arms attest"; \
+	{ printf 'HTTP PORT: $(AT_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(AT_CACHE)\nCACHE FILTER: OFF\nCACHE PROTECTION: STANDARD\nCACHE PEER: 127.0.0.1:17060\n\n[ at ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(AT_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\nUSER: u2 p2\nUSER: u3 p3\n\n'; } > $(AT_CFG); \
+	AT_PEER_CW=9F3AC7A004B2D58B61FA0964376BD274 run_at 3; \
+	g3=$$(grep -ci "61FA0964376BD274" .at3-c3.log); filed3=$$(grep -c "CW ATTEST FILED" .at3-srv.log); prot=$$(grep -c "CACHE PROTECTION: STANDARD" .at3-srv.log); \
+	if [ "$$prot" -ge 1 ] && [ "$$filed3" -ge 1 ] && [ "$$g3" = "0" ]; then \
+	  echo "  [ ok ] P3: the one-line PROTECTION recipe armed the stack (config line $$prot) and receiver attestation filed the key (filed $$filed3); third client spared"; \
+	else echo "[FAIL] P3 (protection line=$$prot, filed=$$filed3, key to c3=$$g3) -- see .at3-*.log"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(AT_CFG) .at-*.log; echo "at: 3/3 ok"; \
+	else echo "at: FAILED (logs kept under tests/.at-*)"; exit 1; fi
+
+
+# ===========================================================================
+# TASK R36 (D87/D88/D90) -- the R24-era keys that were never implemented,
+# now real and proven live: ENABLE SKIPCWC (a CW for a gated SID must
+# prove its DVB-CSA checksum before delivery, even where the operator
+# turned DCWFILTER CHECKSUM off), DCW MINTIME (card replies faster
+# than physics are skipped), ECM HEADERWLST (ECM header whitelist).
+#
+#   P1 control: CHECKSUM OFF, no SKIPCWC -- the bad-checksum CW is
+#      DELIVERED (the hole the fiction claimed to close).
+#   P2 SKIPCWC on: the same bad CW never reaches the client; a
+#      checksum-valid CW does.
+#   P3 SID gate: SKIPCWC on but the client's SID is outside the ONLY
+#      list -- the bad CW is delivered again (the gate is SID-scoped).
+#   P4 MINTIME 60000 with an instant card: nothing is delivered and
+#      the [MINTIME] line fires.  P5 same card without MINTIME: the
+#      CW is delivered.  P6 HEADERWLST with a foreign prefix: the
+#      ECM is refused before any server sees it, nothing delivered.
+#   P7 ENABLE SOFTCAM: NO with a stored BISS key: the softcam answer
+#      is closed, nothing delivered.  P8 control without the line:
+#      the same stored key delivers (TASK R38 gap closure).  Both
+#      carry CA MODERN: ON like the shipped profiles -- a BISS1 key
+#      has no checksum bytes, and frozen stock refuses it at the
+#      checksum gate without MODERN (verified against D53).
+# ===========================================================================
+SC_HPORT = 17200
+SC_CACHE = 17201
+SC_NPORT = 17202
+SC_NPORT2 = 17203
+SC_CARD  = 17204
+SC_PEER  = 17205
+SC_CFG   = .sc-srv.cfg
+SC_GOOD  = 11223366445566FF77889998ABBCCD34
+SC_BAD   = 11223399445566FF77889998ABBCCD34
+SC_KEY   = 0102030405060708091011121314
+SC_BISS1 = 1122334455667788
+SC_SKEY  = 01 02 03 04 05 06 07 08 09 10 11 12 13 14
+
+.PHONY: sc
+sc: .ncclient.bin .cachepeer.bin $(NCSERVER)
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x '.ncserver.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin $(NCSERVER) 2>/dev/null; true
+	@rm -f $(SC_CFG) .sc-*.log; ok=1; \
+	cache_cfg() { { printf 'HTTP PORT: $(SC_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(SC_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(SC_PEER)\n\n[ sc ]\nCAID: 0500\nPROVIDERS: 0\nPORT: $(SC_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\n'; printf "%b" "$$1"; printf 'USER: u1 p1\nUSER: u2 p2\n\n'; } > $(SC_CFG); }; \
+	card_cfg() { { printf 'HTTP PORT: $(SC_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nN: 127.0.0.1 $(SC_CARD) srv1 pass1 $(SC_SKEY)\n\n[ sc2 ]\nCAID: 0500\nPROVIDERS: 0\nPORT: $(SC_NPORT2)\nDCW TIMEOUT: 6000\n'; printf "%b" "$$1"; printf 'USER: u1 p1\n\n'; } > $(SC_CFG); }; \
+	boot() { stdbuf -o0 -e0 $(BIN) -C $(SC_CFG) -v > .sc$$1-srv.log 2>&1 & srv=$$!; sleep 3; }; \
+	waitcard() { for i in $$(seq 1 25); do grep -q "connect to server" .sc$$1-srv.log && break; sleep 1; done; sleep 4; }; \
+	stopall() { kill -9 $$peer $$ns $$srv 2>/dev/null; sleep 1; pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x '.ncserver.bin' 2>/dev/null; }; \
+	echo "  [ -- ] P1: control -- CHECKSUM OFF, no SKIPCWC, bad CW is delivered"; \
+	cache_cfg 'DCWFILTER CHECKSUM: OFF\n'; boot 1; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(SC_CACHE) $(SC_PEER) $(SC_BAD) 64 05000000 > .sc1-f.log 2>&1 & peer=$$!; sleep 2; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT) u1 p1 $(SC_KEY) 0 0500 64 > .sc1-c.log 2>&1; stopall; \
+	b=$$(grep -ci "11223399" .sc1-c.log); \
+	if [ "$$b" -ge 1 ]; then echo "  [ ok ] P1: the bad-checksum CW was delivered (hole open without SKIPCWC)"; \
+	else echo "[FAIL] P1 (bad to client=$$b) -- see .sc1-*.log"; ok=0; fi; \
+	echo "  [ -- ] P2: ENABLE SKIPCWC -- bad CW skipped, good CW delivered"; \
+	cache_cfg 'DCWFILTER CHECKSUM: OFF\nENABLE SKIPCWC: YES\n'; boot 2; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(SC_CACHE) $(SC_PEER) $(SC_BAD) 64 05000000 > .sc2-f.log 2>&1 & peer=$$!; sleep 2; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT) u1 p1 $(SC_KEY) 0 0500 64 > .sc2-c1.log 2>&1; \
+	kill -9 $$peer 2>/dev/null; sleep 1; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(SC_CACHE) $(SC_PEER) $(SC_GOOD) 64 05000000 > .sc2-g.log 2>&1 & peer=$$!; sleep 2; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT) u2 p2 $(SC_KEY) 0 0500 65 > .sc2-c2.log 2>&1; stopall; \
+	b=$$(grep -ci "11223399" .sc2-c1.log); g=$$(grep -ci "77889998ABBCCD34" .sc2-c2.log); \
+	if [ "$$b" = "0" ] && [ "$$g" -ge 1 ]; then echo "  [ ok ] P2: SKIPCWC skipped the bad CW (client saw none) and delivered the valid one"; \
+	else echo "[FAIL] P2 (bad=$$b good=$$g) -- see .sc2-*.log"; ok=0; fi; \
+	echo "  [ -- ] P3: SID gate -- ONLY list misses the client SID, bad CW delivered"; \
+	cache_cfg 'DCWFILTER CHECKSUM: OFF\nENABLE SKIPCWC: YES\nSKIPCWC_ONLY_SIDS_ACTIVE: YES\nSKIPCWC_ONLY_SIDLIST: 9999\n'; boot 3; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(SC_CACHE) $(SC_PEER) $(SC_BAD) 64 05000000 > .sc3-f.log 2>&1 & peer=$$!; sleep 2; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT) u1 p1 $(SC_KEY) 0 0500 64 > .sc3-c.log 2>&1; stopall; \
+	b=$$(grep -ci "11223399" .sc3-c.log); \
+	if [ "$$b" -ge 1 ]; then echo "  [ ok ] P3: outside the ONLY list the gate stays open (bad CW delivered)"; \
+	else echo "[FAIL] P3 (bad to client=$$b) -- see .sc3-*.log"; ok=0; fi; \
+	echo "  [ -- ] P4: DCW MINTIME 60000 vs an instant card -- skipped, [MINTIME] logged"; \
+	card_cfg 'DCW MINTIME: 60000\n'; \
+	NS_DELAYS=0 stdbuf -o0 -e0 ./$(NCSERVER) $(SC_CARD) $(SC_KEY) 0500 000000 > .sc4-ns.log 2>&1 & ns=$$!; sleep 1; boot 4; waitcard 4; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 0500 64 > .sc4-c.log 2>&1; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc4-c.log); m=$$(grep -c "\[MINTIME\]" .sc4-srv.log); \
+	if [ "$$d" = "0" ] && [ "$$m" -ge 1 ]; then echo "  [ ok ] P4: the instant reply was skipped as too fast to be real ([MINTIME] x$$m)"; \
+	else echo "[FAIL] P4 (dcw to client=$$d, mintime lines=$$m) -- see .sc4-*.log"; ok=0; fi; \
+	echo "  [ -- ] P5: control -- same instant card, no MINTIME, CW delivered"; \
+	card_cfg ''; \
+	NS_DELAYS=0 stdbuf -o0 -e0 ./$(NCSERVER) $(SC_CARD) $(SC_KEY) 0500 000000 > .sc5-ns.log 2>&1 & ns=$$!; sleep 1; boot 5; waitcard 5; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 0500 64 > .sc5-c.log 2>&1; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc5-c.log); \
+	if [ "$$d" -ge 1 ]; then echo "  [ ok ] P5: without MINTIME the same instant answer is delivered"; \
+	else echo "[FAIL] P5 (dcw to client=$$d) -- see .sc5-*.log"; ok=0; fi; \
+	echo "  [ -- ] P6: ECM HEADERWLST with a foreign prefix -- ECM refused at the door"; \
+	card_cfg 'ECM HEADERWLST: FFFFFFFFFFFFFFFF\n'; \
+	NS_DELAYS=0 stdbuf -o0 -e0 ./$(NCSERVER) $(SC_CARD) $(SC_KEY) 0500 000000 > .sc6-ns.log 2>&1 & ns=$$!; sleep 1; boot 6; waitcard 6; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 0500 64 > .sc6-c.log 2>&1; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc6-c.log); \
+	if [ "$$d" = "0" ]; then echo "  [ ok ] P6: the non-whitelisted ECM header never reached the card (nothing delivered)"; \
+	else echo "[FAIL] P6 (dcw to client=$$d) -- see .sc6-*.log"; ok=0; fi; \
+	echo "  [ -- ] P7: ENABLE SOFTCAM: NO -- stored BISS key must NOT answer"; \
+	{ printf 'HTTP PORT: $(SC_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n\n[ sc3 ]\nCAID: 2600\nPROVIDERS: 0\nPORT: $(SC_NPORT2)\nDCW TIMEOUT: 4000\nCA MODERN: ON\nENABLE SOFTCAM: NO\nUSER: u1 p1\n\n'; } > $(SC_CFG); pkill -9 '^multics' 2>/dev/null; sleep 2; boot 7; \
+	for i in $$(seq 1 20); do grep -q "started on port $(SC_NPORT2)" .sc7-srv.log && break; sleep 0.5; done; \
+	if grep -q "bind port failed" .sc7-srv.log; then echo "[FAIL] P7 bind race -- see .sc7-srv.log"; ok=0; fi; \
+	curl -s -m 3 -u a:a -o /dev/null "http://127.0.0.1:$(SC_HPORT)/biss?action=add&caid=2600&sid=0001&provid=000000&key=$(SC_BISS1)"; \
+	NC_ECMS=1 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 2600 1 > .sc7-c.log 2>&1; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc7-c.log); \
+	if [ "$$d" = "0" ]; then echo "  [ ok ] P7: with SOFTCAM off the stored BISS key stays silent"; \
+	else echo "[FAIL] P7 (delivered=$$d) -- see .sc7-*.log"; ok=0; fi; \
+	echo "  [ -- ] P8: control -- same BISS key, no SOFTCAM line, delivered"; \
+	{ printf 'HTTP PORT: $(SC_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n\n[ sc3 ]\nCAID: 2600\nPROVIDERS: 0\nPORT: $(SC_NPORT2)\nDCW TIMEOUT: 4000\nCA MODERN: ON\nUSER: u1 p1\n\n'; } > $(SC_CFG); pkill -9 '^multics' 2>/dev/null; sleep 2; boot 8; \
+	for i in $$(seq 1 20); do grep -q "started on port $(SC_NPORT2)" .sc8-srv.log && break; sleep 0.5; done; \
+	if grep -q "bind port failed" .sc8-srv.log; then echo "[FAIL] P8 bind race -- see .sc8-srv.log"; ok=0; fi; \
+	curl -s -m 3 -u a:a -o /dev/null "http://127.0.0.1:$(SC_HPORT)/biss?action=add&caid=2600&sid=0001&provid=000000&key=$(SC_BISS1)"; \
+	NC_ECMS=1 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 2600 1 > .sc8-c.log 2>&1; \
+	grep -q "DELIVERED A CONTROL WORD" .sc8-c.log || { sleep 2; NC_ECMS=1 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 2600 1 >> .sc8-c.log 2>&1; }; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc8-c.log); \
+	if [ "$$d" -ge 1 ]; then echo "  [ ok ] P8: without the line the stored BISS key answers as stock"; \
+	else echo "[FAIL] P8 (delivered=$$d) -- see .sc8-*.log"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(SC_CFG) .sc-*.log; echo "sc: 8/8 ok"; \
+	else echo "sc: FAILED (logs kept under tests/.sc-*)"; exit 1; fi
+
+# TASK R32 (D83) -- the shipped profiles file, proven bootable.
+#
+# multics-r24-optimized.cfg was rewritten against THIS build (every
+# line the parser actually reads; the R24 file named systems that
+# exist nowhere in the tree). This target boots the real file and
+# asserts: the shield lines are parsed, HTTP answers, and every one
+# of the 71 profile ports actually listens. Interleaved -v output
+# makes log-line counting meaningless (it undercounts), so the
+# ports are probed with real connections instead.
+PROF_HPORT = 17100
+PROF_CFG   = .prof-boot.cfg
+
+.PHONY: prof
+prof:
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@rm -f $(PROF_CFG) .prof-srv.log; ok=1; \
+	{ printf 'HTTP PORT: $(PROF_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n'; cat ../multics-r24-optimized.cfg; } > $(PROF_CFG); \
+	stdbuf -o0 -e0 $(BIN) -C $(PROF_CFG) -v > .prof-srv.log 2>&1 & srv=$$!; \
+	code=000; for i in $$(seq 1 30); do \
+	  code=$$(curl -s -m 3 -u a:a -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PROF_HPORT)/ 2>/dev/null); \
+	  [ "$$code" = "200" ] && break; sleep 1; done; \
+	if [ "$$code" = "200" ]; then echo "  [ ok ] the shipped profiles file boots and HTTP answers"; \
+	else echo "[FAIL] HTTP answered '$$code' -- see .prof-srv.log"; ok=0; fi; \
+	nports=$$(grep '^PORT: ' ../multics-r24-optimized.cfg | awk '{print $$2}' | sort -u | wc -l); \
+	nopen=0; for p in $$(grep '^PORT: ' ../multics-r24-optimized.cfg | awk '{print $$2}' | sort -u); do \
+	  bash -c "exec 3<>/dev/tcp/127.0.0.1/$$p" 2>/dev/null && nopen=$$((nopen+1)); done; \
+	if [ "$$nopen" = "$$nports" ]; then echo "  [ ok ] all $$nports profile ports listen"; \
+	else echo "[FAIL] $$nopen of $$nports profile ports listen"; ok=0; fi; \
+	grep -q "CACHE PROTECTION: STANDARD" .prof-srv.log && echo "  [ ok ] the one-line shield was parsed (consensus+pattern+attest armed)" || { echo "[FAIL] PROTECTION line not parsed"; ok=0; }; \
+	grep -q "CACHE ATTEST TTL:" .prof-srv.log && echo "  [ ok ] attestation TTL parsed" || { echo "[FAIL] ATTEST TTL not parsed"; ok=0; }; \
+	grep -qi "segmentation\|SIGSEGV" .prof-srv.log && { echo "[FAIL] logged a segfault"; ok=0; } || echo "  [ ok ] no crash in the log"; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	if [ "$$ok" = "1" ]; then rm -f $(PROF_CFG) .prof-srv.log; echo "prof: 5/5 ok"; \
+	else echo "prof: FAILED (logs kept under tests/.prof-*)"; exit 1; fi

@@ -422,7 +422,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 					cli->lastecmtime = ticks;
 					cli->ecmnb++;
 					memcpy( data, buf, len);
-					uint32_t provid = ecm_getprovid( data, clicd.caid );
+					uint32_t provid = ecm_getprovid( data, len, clicd.caid );
 					if (provid!=0) clicd.provid = provid;
 
 					if (cli->ecm.busy) {
@@ -435,7 +435,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 					}
 					// CHECK FOR ECM
 					uint8_t cw1cycle;
-					char *error = cs_accept_ecm(cs,clicd.caid,clicd.provid,clicd.sid,ecm_getchid(data,clicd.caid), len, data, &cw1cycle);
+					char *error = cs_accept_ecm(cs,clicd.caid,clicd.provid,clicd.sid,ecm_getchid(data,len,clicd.caid), len, data, &cw1cycle);
 					if (error) {
 						cs->ecmdenied++;
 						cli->ecmdenied++;
@@ -602,6 +602,26 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
 								cli->lastecm.caid, ticks );
 						}
+
+						/*
+						 * TASK R30 (D81) -- receiver attestation.
+						 *
+						 * The same hard retry, read as a receiver's vote on the
+						 * BYTES: this client was handed `lastecm.dcw` and came
+						 * back too soon. One client is inference (GR3); the
+						 * armed number of DISTINCT clients re-asking after the
+						 * same bytes is independent receivers attesting one
+						 * fact, and files the bytes for a TTL (cwattest.h).
+						 * Skipped when the ledger already PROVED this key --
+						 * proof memory (cwneg) is permanent and outranks a
+						 * filing. No-op unless CACHE ATTEST is armed; only
+						 * cache-delivered keys can be filed (attest_note
+						 * enforces it), since the gate sits at cache ingest.
+						 */
+						if (rcls==RETRY_HARD && !led_proof)
+							attest_note( ATTEST_TAG_NEWCAMD | (uint32_t)cli->id, cli->lastecm.dcw,
+								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
 
 						/*
 						 * TASK 1.6 — the retry IS the recovery opportunity.
@@ -834,7 +854,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						break;
 					}
 					// Check for DCW
-					if (!acceptDCW_profile(&buf[3], ecm->cs)) {
+					if (!acceptDCW_profile_ca(&buf[3], ecm->cs, ecm->caid)) {
 						debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <!= wrong cw from Client '%s' ch %04x:%06x:%04x\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->lastecmtime);
 						pthread_mutex_unlock(&prg.lockecm);
 						break;

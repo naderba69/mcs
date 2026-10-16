@@ -568,7 +568,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					cli->ecmnb++;
 					ecmlen = len;
 					memcpy( ecmdata, buf, len);
-					uint32_t provid = ecm_getprovid( ecmdata, clicd.caid );
+					uint32_t provid = ecm_getprovid( ecmdata, ecmlen, clicd.caid );
 					if (provid!=0) clicd.provid = provid;
 
 					if (cli->ecm.busy) {
@@ -631,7 +631,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					}
 					// Check for Accepted sids
 					uint8_t cw1cycle;
-					if ( !accept_sid(cs, clicd.provid, clicd.sid, ecm_getchid(ecmdata,clicd.caid), ecmlen, &cw1cycle) ) {
+					if ( !accept_sid(cs, clicd.provid, clicd.sid, ecm_getchid(ecmdata,ecmlen,clicd.caid), ecmlen, &cw1cycle) ) {
 						cli->ecmdenied++;
 						cs->ecmdenied++;
 						// send decode failed
@@ -656,6 +656,19 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 
 					// Search for ECM
 					ECM_DATA *ecm = search_ecmdata_any(cs, ecmdata, ecmlen, clicd.sid, clicd.caid); // dont get failed ecm request from cache
+					/* TASK R31 (D82) -- receiver attestation tap, mirroring
+					 * srv-newcamd's: this client's too-soon re-ask after a
+					 * delivered key is one receiver's vote on the BYTES;
+					 * the armed number of distinct voters files them
+					 * (attest_note). Classification only -- nothing is
+					 * scored or refused here, and nothing runs unless
+					 * CACHE ATTEST is armed. */
+					if ( (cli->lastecm.caid==clicd.caid) && (cli->lastecm.prov==clicd.provid) && (cli->lastecm.sid==clicd.sid) && cli->lastecm.status ) {
+						if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
+							attest_note( ATTEST_TAG_MGCAMD | (uint32_t)cli->id, cli->lastecm.dcw,
+								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
+					}
 					int isnew =  ( ecm==NULL );
 					if (ecm) {
 						ecm->lastrecvtime = ticks;
@@ -783,7 +796,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 						break;
 					}
 					// Check for DCW
-					if (!acceptDCW_profile(&buf[3], ecm->cs)) {
+					if (!acceptDCW_profile_ca(&buf[3], ecm->cs, ecm->caid)) {
 						debugf(getdbgflagpro(DBG_MGCAMD,0,cli->id,ecm->cs->id)," <!= wrong cw from Client '%s' ch %04x:%06x:%04x\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->lastecmtime);
 						pthread_mutex_unlock(&prg.lockecm);
 						break;
@@ -864,6 +877,10 @@ void mg_senddcw_cli(struct mg_client_data *cli)
 	if ( (ecm->hash==cli->ecm.hash)&&(ecm->dcwstatus==STAT_DCW_SUCCESS) ) {
 		cli->lastecm.dcwsrctype = ecm->dcwsrctype;
 		cli->lastecm.dcwsrcid = ecm->dcwsrcid;
+		/* TASK R31 (D82): name the delivered key on the record, as
+		 * srv-newcamd does -- receiver attestation files BYTES, so
+		 * the bytes themselves must be remembered. */
+		memcpy( cli->lastecm.dcw, ecm->cw, 16 );
 		cli->lastecm.status=1;
 		cli->ecmok++;
 		cli->ecmoktime += GetTickCount()-cli->ecm.recvtime;

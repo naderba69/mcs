@@ -131,6 +131,17 @@ static struct cw_slot *cwc_alloc(uint16_t caid, uint16_t sid, uint16_t provid,
 	return free_slot;
 }
 
+/* TASK R29 (D80): the early-delivery corroboration threshold, in
+ * DISTINCT voters. Default 2 (D62). See cwconsensus.h. */
+static int cwc_min_sources = 2;
+
+void cwconsensus_set_min_sources(int n)
+{
+	if (n < 2) n = 2;
+	if (n > 8) n = 8;
+	cwc_min_sources = n;
+}
+
 int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 			uint8_t tag, const uint8_t *cw, int peerid,
 			int weight, uint32_t now_ms, uint32_t window_ms,
@@ -170,7 +181,7 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 		struct cw_slot *cf = cwc_best_conflict(caid, sid, hash, tag, cw,
 						       now_ms, window_ms);
 		if (!cf) {
-			if (cwc_weight_sum(s, now_ms, window_ms) >= 2) {
+			if (cwc_weight_sum(s, now_ms, window_ms) >= cwc_min_sources) {
 				s->holding = 0;
 				return CWC_DELIVER; /* corroborated: early unanimous */
 			}

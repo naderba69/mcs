@@ -67,8 +67,30 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 	cache_priority_update(ecm->caid, ecm->provid, ecm->sid);
 	predictive_warming_record(ecm->caid, ecm->provid, ecm->sid);
 
+	// TASK R26 (D77) - BISS2 KEY CHECK (CAID 2610 only): the 128-bit
+	// session word IS the full DCW. Never repeat a half, and never
+	// fall through to the BISS1 table for this CAID.
+	if (ecm->caid == BISS2_CAID && (!ecm->cs || !ecm->cs->option.disable_softcam)) {
+		uint8_t biss2_key[BISS2_KEY_SIZE];
+		if (biss2_get(ecm->caid, ecm->sid, ecm->provid, biss2_key)) {
+			uint8_t dcw[16];
+			memcpy(dcw, biss2_key, BISS2_KEY_SIZE);
+			debugf(0, "BISS2: Using stored session word for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+			cw_prediction_record(ecm->caid, ecm->provid, ecm->sid, dcw);
+			ecm_setdcw(ecm, dcw, 99, 0);  // Source 99 = BISS
+			/* TASK R27 (D78): do NOT call clients_check_sendcw()
+			 * here. ecm_setdcw() hands the key to the Set-DCW
+			 * thread (THREAD_DCW), which commits STAT_DCW_SUCCESS
+			 * and answers the waiting clients itself; answering
+			 * here raced that commit and the client was sent a
+			 * decode-failed for a key that arrived moments later
+			 * (proven live by tests/md P3). */
+			return;
+		}
+	}
+
 	// BISS KEY CHECK - Try to use stored BISS key first
-	{
+	if (!ecm->cs || !ecm->cs->option.disable_softcam) {
 		uint8_t biss_key[8];
 		if (biss_get(ecm->caid, ecm->sid, ecm->provid, biss_key)) {
 			// Found BISS key! Use it directly
@@ -76,14 +98,15 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 			memcpy(dcw, biss_key, 8);      // First 8 bytes
 			memcpy(dcw+8, biss_key, 8);    // Repeat for second 8 bytes
 			
-			debugf("BISS: Using stored key for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+			debugf(0, "BISS: Using stored key for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
 			
 			// Record for CW prediction
 			cw_prediction_record(ecm->caid, ecm->provid, ecm->sid, dcw);
 			
 			// Set DCW directly
 			ecm_setdcw(ecm, dcw, 99, 0);  // Source 99 = BISS
-			clients_check_sendcw(ecm);
+			/* TASK R27 (D78): no clients_check_sendcw() here -- the
+			 * Set-DCW thread answers after committing (see BISS2). */
 			return;
 		}
 	}

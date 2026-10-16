@@ -83,7 +83,6 @@
 #include "cwmemlimit.h"
 #include "cwfeedback2.h"
 #include "cwcrosslearn.h"
-#include "cwexpire.h"
 #include "udpfast.h"
 #include "multipath.h"
 #include "clientbuf.h"
@@ -171,7 +170,6 @@ static inline void r22_layers_init(void)
     cwmem_init(10);  /* 10 MB limit */
     cwfeedback2_init();
     cwcrosslearn_init();
-    cwexpire_init(86400, 5);  /* 24 hours max age, 5 min samples */
     
     /* Register histograms */
     cwhistogram_create_linear("cw_latency_ms", 0.0, 1000.0, 50);

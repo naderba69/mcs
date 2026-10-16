@@ -38,4 +38,19 @@ extern int dcw_filter_repeat;
  */
 extern int dcw_filter_cycle;
 
+/*
+ * TASK R28 (D79) -- gate the structural FAKE test (dcw.c:
+ * dcw_pattern_fake). Default 0 (OFF), exactly like the cycle gate:
+ * the structural scanners (dcwstruct/cwcm) have counted generator-
+ * shaped keys for years without ever refusing one, so a key built
+ * as a checksum-repaired complement mirror, an arithmetic staircase,
+ * a two-value half or a repeated half is DELIVERED today and shows
+ * as a black screen. Those shapes occur in genuine random keys with
+ * probability ~1e-12 or less (dcwstruct.h), so an operator may arm
+ * the refusal -- globally here, or per profile with the tristate
+ * `DCWFILTER PATTERN:` -- without risking genuine keys. Never armed
+ * by default: the stock decision stands until asked.
+ */
+extern int dcw_filter_pattern;
+
 #endif /* MCS_DCWFILTER_H */

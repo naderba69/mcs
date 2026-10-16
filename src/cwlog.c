@@ -27,7 +27,7 @@ void cwlog_note(int verdict, int reason, int peerid,
 		const uint8_t *cw, uint32_t tick)
 {
 	struct cwlog_entry *e;
-	if (verdict < CWLOG_DELIVERED || verdict > CWLOG_STORED) return;
+	if (verdict < CWLOG_DELIVERED || verdict > CWLOG_DISPUTED) return;
 
 	pthread_mutex_lock(&cwlog_mtx);
 	e = &cwlog_ring[cwlog_head];

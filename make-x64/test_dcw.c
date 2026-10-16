@@ -24,6 +24,10 @@ int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode);
 #define DCWFILTER_ON      1
 #define DCWFILTER_OFF     2
 
+/* standalone link stub: dcw.c logs via debugf (debug.c in the server) */
+void debugf(unsigned int flag, char *format, ...);
+void debugf(unsigned int flag, char *format, ...) { (void)flag; (void)format; }
+
 static int failures = 0, total = 0;
 
 static void check(const char *name, int got, int want)

@@ -1,5 +1,6 @@
 
 #include "common.h"
+#include "cafamily.h"	/* TASK R36 (D92) */
 #include <stdlib.h>
 
 void stringtohtml(char *src, char *dest)
@@ -1662,7 +1663,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			debugf(getdbgflag(DBG_CACHE,0,0), " [CACHEEX GATE] LOCAL_ONLY: unsolicited push dropped ch %04x:%06x:%04x\n", req->caid, req->provid, req->sid);
 			return -1;
 		}
-		if ( !acceptDCW_profile(cw, pcs) ) {
+		if ( !acceptDCW_profile_ca_sid(cw, pcs, req->caid, req->sid) ) {
 		/*
 		 * TASK 2.4 -- the blind spot this closes, found by running the live
 		 * target and watching nothing arrive.
@@ -1732,6 +1733,21 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 * channel"; every score and every disable remains the proof's job.
 	 */
 	if ( cwn_gate(cw, req->caid, req->provid, req->sid, GetTickCount()) ) {
+#ifdef MCS_DCWSTATS
+		cwlog_refuse(CWLOG_R_CONVICTED, peerid, req->caid, req->provid, req->sid, cw);
+#endif
+		return DCW_ERROR;
+	}
+
+	/*
+	 * TASK R30 (D81) -- attestation gate. A key that independent clients
+	 * filed by re-asking too soon after the same delivered bytes gets
+	 * exactly the negative-memory treatment -- refused before storage,
+	 * agreement counting or delivery -- except that the filing EXPIRES
+	 * (CWATTEST_TTL_MS): attestation is strong evidence, not a GR3
+	 * proof. No-op unless CACHE ATTEST is armed.
+	 */
+	if ( attest_gate(cw, req->caid, req->provid, req->sid, GetTickCount()) ) {
 #ifdef MCS_DCWSTATS
 		cwlog_refuse(CWLOG_R_CONVICTED, peerid, req->caid, req->provid, req->sid, cw);
 #endif
@@ -1844,6 +1860,12 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 * layers' problem (FILTER/THRESHOLD/cacheguard), as documented in D62.
 	 */
 	if (cfg.cache.consensus) {
+		/* TASK R29 (D80): apply the operator's corroboration
+		 * threshold (0/unset = engine default 2). Cheap enough to
+		 * restate per arrival; a config reload takes effect on the
+		 * very next push. */
+		cwconsensus_set_min_sources(cfg.cache.consensus_sources >= 2
+					    ? cfg.cache.consensus_sources : 2);
 		int cw_weight = 1;
 		{
 			struct cachepeer_data *vc_peer = getpeerbyid(peerid);
@@ -1994,7 +2016,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	}
 	else {
 		// half nulled cw: exit if non-nds
-		if ( (req->caid>>8)!=9 ) {
+		if ( !ca_halfnull_ok(req->caid) ) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
 			cwdata->status |= DCW_ERROR;
 			return cwdata->status;
 		}

@@ -4,6 +4,7 @@
  * early unanimous exit, weighted conflicts, the no-conviction timing
  * loss, sticky conviction, window expiry release and vote expiry,
  * channel isolation and the fail-open table. 24 checks.
+ * TASK R29 (D80): section 12 pins the SOURCES threshold.
  */
 #include <stdio.h>
 #include <string.h>
@@ -128,6 +129,36 @@ int main(void)
 			holds++;
 	  }
 	  chk(holds>=64, "the table held at least a full pass of requests", holds); }
+
+	/* -- 12. TASK R29 (D80): SOURCES raises the corroboration bar -- */
+	cwconsensus_init();
+	cwconsensus_set_min_sources(3);
+	v = cwconsensus_verdict(CH(0x1884,0x64,0xAAAA0001,0x80), K1, 101, 1, 1000, 400, &loser);
+	chk(v==CWC_HOLD, "SOURCES=3: voter 1 holds", v);
+	v = cwconsensus_verdict(CH(0x1884,0x64,0xAAAA0001,0x80), K1, 101, 1, 1010, 400, &loser);
+	chk(v==CWC_HOLD, "SOURCES=3: same voter again is not corroboration", v);
+	v = cwconsensus_verdict(CH(0x1884,0x64,0xAAAA0001,0x80), K1, 202, 1, 1020, 400, &loser);
+	chk(v==CWC_HOLD, "SOURCES=3: voter 2 still holds", v);
+	v = cwconsensus_verdict(CH(0x1884,0x64,0xAAAA0001,0x80), K1, 303, 1, 1030, 400, &loser);
+	chk(v==CWC_DELIVER, "SOURCES=3: third INDEPENDENT voter delivers", v);
+	/* ...but weight rules unchanged: a clean w1 key still beats a
+	 * w0 crowd even below the threshold (no conflict -> threshold
+	 * governs; conflict -> weight governs) */
+	cwconsensus_init();
+	cwconsensus_set_min_sources(3);
+	cwconsensus_verdict(CH(0x1884,0x64,0xAAAA0002,0x80), K2, 901, 0, 1000, 400, &loser);
+	cwconsensus_verdict(CH(0x1884,0x64,0xAAAA0002,0x80), K2, 902, 0, 1010, 400, &loser);
+	v = cwconsensus_verdict(CH(0x1884,0x64,0xAAAA0002,0x80), K1, 202, 1, 1020, 400, &loser);
+	chk(v==CWC_DELIVER, "SOURCES=3: clean weight still wins a conflict", v);
+	/* setter clamps and the D62 default restores cleanly */
+	cwconsensus_set_min_sources(99);
+	cwconsensus_init();
+	cwconsensus_set_min_sources(2);
+	v = cwconsensus_verdict(CH(0x1884,0x64,0xAAAA0003,0x80), K1, 101, 1, 1000, 400, &loser);
+	chk(v==CWC_HOLD, "SOURCES back to 2: first voter holds", v);
+	v = cwconsensus_verdict(CH(0x1884,0x64,0xAAAA0003,0x80), K1, 202, 1, 1010, 400, &loser);
+	chk(v==CWC_DELIVER, "SOURCES back to 2: second voter delivers (D62 stock)", v);
+	cwconsensus_set_min_sources(2);
 
 	printf("\n== %d/%d passed, %d failed ==\n", checks - fails, checks, fails);
 	return fails ? 1 : 0;

@@ -21,9 +21,15 @@
  *   8-byte half real, the other zero). Default {09} = NDS, stock's
  *   behaviour. (Half-nulled SEEDS for such a family get the CW0/CW1
  *   cycle marks; keys for other families are refused at the gate.)
- *   NOPROVCHK  -- a card of this family matches a request WITHOUT the
- *   provider check. Default {18,09,0B} = Nagravision/NDS/Viaccess,
- *   stock's list.
+ *   NOPROVCHK  -- a profile matches a request WITHOUT the provider
+ *   check. Default {18,09,0B} = Nagravision/NDS/Conax, stock's list
+ *   at getcsbycaidprov() (main.c) -- the one site that ever used it.
+ *   TASK R36 (D92) wired HALFNULLED; TASK R38 (D94) wired this flag
+ *   at that same site, byte-identical by default. The card-selection
+ *   sites in loadbalance.c keep stock's inverse rule (provider-strict
+ *   only for Seca 01 / Viaccess 05): loosening card matching to this
+ *   list would refuse real cards whose announced providers differ,
+ *   so that side is deliberately NOT driven by this table.
  *
  * OWNERSHIP SEMANTICS (D71). cafamily_add() on a flag's FIRST family
  * clears that flag's defaults: the first `CAID FAMILY <FLAG>:` line owns
@@ -51,9 +57,14 @@ static void cafamily_init(struct cafamily_tab *t)
 	for (i = 0; i < 8; i++) { t->b[CAFAM_HALFNULLED][i] = 0; t->b[CAFAM_NOPROVCHK][i] = 0; }
 	t->owned[CAFAM_HALFNULLED] = 0;
 	t->owned[CAFAM_NOPROVCHK] = 0;
-	/* HALFNULLED default: NONE (removed 09 to reject all half-nulled CW) */
-	/* Users can add specific CAIDs via CAID FAMILY HALFNULLED in config */
+	/* HALFNULLED default: {09} -- stock r82a's hard-coded NDS rule.
+	 * (A draft briefly shipped NONE here; the table had no parser and
+	 * no callers then, so the change was inert. TASK R36 (D92) wired
+	 * the parser and the three enforcement sites; the default stays
+	 * stock, and the first `CAID FAMILY HALFNULLED:` line owns the
+	 * set from there.) */
 	/* NOPROVCHK default: 18, 09, 0B */
+	t->b[CAFAM_HALFNULLED][0x09 >> 5] |= (uint32_t)1 << (0x09 & 31);
 	t->b[CAFAM_NOPROVCHK][0x18 >> 5] |= (uint32_t)1 << (0x18 & 31);
 	t->b[CAFAM_NOPROVCHK][0x09 >> 5] |= (uint32_t)1 << (0x09 & 31);
 	t->b[CAFAM_NOPROVCHK][0x0B >> 5] |= (uint32_t)1 << (0x0B & 31);

@@ -246,7 +246,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 					cs = ecm->cs;
 					card = cc_getcardbyid( srv, srv->busycardid );
 					// Check for DCW
-					if (!acceptDCW_profile(dcw, cs)) {
+					if (!acceptDCW_profile_ca(dcw, cs, ecm->caid)) {
 						srv->ecmerrdcw ++;
 #ifdef SID_FILTER
 						if (cs && card) {
@@ -686,7 +686,7 @@ int cc_send_cw_share(struct server_data *srv, uint16_t caid, uint16_t sid, uint3
 	memcpy(&buf[8], cw, 16);  // 16 bytes CW
 	buf[24] = 99;  // Source: BISS
 	
-	debugf("BISS SHARE: Sending CW to server (%s:%d) for %04X:%06X:%04X\n",
+	debugf(0, "BISS SHARE: Sending CW to server (%s:%d) for %04X:%06X:%04X\n",
 		srv->host->name, srv->port, caid, provid, sid);
 	
 	return cc_msg_send(srv->handle, &srv->sendblock, CC_MSG_CW_SHARE, 25, buf);

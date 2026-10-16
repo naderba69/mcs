@@ -317,10 +317,10 @@ static inline void error_report_create(struct error_report *report, int error_co
 }
 
 static inline void error_report_log(struct error_report *report) {
-    debugf("ERROR [%d]: %s (CAID:%04X PROVID:%06X SID:%04X Server:%d)\n",
+    debugf(0, "ERROR [%d]: %s (CAID:%04X PROVID:%06X SID:%04X Server:%d)\n",
            report->error_code, report->error_message,
            report->caid, report->provid, report->sid, report->server_id);
-    debugf("SUGGESTION: %s\n", report->suggested_action);
+    debugf(0, "SUGGESTION: %s\n", report->suggested_action);
 }
 
 #endif /* ECM_OPTIMIZATIONS_H */

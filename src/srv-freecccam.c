@@ -360,6 +360,10 @@ void frcc_senddcw_cli(struct cc_client_data *cli)
 	if ( (ecm->dcwstatus==STAT_DCW_SUCCESS)&&(ecm->hash==cli->ecm.hash) ) {
 		cli->lastecm.dcwsrctype = ecm->dcwsrctype;
 		cli->lastecm.dcwsrcid = ecm->dcwsrcid;
+		/* TASK R31 (D82): name the delivered key on the record, as
+		 * srv-newcamd does -- receiver attestation files BYTES, so
+		 * the bytes themselves must be remembered. */
+		memcpy( cli->lastecm.dcw, ecm->cw, 16 );
 		cli->lastecm.status=1;
 		cli->ecmok++;
 		cli->lastdcwtime = ticks;
@@ -429,7 +433,7 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						cardid = buf[10]<<24 | buf[11]<<16 | buf[12]<<8 | buf[13];
 						uint16_t caid = buf[4]<<8 | buf[5];
 						uint16_t sid = buf[14]<<8 | buf[15];
-						uint32_t provid = ecm_getprovid( data, caid );
+						uint32_t provid = ecm_getprovid( data, len-17, caid );
 						if (provid==0) provid = buf[6]<<24 | buf[7]<<16 | buf[8]<<8 | buf[9];
 
 						// Check for Profile
@@ -442,7 +446,7 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						}
 						// Check ECM
 						uint8_t cw1cycle;
-						char *error = cs_accept_ecm(cs,caid,provid,sid,ecm_getchid(data,caid), len-17, data, &cw1cycle);
+						char *error = cs_accept_ecm(cs,caid,provid,sid,ecm_getchid(data,len-17,caid), len-17, data, &cw1cycle);
 						if (error) {
 							cli->ecmdenied++;
 							cs->ecmdenied++;
@@ -455,6 +459,19 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 	
 						// Search for ECM
 						ECM_DATA *ecm = search_ecmdata_any(cs, data,  len-17, sid, caid); // dont get failed ecm request from cache
+						/* TASK R31 (D82) -- receiver attestation tap, mirroring
+						 * srv-newcamd's: this client's too-soon re-ask after a
+						 * delivered key is one receiver's vote on the BYTES;
+						 * the armed number of distinct voters files them
+						 * (attest_note). Classification only -- nothing is
+						 * scored or refused here, and nothing runs unless
+						 * CACHE ATTEST is armed. */
+						if ( (cli->lastecm.caid==caid) && (cli->lastecm.prov==provid) && (cli->lastecm.sid==sid) && cli->lastecm.status ) {
+							if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
+								attest_note( ATTEST_TAG_FREECCCAM | (uint32_t)cli->id, cli->lastecm.dcw,
+									cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+									cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
+						}
 						int isnew =  ( ecm==NULL );
 						if (ecm) {
 							ecm->lastrecvtime = ticks;

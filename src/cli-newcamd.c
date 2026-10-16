@@ -268,7 +268,7 @@ void cs_srv_recvmsg(struct server_data *srv)
 
 					if (buf[2]==0x10) {
 						// Check for DCW
-						if (!acceptDCW_profile(buf+3, ecm->cs)) {
+						if (!acceptDCW_profile_ca(buf+3, ecm->cs, ecm->caid)) {
 							srv->ecmerrdcw ++;
 							pthread_mutex_unlock(&prg.lockecm); //###
 							break;

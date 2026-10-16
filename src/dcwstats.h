@@ -46,7 +46,8 @@
  * the gate stays opt-in and the counter is what makes its cost visible. */
 #define DCW_REJ_CYCLE      8   /* DCWFILTER CYCLE: wrong half at delivery    */
 #define DCW_REJ_CONSENSUS  9   /* R8 consensus: lost a weighted cw decision  */
-#define DCW_REJ_COUNT      10
+#define DCW_REJ_PATTERN    10   /* R28 DCWFILTER PATTERN: structural fake shape  */
+#define DCW_REJ_COUNT      11
 
 /* Acceptance counter, kept alongside so a ratio can be computed. */
 #define DCW_ACC_COUNT      0
@@ -98,6 +99,7 @@ static void dcwstats_reset(void)
 	case DCW_REJ_CEXCONF:  return "cacheex-confirm-wait";
 	case DCW_REJ_CYCLE:    return "cycle-contradiction";
 	case DCW_REJ_CONSENSUS: return "consensus-mismatch";
+	case DCW_REJ_PATTERN: return "pattern-fake";
 	default:               return "unknown";
 	}
 }

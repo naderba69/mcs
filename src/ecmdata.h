@@ -125,8 +125,8 @@ uint8_t checkECMD5(uint8_t *ecmd5);
 void ecm_addip( ECM_DATA *ecm, unsigned int ip);
 int ecm_checkip(ECM_DATA *ecm, unsigned int ip);
 
-uint32_t ecm_getprovid( uint8_t *ecm, uint16_t caid );
-uint16_t ecm_getchid( uint8_t *ecm, uint16_t caid );
+uint32_t ecm_getprovid( uint8_t *ecm, int ecmlen, uint16_t caid ); /* R25: bounded */
+uint16_t ecm_getchid( uint8_t *ecm, int ecmlen, uint16_t caid ); /* R25: bounded */
 
 //struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ecmlen, unsigned short sid, unsigned short caid, unsigned int provid);
 struct ecm_request *search_ecmdata_dcw( uint8_t *ecm, int ecmlen, unsigned short sid);

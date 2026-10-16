@@ -9,6 +9,7 @@
 
 #include "dcwfilter.h"
 #include "dcw.h"
+#include "casystem.h"	/* TASK R26 (D77): the modern-CA registry */
 
 /* Black screen prevention systems */
 #include "blackscreen-detector.h"
@@ -37,6 +38,7 @@
 int dcw_filter_checksum = 1;
 int dcw_filter_repeat   = 1;
 int dcw_filter_cycle    = 0; /* TASK R2: the cycle gate starts disarmed (D56) */
+int dcw_filter_pattern  = 0; /* TASK R28 (D79): the fake-shape gate starts disarmed */
 #endif
 
 
@@ -170,7 +172,65 @@ void dcw_badlist_publish(const uint8_t *keys, int n)
  * the key. With `DCW STATS: ON` the answer becomes a counter, including
  * `bad-dcw-list` for a key the operator named.
  */
-int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode)
+/*
+ * TASK R28 (D79) — dcw_pattern_fake: is this key shaped like a fake?
+ *
+ * One question, asked of the key alone, with the same semantics the
+ * evidence scanners already use (the agreement is pinned by
+ * test_cwfake against dcwstruct_scan()/cwcm_pairs):
+ *   - complement mirror on the six free byte pairs (cwcm:
+ *     5+/6 pairs; the checksum-repaired variant passes checksumDCW
+ *     and stock delivery -- this is the classic fake generator), or
+ *   - both halves byte-identical, or
+ *   - a half that is one repeated byte, a constant non-zero
+ *     arithmetic step, or only two distinct byte values (dcwstruct).
+ *
+ * Genuine control words are indistinguishable from random; the
+ * documented chance of a random key tripping any of these is ~1e-12
+ * or below per key. That asymmetry -- generator-shaped fakes always
+ * trip, honest keys effectively never do -- is what makes refusal
+ * safe to offer, opt-in, on the anti-fake path. A NDS-style zeroed
+ * half skips the per-half tests exactly as in dcwstruct_scan.
+ */
+int dcw_pattern_fake(uint8_t *data)
+{
+	static const int FA[6] = {0,1,2,4,5,6};
+	static const int FB[6] = {8,9,10,12,13,14};
+	int pairs = 0, i, j;
+
+	for (i = 0; i < 6; i++)
+		if (data[FB[i]] == (uint8_t)~data[FA[i]]) pairs++;
+	if (pairs >= 5) return 1;
+
+	{
+		int same = 1;
+		for (i = 0; i < 8; i++) if (data[8+i] != data[i]) same = 0;
+		if (same) return 1;
+	}
+	for (j = 0; j < 2; j++) {
+		const uint8_t *h = data + j*8;
+		int null_half = 1, all_same = 1, mono = 1, distinct = 0;
+		uint8_t seen[8];
+		uint8_t step;
+		for (i = 0; i < 8; i++) if (h[i]) null_half = 0;
+		if (null_half) continue;
+		step = (uint8_t)(h[1] - h[0]);
+		for (i = 1; i < 8; i++) {
+			int k, known = 0;
+			if (h[i] != h[0]) all_same = 0;
+			if ((uint8_t)(h[i] - h[i-1]) != step) mono = 0;
+			for (k = 0; k < distinct; k++) if (seen[k] == h[i]) known = 1;
+			if (!known && distinct < 8) seen[distinct++] = h[i];
+		}
+		if (all_same) return 1;
+		if (step && mono) return 1;
+		if (distinct == 2) return 1;
+	}
+	return 0;
+}
+
+static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
+		     int repeat_mode, int ca_modern, int pattern_mode)
 {
 	int checksum = dcw_filter_checksum;
 	int repeat = dcw_filter_repeat;
@@ -182,6 +242,19 @@ int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode)
 	else if (checksum_mode == DCWFILTER_OFF) checksum = 0;
 	if (repeat_mode == DCWFILTER_ON) repeat = 1;
 	else if (repeat_mode == DCWFILTER_OFF) repeat = 0;
+
+	/*
+	 * TASK R26 (D77) — only in INHERIT mode, only when the operator
+	 * armed `CA MODERN: ON` for this profile, and only for a CA
+	 * system whose genuine control words carry no DVB-CSA checksum
+	 * bytes (casystem.h). An explicit DCWFILTER CHECKSUM: ON above
+	 * has already forced the test and is not second-guessed here;
+	 * ca_modern == 0 (the default) never reaches this branch's
+	 * effect, so the decision stays bit-for-bit stock.
+	 */
+	if (checksum && checksum_mode == DCWFILTER_INHERIT && ca_modern &&
+	    !ca_cw_checksum_expected(caid))
+		checksum = 0;
 
 	if ( checksum && !checksumDCW(data)) {
 #ifdef MCS_DCWSTATS
@@ -212,10 +285,52 @@ int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode)
 #endif
 		return 0;
 	}
+	/*
+	 * TASK R28 (D79) — the FAKE-shape refusal, after the r82a tests
+	 * and the BAD-DCW walk so reason attribution stays stable.
+	 * pattern_mode follows the DCWFILTER tristate (ON forces,
+	 * OFF disables, anything else inherits the global gate, which
+	 * defaults OFF): with the gate disarmed every decision here is
+	 * bit-for-bit the pre-R28 one.
+	 */
+	{
+		int pattern = dcw_filter_pattern;
+		if (pattern_mode == DCWFILTER_ON) pattern = 1;
+		else if (pattern_mode == DCWFILTER_OFF) pattern = 0;
+		if (pattern && dcw_pattern_fake(data)) {
+#ifdef MCS_DCWSTATS
+			DCWSTATS_REJECT(DCW_REJ_PATTERN);
+#endif
+			return 0;
+		}
+	}
 #ifdef MCS_DCWSTATS
 	DCWSTATS_ACCEPT();
 #endif
 	return 1;
+}
+
+int acceptDCW_for_ca(uint8_t *data, uint16_t caid, int checksum_mode,
+		     int repeat_mode, int ca_modern)
+{
+	return acceptDCW_impl(data, caid, checksum_mode, repeat_mode,
+			      ca_modern, DCWFILTER_INHERIT);
+}
+
+/*
+ * TASK R28 (D79) — acceptDCW_for_ca plus the per-profile FAKE-shape
+ * gate (`DCWFILTER PATTERN:` tristate, see dcwfilter.h).
+ */
+int acceptDCW_pattern(uint8_t *data, uint16_t caid, int checksum_mode,
+		      int repeat_mode, int ca_modern, int pattern_mode)
+{
+	return acceptDCW_impl(data, caid, checksum_mode, repeat_mode,
+			      ca_modern, pattern_mode);
+}
+
+int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode)
+{
+	return acceptDCW_for_ca(data, 0, checksum_mode, repeat_mode, 0);
 }
 
 int acceptDCW(uint8_t *data)
@@ -268,13 +383,13 @@ void dcw_on_failure(uint16_t caid, uint16_t sid, uint32_t provid)
 		
 		/* Layer 1: Quick switch after 2 failures */
 		if (t->consecutive_failures >= 2) {
-			debugf("BLACKSCREEN: Channel %04X:%04X - %d consecutive failures, triggering quick switch\n",
+			debugf(0, "BLACKSCREEN: Channel %04X:%04X - %d consecutive failures, triggering quick switch\n",
 				caid, sid, t->consecutive_failures);
 		}
 		
 		/* Layer 2: Emergency after 3 failures */
 		if (t->consecutive_failures >= 3) {
-			debugf("BLACKSCREEN: Channel %04X:%04X - Emergency mode activated\n",
+			debugf(0, "BLACKSCREEN: Channel %04X:%04X - Emergency mode activated\n",
 				caid, sid);
 		}
 	}
