@@ -5112,6 +5112,95 @@ at: .ncclient.bin .cachepeer.bin
 	if [ "$$ok" = "1" ]; then rm -f $(AT_CFG) .at-*.log; echo "at: 3/3 ok"; \
 	else echo "at: FAILED (logs kept under tests/.at-*)"; exit 1; fi
 
+
+# ===========================================================================
+# TASK R36 (D87/D88/D90) -- the R24-era keys that were never implemented,
+# now real and proven live: ENABLE SKIPCWC (a CW for a gated SID must
+# prove its DVB-CSA checksum before delivery, even where the operator
+# turned DCWFILTER CHECKSUM off), DCW MINTIME (card replies faster
+# than physics are skipped), ECM HEADERWLST (ECM header whitelist).
+#
+#   P1 control: CHECKSUM OFF, no SKIPCWC -- the bad-checksum CW is
+#      DELIVERED (the hole the fiction claimed to close).
+#   P2 SKIPCWC on: the same bad CW never reaches the client; a
+#      checksum-valid CW does.
+#   P3 SID gate: SKIPCWC on but the client's SID is outside the ONLY
+#      list -- the bad CW is delivered again (the gate is SID-scoped).
+#   P4 MINTIME 60000 with an instant card: nothing is delivered and
+#      the [MINTIME] line fires.  P5 same card without MINTIME: the
+#      CW is delivered.  P6 HEADERWLST with a foreign prefix: the
+#      ECM is refused before any server sees it, nothing delivered.
+# ===========================================================================
+SC_HPORT = 17200
+SC_CACHE = 17201
+SC_NPORT = 17202
+SC_NPORT2 = 17203
+SC_CARD  = 17204
+SC_PEER  = 17205
+SC_CFG   = .sc-srv.cfg
+SC_GOOD  = 11223366445566FF77889998ABBCCD34
+SC_BAD   = 11223399445566FF77889998ABBCCD34
+SC_KEY   = 0102030405060708091011121314
+SC_SKEY  = 01 02 03 04 05 06 07 08 09 10 11 12 13 14
+
+.PHONY: sc
+sc: .ncclient.bin .cachepeer.bin $(NCSERVER)
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x '.ncserver.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin $(NCSERVER) 2>/dev/null; true
+	@rm -f $(SC_CFG) .sc-*.log; ok=1; \
+	cache_cfg() { { printf 'HTTP PORT: $(SC_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(SC_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(SC_PEER)\n\n[ sc ]\nCAID: 0500\nPROVIDERS: 0\nPORT: $(SC_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\n'; printf "%b" "$$1"; printf 'USER: u1 p1\nUSER: u2 p2\n\n'; } > $(SC_CFG); }; \
+	card_cfg() { { printf 'HTTP PORT: $(SC_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nN: 127.0.0.1 $(SC_CARD) srv1 pass1 $(SC_SKEY)\n\n[ sc2 ]\nCAID: 0500\nPROVIDERS: 0\nPORT: $(SC_NPORT2)\nDCW TIMEOUT: 6000\n'; printf "%b" "$$1"; printf 'USER: u1 p1\n\n'; } > $(SC_CFG); }; \
+	boot() { stdbuf -o0 -e0 $(BIN) -C $(SC_CFG) -v > .sc$$1-srv.log 2>&1 & srv=$$!; sleep 3; }; \
+	waitcard() { for i in $$(seq 1 25); do grep -q "connect to server" .sc$$1-srv.log && break; sleep 1; done; sleep 4; }; \
+	stopall() { kill -9 $$peer $$ns $$srv 2>/dev/null; sleep 1; pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x '.ncserver.bin' 2>/dev/null; }; \
+	echo "  [ -- ] P1: control -- CHECKSUM OFF, no SKIPCWC, bad CW is delivered"; \
+	cache_cfg 'DCWFILTER CHECKSUM: OFF\n'; boot 1; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(SC_CACHE) $(SC_PEER) $(SC_BAD) 64 05000000 > .sc1-f.log 2>&1 & peer=$$!; sleep 2; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT) u1 p1 $(SC_KEY) 0 0500 64 > .sc1-c.log 2>&1; stopall; \
+	b=$$(grep -ci "11223399" .sc1-c.log); \
+	if [ "$$b" -ge 1 ]; then echo "  [ ok ] P1: the bad-checksum CW was delivered (hole open without SKIPCWC)"; \
+	else echo "[FAIL] P1 (bad to client=$$b) -- see .sc1-*.log"; ok=0; fi; \
+	echo "  [ -- ] P2: ENABLE SKIPCWC -- bad CW skipped, good CW delivered"; \
+	cache_cfg 'DCWFILTER CHECKSUM: OFF\nENABLE SKIPCWC: YES\n'; boot 2; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(SC_CACHE) $(SC_PEER) $(SC_BAD) 64 05000000 > .sc2-f.log 2>&1 & peer=$$!; sleep 2; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT) u1 p1 $(SC_KEY) 0 0500 64 > .sc2-c1.log 2>&1; \
+	kill -9 $$peer 2>/dev/null; sleep 1; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(SC_CACHE) $(SC_PEER) $(SC_GOOD) 64 05000000 > .sc2-g.log 2>&1 & peer=$$!; sleep 2; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT) u2 p2 $(SC_KEY) 0 0500 65 > .sc2-c2.log 2>&1; stopall; \
+	b=$$(grep -ci "11223399" .sc2-c1.log); g=$$(grep -ci "77889998ABBCCD34" .sc2-c2.log); \
+	if [ "$$b" = "0" ] && [ "$$g" -ge 1 ]; then echo "  [ ok ] P2: SKIPCWC skipped the bad CW (client saw none) and delivered the valid one"; \
+	else echo "[FAIL] P2 (bad=$$b good=$$g) -- see .sc2-*.log"; ok=0; fi; \
+	echo "  [ -- ] P3: SID gate -- ONLY list misses the client SID, bad CW delivered"; \
+	cache_cfg 'DCWFILTER CHECKSUM: OFF\nENABLE SKIPCWC: YES\nSKIPCWC_ONLY_SIDS_ACTIVE: YES\nSKIPCWC_ONLY_SIDLIST: 9999\n'; boot 3; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(SC_CACHE) $(SC_PEER) $(SC_BAD) 64 05000000 > .sc3-f.log 2>&1 & peer=$$!; sleep 2; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT) u1 p1 $(SC_KEY) 0 0500 64 > .sc3-c.log 2>&1; stopall; \
+	b=$$(grep -ci "11223399" .sc3-c.log); \
+	if [ "$$b" -ge 1 ]; then echo "  [ ok ] P3: outside the ONLY list the gate stays open (bad CW delivered)"; \
+	else echo "[FAIL] P3 (bad to client=$$b) -- see .sc3-*.log"; ok=0; fi; \
+	echo "  [ -- ] P4: DCW MINTIME 60000 vs an instant card -- skipped, [MINTIME] logged"; \
+	card_cfg 'DCW MINTIME: 60000\n'; \
+	NS_DELAYS=0 stdbuf -o0 -e0 ./$(NCSERVER) $(SC_CARD) $(SC_KEY) 0500 000000 > .sc4-ns.log 2>&1 & ns=$$!; sleep 1; boot 4; waitcard 4; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 0500 64 > .sc4-c.log 2>&1; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc4-c.log); m=$$(grep -c "\[MINTIME\]" .sc4-srv.log); \
+	if [ "$$d" = "0" ] && [ "$$m" -ge 1 ]; then echo "  [ ok ] P4: the instant reply was skipped as too fast to be real ([MINTIME] x$$m)"; \
+	else echo "[FAIL] P4 (dcw to client=$$d, mintime lines=$$m) -- see .sc4-*.log"; ok=0; fi; \
+	echo "  [ -- ] P5: control -- same instant card, no MINTIME, CW delivered"; \
+	card_cfg ''; \
+	NS_DELAYS=0 stdbuf -o0 -e0 ./$(NCSERVER) $(SC_CARD) $(SC_KEY) 0500 000000 > .sc5-ns.log 2>&1 & ns=$$!; sleep 1; boot 5; waitcard 5; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 0500 64 > .sc5-c.log 2>&1; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc5-c.log); \
+	if [ "$$d" -ge 1 ]; then echo "  [ ok ] P5: without MINTIME the same instant answer is delivered"; \
+	else echo "[FAIL] P5 (dcw to client=$$d) -- see .sc5-*.log"; ok=0; fi; \
+	echo "  [ -- ] P6: ECM HEADERWLST with a foreign prefix -- ECM refused at the door"; \
+	card_cfg 'ECM HEADERWLST: FFFFFFFFFFFFFFFF\n'; \
+	NS_DELAYS=0 stdbuf -o0 -e0 ./$(NCSERVER) $(SC_CARD) $(SC_KEY) 0500 000000 > .sc6-ns.log 2>&1 & ns=$$!; sleep 1; boot 6; waitcard 6; \
+	NC_ECMS=2 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 0500 64 > .sc6-c.log 2>&1; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc6-c.log); \
+	if [ "$$d" = "0" ]; then echo "  [ ok ] P6: the non-whitelisted ECM header never reached the card (nothing delivered)"; \
+	else echo "[FAIL] P6 (dcw to client=$$d) -- see .sc6-*.log"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(SC_CFG) .sc-*.log; echo "sc: 6/6 ok"; \
+	else echo "sc: FAILED (logs kept under tests/.sc-*)"; exit 1; fi
+
 # TASK R32 (D83) -- the shipped profiles file, proven bootable.
 #
 # multics-r24-optimized.cfg was rewritten against THIS build (every

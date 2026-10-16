@@ -60,7 +60,9 @@
  */
 #include "dcwfilter.h"
 #include "dcw.h"		/* TASK 3.14: publish the BAD-DCW list */
-#include "casystem.h"	/* TASK R26 (D77): CA names for the CA log lines */
+#include "casystem.h"
+#include "cafamily.h"	/* TASK R36 (D92): CAID FAMILY table + parser */
+#include "skipcwc.h"	/* TASK R36 (D87): the SKIPCWC SID gate */	/* TASK R26 (D77): CA names for the CA log lines */
 #include "cacheex_gates.h"	/* TASK R1: CEX_CHECK_MAX for the parser clamp */
 #include "cfgfield.h"	/* TASK 3.8: bounded storage for small credential fields */
 #include "peerrep.h" /* TASK R4 (D58): unconditional -- the ladder exists in both flavours */
@@ -233,10 +235,16 @@ void init_cacheserver(struct cacheserver_data *cache)
 	cache->port = 0;
 }
 
+/* TASK R36 (D92): the CAID family table (cafamily.h). Stock
+ * defaults via cafamily_init() in init_config; `CAID FAMILY` lines
+ * in the cfg own each flag's set from their first family. */
+struct cafamily_tab cafamily_tab;
+
 void init_config(struct config_data *cfg)
 {
 	// Init config data
 	memset( cfg, 0, sizeof(struct config_data) );
+	cafamily_init(&cafamily_tab); /* TASK R36 (D92): stock CA family sets */
 
 	cfg->delay.thread = 15000;
 	cfg->delay.connect = 100;
@@ -866,6 +874,22 @@ struct port_data
 	int last;
 };
 
+
+/* TASK R36 (D87) -- parse a comma-separated hex SID list (the
+ * SKIPCWC_ONLY/EXCLUDE_SIDLIST values) into list[]; the count stored
+ * is returned and overflow past SKIPCWC_SID_MAX is noticed once. */
+static int parse_sidlist(uint16_t *list)
+{
+	char str[255];
+	int count = 0;
+	while ( parse_hex(str)>0 ) {
+		if (count<SKIPCWC_SID_MAX) list[count++] = (uint16_t)hex2int(str);
+		else debugf(getdbgflag(DBG_CONFIG,0,0)," config: SID list longer than %d, extra entries dropped\n",SKIPCWC_SID_MAX);
+		parse_spaces();
+		if (*iparser==',') iparser++;
+	}
+	return count;
+}
 
 int read_config(struct config_data *cfg)
 {
@@ -2486,7 +2510,48 @@ sid accept:
 					} else iparser++;
 					defaultcs.option.dcw.check = parse_boolean();
 				}
+				else if (!strcmp(str,"MINTIME")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					parse_spaces();
+					defaultcs.option.dcw.mintime = atoi(str);
+					if (defaultcs.option.dcw.mintime<0) defaultcs.option.dcw.mintime=0;
+					else if (defaultcs.option.dcw.mintime>5000) defaultcs.option.dcw.mintime=5000;
+				}
+				else if (!strcmp(str,"CYCLE_CHECK")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					defaultcs.option.dcwfilter_cycle = parse_boolean()?DCWFILTER_ON:DCWFILTER_OFF;
+				}
+
 #endif
+			}
+			else if (!strcmp(str,"ENABLE")) {
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"SKIPCWC")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					defaultcs.option.skipcwc = parse_boolean();
+				}
+				else if (!strcmp(str,"SOFTCAM")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					{ int v = parse_boolean(); defaultcs.option.disable_softcam = v?0:1; }
+				}
 			}
 			else if ( !strcmp(str,"SERVER") ) {
 				parse_name(str);
@@ -3898,6 +3963,38 @@ link_mgcamd_user:
 ///////////////////////////////////////////////////////////////////////////////
 
 		else if (!strcmp(str,"CAID")) {
+			/* TASK R36 (D92): `CAID FAMILY HALFNULLED: 09, 0E` -- a global
+			 * (profile-less) line filling cafamily_tab. HALFNULLED is
+			 * enforced (ca_halfnull_ok in setdcw.c/clustredcache.c);
+			 * NOPROVCHK is parsed-and-logged only, like CACHEEX
+			 * MAXHOP_LG: its two stock sites still disagree, so the
+			 * table value is NOT enforced yet. */
+			{
+				char *savep = iparser; char fam[64];
+				parse_name(fam); uppercase(fam);
+				if (!strcmp(fam,"FAMILY")) {
+					char flag[64];
+					parse_name(flag); uppercase(flag);
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					if (!strcmp(flag,"NOPROVCHK"))
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CAID FAMILY NOPROVCHK: not implemented; provider-check sites unchanged\n",file->nbline,iparser-currentline);
+					for (;;) {
+						char hb[64];
+						if (parse_hex(hb)<=0) break;
+						if (!strcmp(flag,"HALFNULLED"))
+							cafamily_add(&cafamily_tab, CAFAM_HALFNULLED, (unsigned)hex2int(hb));
+						parse_spaces();
+						if (*iparser==',') { iparser++; continue; }
+						break;
+					}
+					continue;
+				}
+				iparser = savep;
+			}
 			if (!cardserver) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip CAID, undefined profile\n",file->nbline,iparser-currentline);
 				continue;
@@ -4122,6 +4219,54 @@ link_mgcamd_user:
 			}
 		}
 
+		else if (!strcmp(str,"SKIPCWC_ONLY_SIDS_ACTIVE")) {
+			if (!cardserver) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip SKIPCWC, undefined profile\n",file->nbline,iparser-currentline);
+				continue;
+			}
+			parse_spaces();
+			if ((*iparser!=':')&&(*iparser!='=')) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+				continue;
+			} else iparser++;
+			cardserver->option.skipcwc_only_active = parse_boolean();
+		}
+		else if (!strcmp(str,"SKIPCWC_ONLY_SIDLIST")) {
+			if (!cardserver) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip SKIPCWC, undefined profile\n",file->nbline,iparser-currentline);
+				continue;
+			}
+			parse_spaces();
+			if ((*iparser!=':')&&(*iparser!='=')) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+				continue;
+			} else iparser++;
+			cardserver->option.skipcwc_only_total = parse_sidlist(cardserver->option.skipcwc_only);
+		}
+		else if (!strcmp(str,"SKIPCWC_EXCLUDE_SIDS_ACTIVE")) {
+			if (!cardserver) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip SKIPCWC, undefined profile\n",file->nbline,iparser-currentline);
+				continue;
+			}
+			parse_spaces();
+			if ((*iparser!=':')&&(*iparser!='=')) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+				continue;
+			} else iparser++;
+			cardserver->option.skipcwc_excl_active = parse_boolean();
+		}
+		else if (!strcmp(str,"SKIPCWC_EXCLUDE_SIDLIST")) {
+			if (!cardserver) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip SKIPCWC, undefined profile\n",file->nbline,iparser-currentline);
+				continue;
+			}
+			parse_spaces();
+			if ((*iparser!=':')&&(*iparser!='=')) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+				continue;
+			} else iparser++;
+			cardserver->option.skipcwc_excl_total = parse_sidlist(cardserver->option.skipcwc_excl);
+		}
 		else if (!strcmp(str,"ECM")) {
 			if (!cardserver) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip ECM, undefined profile\n",file->nbline,iparser-currentline);
@@ -4145,6 +4290,30 @@ link_mgcamd_user:
 					if (*iparser==',') iparser++;
 				}
 				cardserver->ecmlen[count] = 0;
+			}
+			else if (!strcmp(str,"HEADERWLST")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				int count = 0;
+				while ( parse_hex(str)>0 ) {
+					if (count<ECMHDR_MAX) {
+						int n = 0;
+						while ( str[2*n] && str[2*n+1] && n<ECMHDR_LEN ) {
+							char hb[3];
+							hb[0] = str[2*n]; hb[1] = str[2*n+1]; hb[2] = 0;
+							cardserver->option.ecmhdr[count][n] = (uint8_t)hex2int(hb);
+							n++;
+						}
+						cardserver->option.ecmhdr_len[count] = (uint8_t)n;
+						count++;
+					}
+					parse_spaces();
+					if (*iparser==',') iparser++;
+				}
+				cardserver->option.ecmhdr_total = count;
 			}
 			else if (!strcmp(str,"CHECK")) {
 				parse_spaces();
@@ -4254,6 +4423,59 @@ link_mgcamd_user:
 				} else iparser++;
 				cardserver->option.dcw.check = parse_boolean();
 			}
+			else if (!strcmp(str,"MINTIME")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				parse_spaces();
+				cardserver->option.dcw.mintime = atoi(str);
+				if (cardserver->option.dcw.mintime<0) cardserver->option.dcw.mintime=0;
+				else if (cardserver->option.dcw.mintime>5000) cardserver->option.dcw.mintime=5000;
+			}
+			else if (!strcmp(str,"CYCLE_CHECK")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.dcwfilter_cycle = parse_boolean()?DCWFILTER_ON:DCWFILTER_OFF;
+			}
+			else if (!strcmp(str,"SKIPCWC_ONLY_SIDS_ACTIVE")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.skipcwc_only_active = parse_boolean();
+			}
+			else if (!strcmp(str,"SKIPCWC_ONLY_SIDLIST")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.skipcwc_only_total = parse_sidlist(cardserver->option.skipcwc_only);
+			}
+			else if (!strcmp(str,"SKIPCWC_EXCLUDE_SIDS_ACTIVE")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.skipcwc_excl_active = parse_boolean();
+			}
+			else if (!strcmp(str,"SKIPCWC_EXCLUDE_SIDLIST")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.skipcwc_excl_total = parse_sidlist(cardserver->option.skipcwc_excl);
+			}
+
 			else if (!strcmp(str,"HALFNULLED")) {
 				parse_spaces();
 				if ((*iparser!=':')&&(*iparser!='=')) {
@@ -4572,6 +4794,23 @@ link_mgcamd_user:
 				} else iparser++;
 				cardserver->option.fallowcccam = parse_boolean();
 			}
+			else if (!strcmp(str,"SKIPCWC")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.skipcwc = parse_boolean();
+			}
+			else if (!strcmp(str,"SOFTCAM")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				{ int v = parse_boolean(); cardserver->option.disable_softcam = v?0:1; }
+			}
+
 			else if (!strcmp(str,"NEWCAMD")) {
 				parse_spaces();
 				if ((*iparser!=':')&&(*iparser!='=')) {
@@ -6954,8 +7193,8 @@ int acceptDCW_profile(uint8_t *data, struct cardserver_data *cs)
  * expected), so even an armed profile changes nothing until a real
  * CAID arrives — every pre-R26 caller keeps its exact decision.
  */
-int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
-			 uint16_t caid)
+int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs,
+			 uint16_t caid, uint16_t sid)
 {
 	int c = DCWFILTER_INHERIT, r = DCWFILTER_INHERIT;
 	int modern = 0, pattern = DCWFILTER_INHERIT;
@@ -6965,10 +7204,34 @@ int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
 		r = cs->option.dcwfilter_repeat;
 		modern = cs->option.ca_modern;
 		pattern = cs->option.dcwfilter_pattern;
+		/*
+		 * TASK R36 (D87) -- ENABLE SKIPCWC, the R24-era key that was
+		 * never implemented: on an armed profile, a CW for a gated
+		 * SID must prove its DVB-CSA checksum before it may be
+		 * delivered, so the checksum layer is FORCED (it overrides
+		 * an inherited or explicitly-off DCWFILTER CHECKSUM -- that
+		 * is the point of the key). CA systems whose genuine keys
+		 * carry no checksum bytes (casystem.h) are never forced:
+		 * there the test would reject every genuine key and trade
+		 * fake screens for black ones. With the key off (the
+		 * default) this block is inert and the decision is stock.
+		 */
+		if ( skipcwc_applies(cs->option.skipcwc,
+				cs->option.skipcwc_only_active, cs->option.skipcwc_only, cs->option.skipcwc_only_total,
+				cs->option.skipcwc_excl_active, cs->option.skipcwc_excl, cs->option.skipcwc_excl_total,
+				sid)
+		     && ca_cw_checksum_expected(caid) )
+			c = DCWFILTER_ON;
 	}
 	/* TASK R28 (D79): pattern INHERIT with the global gate OFF (the
 	 * default) keeps this decision identical to pre-R28. */
 	return acceptDCW_pattern(data, caid, c, r, modern, pattern);
+}
+
+int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
+			 uint16_t caid)
+{
+	return acceptDCW_profile_ca_sid(data, cs, caid, 0);
 }
 
 void dcw_badlist_commit(struct dcw_data *list)

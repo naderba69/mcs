@@ -2191,6 +2191,17 @@ char *cs_accept_ecm(struct cardserver_data *cs, uint16_t caid, uint32_t provid, 
 		int len = ((ecmdata[1]&0x0F)<<8) | ecmdata[2];
 		if ( (len+3)!=ecmlen ) return("ECM length corrupted");
 	}
+	/* TASK R36 (D90) -- ECM HEADERWLST: when the profile carries a
+	 * whitelist of ECM header prefixes, an ECM starting with none
+	 * of them is not for this profile (wrong CA stream shape) and is
+	 * refused before any server sees it. Empty list (default) = off. */
+	if (cs->option.ecmhdr_total>0) {
+		int h, hdr_ok = 0;
+		for (h=0; h<cs->option.ecmhdr_total; h++) {
+			if (ecmlen >= cs->option.ecmhdr_len[h] && !memcmp(ecmdata, cs->option.ecmhdr[h], cs->option.ecmhdr_len[h])) { hdr_ok = 1; break; }
+		}
+		if (!hdr_ok) return("ECM header not whitelisted");
+	}
 	// ecmtag
 	if ( (ecmdata[0]&0xFE)!=0x80 ) return("Invalid ECM tag");
 	// check for ecm length

@@ -3663,3 +3663,84 @@ Declared limit: the FULL live suite was not run to completion this
 round (a run was interrupted twice at the user's hand); its first
 69 checks passed with zero failures, and the change is confined
 to src/httpserver.c rendering.
+
+## D87 (R36) — SKIPCWC implemented: checksum proof at delivery, gated by SID
+
+**Symptom (user's cfg):** 41 profiles carried `ENABLE SKIPCWC: YES` plus
+ONLY/EXCLUDE SID lists (~150 SIDs on HD+ alone). No parser token, no
+field, no enforcement existed anywhere in the tree — pure fiction.
+
+**Decision.** The named behaviour, built properly: when SKIPCWC
+applies to an ECM's SID, a CW must pass `checksumDCW()` before it is
+delivered or stored, *even where the operator turned DCWFILTER
+CHECKSUM off*. The gate is the pure header `src/skipcwc.h`
+(`skipcwc_applies`: ONLY list first, then EXCLUDE; sid 0 = legacy
+callers, gate closed = stock). Enforcement at every entry the cache
+funnel has: both `ecm_setdcw` funnels (setdcw.c) and cache ingest
+(clustredcache.c), via `acceptDCW_profile_ca_sid()`. Systems with no
+real checksum bytes are never forced (`ca_cw_checksum_expected`,
+casystem.h). Opt-in, default OFF = stock bytes.
+
+**Verification.** `make-x64/test_skipcwc` 15/15; live target
+`tests sc` P1–P3 (control delivers the bad CW, SKIPCWC blocks it and
+passes a valid one, an out-of-list SID is delivered again).
+
+## D88 (R36) — DCW MINTIME: implausibly instant card replies are skipped
+
+**Decision.** `DCW MINTIME: <ms>` per profile (48 of the user's
+profiles carry it): a card-server reply younger than the floor is
+counted and skipped (`[MINTIME]` log line), the request keeps
+waiting for an honest source. Cache hits and cache-peer replies are
+exempt — no matching send timestamp exists, and punishing the cache
+for being fast is backwards. Deliberately NO global DEFAULT MINTIME
+in the adopted cfg: a local reader legitimately answering in
+20–50 ms would be refused by the user's global 100 ms line.
+
+**Verification.** `tests sc` P4/P5 (instant card skipped with the
+log line; same card delivers without MINTIME).
+
+## D89 (R36) — DCW CYCLE_CHECK is an alias, not a second engine
+
+The user's cfg sets `DCW CYCLE_CHECK: YES`; the tree already enforces
+exactly this at delivery (D56 `dcwfilter_cycle`). The token now
+parses as an alias onto that gate (profile + DEFAULT forms). No new
+machinery, no double counting.
+
+## D90 (R36) — ECM HEADERWLST and ENABLE SOFTCAM: NO, both real
+
+`ECM HEADERWLST: <hex>[,<hex>...]` (up to 8 prefixes × 16 bytes;
+the user's Movistar+ line carries two) refuses non-matching ECM
+headers inside `cs_accept_ecm` — every protocol's door, before any
+server sees the ECM. `ENABLE SOFTCAM: NO` sets `disable_softcam`,
+closing both softcam key searches (BISS + BISS2/D85 table) for that
+profile; YES/absent = stock. `tests sc` P6 proves the refusal live.
+
+## D91 (R36) — The user's cfg, adopted with documented floors
+
+`multics-r24-optimized.cfg` is now the user's own file (72 profiles,
+his SID lists and per-profile timings byte-preserved), with: ORF -
+0D98 given the missing `PORT: 1981`; `DEFAULT DCW MAXFAILED: 0` → 3
+(0 disables failed-source blocking entirely); the global
+`DEFAULT DCW MINTIME` removed (D88); verified-dead lines removed
+with in-file Arabic explanations (FAILBAN ENABLE, DCW
+STRICT/LOG/TRUSTSCORE, SERVER MINHPH/MAXPING/CACHE_THRESHOLD,
+RETRY MGCAMD, CACHE SF_*/SF_MC_*, ENABLE ECMLOOPING, CCCAM
+OVERWRITE CAID). FAILBAN gets no code by design: login throttling
+already exists and is stronger (D57). `tests prof` 5/5 on the
+adopted file; boot log carries zero profile-variable warnings.
+
+## D92 (R36) — CAID FAMILY wired: parser, table, and the three hard-coded sites
+
+**Found while adopting:** cafamily.h (R16/D71) was an orphan — the
+global table was never defined, `cafamily_add` had no caller, the
+filters still hard-coded `(caid>>8)!=9`, and the unit test was not
+registered in `make test`. Worse, `cafamily_init` had been edited
+to drop the stock {09} HALFNULLED default, silently contradicting
+its own test. **Decision:** restore the stock default, define and
+init the table in config.c, parse `CAID FAMILY HALFNULLED:` (first
+line owns the set), and point all three enforcement sites
+(setdcw.c ×2, clustredcache.c ×1) at `ca_halfnull_ok()`. NOPROVCHK
+is parsed-and-logged "not implemented" (the MAXHOP_LG precedent):
+its two stock sites disagree, so the table value is not enforced.
+Default behaviour is byte-identical to stock; `test_cafamily`
+37/37, now registered in the suite.

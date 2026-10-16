@@ -6,6 +6,23 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R36 — The User's Written Keys, Implemented; His Config Adopted (2026-10-16)
+
+**Decisions:** D87–D92
+
+### Added (all opt-in, default OFF = stock)
+- **`ENABLE SKIPCWC` + ONLY/EXCLUDE SID lists (D87)** — a CW for a gated SID must prove its DVB-CSA checksum before delivery or cache storage, even with `DCWFILTER CHECKSUM: OFF`. Pure gate in `src/skipcwc.h`; enforced in both delivery funnels and at cache ingest. Unit 15/15; live `tests sc` P1–P3.
+- **`DCW MINTIME` (D88)** — card replies faster than the floor are skipped and logged (`[MINTIME]`); cache replies exempt. Live P4/P5.
+- **`DCW CYCLE_CHECK` (D89)** — now parses as an alias of the existing cycle gate.
+- **`ECM HEADERWLST` + `ENABLE SOFTCAM: NO` (D90)** — ECM header whitelist enforced at `cs_accept_ecm`; softcam (BISS/BISS2) search closable per profile. Live P6.
+- **`CAID FAMILY HALFNULLED` wired (D92)** — R16's orphaned table gained its parser, its global definition, and its three enforcement sites; stock default {09} restored; `test_cafamily` (37/37) registered in the suite.
+
+### Changed
+- **Shipped profiles file is now the user's own `multics-r24-optimized.cfg`** (D91): 72 profiles with his SID lists/timings byte-preserved; ORF - 0D98 given its missing `PORT: 1981`; `DEFAULT DCW MAXFAILED: 0` raised to the floor of 3; the global `DEFAULT DCW MINTIME` dropped (per-profile values kept); verified-dead keys removed with in-file Arabic explanations. `tests prof` 5/5, zero parser warnings.
+
+### Verification
+- New live target `tests sc`: 6/6. Unit suite all-pass (incl. new `test_skipcwc`, revived `test_cafamily`). Regression spot-checks: fz 2/2, at 3/3, md 3/3, pf ok, prof 5/5.
+
 ## R35 — Web Pages Un-Mangled: Escape Text, Never the Page's Markup (2026-10-16)
 
 **Decision:** D86

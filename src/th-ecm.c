@@ -70,7 +70,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 	// TASK R26 (D77) - BISS2 KEY CHECK (CAID 2610 only): the 128-bit
 	// session word IS the full DCW. Never repeat a half, and never
 	// fall through to the BISS1 table for this CAID.
-	if (ecm->caid == BISS2_CAID) {
+	if (ecm->caid == BISS2_CAID && (!ecm->cs || !ecm->cs->option.disable_softcam)) {
 		uint8_t biss2_key[BISS2_KEY_SIZE];
 		if (biss2_get(ecm->caid, ecm->sid, ecm->provid, biss2_key)) {
 			uint8_t dcw[16];
@@ -90,7 +90,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 	}
 
 	// BISS KEY CHECK - Try to use stored BISS key first
-	{
+	if (!ecm->cs || !ecm->cs->option.disable_softcam) {
 		uint8_t biss_key[8];
 		if (biss_get(ecm->caid, ecm->sid, ecm->provid, biss_key)) {
 			// Found BISS key! Use it directly

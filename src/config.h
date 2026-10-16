@@ -588,6 +588,10 @@ struct camd35_server_data {
 // cs : newcamd
 // cc : cccam
 
+#define SKIPCWC_SID_MAX 256	/* R36: per-list SID cap (the parser notices overflow) */
+#define ECMHDR_MAX 8		/* R36: ECM HEADERWLST prefix cap */
+#define ECMHDR_LEN 16		/* R36: longest whitelisted ECM header prefix */
+
 struct cardserver_data
 {
 	struct cardserver_data *next;
@@ -661,6 +665,7 @@ struct cardserver_data
 #endif
 #endif
 			int retry; // number of retries to decode ecm
+			int mintime; // R36 DCW MINTIME: reject server replies faster than this (ms, 0=off)
 		} dcw;
 
 		uint8_t checkecm; // viaccess ecm
@@ -735,6 +740,19 @@ struct cardserver_data
 		 * CW-format rules for this profile's CAID (see dcw.h).
 		 * 0 (the memset default) = stock acceptDCW decision. */
 		uint8_t ca_modern;
+		/* TASK R36 (D87/D90): the R24-era keys, implemented. All zero
+		 * (the memset default) = today's behaviour exactly. */
+		uint8_t skipcwc;			/* ENABLE SKIPCWC: force the checksum battery at delivery */
+		uint8_t skipcwc_only_active;
+		uint16_t skipcwc_only[SKIPCWC_SID_MAX];
+		int skipcwc_only_total;
+		uint8_t skipcwc_excl_active;
+		uint16_t skipcwc_excl[SKIPCWC_SID_MAX];
+		int skipcwc_excl_total;
+		uint8_t disable_softcam;		/* ENABLE SOFTCAM: NO stops the BISS/Tandberg key answer */
+		uint8_t ecmhdr[ECMHDR_MAX][ECMHDR_LEN];	/* ECM HEADERWLST prefixes */
+		uint8_t ecmhdr_len[ECMHDR_MAX];
+		int ecmhdr_total;
 	} option;
 
 	int ecmlen[30];
@@ -1271,6 +1289,8 @@ void dcw_badlist_commit(struct dcw_data *list);
 int acceptDCW_profile(uint8_t *data, struct cardserver_data *cs);
 /* TASK R26 (D77) — the CA-aware form: same gates, plus the profile's
  * `CA MODERN` flag and the channel's CAID (casystem.h via dcw.c). */
+int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs,
+			 uint16_t caid, uint16_t sid); /* R36: SID-aware accept (SKIPCWC) */
 int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
 			 uint16_t caid);
 

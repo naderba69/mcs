@@ -3,6 +3,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "common.h"
+#include "cafamily.h"	/* TASK R36 (D92) */
 #include <stdlib.h>
 
 inline void peer_hitprofile( struct cachepeer_data *peer, int csid )
@@ -219,7 +220,32 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 		dcw, srctype, srcid, GetTickCount());
 #endif
 
-	if (!acceptDCW_profile_ca(dcw, cs, ecm->caid)) return;
+	/*
+	 * TASK R36 (D88) -- DCW MINTIME. A card server that answers an
+	 * ECM faster than physics allows (a real card needs tens of
+	 * milliseconds; the profiles arm 100-300) is manufacturing or
+	 * echoing, not decoding: skip its key and keep the request open
+	 * for a slower, plausible source. Only tracked server dispatches
+	 * are judged (their send stamp is in ecm->server[]); cache and
+	 * local deliveries are exempt -- a cache hit is legitimately
+	 * instant, and the cache side has its own gates. 0 = off.
+	 */
+	if (cs->option.dcw.mintime > 0) {
+		int k;
+		uint32_t now = GetTickCount();
+		for (k=0; k<20; k++) {
+			if (ecm->server[k].srvid && ecm->server[k].srvid==(uint32_t)srcid && ecm->server[k].sendtime) {
+				int elapsed = (int)(now - ecm->server[k].sendtime);
+				if (elapsed>=0 && elapsed < cs->option.dcw.mintime) {
+					debugf(DBG_ERROR, " !!! [MINTIME] %s: server %d answered in %dms < %dms - too fast to be real, CW skipped\n", cs->name, srcid, elapsed, cs->option.dcw.mintime);
+					return;
+				}
+				break;
+			}
+		}
+	}
+
+	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;
 
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
@@ -255,7 +281,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 
 	// filter non-nds halfnulled cw
 	if ( dcwcmp8(dcw,nullcw) || dcwcmp8(dcw+8,nullcw) ) {
-		if ((ecm->caid>>8)!=9) {
+		if (!ca_halfnull_ok(ecm->caid)) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
 			return;
 		}
 		int swap = 0;
@@ -596,7 +622,32 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		dcw, srctype, srcid, GetTickCount());
 #endif
 
-	if (!acceptDCW_profile_ca(dcw, cs, ecm->caid)) return;
+	/*
+	 * TASK R36 (D88) -- DCW MINTIME. A card server that answers an
+	 * ECM faster than physics allows (a real card needs tens of
+	 * milliseconds; the profiles arm 100-300) is manufacturing or
+	 * echoing, not decoding: skip its key and keep the request open
+	 * for a slower, plausible source. Only tracked server dispatches
+	 * are judged (their send stamp is in ecm->server[]); cache and
+	 * local deliveries are exempt -- a cache hit is legitimately
+	 * instant, and the cache side has its own gates. 0 = off.
+	 */
+	if (cs->option.dcw.mintime > 0) {
+		int k;
+		uint32_t now = GetTickCount();
+		for (k=0; k<20; k++) {
+			if (ecm->server[k].srvid && ecm->server[k].srvid==(uint32_t)srcid && ecm->server[k].sendtime) {
+				int elapsed = (int)(now - ecm->server[k].sendtime);
+				if (elapsed>=0 && elapsed < cs->option.dcw.mintime) {
+					debugf(DBG_ERROR, " !!! [MINTIME] %s: server %d answered in %dms < %dms - too fast to be real, CW skipped\n", cs->name, srcid, elapsed, cs->option.dcw.mintime);
+					return;
+				}
+				break;
+			}
+		}
+	}
+
+	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;
 
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
@@ -642,7 +693,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 
 	// filter non-nds halfnulled cw
 	if ( dcwcmp8(dcw,nullcw) || dcwcmp8(dcw+8,nullcw) ) {
-		if ((ecm->caid>>8)!=9) {
+		if (!ca_halfnull_ok(ecm->caid)) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
 			pthread_mutex_unlock(&prg.lockecm);
 			return;
 		}

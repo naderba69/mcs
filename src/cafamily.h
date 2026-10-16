@@ -51,9 +51,14 @@ static void cafamily_init(struct cafamily_tab *t)
 	for (i = 0; i < 8; i++) { t->b[CAFAM_HALFNULLED][i] = 0; t->b[CAFAM_NOPROVCHK][i] = 0; }
 	t->owned[CAFAM_HALFNULLED] = 0;
 	t->owned[CAFAM_NOPROVCHK] = 0;
-	/* HALFNULLED default: NONE (removed 09 to reject all half-nulled CW) */
-	/* Users can add specific CAIDs via CAID FAMILY HALFNULLED in config */
+	/* HALFNULLED default: {09} -- stock r82a's hard-coded NDS rule.
+	 * (A draft briefly shipped NONE here; the table had no parser and
+	 * no callers then, so the change was inert. TASK R36 (D92) wired
+	 * the parser and the three enforcement sites; the default stays
+	 * stock, and the first `CAID FAMILY HALFNULLED:` line owns the
+	 * set from there.) */
 	/* NOPROVCHK default: 18, 09, 0B */
+	t->b[CAFAM_HALFNULLED][0x09 >> 5] |= (uint32_t)1 << (0x09 & 31);
 	t->b[CAFAM_NOPROVCHK][0x18 >> 5] |= (uint32_t)1 << (0x18 & 31);
 	t->b[CAFAM_NOPROVCHK][0x09 >> 5] |= (uint32_t)1 << (0x09 & 31);
 	t->b[CAFAM_NOPROVCHK][0x0B >> 5] |= (uint32_t)1 << (0x0B & 31);
