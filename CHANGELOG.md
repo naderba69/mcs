@@ -6,6 +6,17 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R35 — Web Pages Un-Mangled: Escape Text, Never the Page's Markup (2026-10-16)
+
+**Decision:** D86
+
+### Fixed
+- **Every listing page printed its own HTML tags as text** — TASK 3.2/3.9 blanket-escaped composed cells on the HTML branches. Raw text fields (user, realname, program, version, statmsg, host names) are now escaped at composition time in all eleven cell builders via the house `html_esc()`; the 37 blanket escapes on HTML branches are gone. XML branches (JS innerHTML refresh) keep their transport escaping untouched.
+- **Servers-page uptime could read 266%** — reconnect-accumulated uptime divided by process life; clamped at 100.
+
+### Verification
+- All ten listing pages fetched live on the delivered `bin/multics.x64`: 200, zero escaped page tags, links render; XSS probe (profile named with a script tag) shows as inert text inside a working link. Unit suite all-pass; `tests/prof` 5/5. Declared limit: the full live suite was interrupted twice and not run to completion this round (first 69 checks passed, zero failures); the change is confined to `src/httpserver.c` rendering.
+
 ## R34 — Fixed Delivery Name: bin/multics.x64 (2026-10-16)
 
 **Decision:** D85

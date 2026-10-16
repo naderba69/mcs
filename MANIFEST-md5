@@ -1,23 +1,25 @@
-# MANIFEST-md5 — regenerated at R34 (2026-10-16, D85): bin/multics.x64
-# joins the pinned set as the fixed delivery name. Verify: md5sum -c MANIFEST-md5
+# MANIFEST-md5 — regenerated at R35 (2026-10-16, D86): web pages
+# un-mangled; binaries rebuilt. Verify: md5sum -c MANIFEST-md5
 428cdd714d901f806fdea2dc3dd3540a  .gitignore
-0b91a297b6978e946c101a5987691ac4  CHANGELOG.md
+a50f2696e275e231725e87a5aa908893  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
-eabb7c8bc48742e3ddcfdf0138743369  README-PRODUCTION.md
+71d32b821c5b23fe63455a176ee99f29  README-PRODUCTION.md
 441fee89ffd6bd53fe8ae99e4edc5e9b  README.md
 60e7ba6de9e6d79b916869342dddce86  RESOURCE-OPTIMIZATION-GUIDE.md
 f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 3d1f58b385a7a0eea720c3c59c3bdd29  bin-frozen-D53/multics-r82a-stock-x64
-c21a433e8d75f49d63f8c49197ce0b05  bin/README-R24-x64.md
+994e733a98d9cb582be254ec9cf8a5ad  bin/README-R24-x64.md
 800177a56d2f4e6f3a0a0ce5dac71c95  bin/multics-r82a-arm
 dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-4be83e2c325be87ca12e9f80aecf08e4  bin/multics-r82a-stats-x64
-3d2fdfa4930f592c08acd367b3ade764  bin/multics-r82a-stock-x64
+f006bfbbb381c3e071079dd311fb4676  bin/multics-r82a-stats-x64
+af9a5c1e85c1405c6326031efdcc0f37  bin/multics-r82a-stock-x64
 8ae2afeb6a89480c1e9a0d052bc4dbfe  bin/multics-r82a-x64
-4be83e2c325be87ca12e9f80aecf08e4  dist/multics-r82a-stats-x64
+f006bfbbb381c3e071079dd311fb4676  bin/multics.x64
+f006bfbbb381c3e071079dd311fb4676  dist/multics-r82a-stats-x64
+af9a5c1e85c1405c6326031efdcc0f37  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 2c0c47e7cdb35fbcfcdeeeaa92d09f5c  docs/BLACKSCREEN.md
@@ -26,7 +28,7 @@ a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 1a94d24e74f0002ee55ef7e9c3519711  docs/COMPAT-ar.md
 c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 14f1aa728369d3b5aa87e65f2e4f97bd  docs/CONFIG-REFERENCE-ar.md
-abc67616425002218ec676868736e420  docs/DECISIONS.md
+0a976d5f4257cad29f8617f63e6a69d7  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
 ac34b472c64edeb8add820f90d34f3d7  docs/FIELD-GUIDE-ar.md
@@ -96,6 +98,7 @@ e0a6b7d0e0853971f259044283705c29  docs/REPORT-R29-ar.md
 7507383b24aa62e27a4c9969362c3216  docs/REPORT-R30-ar.md
 3ca81adc574eb98552c5df4a44aace72  docs/REPORT-R31-ar.md
 b066ea4f34df0e045c4ef5711415c56a  docs/REPORT-R32-ar.md
+e7611f3e669f4d92e00e47e0dd591c6c  docs/REPORT-R35-ar.md
 a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
@@ -438,7 +441,7 @@ dc0bd1980e2b9de5bb6dadc573ba3168  src/ecmdata.h
 35e6ede5769c06a8a22850ff9a16851b  src/fastretx.h
 53bf1ba928072a0c68dcb81566acb029  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-493370a1575c29f76992a52db9e20a08  src/httpserver.c
+7311a209cf1b8743bfece5328519b93e  src/httpserver.c
 f5b6ea3dc27287ae7b1411316bde8b72  src/httpserver.h
 a43344053ef6be6a6af0b301eae0fd34  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
@@ -546,4 +549,3 @@ b15af4b90f3df83d9880d9601260f980  tests/r107peer.c
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
 79dcd20c07c4a044043533af9b7062c6  tests/stability.mk
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c
-4be83e2c325be87ca12e9f80aecf08e4  bin/multics.x64

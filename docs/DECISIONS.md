@@ -3630,3 +3630,36 @@ bin/multics.x64 == the proven stats build. Live boot of
 bin/multics.x64 itself with the shipped profiles file included:
 HTTP 200, CACHE PROTECTION/ATTEST lines parsed, profile servers
 up (prof's 5/5 port proof stands on the same bytes).
+
+## D86 (R35) — Web pages un-mangled: escape text, never the page's markup
+
+**Symptom (user-reported):** every listing page (profiles, cccam,
+newcamd, cacheex, servers...) printed the page's own HTML tags as
+literal text, and an uptime cell could read 266%.
+
+**Root cause.** TASK 3.2/3.9 (XSS hardening) blanket-applied
+xmlescape() to composed table cells on the HTML branches -- cells
+that intentionally contain the page's markup (links, buttons,
+percentage spans) around raw text. Escaping belongs to the TEXT,
+not the markup. The XML branches were correct all along: there the
+escape is transport encoding, undone by the XML parser before the
+JS assigns innerHTML.
+
+**Decision.** (1) Raw text fields are escaped at composition time
+in all eleven cell builders via the house helper html_esc()
+(htmlesc.h, TASK 3.2's own tool) behind a one-token wrapper escf():
+user, realname, program, version, statmsg, host names. (2) The 37
+blanket-escape statements on HTML branches are removed; XML
+branches keep xmlescape() untouched. (3) The servers-page uptime
+percentage is clamped at 100 (reconnect-accumulated uptime vs
+process ticks).
+
+**Verification.** Dev + release builds; all ten listing pages
+fetched live: HTTP 200, zero escaped page tags, real links render;
+the XML refresh path still transports escaped cells; an XSS probe
+profile named `X<script>alert(1)</script>` renders as escaped text
+inside a working link. Unit suite all-pass; tests/prof 5/5.
+Declared limit: the FULL live suite was not run to completion this
+round (a run was interrupted twice at the user's hand); its first
+69 checks passed with zero failures, and the change is confined
+to src/httpserver.c rendering.

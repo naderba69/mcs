@@ -269,8 +269,8 @@ BISS SHARE: Received CW from client USER1 for 2600:000000:1234
 ### 1. Binary (التطبيق)
 ```
 File: bin/multics.x64 — THE fixed delivery name (R34); internals: bin/multics-r82a-stock-x64 / bin/multics-r82a-stats-x64
-Size: 771 KB stock / 779 KB stats
-MD5: 3d2fdfa4930f592c08acd367b3ade764 (stock) / 4be83e2c325be87ca12e9f80aecf08e4 (stats)
+Size: 767 KB stock / 779 KB stats
+MD5: af9a5c1e85c1405c6326031efdcc0f37 (stock) / f006bfbbb381c3e071079dd311fb4676 (stats)
 Build: make -C make-x64 release / release-stats
 Features: the R26-R32 hardening stack (unified CA layer, fake-CW gate,
 consensus SOURCES, receiver attestation, PROTECTION recipe) — every
