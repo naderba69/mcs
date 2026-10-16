@@ -3827,3 +3827,61 @@ only:** the unsolicited push now carries its own checksum-valid key
 (CE_UNSOL); the scenario's intent is unchanged. ce passes 3/3
 consecutive runs. Suite accounting for the full run: 384 checks ok,
 one target (ce) failed and is now fixed and re-verified.
+
+## D98 (R39) — Card matching joins the CAID FAMILY table (third flag)
+
+The audit's item 3: two provider rules lived in two places —
+NOPROVCHK's set drove profile matching (D94), while loadbalance's
+card matching kept stock's hard-coded inverse rule (strict only for
+01/05) outside the table. cafamily.h now carries a third flag,
+CAFAM_CARDPROV (default {01,05} = stock byte-for-byte), and both
+cs_cmp_card/match_card sites read `ca_card_prov_required()`. Grammar
+`CAID FAMILY PROVIDERCHECK: ..` owns the set like the other flags.
+One table now holds every CAID-family provider rule, each with its
+own stock default and its own question: PROVIDERCHECK tightens or
+loosens WHICH cards count as the same card; NOPROVCHK decides when
+a profile may answer without a provider match. test_cafamily 47/47
+(new CARDPROV block incl. per-flag ownership isolation); sc/timing
+live-green, proving the default path is unchanged.
+
+## D99 (R39) — MAXHOP_LG: documented, specified, and absent — restored
+
+Item 4 was worse than "parsed but inert": R18/D73 had specified
+(and the reference docs still describe) exactly this implementation,
+but the code in the tree only printed "not implemented" at both
+parser sites — the R18 code never survived into this history, and
+COMPAT-ar.md/FIELD-GUIDE disagreed with each other about it.
+Restored to the documented spec: `CACHEEX MAXHOP_LG: N` writes the
+same option.cacheex.maxhop MAXHOP writes (the field every cacheex
+forward path enforces), clamped [1,10] (= CEXW_MAX_NODES) instead of
+[1,2], at the DEFAULT and per-profile sites; file order applies, so
+the last MAXHOP/MAXHOP_LG line wins. Proven live off the profile web
+page (httpserver prints the field): LG 4 → 4, LG8+MAXHOP2 → 2,
+MAXHOP1+LG7 → 7, LG99 → 10. ce scenario 3 now asserts the value
+landed instead of asserting the old notice; cacheex_gates.h and
+FIELD-GUIDE no longer claim it unimplemented.
+
+## D100 (R39) — Tandberg 1010 served by the fixed-key table, proven
+
+Item 5 asked for a live path for Tandberg (1010). It already
+existed in mechanism: the /biss store matches caid+sid+provid for
+any CAID, so a Tandberg fixed key is a table entry, not a decoder.
+sc P9 proves it end-to-end (stored 1010 key answers a 1010 ECM).
+Building P9 also produced the round's most useful negative result:
+1010 classifies as CSA-family, so CA MODERN keeps the checksum
+test for it — the first test key (a BISS-shaped repeated word with
+invalid checksum bytes) was refused, correctly. The phase uses a
+checksum-valid key, which is what a genuine Tandberg word is.
+
+## D101 (R39) — CACHE_QUEUE joins the periodic verification
+
+Item 2: the queue flavours (release-queue/release-queue-stats, R6)
+were buildable by hand but never booted by the suite. New target
+`tests qv` (in `all`): builds queue-stats on demand, fingerprints
+the flavour (the [CACHE QUEUE] stats format exists only in queue
+builds), boots the shipped 72 profiles, asserts HTTP 200, all
+ports, no crash — 4/4. Also fixed while here: `make -C make-x64
+test` named test_cwattest in its recipe but never built it
+(Error 127); the prerequisite list now includes it. The standing
+debt NOT taken this round, by the user's choice: CI, and the 15
+targets that require prebuilt stats binaries.

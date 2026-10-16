@@ -1,7 +1,8 @@
 /* test_cafamily.c -- TASK R16 (D71): the CAID family table (cafamily.h).
  *
  * Covers exactly what COMPAT-ar.md claims: the stock defaults
- * (HALFNULLED={09}, NOPROVCHK={18,09,0B}), the ownership rule (the first
+ * (HALFNULLED={09}, NOPROVCHK={18,09,0B}, CARDPROV={01,05} [D98]),
+ * the ownership rule (the first
  * configured line for a flag drops its defaults and owns the set), the
  * empty-list case (own + nothing = none), accumulation, the boundary
  * families, and the site-facing predicates ca_halfnull_ok/ca_provchk_skip.
@@ -104,10 +105,30 @@ int main(void)
 	}
 	CHECK(all, "NOPROVCHK untouched across the walk");
 
-	/* 9. invalid flag: no crash, has returns 0 */
-	cafamily_add(&t, 2, 0x09);
+	/* 9. CARDPROV (D98): stock default {01,05}, predicate strict there only */
+	cafamily_init(&t);
+	CHECK(cafamily_has(&t, CAFAM_CARDPROV, 0x01), "default CARDPROV has 01 (SECA strict)");
+	CHECK(cafamily_has(&t, CAFAM_CARDPROV, 0x05), "default CARDPROV has 05 (Viaccess strict)");
+	CHECK(!cafamily_has(&t, CAFAM_CARDPROV, 0x06), "default CARDPROV lacks 06");
+	CHECK(!cafamily_has(&t, CAFAM_CARDPROV, 0x09), "default CARDPROV lacks 09");
+	CHECK(!cafamily_has(&t, CAFAM_CARDPROV, 0x18), "default CARDPROV lacks 18");
+	/* ownership: first line owns the set */
+	cafamily_add(&t, CAFAM_CARDPROV, 0x06);
+	CHECK(!cafamily_has(&t, CAFAM_CARDPROV, 0x01), "PROVIDERCHECK owns: stock 01 dropped");
+	CHECK(cafamily_has(&t, CAFAM_CARDPROV, 0x06), "PROVIDERCHECK owns: 06 present");
+	/* owning CARDPROV leaves the other two flags' stock defaults intact */
+	CHECK(cafamily_has(&t, CAFAM_HALFNULLED, 0x09), "CARDPROV add: HALFNULLED untouched");
+	CHECK(cafamily_has(&t, CAFAM_NOPROVCHK, 0x18), "CARDPROV add: NOPROVCHK untouched");
+	/* predicate: family = caid>>8 exactly */
+	cafamily_init(&t);
+	/* (global table here is the local t only via cafamily_has; predicate
+	 * uses the global -- exercise has() bit-exactness instead) */
+	CHECK(!cafamily_has(&t, CAFAM_CARDPROV, 0x10), "default CARDPROV lacks 10 (family nibble exact)");
+
+	/* 10. invalid flag: no crash, has returns 0 */
+	cafamily_add(&t, 3, 0x09);
 	cafamily_add(&t, -1, 0x09);
-	CHECK(!cafamily_has(&t, 2, 0x09) && !cafamily_has(&t, -1, 0x09), "invalid flag ignored");
+	CHECK(!cafamily_has(&t, 3, 0x09) && !cafamily_has(&t, -1, 0x09), "invalid flag ignored");
 
 	printf("[test_cafamily] done: %d/%d ok\n", total - fail, total);
 	return fail ? 1 : 0;

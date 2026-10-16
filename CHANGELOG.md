@@ -6,6 +6,23 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R39 — The Four Audit Gaps, Implemented and Proven (2026-10-16)
+
+**Decisions:** D98–D101
+
+### Added
+- **`CAID FAMILY PROVIDERCHECK` (D98)** — card matching (loadbalance cs_cmp_card/match_card) now reads the CAID FAMILY table's third flag; default {01,05} is stock's hard-coded rule byte-for-byte, so one table holds every provider rule. test_cafamily 47/47.
+- **`tests qv` (D101)** — the CACHE_QUEUE flavour joins periodic verification: builds queue-stats on demand, fingerprints the flavour, boots the shipped profiles (HTTP 200, 72/72 ports). Wired into `tests all`.
+
+### Restored
+- **`CACHEEX MAXHOP_LG` (D99)** — R18/D73 specified it and the reference docs described it, but the code was absent (both parser sites only printed "not implemented"). Implemented to spec: same enforced field as MAXHOP, clamp [1,10], last line wins; proven live via the profile web page (4 / 2 / 7 / 99→10); ce scenario 3 asserts the landed value.
+
+### Proven
+- **Tandberg 1010 via the fixed-key table (D100)** — `sc` P9: a key stored through /biss answers a 1010 ECM (9/9). The path there also proved CA MODERN keeps the checksum test for CSA-family 1010: a fake-shaped key was refused, a checksum-valid one delivered.
+
+### Fixed
+- `make -C make-x64 test` ran test_cwattest without building it (Error 127); prerequisite added.
+
 ## R37 — Everything Developed, Merged into the Shipped Profiles (2026-10-16)
 
 **Decision:** D93

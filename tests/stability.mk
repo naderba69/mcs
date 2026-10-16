@@ -4065,7 +4065,7 @@ rs:
 #              (cacheex-local-only), fake push dropped (cacheex-fake-cw),
 #              first good push held (cacheex-confirm-wait), second
 #              identical push crosses the floor and the client is served;
-#   parser   : MAXHOP_LG prints its notice, CWCHECK clamps to the cap.
+#   parser   : MAXHOP_LG: 4 lands on the profile page (D99), CWCHECK clamps.
 #
 # GOODCW is a key with all four checksumDCW() group sums correct; the
 # `bad` job flag bumps cw[15] so checksumDCW() fails. Needs the stats
@@ -4141,7 +4141,8 @@ ce: $(CXPEER)
 	  printf 'DEFAULT CACHEEX MAXHOP_LG: 4\nDEFAULT CACHEEX CWCHECK: 9\n\n'; \
 	  printf '[ cxg ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CE_NPORT)\nENABLE CACHEEX: YES\nDCW TIMEOUT: 9000\nUSER: u1 p1\n'; } > $(CE_CFG); \
 	start_srv; \
-	grep -q "MAXHOP_LG: not implemented" .ce-srv.log && echo "  [ ok ] MAXHOP_LG says it is not implemented" || { echo "  [FAIL] MAXHOP_LG stayed silent"; ok=0; }; \
+	grep -q "MAXHOP_LG: not implemented" .ce-srv.log && { echo "  [FAIL] MAXHOP_LG still inert (R39 regression)"; ok=0; } || echo "  [ ok ] MAXHOP_LG no longer reports itself unimplemented"; \
+	curl -s -m 3 -u admin:admin "http://127.0.0.1:$(CE_HPORT)/profile?id=100" | grep -q "CACHEEX MAXHOP</td><td>4" && echo "  [ ok ] MAXHOP_LG: 4 landed (stock MAXHOP caps at 2)" || { echo "  [FAIL] MAXHOP_LG value not on the profile page"; ok=0; }; \
 	grep -q "CWCHECK capped at 5" .ce-srv.log && echo "  [ ok ] CWCHECK 9 clamped to the cap 5" || { echo "  [FAIL] CWCHECK was not clamped"; ok=0; }; \
 	kill_srv; \
 	\
@@ -5142,6 +5143,14 @@ at: .ncclient.bin .cachepeer.bin
 #      carry CA MODERN: ON like the shipped profiles -- a BISS1 key
 #      has no checksum bytes, and frozen stock refuses it at the
 #      checksum gate without MODERN (verified against D53).
+#   P9 (TASK R39/D100) Tandberg CAID 1010: an 8-byte key stored via
+#      the same /biss route answers a 1010 ECM -- the fixed-key table
+#      matches caid+sid+provid for ANY system, which is exactly how a
+#      Tandberg fixed key is served. The key is checksum-valid
+#      (SC_TBG): 1010 classifies as CSA-family, so CA MODERN keeps
+#      the checksum test for it (only no-checksum systems are
+#      relaxed) -- a real Tandberg word passes, a fake-shaped one
+#      is refused, as the P9 log's CW STRUCT line shows.
 # ===========================================================================
 SC_HPORT = 17200
 SC_CACHE = 17201
@@ -5154,6 +5163,7 @@ SC_GOOD  = 11223366445566FF77889998ABBCCD34
 SC_BAD   = 11223399445566FF77889998ABBCCD34
 SC_KEY   = 0102030405060708091011121314
 SC_BISS1 = 1122334455667788
+SC_TBG   = 11223366445566FF
 SC_SKEY  = 01 02 03 04 05 06 07 08 09 10 11 12 13 14
 
 .PHONY: sc
@@ -5230,7 +5240,15 @@ sc: .ncclient.bin .cachepeer.bin $(NCSERVER)
 	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc8-c.log); \
 	if [ "$$d" -ge 1 ]; then echo "  [ ok ] P8: without the line the stored BISS key answers as stock"; \
 	else echo "[FAIL] P8 (delivered=$$d) -- see .sc8-*.log"; ok=0; fi; \
-	if [ "$$ok" = "1" ]; then rm -f $(SC_CFG) .sc-*.log; echo "sc: 8/8 ok"; \
+	echo "  [ -- ] P9: Tandberg 1010 -- stored /biss key must deliver"; \
+	{ printf 'HTTP PORT: $(SC_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n\n[ sc3 ]\nCAID: 1010\nPROVIDERS: 0\nPORT: $(SC_NPORT2)\nDCW TIMEOUT: 4000\nCA MODERN: ON\nUSER: u1 p1\n\n'; } > $(SC_CFG); pkill -9 '^multics' 2>/dev/null; sleep 2; boot 9; \
+	curl -s -m 3 -u a:a -o /dev/null "http://127.0.0.1:$(SC_HPORT)/biss?action=add&caid=1010&sid=0001&provid=000000&key=$(SC_TBG)"; \
+	NC_ECMS=1 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 1010 1 > .sc9-c.log 2>&1; \
+	grep -q "DELIVERED A CONTROL WORD" .sc9-c.log || { sleep 2; NC_ECMS=1 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 1010 1 >> .sc9-c.log 2>&1; }; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc9-c.log); \
+	if [ "$$d" -ge 1 ]; then echo "  [ ok ] P9: the stored key answers Tandberg 1010 via the fixed-key table"; \
+	else echo "[FAIL] P9 (delivered=$$d) -- see .sc9-*.log"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(SC_CFG) .sc-*.log; echo "sc: 9/9 ok"; \
 	else echo "sc: FAILED (logs kept under tests/.sc-*)"; exit 1; fi
 
 # TASK R32 (D83) -- the shipped profiles file, proven bootable.
@@ -5268,3 +5286,41 @@ prof:
 	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then rm -f $(PROF_CFG) .prof-srv.log; echo "prof: 5/5 ok"; \
 	else echo "prof: FAILED (logs kept under tests/.prof-*)"; exit 1; fi
+
+# TASK R39 (D101) -- the CACHE_QUEUE flavour joins the periodic checks.
+# Until now release-queue/release-queue-stats were built by hand only;
+# nothing in the suite ever booted them, so a queue-only breakage
+# (startup, config parse, the queue thread itself) could ship green.
+# qv boots the queue-stats flavour on the SHIPPED profiles file and
+# asserts the same surface prof asserts for the dev binary, plus the
+# flavour fingerprint: the [CACHE QUEUE] stats format string exists
+# only in -DCACHE_QUEUE builds (stock strings: none). The flavour is
+# built on demand; the release target wipes make-x64/x64, so the dev
+# binary is restored right after, keeping the suite order-safe.
+QV_BIN   ?= ../bin/multics-r82a-queue-stats-x64
+QV_HPORT = 17150
+QV_CFG   = .qv-boot.cfg
+
+.PHONY: qv
+qv:
+	@test -x $(QV_BIN) || { echo "qv: building the queue-stats flavour first"; $(MAKE) -C ../make-x64 release-queue-stats; }
+	@test -x ../make-x64/x64/multics || $(MAKE) -C ../make-x64 >/dev/null
+	@strings $(QV_BIN) | grep -q "CACHE QUEUE" || { echo "[FAIL] $(QV_BIN) is not a CACHE_QUEUE build"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@rm -f $(QV_CFG) .qv-srv.log; ok=1; \
+	{ printf 'HTTP PORT: $(QV_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n'; cat ../multics-r24-optimized.cfg; } > $(QV_CFG); \
+	stdbuf -o0 -e0 $(QV_BIN) -C $(QV_CFG) -v > .qv-srv.log 2>&1 & srv=$$!; \
+	code=000; for i in $$(seq 1 30); do \
+	  code=$$(curl -s -m 3 -u a:a -o /dev/null -w '%{http_code}' http://127.0.0.1:$(QV_HPORT)/ 2>/dev/null); \
+	  [ "$$code" = "200" ] && break; sleep 1; done; \
+	if [ "$$code" = "200" ]; then echo "  [ ok ] queue flavour boots the shipped profiles and HTTP answers"; \
+	else echo "[FAIL] queue flavour HTTP answered '$$code' -- see .qv-srv.log"; ok=0; fi; \
+	nports=$$(grep '^PORT: ' ../multics-r24-optimized.cfg | awk '{print $$2}' | sort -u | wc -l); \
+	nopen=0; for p in $$(grep '^PORT: ' ../multics-r24-optimized.cfg | awk '{print $$2}' | sort -u); do \
+	  bash -c "exec 3<>/dev/tcp/127.0.0.1/$$p" 2>/dev/null && nopen=$$((nopen+1)); done; \
+	if [ "$$nopen" = "$$nports" ]; then echo "  [ ok ] queue flavour: all $$nports profile ports listen"; \
+	else echo "[FAIL] queue flavour: $$nopen of $$nports profile ports listen"; ok=0; fi; \
+	grep -qi "segmentation\|SIGSEGV" .qv-srv.log && { echo "[FAIL] queue flavour logged a segfault"; ok=0; } || echo "  [ ok ] queue flavour: no crash in the log"; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	if [ "$$ok" = "1" ]; then rm -f $(QV_CFG) .qv-srv.log; echo "qv: 4/4 ok"; \
+	else echo "qv: FAILED (logs kept under tests/.qv-*)"; exit 1; fi

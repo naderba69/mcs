@@ -1,7 +1,7 @@
-# MANIFEST-md5 — regenerated at R38 (2026-10-16, D94-D97): gaps
-# covered (NOPROVCHK wired, SOFTCAM proven, MINTIME completed); binaries rebuilt. Verify: md5sum -c MANIFEST-md5
+# MANIFEST-md5 — regenerated at R39 (2026-10-16, D98-D101): the four
+# audit gaps implemented and proven; all four flavours rebuilt. Verify: md5sum -c MANIFEST-md5
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-86b8d82e57143256fc1b9709da8534d6  CHANGELOG.md
+68c1f34be97763ff4c1826cff5f43430  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
@@ -13,25 +13,27 @@ f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 994e733a98d9cb582be254ec9cf8a5ad  bin/README-R24-x64.md
 800177a56d2f4e6f3a0a0ce5dac71c95  bin/multics-r82a-arm
 dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
+46b6d1e7410ce50f98dbb79ed54fef5f  bin/multics-r82a-queue-stats-x64
+9a3433b765113d69c792a8a50d9c9d0a  bin/multics-r82a-queue-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-d1d463ba229157ba7036279942954b62  bin/multics-r82a-stats-x64
-67c280081934b65a00a5e7efffa5d753  bin/multics-r82a-stock-x64
+967ea295b9d9bae7dc3b58d0f2df242e  bin/multics-r82a-stats-x64
+e35e2c5ad994963828d72dee47a87a7b  bin/multics-r82a-stock-x64
 8ae2afeb6a89480c1e9a0d052bc4dbfe  bin/multics-r82a-x64
-d1d463ba229157ba7036279942954b62  bin/multics.x64
-d1d463ba229157ba7036279942954b62  dist/multics-r82a-stats-x64
-67c280081934b65a00a5e7efffa5d753  dist/multics-r82a-stock-x64
+967ea295b9d9bae7dc3b58d0f2df242e  bin/multics.x64
+967ea295b9d9bae7dc3b58d0f2df242e  dist/multics-r82a-stats-x64
+e35e2c5ad994963828d72dee47a87a7b  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 2c0c47e7cdb35fbcfcdeeeaa92d09f5c  docs/BLACKSCREEN.md
 797863f9c6d87675f97e3965189f7c45  docs/BUILD-PATCHES.md
 088d92251d68affde9c8b2fa437ed079  docs/CACHE-OPTIMIZATION-ar.md
-1a94d24e74f0002ee55ef7e9c3519711  docs/COMPAT-ar.md
+ec5b0f81b3d501843c4f61f5e9074dc6  docs/COMPAT-ar.md
 c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
-14f1aa728369d3b5aa87e65f2e4f97bd  docs/CONFIG-REFERENCE-ar.md
-4ce572d3f484df6b27894bd8178d10bc  docs/DECISIONS.md
+48215436613e05f450664ced32128a99  docs/CONFIG-REFERENCE-ar.md
+9b2f16a3b29e33cd20db10fd75a217d2  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
-950cf3989478ec2665122e6b14d339e2  docs/FIELD-GUIDE-ar.md
+8beb2fd14c569df2bc4bb0e25ffc0183  docs/FIELD-GUIDE-ar.md
 6a549c88dcfd53e331e2ff2bcf0e0180  docs/FINAL-SUMMARY-REPORT-ar.md
 69efaa74a2560a82d0afb76f00d68b39  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
@@ -102,6 +104,7 @@ e7611f3e669f4d92e00e47e0dd591c6c  docs/REPORT-R35-ar.md
 ea96c3318093b3ffa0f8a16eb18fe928  docs/REPORT-R36-ar.md
 c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 458c5445465e8fb3fece72cf5af9c225  docs/REPORT-R38-ar.md
+0b633ba81acdefaa86a1ef8324cda94a  docs/REPORT-R39-ar.md
 a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
@@ -264,7 +267,7 @@ a1a4c6908cb92319e0d923ebf04febbe  make-cross/Makefile
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
 71db1eb7a48e9eadf5b006e521c7c068  make-cross/cross-mipsel/multics
 dd70e1f361729a919b007241f311c9b1  make-cross/cross-sh4/multics
-6471f8e44aa4533f7c078819bb71b0f5  make-x64/Makefile
+4cdfc20f00473e74cc143f4be94a212e  make-x64/Makefile
 650fd7a14c324c80ce132d7f17016244  make-x64/memcheck.sh
 846da9f9d1b473bb531ac20393fc0613  make-x64/memcheck.supp
 441ca78d955dc9a8fc2eb605d4ec8856  make-x64/port_gnu89.h
@@ -279,7 +282,7 @@ d30fd66474b2a43205372a03357c2939  make-x64/probe_xmlescape.c
 677d9d83815f530c53e4a960a780fc10  make-x64/test_cacheguard.c
 83158acf2cb9741481045def26699dc9  make-x64/test_cachepref.c
 398349b35f9313dab2cb59dad0161aa2  make-x64/test_cachequeue.c
-1e49b24809696a2e3e591e21fd046908  make-x64/test_cafamily.c
+a96145f6ccf320ff081fda3b446380ca  make-x64/test_cafamily.c
 f3707df35cc0c54e0c23be78d1a9048e  make-x64/test_casystem.c
 1302785bb11b63ba33c6223153dc5d3c  make-x64/test_cexvis.c
 898277c984e27290356dc5646ec7d871  make-x64/test_cexwire.c
@@ -343,13 +346,13 @@ b9356909c2842fb81d85fd9bad519935  src/cache-turbo.h
 4ef39fabc3b192a74073b54c07928fd0  src/cache_threshold.h
 a812e9fb5be67650f7a75c591c7acc4f  src/cacheex.c
 657553563e43f33cf4a4d5c027880c58  src/cacheex.h
-8772c23c0927983405879e4f78e1c200  src/cacheex_gates.h
+e67dd6386e1f52291e875f9275424770  src/cacheex_gates.h
 2155bbab14869816d688ee4ef71beb1b  src/cacheguard.h
 002c8ab7e9afd94cd79a7951be6b4235  src/cachepref.h
 312acf517d478947f46caa67aae15aed  src/cachequeue.c
 0d4a93f38639394e36ec5faf6b509038  src/cachequeue.h
 bb0f1a46352ea4db6e7e62e295c2f3e2  src/cachewarm.h
-1cec0bd88ae32e74e75c886a9d5f1938  src/cafamily.h
+71a7769a324efc0830e004ec59c8ffd7  src/cafamily.h
 f62470a67ac838c59d8b5e979b4470d5  src/casystem.h
 e3477204adc61aa3ac4b3fa8e863173b  src/cexvis.h
 bbb8636e6b121a90c2a8c70ba6e5e0f8  src/cexwire.h
@@ -365,7 +368,7 @@ dab16ded17636914eb5d75a9d7ce0b30  src/chanhealth.h
 1977c8ddc067ba110703b4564959322b  src/clientbuf.h
 6e50862442a47f4ade4bfe034c1151a2  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-36c1ebd25e5c8676d003eb25b9411e24  src/config.c
+e3f826e3ab085ab7b123a531e2b4b321  src/config.c
 adec1c624dd6289c3956bfff2a5e72dc  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
@@ -454,7 +457,7 @@ d6dc115c29e14ada2ecfe16845672a10  src/ipdata.c
 0a8287e5e46e67457cba75393a03137f  src/ipenc.c
 3c5316c19e5835a2b401e2d8a0c8e5e2  src/iplock.c
 ac7cbc70f6a75229e763945fd612b5d8  src/ledger.h
-8357aa0944caab36b8f9eba005c7adbb  src/loadbalance.c
+0d15ce631da0c2ad85f4fd074f59465e  src/loadbalance.c
 0383bf89ff9e3851278efa6d34e85f65  src/loginthrottle.c
 0d864aaa9d3bf263f7427bd171614ed8  src/loginthrottle.h
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
@@ -536,7 +539,7 @@ af09ddc7d479b76a2bd9a9bbc69aef24  src/twin.c
 3df6fdaba14614992ffcf0c168682c2b  src/zerolatency.h
 49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-2fde6633fee2519cb1e81b43e49243c2  tests/Makefile
+633c08a7ea446f55b06a45f76dbc2b3a  tests/Makefile
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 518ab2e1a2864eee5bab964fc612aa4f  tests/ca-bite.c
 5081b47e7ffe26768c6f69153719d4e4  tests/cachepeer.c
@@ -552,5 +555,5 @@ b2caeeac7e48b211710f9236a020fdb7  tests/multics-live.cfg
 b15af4b90f3df83d9880d9601260f980  tests/r107peer.c
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
-a307384a73a2214b9f615a280c4b3e79  tests/stability.mk
+b2f5638a7258ecdd1f27720448f42212  tests/stability.mk
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c

@@ -2758,10 +2758,21 @@ sid accept:
 					cfg->cache.gate_cwcheck = defaultcs.option.excheck;
 				}
 				else if (!strcmp(str,"MAXHOP_LG")) {
-					/* TASK R1: recognised but NOT implemented -- the enforced
-					 * send cap is CACHEEX MAXHOP. Say so once at config read
-					 * instead of leaving the line silently dead. */
-					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHEEX MAXHOP_LG: not implemented; CACHEEX MAXHOP is the enforced cap\n",file->nbline,iparser-currentline);
+					/* TASK R39 (D99): extended horizon. Writes the SAME field
+					 * MAXHOP writes (option.cacheex.maxhop, enforced by every
+					 * cacheex forward path), clamped [1,10] instead of the
+					 * stock [1,2]. Lines apply in file order, so the last
+					 * MAXHOP/MAXHOP_LG line wins: MAXHOP_LG after MAXHOP
+					 * widens the cap; a later MAXHOP narrows it back. */
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					defaultcs.option.cacheex.maxhop = atoi(str);
+					if ( defaultcs.option.cacheex.maxhop<1 ) defaultcs.option.cacheex.maxhop = 1;
+					else if ( defaultcs.option.cacheex.maxhop>10 ) defaultcs.option.cacheex.maxhop = 10;
 				}
 			}
 #endif
@@ -3602,9 +3613,20 @@ link_mgcamd_user:
 				}
 			}
 			else if (!strcmp(str,"MAXHOP_LG")) {
-				/* TASK R1: recognised but NOT implemented -- see the DEFAULT
-				 * handler; the line stays inert but is no longer silent. */
-				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHEEX MAXHOP_LG: not implemented; CACHEEX MAXHOP is the enforced cap\n",file->nbline,iparser-currentline);
+				/* TASK R39 (D99): per-profile extended horizon; same field
+				 * and rules as the DEFAULT site above (clamp [1,10],
+				 * last line wins). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				if (cardserver) {
+					cardserver->option.cacheex.maxhop = atoi(str);
+					if ( cardserver->option.cacheex.maxhop<1 ) cardserver->option.cacheex.maxhop = 1;
+					else if ( cardserver->option.cacheex.maxhop>10 ) cardserver->option.cacheex.maxhop = 10;
+				}
 			}
 		}
 #endif
@@ -3968,8 +3990,9 @@ link_mgcamd_user:
 			 * enforced (ca_halfnull_ok in setdcw.c/clustredcache.c);
 			 * NOPROVCHK is enforced at getcsbycaidprov() (main.c),
 			 * whose stock list IS the table default {18,09,0B} (D94);
-			 * loadbalance.c's card matching keeps stock's inverse
-			 * rule and is not driven by this table. */
+			 * PROVIDERCHECK owns the card-matching strict set
+			 * {01,05} in loadbalance.c (D98) -- one table, both
+			 * provider rules, stock defaults throughout. */
 			{
 				char *savep = iparser; char fam[64];
 				parse_name(fam); uppercase(fam);
@@ -3988,6 +4011,8 @@ link_mgcamd_user:
 							cafamily_add(&cafamily_tab, CAFAM_HALFNULLED, (unsigned)hex2int(hb));
 						else if (!strcmp(flag,"NOPROVCHK"))
 							cafamily_add(&cafamily_tab, CAFAM_NOPROVCHK, (unsigned)hex2int(hb));
+						else if (!strcmp(flag,"PROVIDERCHECK"))
+							cafamily_add(&cafamily_tab, CAFAM_CARDPROV, (unsigned)hex2int(hb));
 						parse_spaces();
 						if (*iparser==',') { iparser++; continue; }
 						break;
