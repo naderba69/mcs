@@ -43,6 +43,7 @@
 #include "threads.h"
 #include "dcw.h"
 #include "ecmdata.h"
+#include "casystem.h"	/* TASK R26 (D77): bounded CA extraction */
 
 #ifdef CCCAM
 #include "msg-cccam.h"
@@ -77,46 +78,22 @@ uint8_t checkECMD5(uint8_t *ecmd5)
 	return 0;
 }
 
-uint32_t ecm_getprovid( uint8_t *ecm, uint16_t caid )
+uint32_t ecm_getprovid( uint8_t *ecm, int ecmlen, uint16_t caid )
 {
-	int32_t i, len, descriptor_length = 0;
 	uint32_t provid = 0;
-
-	switch(caid >> 8) {
-		case 0x01: // seca
-			provid = (ecm[3]<<8)|ecm[4];
-			break;
-
-		case 0x05:
-			// viaccess
-			i = (ecm[4] == 0xD2) ? ecm[5]+2 : 0;  // skip d2 nano
-			if((ecm[5+i] == 3) && ((ecm[4+i] == 0x90) || (ecm[4+i] == 0x40)))
-				provid = (ecm[i+6]<<16)|(ecm[i+7]<<8)|(ecm[i+8]&0xF0);
-
-			i = (ecm[6] == 0xD2) ? ecm[7]+2 : 0;  // skip d2 nano long ecm
-			if((ecm[7+i] == 7) && ((ecm[6+i] == 0x90) || (ecm[6+i] == 0x40)))
-				provid = (ecm[i+8]<<16)|(ecm[i+9]<<8)|(ecm[i+10]&0xF0);
-			break;
-
-		case 0x0D:
-			// cryptoworks
-			len = (((ecm[1] & 0xf) << 8) | ecm[2])+3;
-			for(i=8; i<len; i+=descriptor_length+2) {
-				descriptor_length = ecm[i+1];
-				if (ecm[i] == 0x83) {
-					provid = (uint32_t)ecm[i+2] & 0xFE;
-					break;
-				}
-			}
-			break;
-	}
-	return(provid);
+	/* TASK R26 (D77): bounded registry extraction (casystem.h).
+	 * For well-formed ECMs of families 01/05/0D the result is the
+	 * r82a one; a short or malformed ECM now yields 0 instead of
+	 * being read past its end. Other families carry no provider
+	 * in the ECM (it is the card's), exactly as stock returned 0. */
+	if (ca_ecm_provid(ecm, ecmlen, caid, &provid)) return provid;
+	return 0;
 }
 
-uint16_t ecm_getchid( uint8_t *ecm, uint16_t caid )
+uint16_t ecm_getchid( uint8_t *ecm, int ecmlen, uint16_t caid )
 {
-	if ( (caid>>8)==0x06 )	return (ecm[6]<<8)|ecm[7];
-	return 0;
+	/* TASK R26 (D77): bounded form of the r82a Irdeto rule. */
+	return ca_ecm_chid(ecm, ecmlen, caid);
 }
 
 
@@ -253,14 +230,14 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 	//
 	memcpy( new->ecm, ecm, ecmlen);
 	new->cs = cs;
-	new->chid = ecm_getchid(ecm, caid);
+	new->chid = ecm_getchid(ecm, ecmlen, caid);
 	new->ecmlen = ecmlen;
 	new->recvtime = ticks;
 	new->lastrecvtime = ticks;
 	new->hash = hashCode(ecm+3, ecmlen-3);
 #ifdef CACHEEX
-	int32_t offset = 3;
-	if ( (caid>>8)==0x17 ) offset = 13;
+	int32_t offset = ca_ecm_hash_offset(caid); /* TASK R26: table fact, was open-coded 0x17 */
+	if (ecmlen <= offset) offset = 0; /* truncated tunnel ECM: never hash past the end */
 	MD5( ecm+offset, ecmlen-offset, new->ecmd5);
 #endif
 	new->dcwstatus = STAT_DCW_WAIT;

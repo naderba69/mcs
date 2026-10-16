@@ -28,6 +28,7 @@
 #define CWLOG_REFUSED   1   /* a gate ate it                     */
 #define CWLOG_HELD      2   /* parked pending corroboration (R8) */
 #define CWLOG_STORED    3   /* cached, no waiter                 */
+#define CWLOG_DISPUTED  4   /* TASK R13: late-truth contradicted a cached key */
 
 /* Reasons 0..9 MIRROR the DCW_REJ_* numbering in dcwstats.h -- test_cwlog
  * asserts the name strings stay identical. 10+ are ring-only codes for
@@ -37,6 +38,10 @@
 #define CWLOG_R_THRESHOLD  12   /* below CACHE THRESHOLD (stock skip)      */
 #define CWLOG_R_PROFILE    13   /* profile/global structural filter; the
                              * specific test counted inside dcw.c        */
+#define CWLOG_R_LATEDISPUTE 14  /* TASK R13: local card contradicted cache  */
+#define CWLOG_R_LATEKEY     15  /* TASK R13: late-truth gate refusal        */
+#define CWLOG_R_TRUSTSTORE  16  /* TASK R14: untrusted peer may not store   */
+#define CWLOG_R_TRUSTRELAY  17  /* TASK R14: untrusted peer may not relay   */
 
 struct cwlog_entry {
 	uint32_t tick;      /* GetTickCount() ms at the verdict      */
@@ -58,6 +63,7 @@ static const char *cwlog_verdict_name(int verdict)
 	case CWLOG_REFUSED:   return "refused";
 	case CWLOG_HELD:      return "held";
 	case CWLOG_STORED:    return "stored";
+	case CWLOG_DISPUTED:  return "disputed";
 	default:              return "unknown";
 	}
 }
@@ -82,6 +88,10 @@ static const char *cwlog_reason_name(int reason)
 	case CWLOG_R_CONVICTED: return "convicted-memory";
 	case CWLOG_R_THRESHOLD: return "below-threshold";
 	case CWLOG_R_PROFILE:   return "profile-filter";
+	case CWLOG_R_LATEDISPUTE: return "late-contradiction";
+	case CWLOG_R_LATEKEY:     return "late-truth-gate";
+	case CWLOG_R_TRUSTSTORE:  return "trust-store-gate";
+	case CWLOG_R_TRUSTRELAY:  return "trust-relay-gate";
 	default:                return "unknown";
 	}
 }

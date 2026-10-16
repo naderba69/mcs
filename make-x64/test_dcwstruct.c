@@ -21,6 +21,10 @@
 
 #include "../src/dcw.h"
 #include "../src/dcwstruct.h"
+/* standalone link stub: dcw.c logs via debugf (debug.c in the server) */
+void debugf(unsigned int flag, char *format, ...);
+void debugf(unsigned int flag, char *format, ...) { (void)flag; (void)format; }
+
 
 static int pass_n = 0, fail_n = 0;
 

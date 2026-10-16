@@ -3204,3 +3204,53 @@ GR3 reuse proof (same cw on a different service) which convicts the key
 globally -- correct protection behaviour, so each phase now carries its
 own checksum-valid key on its own channel; and every client find is
 retried once before its phase can fail.
+
+## D77 -- TASK R26, the modern-CA registry: one table, armed per profile (2026-10-16)
+
+**Situation.** The user asked to keep the project current with today's
+encryption systems and chose the unified option: all modern systems in
+one CA layer. The tree's knowledge was scattered hard-coded family
+numbers, and three defects made modern bouquets fail silently: the
+DVB-CSA checksum test applied to AES/CSA3 and BISS2 keys that carry
+no checksum bytes (genuine keys rejected ~65535/65536, black screen),
+unbounded ECM provider/chid reads that knew three families, and a
+BISS table whose repeat-the-half semantics are structurally wrong
+for BISS2. A fourth item was fake security: CW "encryption" as XOR
+with a published hard-coded session key.
+
+**Decision.** One pure registry (`casystem.h`, the cafamily shape)
+answers name / CW format / iCam flag / bounded provid+chid / ECM hash
+offset for any CAID -- exact rows only where a CAID differs from its
+family (iCam CAIDs, BISS1 vs BISS2, DRE, Verimatrix), family rows
+otherwise, Unknown treated as classic CSA. The table decides nothing
+until a profile arms it with `CA MODERN: ON`: only then, only in
+DCWFILTER INHERIT mode, and only for a no-checksum system is the
+checksum test skipped by the new `acceptDCW_for_ca` (wired through
+`acceptDCW_profile_ca` at the ten delivery/ingest choke points). An
+explicit `DCWFILTER CHECKSUM: ON` always wins; null keys and the
+BAD-DCW list are never rescued. BISS2 is a separate 128-slot 16-byte
+session-word table (CAID 2610 only in th-ecm, full word, never a
+repeated half; /biss takes 32-hex for BISS2, 16-hex stays BISS1).
+The XOR helper is replaced by real AES from aes.c with no default
+session key (session helpers fail closed); it has no in-tree caller,
+so no wire changes. `CA SYSTEM: <caid>` is a log-only line naming
+what the registry makes of a bouquet before the operator arms it.
+
+**Collateral fixes (pre-existing, evidenced in the round log).** The
+`debugf("...")` misuse (format passed as the flag; `chkdbgflag`
+accepts everything while `flagdebug==0`, so the "format" is read
+from address caid) crashed the server on any /biss add -- reproduced
+live (exit 139), fixed at 11 live sites plus the pair in dcw.c.
+Four unit targets broken since before R26 (`test_dcw`,
+`test_dcwfilter`, `test_dcwstruct`, `test_dcwstats`, `test_cwlog`)
+were repaired without changing any pinned decision (cwlog gained
+the R13/R14 verdict/reasons its test already expected).
+
+**Verification.** `test_casystem` 48/48 (registry, bounded ECM
+extraction incl. truncated/NULL, gate parity OFF vs armed, BAD-DCW
+never rescued, BISS2 isolation); `make test` exit 0; release and
+release-stats build clean; CW-crypto probe ok; live stats server
+with an armed 098D profile and a legacy 1884 profile: /biss BISS1
+and BISS2 adds 200, both keys listed, server alive. Not claimed:
+real-card delivery on a live iCam bouquet (no card/oscam in the
+sandbox) -- the CW-format column stays advisory until armed.

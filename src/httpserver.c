@@ -8000,10 +8000,20 @@ void http_send_biss(int sock, http_request *req)
 			uint16_t caid = strtoul(str_caid, NULL, 16);
 			uint16_t sid = strtoul(str_sid, NULL, 16);
 			uint32_t provid = strtoul(str_provid, NULL, 16);
-			uint8_t key[8];
-
-			// Parse hex key (16 chars = 8 bytes)
-			if (strlen(str_key) >= 16) {
+			/* TASK R26: a 32-hex key is a BISS2 session word
+			 * (16 bytes, CAID 2610); 16 hex stays BISS1. */
+			if (strlen(str_key) >= 32) {
+				uint8_t key2[16];
+				int i;
+				for (i = 0; i < 16; i++) {
+					char hex[3] = {str_key[i*2], str_key[i*2+1], 0};
+					key2[i] = strtoul(hex, NULL, 16);
+				}
+				if (biss2_add(caid, sid, provid, key2)) {
+					debugf(0, "BISS2: Added session word for %04X:%06X:%04X\n", caid, provid, sid);
+				}
+			} else if (strlen(str_key) >= 16) {
+				uint8_t key[8];
 				int i;
 				for (i = 0; i < 8; i++) {
 					char hex[3] = {str_key[i*2], str_key[i*2+1], 0};
@@ -8011,7 +8021,7 @@ void http_send_biss(int sock, http_request *req)
 				}
 
 				if (biss_add(caid, sid, provid, key)) {
-					debugf("BISS: Added key for %04X:%06X:%04X\n", caid, provid, sid);
+					debugf(0, "BISS: Added key for %04X:%06X:%04X\n", caid, provid, sid);
 				}
 			}
 		}
@@ -8029,7 +8039,10 @@ void http_send_biss(int sock, http_request *req)
 			uint32_t provid = strtoul(str_provid, NULL, 16);
 
 			if (biss_remove(caid, sid, provid)) {
-				debugf("BISS: Removed key for %04X:%06X:%04X\n", caid, provid, sid);
+				debugf(0, "BISS: Removed key for %04X:%06X:%04X\n", caid, provid, sid);
+			}
+			if (biss2_remove(caid, sid, provid)) {
+				debugf(0, "BISS2: Removed session word for %04X:%06X:%04X\n", caid, provid, sid);
 			}
 		}
 	}
@@ -8069,10 +8082,10 @@ void http_send_biss(int sock, http_request *req)
 		"CAID: <input type='text' name='caid' placeholder='2600' required>"
 		"SID: <input type='text' name='sid' placeholder='1234' required>"
 		"PROVID: <input type='text' name='provid' placeholder='000000' required>"
-		"Key: <input type='text' name='key' placeholder='0123456789ABCDEF' maxlength='16' required>"
+		"Key: <input type='text' name='key' placeholder='0123456789ABCDEF' maxlength='32' required>"
 		"<input type='submit' value='Add Key'>"
 		"</form>"
-		"<small>Key format: 16 hex characters (8 bytes)</small>"
+		"<small>BISS1 (CAID 2600): 16 hex (8 bytes) &nbsp;|&nbsp; BISS2 (CAID 2610): 32 hex (16-byte session word)</small>"
 		"</div>"
 	);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
@@ -8128,6 +8141,45 @@ void http_send_biss(int sock, http_request *req)
 				biss_keys.keys[i].caid,
 				biss_keys.keys[i].sid,
 				biss_keys.keys[i].provid
+			);
+			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+		}
+	}
+
+	// TASK R26: BISS2 session words (separate table, 16-byte keys)
+	sprintf(http_buf,
+		"</table>"
+		"<h2>Stored BISS2 Session Words (%d total)</h2>"
+		"<table>"
+		"<tr><th>CAID</th><th>SID</th><th>PROVID</th><th>Session Word</th><th>Used</th><th>Actions</th></tr>",
+		biss2_count()
+	);
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+	for (i = 0; i < biss2_keys.count; i++) {
+		if (biss2_keys.keys[i].active) {
+			char key_str[33];
+			int j;
+			for (j = 0; j < 16; j++) {
+				sprintf(key_str + j*2, "%02X", biss2_keys.keys[i].key[j]);
+			}
+			key_str[32] = 0;
+			sprintf(http_buf,
+				"<tr>"
+				"<td>%04X</td>"
+				"<td>%04X</td>"
+				"<td>%06X</td>"
+				"<td><code>%s</code></td>"
+				"<td>%d times</td>"
+				"<td><a class='delete-btn' href='/biss?action=delete&caid=%04X&sid=%04X&provid=%06X' onclick='return confirm(\"Delete this key?\")'>Delete</a></td>"
+				"</tr>",
+				biss2_keys.keys[i].caid,
+				biss2_keys.keys[i].sid,
+				biss2_keys.keys[i].provid,
+				key_str,
+				biss2_keys.keys[i].use_count,
+				biss2_keys.keys[i].caid,
+				biss2_keys.keys[i].sid,
+				biss2_keys.keys[i].provid
 			);
 			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
 		}

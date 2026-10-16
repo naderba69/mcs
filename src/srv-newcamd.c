@@ -422,7 +422,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 					cli->lastecmtime = ticks;
 					cli->ecmnb++;
 					memcpy( data, buf, len);
-					uint32_t provid = ecm_getprovid( data, clicd.caid );
+					uint32_t provid = ecm_getprovid( data, len, clicd.caid );
 					if (provid!=0) clicd.provid = provid;
 
 					if (cli->ecm.busy) {
@@ -435,7 +435,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 					}
 					// CHECK FOR ECM
 					uint8_t cw1cycle;
-					char *error = cs_accept_ecm(cs,clicd.caid,clicd.provid,clicd.sid,ecm_getchid(data,clicd.caid), len, data, &cw1cycle);
+					char *error = cs_accept_ecm(cs,clicd.caid,clicd.provid,clicd.sid,ecm_getchid(data,len,clicd.caid), len, data, &cw1cycle);
 					if (error) {
 						cs->ecmdenied++;
 						cli->ecmdenied++;
@@ -834,7 +834,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						break;
 					}
 					// Check for DCW
-					if (!acceptDCW_profile(&buf[3], ecm->cs)) {
+					if (!acceptDCW_profile_ca(&buf[3], ecm->cs, ecm->caid)) {
 						debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <!= wrong cw from Client '%s' ch %04x:%06x:%04x\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->lastecmtime);
 						pthread_mutex_unlock(&prg.lockecm);
 						break;

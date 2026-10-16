@@ -6,6 +6,32 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R26 — Modern CA Layer (2026-10-16)
+
+**Decision:** D77 · **Report:** `docs/REPORT-R25-ar.md` · **Guide:** `docs/MODERN-CA-GUIDE-ar.md`
+
+One registry for today's encryption systems, armed per profile — default OFF, stock behaviour preserved bit-for-bit.
+
+### Added
+- **`src/casystem.h`** — pure CA registry (name / CW format / iCam flag / ECM hash offset for any CAID). Exact rows for iCam VideoGuard (0963/098C/098D/098E/09C4/09CD), BISS1 2600 vs BISS2 2610, DRE 4AE0/4AE1, Verimatrix 5601; family rows for Seca/Viaccess/Irdeto/VideoGuard/Conax/CryptoWorks/PowerVu/BetaCrypt/Nagravision/BISS/DRE/Verimatrix; unknown CAIDs treated as classic CSA.
+- **CA-aware CW gate** — `acceptDCW_for_ca()` (dcw.c) + `acceptDCW_profile_ca()` (config.c) wired at 10 delivery/ingest sites. Per-profile `CA MODERN: ON` skips the DVB-CSA checksum test only for systems whose genuine CWs carry no checksum bytes (AES/CSA3, BISS2, constant-CW). Explicit `DCWFILTER CHECKSUM: ON` still wins; null and BAD-DCW-listed keys are never rescued. Log-only `CA SYSTEM: <caid>` names a bouquet's system/format before arming.
+- **BISS2 support (CAID 2610)** — separate 128-slot table of 16-byte session words (`biss2_*` in biss.h/biss.c); th-ecm serves the full word for 2610 only (never a repeated half); `/biss` accepts 32-hex as BISS2 (16-hex stays BISS1) with its own listing/delete section.
+- **Real CW crypto** — the XOR-with-published-key helper in `advanced-optimizations.h` is now AES-128/192/256 from aes.c; no default session key, session helpers fail closed until `cw_session_key_set()`. No in-tree caller: no wire change.
+
+### Changed
+- **Bounded ECM extraction** — `ecm_getprovid()`/`ecm_getchid()` take `ecmlen` and delegate to `ca_ecm_provid()`/`ca_ecm_chid()` (same results on well-formed ECMs; 0 instead of out-of-bounds reads on malformed ones); all 7 call sites updated. The BetaCrypt hash offset (13) is now the table fact `ca_ecm_hash_offset()` with a truncation guard.
+
+### Fixed (pre-existing, evidenced in the R26 round)
+- **Server crash on any `/biss` add** — 11 live sites called `debugf("...")` passing the format as the flag; `debugf` then read the format string from address `caid` and segfaulted (reproduced live, exit 139). All fixed to `debugf(0, ...)` (httpserver/th-ecm/srv-cccam/cli-cccam/ecm-optimizations), plus the same pair in dcw.c.
+- **Unit suite broken since before R26** — `test_dcw`, `test_dcwfilter`, `test_dcwstruct` (debugf link), `test_dcwstats` (double-inclusion redefinitions), `test_cwlog` (expected R13/R14 verdicts/reasons missing from cwlog.h — `CWLOG_DISPUTED` + reasons 14–17 added). Full `make test` is green again (exit 0).
+
+### Verification
+- `test_casystem` 48/48 (registry, bounded ECM incl. truncated/NULL, OFF-parity vs armed gate, BAD-DCW never rescued, BISS2 isolation) — wired into `make test`.
+- `make test` exit 0; `make release` + `make release-stats` clean (dcwstats symbols 0/2 as expected).
+- Live: stats server with armed `098D / CA MODERN: ON` profile + legacy 1884 profile — BISS1 and BISS2 web adds return 200, both keys listed, server stays alive (previously segfaulted).
+
+---
+
 ## R24 Advanced — Complete Performance Optimization (2026-10-16)
 
 **Commit:** `cf16818` · **Focus:** 9 major performance optimizations + professional profile optimization

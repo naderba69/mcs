@@ -9,6 +9,7 @@
 
 #include "dcwfilter.h"
 #include "dcw.h"
+#include "casystem.h"	/* TASK R26 (D77): the modern-CA registry */
 
 /* Black screen prevention systems */
 #include "blackscreen-detector.h"
@@ -170,7 +171,8 @@ void dcw_badlist_publish(const uint8_t *keys, int n)
  * the key. With `DCW STATS: ON` the answer becomes a counter, including
  * `bad-dcw-list` for a key the operator named.
  */
-int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode)
+int acceptDCW_for_ca(uint8_t *data, uint16_t caid, int checksum_mode,
+		     int repeat_mode, int ca_modern)
 {
 	int checksum = dcw_filter_checksum;
 	int repeat = dcw_filter_repeat;
@@ -182,6 +184,19 @@ int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode)
 	else if (checksum_mode == DCWFILTER_OFF) checksum = 0;
 	if (repeat_mode == DCWFILTER_ON) repeat = 1;
 	else if (repeat_mode == DCWFILTER_OFF) repeat = 0;
+
+	/*
+	 * TASK R26 (D77) — only in INHERIT mode, only when the operator
+	 * armed `CA MODERN: ON` for this profile, and only for a CA
+	 * system whose genuine control words carry no DVB-CSA checksum
+	 * bytes (casystem.h). An explicit DCWFILTER CHECKSUM: ON above
+	 * has already forced the test and is not second-guessed here;
+	 * ca_modern == 0 (the default) never reaches this branch's
+	 * effect, so the decision stays bit-for-bit stock.
+	 */
+	if (checksum && checksum_mode == DCWFILTER_INHERIT && ca_modern &&
+	    !ca_cw_checksum_expected(caid))
+		checksum = 0;
 
 	if ( checksum && !checksumDCW(data)) {
 #ifdef MCS_DCWSTATS
@@ -216,6 +231,11 @@ int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode)
 	DCWSTATS_ACCEPT();
 #endif
 	return 1;
+}
+
+int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode)
+{
+	return acceptDCW_for_ca(data, 0, checksum_mode, repeat_mode, 0);
 }
 
 int acceptDCW(uint8_t *data)
@@ -268,13 +288,13 @@ void dcw_on_failure(uint16_t caid, uint16_t sid, uint32_t provid)
 		
 		/* Layer 1: Quick switch after 2 failures */
 		if (t->consecutive_failures >= 2) {
-			debugf("BLACKSCREEN: Channel %04X:%04X - %d consecutive failures, triggering quick switch\n",
+			debugf(0, "BLACKSCREEN: Channel %04X:%04X - %d consecutive failures, triggering quick switch\n",
 				caid, sid, t->consecutive_failures);
 		}
 		
 		/* Layer 2: Emergency after 3 failures */
 		if (t->consecutive_failures >= 3) {
-			debugf("BLACKSCREEN: Channel %04X:%04X - Emergency mode activated\n",
+			debugf(0, "BLACKSCREEN: Channel %04X:%04X - Emergency mode activated\n",
 				caid, sid);
 		}
 	}

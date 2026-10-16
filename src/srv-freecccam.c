@@ -429,7 +429,7 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						cardid = buf[10]<<24 | buf[11]<<16 | buf[12]<<8 | buf[13];
 						uint16_t caid = buf[4]<<8 | buf[5];
 						uint16_t sid = buf[14]<<8 | buf[15];
-						uint32_t provid = ecm_getprovid( data, caid );
+						uint32_t provid = ecm_getprovid( data, len-17, caid );
 						if (provid==0) provid = buf[6]<<24 | buf[7]<<16 | buf[8]<<8 | buf[9];
 
 						// Check for Profile
@@ -442,7 +442,7 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						}
 						// Check ECM
 						uint8_t cw1cycle;
-						char *error = cs_accept_ecm(cs,caid,provid,sid,ecm_getchid(data,caid), len-17, data, &cw1cycle);
+						char *error = cs_accept_ecm(cs,caid,provid,sid,ecm_getchid(data,len-17,caid), len-17, data, &cw1cycle);
 						if (error) {
 							cli->ecmdenied++;
 							cs->ecmdenied++;

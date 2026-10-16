@@ -219,7 +219,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 		dcw, srctype, srcid, GetTickCount());
 #endif
 
-	if (!acceptDCW_profile(dcw, cs)) return;
+	if (!acceptDCW_profile_ca(dcw, cs, ecm->caid)) return;
 
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
@@ -596,7 +596,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		dcw, srctype, srcid, GetTickCount());
 #endif
 
-	if (!acceptDCW_profile(dcw, cs)) return;
+	if (!acceptDCW_profile_ca(dcw, cs, ecm->caid)) return;
 
 	int cwpart = 2;
 	if (ecm->cw1cycle) {

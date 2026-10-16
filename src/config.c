@@ -60,6 +60,7 @@
  */
 #include "dcwfilter.h"
 #include "dcw.h"		/* TASK 3.14: publish the BAD-DCW list */
+#include "casystem.h"	/* TASK R26 (D77): CA names for the CA log lines */
 #include "cacheex_gates.h"	/* TASK R1: CEX_CHECK_MAX for the parser clamp */
 #include "cfgfield.h"	/* TASK 3.8: bounded storage for small credential fields */
 #include "peerrep.h" /* TASK R4 (D58): unconditional -- the ladder exists in both flavours */
@@ -1212,6 +1213,57 @@ link_radegast_server:
 				char bad[64];
 				strcpy(bad, str);
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown DCWFILTER option '%s'\n",file->nbline,iparser-currentline, bad);
+			}
+		}
+
+		/*
+		 * TASK R26 (D77) — CA MODERN : ON|OFF  (per profile)
+		 *                CA SYSTEM : <caid hex>  (informational)
+		 *
+		 * MODERN arms the casystem.h CW-format rules for this
+		 * profile: a genuine AES/CSA3, BISS2 or constant-CW key,
+		 * which carries no DVB-CSA checksum bytes, is no longer
+		 * dropped by the inherited checksum test. Per profile
+		 * (not global) because the CW format is a property of
+		 * the bouquet, and off by default: a config written for
+		 * r82a behaves bit-for-bit as before (see dcw.c).
+		 * SYSTEM only names a CAID in the log (ca_name), so an
+		 * operator can verify what the registry makes of the
+		 * bouquet before arming MODERN; it stores nothing.
+		 */
+		else if (!strcmp(str,"CA")) {
+			parse_name(str);
+			uppercase(str);
+			if (!strcmp(str,"MODERN")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				if (!cardserver) {
+					parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip CA MODERN, undefined profile\n",file->nbline,iparser-currentline);
+				} else {
+					cardserver->option.ca_modern = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CA MODERN: %s (profile %s, caid %04x = %s, %s)\n",file->nbline,iparser-currentline, cardserver->option.ca_modern?"ON":"OFF", cardserver->name, cardserver->card.caid, ca_name(cardserver->card.caid), ca_cwformat_name(ca_cwformat(cardserver->card.caid)));
+				}
+			}
+			else if (!strcmp(str,"SYSTEM")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_hex(str);
+				{
+					unsigned caid = (unsigned)hex2int(str);
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CA SYSTEM: %04x = %s (%s%s)\n",file->nbline,iparser-currentline, caid, ca_name((uint16_t)caid), ca_cwformat_name(ca_cwformat((uint16_t)caid)), ca_is_icam((uint16_t)caid)?", iCam":"");
+				}
+			}
+			else {
+				char bad[64];
+				strcpy(bad, str);
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown CA option '%s'\n",file->nbline,iparser-currentline, bad);
 			}
 		}
 
@@ -6822,13 +6874,27 @@ void get_cache_caids( struct config_data *cfg )
  */
 int acceptDCW_profile(uint8_t *data, struct cardserver_data *cs)
 {
+	return acceptDCW_profile_ca(data, cs, 0);
+}
+
+/*
+ * TASK R26 (D77) — NULL profile = the global gates with modern CA
+ * handling disarmed. caid 0 is Unknown to casystem.h (checksum
+ * expected), so even an armed profile changes nothing until a real
+ * CAID arrives — every pre-R26 caller keeps its exact decision.
+ */
+int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
+			 uint16_t caid)
+{
 	int c = DCWFILTER_INHERIT, r = DCWFILTER_INHERIT;
+	int modern = 0;
 
 	if (cs) {
 		c = cs->option.dcwfilter_checksum;
 		r = cs->option.dcwfilter_repeat;
+		modern = cs->option.ca_modern;
 	}
-	return acceptDCW_for(data, c, r);
+	return acceptDCW_for_ca(data, caid, c, r, modern);
 }
 
 void dcw_badlist_commit(struct dcw_data *list)

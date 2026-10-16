@@ -568,7 +568,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					cli->ecmnb++;
 					ecmlen = len;
 					memcpy( ecmdata, buf, len);
-					uint32_t provid = ecm_getprovid( ecmdata, clicd.caid );
+					uint32_t provid = ecm_getprovid( ecmdata, ecmlen, clicd.caid );
 					if (provid!=0) clicd.provid = provid;
 
 					if (cli->ecm.busy) {
@@ -631,7 +631,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					}
 					// Check for Accepted sids
 					uint8_t cw1cycle;
-					if ( !accept_sid(cs, clicd.provid, clicd.sid, ecm_getchid(ecmdata,clicd.caid), ecmlen, &cw1cycle) ) {
+					if ( !accept_sid(cs, clicd.provid, clicd.sid, ecm_getchid(ecmdata,ecmlen,clicd.caid), ecmlen, &cw1cycle) ) {
 						cli->ecmdenied++;
 						cs->ecmdenied++;
 						// send decode failed
@@ -783,7 +783,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 						break;
 					}
 					// Check for DCW
-					if (!acceptDCW_profile(&buf[3], ecm->cs)) {
+					if (!acceptDCW_profile_ca(&buf[3], ecm->cs, ecm->caid)) {
 						debugf(getdbgflagpro(DBG_MGCAMD,0,cli->id,ecm->cs->id)," <!= wrong cw from Client '%s' ch %04x:%06x:%04x\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->lastecmtime);
 						pthread_mutex_unlock(&prg.lockecm);
 						break;

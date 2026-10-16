@@ -162,7 +162,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 					break;
 				}
 				// Check for DCW
-				if (!acceptDCW_profile(buf+24, srv->ecm.request ? srv->ecm.request->cs : NULL)) {
+				if (!acceptDCW_profile_ca(buf+24, srv->ecm.request ? srv->ecm.request->cs : NULL, srv->ecm.request ? srv->ecm.request->caid : 0)) {
 					srv->ecmerrdcw++;
 					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from cs378x server (%s:%d), bad dcw!!!\n",srv->host->name,srv->port);
 					break;

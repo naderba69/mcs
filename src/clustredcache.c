@@ -1662,7 +1662,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			debugf(getdbgflag(DBG_CACHE,0,0), " [CACHEEX GATE] LOCAL_ONLY: unsolicited push dropped ch %04x:%06x:%04x\n", req->caid, req->provid, req->sid);
 			return -1;
 		}
-		if ( !acceptDCW_profile(cw, pcs) ) {
+		if ( !acceptDCW_profile_ca(cw, pcs, req->caid) ) {
 		/*
 		 * TASK 2.4 -- the blind spot this closes, found by running the live
 		 * target and watching nothing arrive.

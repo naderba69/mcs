@@ -27,6 +27,10 @@
 #endif
 
 #include "../src/dcwfilter.h"
+/* standalone link stub: dcw.c logs via debugf (debug.c in the server) */
+void debugf(unsigned int flag, char *format, ...);
+void debugf(unsigned int flag, char *format, ...) { (void)flag; (void)format; }
+
 
 /* The gates, defined here for this test binary only. */
 int dcw_filter_checksum = 1;

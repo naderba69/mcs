@@ -730,6 +730,10 @@ struct cardserver_data
 		uint8_t dcwfilter_checksum;
 		uint8_t dcwfilter_repeat;
 		uint8_t dcwfilter_cycle; /* TASK R2 (D56): the delivery-time cycle gate */
+		/* TASK R26 (D77): `CA MODERN: ON` — arm the casystem.h
+		 * CW-format rules for this profile's CAID (see dcw.h).
+		 * 0 (the memset default) = stock acceptDCW decision. */
+		uint8_t ca_modern;
 	} option;
 
 	int ecmlen[30];
@@ -1264,6 +1268,10 @@ void dcw_badlist_commit(struct dcw_data *list);
 
 /* TASK 3.15 — the profile's gates, or the global ones when cs is NULL. */
 int acceptDCW_profile(uint8_t *data, struct cardserver_data *cs);
+/* TASK R26 (D77) — the CA-aware form: same gates, plus the profile's
+ * `CA MODERN` flag and the channel's CAID (casystem.h via dcw.c). */
+int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
+			 uint16_t caid);
 
 struct filename_data
 {

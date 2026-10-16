@@ -395,7 +395,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			uint16_t pin = buf[4+16]<<8 | buf[4+17];
 			uint16_t sid = buf[4+8]<<8 | buf[4+9];
 			uint16_t caid = buf[4+10]<<8 | buf[4+11];
-			uint32_t provid = ecm_getprovid( ecmdata, caid );
+			uint32_t provid = ecm_getprovid( ecmdata, ecmlen, caid );
 			if (provid==0) provid = buf[4+12]<<24 | buf[4+13]<<16 | buf[4+14]<<8 | buf[4+15];
 			if ( !caid ) {
 				cli->ecmdenied++;
@@ -425,7 +425,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			}
 			// Check for Accepted sids
 			uint8_t cw1cycle;
-			if ( !accept_sid(cs, provid, sid, ecm_getchid(ecmdata,caid), ecmlen, &cw1cycle) ) {
+			if ( !accept_sid(cs, provid, sid, ecm_getchid(ecmdata,ecmlen,caid), ecmlen, &cw1cycle) ) {
 				cli->ecmdenied++;
 				cs->ecmdenied++;
 				buf[4] = 0x44;

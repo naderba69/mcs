@@ -799,7 +799,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			cardid = buf[10]<<24 | buf[11]<<16 | buf[12]<<8 | buf[13];
 			uint16_t caid = buf[4]<<8 | buf[5];
 			uint16_t sid = buf[14]<<8 | buf[15];
-			uint32_t provid = ecm_getprovid( data, caid );
+			uint32_t provid = ecm_getprovid( data, len-17, caid );
 			if (provid==0) provid = buf[6]<<24 | buf[7]<<16 | buf[8]<<8 | buf[9];
 
 			// Check for Profile
@@ -831,7 +831,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			}
 			// Chec for ECM
 			uint8_t cw1cycle;
-			char *error = cs_accept_ecm(cs,caid,provid,sid,ecm_getchid(data,caid), len-17, data, &cw1cycle);
+			char *error = cs_accept_ecm(cs,caid,provid,sid,ecm_getchid(data,len-17,caid), len-17, data, &cw1cycle);
 			if (error) {
 				cs->ecmdenied++;
 				cli->ecmdenied++;
@@ -1067,14 +1067,14 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				
 				// Validate CW (basic checks)
 				if (dcw_hard_reject(cw)) {
-					debugf("BISS SHARE: Rejected invalid CW from client '%s' for %04X:%06X:%04X\n",
+					debugf(0, "BISS SHARE: Rejected invalid CW from client '%s' for %04X:%06X:%04X\n",
 						cli->user, share_caid, share_provid, share_sid);
 					break;
 				}
 				
 				// Save to BISS keys table
 				if (biss_add(share_caid, share_sid, share_provid, cw)) {
-					debugf("BISS SHARE: Received CW from client '%s' for %04X:%06X:%04X (source=%d)\n",
+					debugf(0, "BISS SHARE: Received CW from client '%s' for %04X:%06X:%04X (source=%d)\n",
 						cli->user, share_caid, share_provid, share_sid, source);
 					
 					// Update client stats

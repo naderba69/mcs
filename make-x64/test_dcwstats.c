@@ -21,6 +21,10 @@
 #include <string.h>
 #include <stdint.h>
 
+/* standalone link stub: dcw.c logs via debugf (debug.c in the server) */
+void debugf(unsigned int flag, char *format, ...);
+void debugf(unsigned int flag, char *format, ...) { (void)flag; (void)format; }
+
 /* Storage for the counters, provided once for this translation unit. */
 int           dcwstats_on = 0;
 unsigned long dcwstats[10]; /* TASK R1: = DCW_REJ_COUNT; the macro is not visible this early. R8: consensus-mismatch joined, count is 10 */
@@ -44,6 +48,13 @@ int dcw_on_badlist(uint8_t *data) { (void)data; return 0; }
 #define MCS_DCWSTATS_NOGLOBALS
 #define acceptDCW      acceptDCW_stats
 #define acceptDCW_for  acceptDCW_for_stats
+#define acceptDCW_for_ca acceptDCW_for_ca_stats
+#define dcw_on_failure dcw_on_failure_stats
+#define dcw_on_success dcw_on_success_stats
+#define dcw_needs_emergency dcw_needs_emergency_stats
+#define bs_trackers bs_trackers_stats
+#define bs_channel_tracker bs_channel_tracker_stats
+#define bs_tracker_count bs_tracker_count_stats
 #define checksumDCW    checksumDCW_stats
 #define isnullDCW      isnullDCW_stats
 #define isbadDCW       isbadDCW_stats
@@ -53,6 +64,13 @@ int dcw_on_badlist(uint8_t *data) { (void)data; return 0; }
 #undef MCS_DCWSTATS
 #undef acceptDCW
 #undef acceptDCW_for
+#undef acceptDCW_for_ca
+#undef dcw_on_failure
+#undef dcw_on_success
+#undef dcw_needs_emergency
+#undef bs_trackers
+#undef bs_tracker_count
+#undef bs_channel_tracker
 #undef checksumDCW
 #undef isnullDCW
 #undef isbadDCW
@@ -62,6 +80,13 @@ int dcw_on_badlist(uint8_t *data) { (void)data; return 0; }
 /* --- unmodified r82a build --- */
 #define acceptDCW      acceptDCW_base
 #define acceptDCW_for  acceptDCW_for_base
+#define acceptDCW_for_ca acceptDCW_for_ca_base
+#define dcw_on_failure dcw_on_failure_base
+#define dcw_on_success dcw_on_success_base
+#define dcw_needs_emergency dcw_needs_emergency_base
+#define bs_trackers bs_trackers_base
+#define bs_channel_tracker bs_channel_tracker_base
+#define bs_tracker_count bs_tracker_count_base
 #define checksumDCW    checksumDCW_base
 #define isnullDCW      isnullDCW_base
 #define isbadDCW       isbadDCW_base
@@ -70,6 +95,13 @@ int dcw_on_badlist(uint8_t *data) { (void)data; return 0; }
 #include "../src/dcw.c"
 #undef acceptDCW
 #undef acceptDCW_for
+#undef acceptDCW_for_ca
+#undef dcw_on_failure
+#undef dcw_on_success
+#undef dcw_needs_emergency
+#undef bs_trackers
+#undef bs_tracker_count
+#undef bs_channel_tracker
 #undef checksumDCW
 #undef isnullDCW
 #undef isbadDCW
