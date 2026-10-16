@@ -1,7 +1,7 @@
-# MANIFEST-md5 — regenerated at R36 (2026-10-16, D87-D92): the user's
-# written keys implemented, his config adopted; binaries rebuilt. Verify: md5sum -c MANIFEST-md5
-428cdd714d901f806fdea2dc3dd3540a  .gitignore
-9c0ca4b081c7b82fd6883f6e87f03e08  CHANGELOG.md
+# MANIFEST-md5 — regenerated at R37 (2026-10-16, D93): developed
+# protections merged into the shipped profiles. Verify: md5sum -c MANIFEST-md5
+2bdc6b323158322ad2a7cc31887bab81  .gitignore
+3ea8746089d9dc0f9a0a61421888b172  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
@@ -28,10 +28,10 @@ a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 1a94d24e74f0002ee55ef7e9c3519711  docs/COMPAT-ar.md
 c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 14f1aa728369d3b5aa87e65f2e4f97bd  docs/CONFIG-REFERENCE-ar.md
-c4236898f42eaa9ee66b08c0b1314be2  docs/DECISIONS.md
+360ccb2ccdbcf0ae1643945f70bee87f  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
-cf62b1200d3e5cbad11696172d669119  docs/FIELD-GUIDE-ar.md
+228c3ffd147289b5d027439411efaf13  docs/FIELD-GUIDE-ar.md
 6a549c88dcfd53e331e2ff2bcf0e0180  docs/FINAL-SUMMARY-REPORT-ar.md
 69efaa74a2560a82d0afb76f00d68b39  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
@@ -100,6 +100,7 @@ e0a6b7d0e0853971f259044283705c29  docs/REPORT-R29-ar.md
 b066ea4f34df0e045c4ef5711415c56a  docs/REPORT-R32-ar.md
 e7611f3e669f4d92e00e47e0dd591c6c  docs/REPORT-R35-ar.md
 ea96c3318093b3ffa0f8a16eb18fe928  docs/REPORT-R36-ar.md
+c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
@@ -317,7 +318,7 @@ ee478157f48579b1cfde0fdfbcee5f75  make-x64/test_rotation.c
 266a1130913160ff4a5d4b324075ac20  make-x64/test_trust.c
 0e58c1b87132ab91e211b0acae5b2faf  make-x64/test_trustagg.c
 6a9b188611bd6f5e373df0313928fcb8  make-x64/test_trustlife.c
-b6a9d50da0ae862a3fc934c8c8178e17  multics-r24-optimized.cfg
+b4200aad7a7f5add3dc083a4dc4e9b7d  multics-r24-optimized.cfg
 0b91199696099224a18e4a7d7a70b15d  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
 f23040a9339c8f5dfa3e6c946764050a  src/advanced-optimizations.c

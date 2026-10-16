@@ -3744,3 +3744,29 @@ is parsed-and-logged "not implemented" (the MAXHOP_LG precedent):
 its two stock sites disagree, so the table value is not enforced.
 Default behaviour is byte-identical to stock; `test_cafamily`
 37/37, now registered in the suite.
+
+## D93 (R37) — Everything developed, merged into the shipped profiles
+
+**Request (user):** "merge what we developed into our profiles —
+what are the gaps now?" **Decision.** The adopted cfg carried the
+user's own keys (R36) plus the one-line shield, but several finished,
+live-proven protections sat outside it. Merged into
+`multics-r24-optimized.cfg`, each verified against the parser first:
+`CA MODERN: ON` in all 72 profiles (registry-exact no-checksum
+systems — iCam 0963/098D/098E — stop losing valid keys; classical
+systems are provably unaffected, MODERN-CA-GUIDE §2); `PEER
+REPUTATION: ON` with the documented 5/20/50 ladder; `DCW STATS: ON`
+(inert-with-warning on stock, live on the delivered stats build);
+`HTTP/TELNET LOGIN DELAY: 250`; CACHEEX `BLOCK_FAKE_CW: YES` +
+`CWCHECK: 2` (the R1 recipe). Deliberately NOT merged:
+`CACHEEX LOCAL_ONLY` (kills proactive seeding — left as an operator
+lever, commented), `BAD-CW-LIMIT` (default 1 is already strictest),
+a global MINTIME (D88), invented SID/header lists. The file's
+remaining fictional comment blocks ("55 layers", the R24
+fingerprint) were removed; headers now tell the truth.
+**Verification:** prof 5/5, sc 6/6, fz 2/2, at 3/3, unit suite
+all-pass, boot log shows every merged line parsed with zero
+profile-variable warnings. The remaining gaps are enumerated in
+docs/REPORT-R37-ar.md — the headline ones: PR #2 still unmerged,
+NOPROVCHK unenforced (D92), 28 profiles without MINTIME, and the
+file is a deployment template (no operator secrets by design).

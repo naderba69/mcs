@@ -5,3 +5,4 @@
 make-x64/x64/
 tests/.*
 make-x64/test_adv
+tests/multics.peers

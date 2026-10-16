@@ -6,6 +6,18 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R37 — Everything Developed, Merged into the Shipped Profiles (2026-10-16)
+
+**Decision:** D93
+
+### Changed (config only — no code touched)
+- **`CA MODERN: ON` in all 72 profiles** — iCam CAIDs (0963/098D/098E) stop losing valid no-checksum keys; classical systems provably unaffected.
+- **Protections activated in the shipped file:** `PEER REPUTATION: ON` (5/20/50), `DCW STATS: ON`, `HTTP/TELNET LOGIN DELAY: 250`, CACHEEX `BLOCK_FAKE_CW: YES` + `CWCHECK: 2`. Left OFF on purpose, commented in place: `CACHEEX LOCAL_ONLY`, `LOGIN ALLOW`, any global MINTIME.
+- **The file's remaining fictional comment blocks removed** ("55 layers", the R24 fingerprint trailer); headers tell the truth.
+
+### Verification
+- prof 5/5, sc 6/6, fz 2/2, at 3/3, unit suite all-pass; boot log parses every merged line with zero profile-variable warnings. Remaining gaps enumerated honestly in `docs/REPORT-R37-ar.md` (unmerged PR #2, NOPROVCHK unenforced, 28 profiles without MINTIME, deployment secrets by design, full live suite still not run end-to-end).
+
 ## R36 — The User's Written Keys, Implemented; His Config Adopted (2026-10-16)
 
 **Decisions:** D87–D92
