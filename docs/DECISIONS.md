@@ -3541,3 +3541,46 @@ standalone (its in-run failure was reproduced with the stock HEAD
 binary failing even its baseline in the same environment --
 rig timing, not this round), remainder 81 ok incl. fz 2/2;
 release / release-stats clean (0 / 2).
+
+## D83 (R32) — The shipped profiles, rewritten against the real parser and guarded live
+
+**Context.** `multics-r24-optimized.cfg` -- the file the README
+sends operators to -- dated from the R22-R24 era and had drifted
+into fiction: it named protection systems whose code is dead and
+never linked (SuperSmartFilter, DCW STRICT), set dozens of option
+lines the parser does not know and silently ignores (SF_*,
+DCW MINTIME, CACHEEX PUSH/RELAY...), claimed 72 profiles (the file
+holds 71), and shipped one profile, [ORF - 0D98], with no PORT at
+all. The audit report beside it certified all of it as "proven
+stable". An operator trusting that file believed they were
+protected by systems that do not exist -- the most dangerous kind
+of configuration drift, because silence looks like success.
+
+**Decision.** The file is rewritten, not patched: (1) every line
+that remains is verified against src/config.c -- the generator
+classified all 200 distinct keys in the old file REAL/DEAD against
+the parser, and only REAL survived; (2) the global shield is the
+stack this tree actually built and live-tested: `CACHE
+PROTECTION: STANDARD` + `CACHE ATTEST TTL: 600` + the uniform
+per-profile stability block taken from the live targets
+(CACHE TIMEOUT 2000, DCW TIMEOUT 6000, DCW MAXFAILED 3,
+SERVER TIMEOUT/VALIDECMTIME 1000), copied onto all 71 profiles;
+(3) profile identities (name, CAID, PORT, PROVIDERS) are preserved
+byte-for-byte from the old file; [ORF - 0D98] is assigned the free
+port 1981; (4) BISS/Tandberg profiles now say honestly that the
+keys live on the /biss page, since ENABLE SOFTCAM was one of the
+dead lines; (5) `docs/PROFILES-AUDIT-REPORT-ar.md` is replaced
+with measured numbers.
+
+**Guard.** New `tests/prof` target in `make -C tests all`: boots
+the shipped file itself, asserts the shield/TTL lines were parsed,
+HTTP answers 200, and -- because interleaved -v output makes log
+line counts lie (55 apparent starts vs 71 actual listeners,
+measured) -- probes every profile port with a real connection:
+71/71 listen. `prof: 5/5 ok`.
+
+**Verification.** No src code changed this round. Live suite:
+384 ok through `prof`, then the two known rig flakes (`ce`, `jm`)
+each passed standalone (`ce` 10/10, `jm` 8/8; both previously
+reproduced with stock binaries failing worse), remainder green
+incl. fz 2/2, at 3/3. Releases untouched and still clean.

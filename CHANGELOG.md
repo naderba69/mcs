@@ -6,6 +6,24 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R32 — The Shipped Profiles, Rewritten Honestly and Guarded Live (2026-10-16)
+
+**Decision:** D83 · **Report:** `docs/REPORT-R32-ar.md`
+
+### Changed
+- **`multics-r24-optimized.cfg` rewritten** (2130 → 1010 lines): every remaining line verified REAL against the parser (the old file's 200 distinct keys classified REAL/DEAD; all SF_*/DCW STRICT/DCW MINTIME/CACHEEX PUSH-style dead lines deleted). Global shield = `CACHE PROTECTION: STANDARD` + `CACHE ATTEST TTL: 600` + real DEFAULTs; one uniform live-tested stability block on all **71** profiles (the old file claimed 72). Profile identities (name/CAID/PORT/PROVIDERS) preserved.
+- **`docs/PROFILES-AUDIT-REPORT-ar.md` replaced** with measured numbers instead of the R24 certifications.
+
+### Fixed (latent defects in the shipped file itself)
+- **[ORF - 0D98] had no PORT at all** — assigned the free port 1981; it now binds like the other 70.
+- BISS/Tandberg profiles no longer pretend `ENABLE SOFTCAM` (a dead line) arms anything; they point to the /biss page where the keys really live.
+
+### Added
+- **`tests/prof`** (in `make all`, 5/5): boots the shipped cfg, asserts shield/TTL parsed, HTTP 200, and probes all 71 profile ports with real connections (log-line counting lies under interleaved -v output: 55 apparent starts vs 71 real listeners).
+
+### Verification
+- No src code changed. Live suite: 384 ok incl. prof 5/5; `ce` 10/10 and `jm` 8/8 standalone (known rig flakes, reproduced with stock binaries); fz 2/2, at 3/3; releases clean.
+
 ## R31 — Closing the Attestation Gaps (2026-10-16)
 
 **Decision:** D82 · **Report:** `docs/REPORT-R31-ar.md`

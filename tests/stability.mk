@@ -5111,3 +5111,39 @@ at: .ncclient.bin .cachepeer.bin
 	else echo "[FAIL] P3 (protection line=$$prot, filed=$$filed3, key to c3=$$g3) -- see .at3-*.log"; ok=0; fi; \
 	if [ "$$ok" = "1" ]; then rm -f $(AT_CFG) .at-*.log; echo "at: 3/3 ok"; \
 	else echo "at: FAILED (logs kept under tests/.at-*)"; exit 1; fi
+
+# TASK R32 (D83) -- the shipped profiles file, proven bootable.
+#
+# multics-r24-optimized.cfg was rewritten against THIS build (every
+# line the parser actually reads; the R24 file named systems that
+# exist nowhere in the tree). This target boots the real file and
+# asserts: the shield lines are parsed, HTTP answers, and every one
+# of the 71 profile ports actually listens. Interleaved -v output
+# makes log-line counting meaningless (it undercounts), so the
+# ports are probed with real connections instead.
+PROF_HPORT = 17100
+PROF_CFG   = .prof-boot.cfg
+
+.PHONY: prof
+prof:
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@rm -f $(PROF_CFG) .prof-srv.log; ok=1; \
+	{ printf 'HTTP PORT: $(PROF_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n'; cat ../multics-r24-optimized.cfg; } > $(PROF_CFG); \
+	stdbuf -o0 -e0 $(BIN) -C $(PROF_CFG) -v > .prof-srv.log 2>&1 & srv=$$!; \
+	code=000; for i in $$(seq 1 30); do \
+	  code=$$(curl -s -m 3 -u a:a -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PROF_HPORT)/ 2>/dev/null); \
+	  [ "$$code" = "200" ] && break; sleep 1; done; \
+	if [ "$$code" = "200" ]; then echo "  [ ok ] the shipped profiles file boots and HTTP answers"; \
+	else echo "[FAIL] HTTP answered '$$code' -- see .prof-srv.log"; ok=0; fi; \
+	nports=$$(grep '^PORT: ' ../multics-r24-optimized.cfg | awk '{print $$2}' | sort -u | wc -l); \
+	nopen=0; for p in $$(grep '^PORT: ' ../multics-r24-optimized.cfg | awk '{print $$2}' | sort -u); do \
+	  bash -c "exec 3<>/dev/tcp/127.0.0.1/$$p" 2>/dev/null && nopen=$$((nopen+1)); done; \
+	if [ "$$nopen" = "$$nports" ]; then echo "  [ ok ] all $$nports profile ports listen"; \
+	else echo "[FAIL] $$nopen of $$nports profile ports listen"; ok=0; fi; \
+	grep -q "CACHE PROTECTION: STANDARD" .prof-srv.log && echo "  [ ok ] the one-line shield was parsed (consensus+pattern+attest armed)" || { echo "[FAIL] PROTECTION line not parsed"; ok=0; }; \
+	grep -q "CACHE ATTEST TTL:" .prof-srv.log && echo "  [ ok ] attestation TTL parsed" || { echo "[FAIL] ATTEST TTL not parsed"; ok=0; }; \
+	grep -qi "segmentation\|SIGSEGV" .prof-srv.log && { echo "[FAIL] logged a segfault"; ok=0; } || echo "  [ ok ] no crash in the log"; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	if [ "$$ok" = "1" ]; then rm -f $(PROF_CFG) .prof-srv.log; echo "prof: 5/5 ok"; \
+	else echo "prof: FAILED (logs kept under tests/.prof-*)"; exit 1; fi
