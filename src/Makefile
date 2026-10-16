@@ -150,7 +150,7 @@ endif
 
 
 # loginthrottle.o: TASK R3 (D57), the login door throttle
-OBJECTS = $(OUTPUT)/sha1.o $(OUTPUT)/des.o $(OUTPUT)/md5.o $(OUTPUT)/aes.o \
+OBJECTS = $(OUTPUT)/sha1.o $(OUTPUT)/sha256.o $(OUTPUT)/des.o $(OUTPUT)/md5.o $(OUTPUT)/aes.o \
 	$(OUTPUT)/dcw.o $(OUTPUT)/convert.o $(OUTPUT)/tools.o $(OUTPUT)/debug.o $(OUTPUT)/parser.o $(OUTPUT)/ipdata.o \
 	$(OUTPUT)/threads.o $(OUTPUT)/sockets.o $(OUTPUT)/msg-newcamd.o $(OUTPUT)/msg-cccam.o $(OUTPUT)/msg-radegast.o $(OUTPUT)/config.o \
 	$(OUTPUT)/ecmdata.o $(OUTPUT)/httpserver.o $(OUTPUT)/telnet.o $(OUTPUT)/main.o \
@@ -184,7 +184,7 @@ $(OUTPUT)/%.o: ../src/%.c | $(OUTPUT)
 $(OUTPUT)/httpserver.o: ../src/httpserver.h ../src/httpbuffer.c ../src/httpserver.c
 
 $(OUTPUT)/main.o: ../src/main.c ../src/common.h ../src/httpserver.h ../src/config.h ../src/clustredcache.c ../src/cacheex.c ../src/pipe.c ../src/pipe.h \
-	../src/th-ecm.c ../src/th-cfg.c ../src/th-dns.c ../src/th-date.c ../src/th-srv.c \
+	../src/setdcw.c ../src/loadbalance.c ../src/th-ecm.c ../src/th-cfg.c ../src/th-dns.c ../src/th-date.c ../src/th-srv.c \
 	../src/srv-cccam.c ../src/srv-newcamd.c ../src/srv-mgcamd.c ../src/srv-radegast.c ../src/srv-freecccam.c ../src/srv-camd35.c ../src/srv-cs378x.c \
 	../src/cli-common.c ../src/cli-cccam.c ../src/cli-newcamd.c ../src/cli-radegast.c ../src/cli-camd35.c ../src/cli-cs378x.c
 

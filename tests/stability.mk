@@ -4886,3 +4886,61 @@ vl:
 	else echo "[FAIL] P4 (/cwlog $$cw4, / $$home4)"; ok=0; fi; \
 	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then echo "vl: 4/4 ok"; else echo "vl: FAILED"; exit 1; fi
+
+# TASK R27 (D78) -- the modern-CA layer (R26/D77) proven LIVE, end to
+# end: a cache peer pushes an AES-shaped control word (16 bytes, no
+# CSA checksum bytes) for a VideoGuard-iCam profile (CAID 098D).
+#   P1 (CA MODERN: ON, profile opt-in)  -> the CW is DELIVERED.
+#   P2 (same push, profile opt-in OFF)  -> stock refusal, NO delivery.
+#   P3 (BISS2 2610 via the POST /biss route) -> the 16-byte session
+#        word entered on the web page is DELIVERED to the client.
+# One server restart per phase (config is read at boot). Desk-check
+# fixtures only, like every other live target in this file.
+MD_HPORT = 17010
+MD_CACHE = 17011
+MD_NPORT = 17012
+MD_PEER  = 17013
+MD_CFG   = .md-srv.cfg
+MD_CW    = 9F3AC77104B2D58E61FA09C4376BD205
+MD_BISS  = 7E19C4A05B3D98F26E41AA07C5D3B891
+MD_KEY   = 0102030405060708091011121314
+
+.PHONY: md
+md: .ncclient.bin .cachepeer.bin
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@rm -f $(MD_CFG) .md-*.log; ok=1; \
+	echo "  [ -- ] P1: CA MODERN ON + opted-in 098D profile -- AES-shaped CW must deliver"; \
+	{ printf 'HTTP PORT: $(MD_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(MD_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(MD_PEER)\n\n[ md ]\nCAID: 098D\nCA MODERN: ON\nPROVIDERS: 0\nPORT: $(MD_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n\n'; } > $(MD_CFG); \
+	stdbuf -o0 -e0 $(BIN) -C $(MD_CFG) -v > .md1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(MD_CACHE) $(MD_PEER) "$(MD_CW)" 64 098D0000 > .md1-peer.log 2>&1 & ph=$$!; \
+	for i in $$(seq 1 30); do grep -q "come Online" .md1-srv.log && break; sleep 0.5; done; sleep 1; \
+	NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(MD_NPORT) u1 p1 $(MD_KEY) 0 098D 64 > .md1-cli.log 2>&1; \
+	grep -q "DELIVERED A CONTROL WORD" .md1-cli.log || { sleep 2; NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(MD_NPORT) u1 p1 $(MD_KEY) 0 098D 64 >> .md1-cli.log 2>&1; }; \
+	if grep -q "DELIVERED A CONTROL WORD" .md1-cli.log; then \
+	  echo "  [ ok ] P1: modem-on iCam profile delivers the AES-shaped CW"; \
+	else echo "[FAIL] P1 -- see .md1-*.log"; ok=0; fi; \
+	kill -9 $$ph 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	echo "  [ -- ] P2: CA MODERN stays OFF (stock): the identical push must NOT deliver"; \
+	{ printf 'HTTP PORT: $(MD_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(MD_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(MD_PEER)\n\n[ md ]\nCAID: 098D\nPROVIDERS: 0\nPORT: $(MD_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n\n'; } > $(MD_CFG); \
+	stdbuf -o0 -e0 $(BIN) -C $(MD_CFG) -v > .md2-srv.log 2>&1 & srv=$$!; sleep 3; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(MD_CACHE) $(MD_PEER) "$(MD_CW)" 64 098D0000 > .md2-peer.log 2>&1 & ph=$$!; \
+	for i in $$(seq 1 30); do grep -q "come Online" .md2-srv.log && break; sleep 0.5; done; sleep 1; \
+	NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(MD_NPORT) u1 p1 $(MD_KEY) 0 098D 64 > .md2-cli.log 2>&1; \
+	if grep -q "DELIVERED A CONTROL WORD" .md2-cli.log; then echo "[FAIL] P2: stock config DELIVERED a checksum-less CW -- R26 gate broken live"; ok=0; \
+	else echo "  [ ok ] P2: stock behaviour preserved (no delivery without opt-in)"; fi; \
+	kill -9 $$ph 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	echo "  [ -- ] P3: BISS2 (2610) session word entered via POST /biss must deliver"; \
+	{ printf 'HTTP PORT: $(MD_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(MD_CACHE)\nCACHE FILTER: OFF\n\n[ md ]\nCAID: 2610\nCA MODERN: ON\nPROVIDERS: 0\nPORT: $(MD_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n\n'; } > $(MD_CFG); \
+	stdbuf -o0 -e0 $(BIN) -C $(MD_CFG) -v > .md3-srv.log 2>&1 & srv=$$!; sleep 3; \
+	curl -s -m 3 -u a:a -o /dev/null "http://127.0.0.1:$(MD_HPORT)/biss?action=add&caid=2610&sid=0001&provid=000000&key=$(MD_BISS)"; \
+	bpage=$$(curl -s -m 3 -u a:a "http://127.0.0.1:$(MD_HPORT)/biss"); \
+	NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(MD_NPORT) u1 p1 $(MD_KEY) 0 2610 1 > .md3-cli.log 2>&1; \
+	grep -q "DELIVERED A CONTROL WORD" .md3-cli.log || { sleep 2; NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(MD_NPORT) u1 p1 $(MD_KEY) 0 2610 1 >> .md3-cli.log 2>&1; }; \
+	if grep -q "DELIVERED A CONTROL WORD" .md3-cli.log && printf '%s' "$$bpage" | grep -qi "C5D3B891"; then \
+	  echo "  [ ok ] P3: the /biss BISS2 word is listed and delivered"; \
+	else echo "[FAIL] P3 -- see .md3-*.log"; ok=0; fi; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	if [ "$$ok" = "1" ]; then rm -f $(MD_CFG) .md-*.log; echo "md: 3/3 ok"; \
+	else echo "md: FAILED (logs kept under tests/.md-*)"; exit 1; fi
+

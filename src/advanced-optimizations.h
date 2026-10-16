@@ -199,6 +199,7 @@ static inline void auto_recovery_trigger(int type) {
  * authenticated transport, not a protocol change. Returns 1 ok.
  */
 #include "aes.h"
+#include "sha256.h"	/* TASK R27 (D78): the KDF below */
 
 static inline int cw_encrypt(uint8_t *cw, uint8_t *encrypted, uint8_t *key, int key_len) {
     AES_KEY ekey;
@@ -230,6 +231,24 @@ static inline int cw_session_key_set(const uint8_t *key, int key_len) {
     memcpy(cw_session_key, key, key_len);
     cw_session_key_len = key_len;
     return 1;
+}
+
+/*
+ * TASK R27 (D78) -- passphrase-derived session key. The session key
+ * is SHA-256(passphrase) used directly as an AES-256 key: a modern
+ * KDF in place of the tree's MD5-era derivations, for NEW keying
+ * only -- no existing wire derivation (camd35 MD5, newcamd DES) is
+ * touched, because peers dictate those. One SHA-256 pass is a key
+ * stretcher, not a password vault: passphrases here key a transport
+ * between cooperating operators, and the derivation is labelled as
+ * such so nobody mistakes it for a password-storage scheme.
+ * Returns 1 when a session key is installed.
+ */
+static inline int cw_session_key_derive(const char *passphrase) {
+    uint8_t digest[SHA256_DIGEST_LENGTH];
+    if (!passphrase || !passphrase[0]) return 0;
+    SHA256((const uint8_t *)passphrase, strlen(passphrase), digest);
+    return cw_session_key_set(digest, SHA256_DIGEST_LENGTH);
 }
 
 static inline int cw_encrypt_with_session(uint8_t *cw, uint8_t *encrypted) {

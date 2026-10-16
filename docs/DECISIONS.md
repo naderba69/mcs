@@ -3254,3 +3254,34 @@ with an armed 098D profile and a legacy 1884 profile: /biss BISS1
 and BISS2 adds 200, both keys listed, server alive. Not claimed:
 real-card delivery on a live iCam bouquet (no card/oscam in the
 sandbox) -- the CW-format column stays advisory until armed.
+
+## D78 (R27) — Live proof of the modern-CA layer + gradual crypto modernisation
+
+**Live end-to-end proof (new `tests/md` target, in `make all`).** A
+cache peer pushes an AES-shaped CW (no CSA checksum bytes) for a
+VideoGuard-iCam profile (CAID 098D): delivered to a newcamd client
+only with `CA MODERN: ON` inside the profile (P1); the identical
+push under stock config is not delivered (P2). A BISS2 (2610) word
+entered via `/biss?action=add` (32-hex) is listed on the page and
+delivered whole to the client (P3). `CA MODERN` is a per-profile key
+(parse rejects it outside a profile: "undefined profile").
+
+**Pre-existing race found by that proof and fixed.** Both BISS
+branches in `th-ecm.c` called `clients_check_sendcw()` immediately
+after `ecm_setdcw()`; under THREAD_DCW the set is asynchronous (Set
+DCW thread commits STAT_DCW_SUCCESS), so the client was answered
+decode-failed milliseconds before the commit. Both branches now let
+the Set-DCW thread answer after committing, like every async source.
+Proven live: the client receives the exact 16-byte BISS2 word.
+
+**Crypto modernisation, compatibility-bounded.** New `src/sha256.c/.h`
+(FIPS 180-4, NIST vectors in `test_sha256`) as the tree's modern hash
+primitive, and `cw_session_key_derive()` in advanced-optimizations.h
+(AES-256 session key = SHA-256(passphrase); empty/NULL refused) for
+the R26 CW transport. The DES/MD5 wire formats (newcamd, camd35,
+ecmd5 identity) are dictated by peers (oscam included) and are
+deliberately unchanged: breaking them unilaterally buys no security
+and severs compatibility. SHA-256 is the foundation for any future
+negotiated upgrade. Also: `main.o` gained its missing `setdcw.c` /
+`loadbalance.c` dependencies in src/Makefile (stale-object trap
+found while instrumenting).

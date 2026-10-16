@@ -6,9 +6,30 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R27 — Live Modern-CA Proof + Gradual Crypto (2026-10-16)
+
+**Decision:** D78 · **Report:** `docs/REPORT-R27-ar.md`
+
+### Added
+- **`tests/md` live target** (in `make all`, 3/3) — cache peer pushes an AES-shaped CW for an iCam 098D profile: delivered with `CA MODERN: ON` (P1), not delivered under stock config (P2); a BISS2 (2610) word added via `/biss?action=add` is listed and delivered whole (P3).
+- **`src/sha256.c/.h`** — FIPS 180-4 SHA-256 (API mirrors sha1.h), pinned by NIST vectors in `make-x64/test_sha256.c` (16 checks incl. the 1,000,000×'a' vector), wired into `make test`.
+- **`cw_session_key_derive()`** — AES-256 session key = SHA-256(passphrase) for the R26 CW transport; empty/NULL passphrases refused; wrong-passphrase keys provably cannot recover the CW.
+
+### Fixed (pre-existing, found by the live proof)
+- **BISS/BISS2 answers raced their own key** — `th-ecm.c` answered waiting clients immediately after the asynchronous `ecm_setdcw()`, so a stored BISS/BISS2 word produced a decode-failed reply milliseconds before the Set-DCW thread committed it. Both branches now let that thread answer after committing; live P3 receives the exact 16-byte word.
+- **`main.o` missed dependencies** — `src/Makefile` now lists the included `setdcw.c`/`loadbalance.c`, ending a stale-object trap.
+
+### Compatibility stance (documented, deliberate)
+- DES/MD5 wire formats (newcamd session, camd35 key, ecmd5 identity) are peer-dictated and unchanged; SHA-256 is the in-tree primitive for future negotiated upgrades. `CA MODERN` semantics and the default-OFF posture from D77 are untouched.
+
+### Verification
+- `make test` exit 0 (incl. test_casystem 48/48, test_sha256 16/16); release + release-stats clean (dcwstats 0/2); `tests/md` 3/3 live.
+
+---
+
 ## R26 — Modern CA Layer (2026-10-16)
 
-**Decision:** D77 · **Report:** `docs/REPORT-R25-ar.md` · **Guide:** `docs/MODERN-CA-GUIDE-ar.md`
+**Decision:** D77 · **Report:** `docs/REPORT-R26-ar.md` · **Guide:** `docs/MODERN-CA-GUIDE-ar.md`
 
 One registry for today's encryption systems, armed per profile — default OFF, stock behaviour preserved bit-for-bit.
 

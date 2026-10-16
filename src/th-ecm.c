@@ -78,7 +78,13 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 			debugf(0, "BISS2: Using stored session word for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
 			cw_prediction_record(ecm->caid, ecm->provid, ecm->sid, dcw);
 			ecm_setdcw(ecm, dcw, 99, 0);  // Source 99 = BISS
-			clients_check_sendcw(ecm);
+			/* TASK R27 (D78): do NOT call clients_check_sendcw()
+			 * here. ecm_setdcw() hands the key to the Set-DCW
+			 * thread (THREAD_DCW), which commits STAT_DCW_SUCCESS
+			 * and answers the waiting clients itself; answering
+			 * here raced that commit and the client was sent a
+			 * decode-failed for a key that arrived moments later
+			 * (proven live by tests/md P3). */
 			return;
 		}
 	}
@@ -99,7 +105,8 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 			
 			// Set DCW directly
 			ecm_setdcw(ecm, dcw, 99, 0);  // Source 99 = BISS
-			clients_check_sendcw(ecm);
+			/* TASK R27 (D78): no clients_check_sendcw() here -- the
+			 * Set-DCW thread answers after committing (see BISS2). */
 			return;
 		}
 	}
