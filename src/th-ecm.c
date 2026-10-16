@@ -1,3 +1,4 @@
+#include "biss.h"  /* BISS key management */
 
 void clients_check_sendcw(ECM_DATA *ecm)
 {
@@ -60,6 +61,24 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 {
 	ecm->checktime = 0; // invalid
 	ecm->waitserver = 0;
+
+	// BISS KEY CHECK - Try to use stored BISS key first
+	{
+		uint8_t biss_key[8];
+		if (biss_get(ecm->caid, ecm->sid, ecm->provid, biss_key)) {
+			// Found BISS key! Use it directly
+			uint8_t dcw[16];
+			memcpy(dcw, biss_key, 8);      // First 8 bytes
+			memcpy(dcw+8, biss_key, 8);    // Repeat for second 8 bytes
+			
+			debugf("BISS: Using stored key for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+			
+			// Set DCW directly
+			ecm_setdcw(ecm, dcw, 99, 0);  // Source 99 = BISS
+			clients_check_sendcw(ecm);
+			return;
+		}
+	}
 
 	// CACHE(fallowcache = 1)
 	if (ecm->dcwstatus==STAT_DCW_WAITCACHE) {

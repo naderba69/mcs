@@ -8,6 +8,7 @@
 #include "cwlog.h"	/* TASK R11 (D65): the /cwlog page + /json section */
 #include "peer_origin.h"/* TASK R11 (D65): peer id masks on the page */
 #endif
+#include "biss.h"	/* BISS key management */
 #include "common.h"
 
 #include <stdio.h>
@@ -662,6 +663,7 @@ static void http_style_write(struct tcp_buffer_data *tcpbuf, int sock)
 #define PAGE_CS378X    13
 #define PAGE_DEBUG     14
 #define PAGE_CWLOG     15   /* TASK R11 (D65), stats flavour only */
+#define PAGE_BISS      16   /* BISS key management */
 
 
 char *yesno( int a )
@@ -731,6 +733,11 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 		char cache[32]; sprintf(cache, "%s", mlabel("Cache","الكاش"));
 		if (unread) sprintf( cache, "%s (%d)", mlabel("Cache","الكاش"), unread);
 		sprintf( buf, class, "/cache", cache); tcp_writestr(tcpbuf, sock, buf);
+	}
+	// BISS Keys
+	{
+		if (selected==PAGE_BISS) class = cSelected; else class = cNormal;
+		sprintf( buf, class, "/biss", mlabel("BISS","BISS")); tcp_writestr(tcpbuf, sock, buf);
 	}
 	// Profiles
 	if (!cfg.http.show.noprofiles) {
@@ -7808,6 +7815,9 @@ void *gererClient(struct connect_data *param)
 				else if (strcmp(req.path,"/cachepeer")==0) {
 					if (!cfg.http.show.nocache) http_send_cache_peer(sock,&req);
 				}
+				else if (strcmp(req.path,"/biss")==0) {
+					http_send_biss(sock,&req);
+				}
 #ifdef CCCAM_SRV
 				else if (strcmp(req.path,"/cccam")==0) {
 					if (!cfg.http.show.nocccam) http_send_cccam(sock,&req);
@@ -7963,6 +7973,178 @@ void *gererClient(struct connect_data *param)
 	return NULL;
 }
 
+/* ==========================================================================
+ * BISS Key Management Page
+ * ========================================================================== */
+void http_send_biss(int sock, http_request *req)
+{
+	struct tcp_buffer_data tcpbuf;
+	char *str_action = isset_get(req, "action");
+	int action = 0; // 0=page, 1=add, 2=delete
+
+	if (str_action) {
+		if (!strcmp(str_action, "add")) action = 1;
+		else if (!strcmp(str_action, "delete")) action = 2;
+	}
+
+	tcp_init(&tcpbuf);
+
+	// Handle add action
+	if (action == 1) {
+		char *str_caid = isset_get(req, "caid");
+		char *str_sid = isset_get(req, "sid");
+		char *str_provid = isset_get(req, "provid");
+		char *str_key = isset_get(req, "key");
+
+		if (str_caid && str_sid && str_provid && str_key) {
+			uint16_t caid = strtoul(str_caid, NULL, 16);
+			uint16_t sid = strtoul(str_sid, NULL, 16);
+			uint32_t provid = strtoul(str_provid, NULL, 16);
+			uint8_t key[8];
+
+			// Parse hex key (16 chars = 8 bytes)
+			if (strlen(str_key) >= 16) {
+				int i;
+				for (i = 0; i < 8; i++) {
+					char hex[3] = {str_key[i*2], str_key[i*2+1], 0};
+					key[i] = strtoul(hex, NULL, 16);
+				}
+
+				if (biss_add(caid, sid, provid, key)) {
+					debugf("BISS: Added key for %04X:%06X:%04X\n", caid, provid, sid);
+				}
+			}
+		}
+	}
+
+	// Handle delete action
+	if (action == 2) {
+		char *str_caid = isset_get(req, "caid");
+		char *str_sid = isset_get(req, "sid");
+		char *str_provid = isset_get(req, "provid");
+
+		if (str_caid && str_sid && str_provid) {
+			uint16_t caid = strtoul(str_caid, NULL, 16);
+			uint16_t sid = strtoul(str_sid, NULL, 16);
+			uint32_t provid = strtoul(str_provid, NULL, 16);
+
+			if (biss_remove(caid, sid, provid)) {
+				debugf("BISS: Removed key for %04X:%06X:%04X\n", caid, provid, sid);
+			}
+		}
+	}
+
+	// Send HTML header
+	char http_buf[8192];
+	sprintf(http_buf,
+		"HTTP/1.1 200 OK\r\n"
+		"Content-Type: text/html\r\n"
+		"Connection: close\r\n\r\n"
+		"<html><head><title>BISS Keys</title>"
+		"<style>"
+		"body { font-family: Arial; margin: 20px; }"
+		"h1 { color: #333; }"
+		"table { border-collapse: collapse; width: 100%%; margin-top: 20px; }"
+		"th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }"
+		"th { background-color: #4CAF50; color: white; }"
+		"tr:nth-child(even) { background-color: #f2f2f2; }"
+		".form-box { background: #f9f9f9; padding: 20px; margin: 20px 0; border-radius: 5px; }"
+		"input[type=text] { padding: 8px; margin: 5px; width: 150px; }"
+		"input[type=submit] { padding: 10px 20px; background: #4CAF50; color: white; border: none; cursor: pointer; }"
+		"input[type=submit]:hover { background: #45a049; }"
+		".delete-btn { background: #f44336; color: white; padding: 5px 10px; text-decoration: none; border-radius: 3px; }"
+		".delete-btn:hover { background: #da190b; }"
+		"</style></head><body>"
+		"<h1>🔐 BISS Key Management</h1>"
+		"<p><a href='/'>← Back to Home</a></p>"
+	);
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+
+	// Add key form
+	sprintf(http_buf,
+		"<div class='form-box'>"
+		"<h2>Add New BISS Key</h2>"
+		"<form method='GET' action='/biss'>"
+		"<input type='hidden' name='action' value='add'>"
+		"CAID: <input type='text' name='caid' placeholder='2600' required>"
+		"SID: <input type='text' name='sid' placeholder='1234' required>"
+		"PROVID: <input type='text' name='provid' placeholder='000000' required>"
+		"Key: <input type='text' name='key' placeholder='0123456789ABCDEF' maxlength='16' required>"
+		"<input type='submit' value='Add Key'>"
+		"</form>"
+		"<small>Key format: 16 hex characters (8 bytes)</small>"
+		"</div>"
+	);
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+
+	// Display keys table
+	sprintf(http_buf,
+		"<h2>Stored BISS Keys (%d total)</h2>"
+		"<table>"
+		"<tr><th>CAID</th><th>SID</th><th>PROVID</th><th>Key</th><th>Added</th><th>Used</th><th>Actions</th></tr>",
+		biss_count()
+	);
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+
+	// List all keys
+	int i;
+	for (i = 0; i < biss_keys.count; i++) {
+		if (biss_keys.keys[i].active) {
+			char key_str[17];
+			int j;
+			for (j = 0; j < 8; j++) {
+				sprintf(key_str + j*2, "%02X", biss_keys.keys[i].key[j]);
+			}
+			key_str[16] = 0;
+
+			char added_time[32] = "Never";
+			char last_used[32] = "Never";
+			if (biss_keys.keys[i].added_time > 0) {
+				time_t t = biss_keys.keys[i].added_time;
+				strftime(added_time, sizeof(added_time), "%Y-%m-%d %H:%M", localtime(&t));
+			}
+			if (biss_keys.keys[i].last_used > 0) {
+				time_t t = biss_keys.keys[i].last_used;
+				strftime(last_used, sizeof(last_used), "%Y-%m-%d %H:%M", localtime(&t));
+			}
+
+			sprintf(http_buf,
+				"<tr>"
+				"<td>%04X</td>"
+				"<td>%04X</td>"
+				"<td>%06X</td>"
+				"<td><code>%s</code></td>"
+				"<td>%s</td>"
+				"<td>%s (%d times)</td>"
+				"<td><a class='delete-btn' href='/biss?action=delete&caid=%04X&sid=%04X&provid=%06X' onclick='return confirm(\"Delete this key?\")'>Delete</a></td>"
+				"</tr>",
+				biss_keys.keys[i].caid,
+				biss_keys.keys[i].sid,
+				biss_keys.keys[i].provid,
+				key_str,
+				added_time,
+				last_used,
+				biss_keys.keys[i].use_count,
+				biss_keys.keys[i].caid,
+				biss_keys.keys[i].sid,
+				biss_keys.keys[i].provid
+			);
+			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+		}
+	}
+
+	// Close table and page
+	sprintf(http_buf,
+		"</table>"
+		"<p style='margin-top: 20px; color: #666;'>"
+		"💡 <strong>Tip:</strong> BISS keys are used automatically when ECM requests match the CAID/SID/PROVID."
+		"</p>"
+		"</body></html>"
+	);
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+
+	tcp_flush(&tcpbuf, sock);
+}
 
 
 void *http_thread(void *param)
