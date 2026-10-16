@@ -2,6 +2,9 @@
 // SETDCW
 ///////////////////////////////////////////////////////////////////////////////
 
+#include "common.h"
+#include <stdlib.h>
+
 inline void peer_hitprofile( struct cachepeer_data *peer, int csid )
 {
 	int i;

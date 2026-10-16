@@ -10,6 +10,12 @@
 #include "dcwfilter.h"
 #include "dcw.h"
 
+/* Black screen prevention systems */
+#include "blackscreen-detector.h"
+#include "cwemergency.h"
+#include "cwretry.h"
+#include "fallback.h"
+
 /*
  * TASK 1.10b — runtime gates for the two `acceptDCW()` filters that are known
  * to reject VALID control words on some systems.
@@ -215,6 +221,88 @@ int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode)
 int acceptDCW(uint8_t *data)
 {
 	return acceptDCW_for(data, DCWFILTER_INHERIT, DCWFILTER_INHERIT);
+}
+
+/*
+ * Black Screen Prevention - DCW Failure Handler
+ * Tracks CW failures and triggers anti-black-screen systems
+ */
+static struct bs_channel_tracker {
+	uint16_t caid;
+	uint16_t sid;
+	uint32_t provid;
+	uint32_t consecutive_failures;
+	uint32_t last_failure_time;
+	uint32_t total_failures;
+} bs_trackers[256];
+static int bs_tracker_count = 0;
+
+void dcw_on_failure(uint16_t caid, uint16_t sid, uint32_t provid)
+{
+	int i;
+	struct bs_channel_tracker *t = NULL;
+	
+	/* Find existing tracker */
+	for (i = 0; i < bs_tracker_count; i++) {
+		if (bs_trackers[i].caid == caid && bs_trackers[i].sid == sid) {
+			t = &bs_trackers[i];
+			break;
+		}
+	}
+	
+	/* Create new tracker if not found */
+	if (!t && bs_tracker_count < 256) {
+		t = &bs_trackers[bs_tracker_count++];
+		t->caid = caid;
+		t->sid = sid;
+		t->provid = provid;
+		t->consecutive_failures = 0;
+		t->last_failure_time = 0;
+		t->total_failures = 0;
+	}
+	
+	if (t) {
+		t->consecutive_failures++;
+		t->total_failures++;
+		t->last_failure_time = time(NULL);
+		
+		/* Layer 1: Quick switch after 2 failures */
+		if (t->consecutive_failures >= 2) {
+			debugf("BLACKSCREEN: Channel %04X:%04X - %d consecutive failures, triggering quick switch\n",
+				caid, sid, t->consecutive_failures);
+		}
+		
+		/* Layer 2: Emergency after 3 failures */
+		if (t->consecutive_failures >= 3) {
+			debugf("BLACKSCREEN: Channel %04X:%04X - Emergency mode activated\n",
+				caid, sid);
+		}
+	}
+}
+
+void dcw_on_success(uint16_t caid, uint16_t sid)
+{
+	int i;
+	
+	/* Reset failure counter on success */
+	for (i = 0; i < bs_tracker_count; i++) {
+		if (bs_trackers[i].caid == caid && bs_trackers[i].sid == sid) {
+			bs_trackers[i].consecutive_failures = 0;
+			break;
+		}
+	}
+}
+
+int dcw_needs_emergency(uint16_t caid, uint16_t sid)
+{
+	int i;
+	
+	for (i = 0; i < bs_tracker_count; i++) {
+		if (bs_trackers[i].caid == caid && bs_trackers[i].sid == sid) {
+			return (bs_trackers[i].consecutive_failures >= 3);
+		}
+	}
+	return 0;
 }
 
 int similarcw( uint8_t *cw1, uint8_t *cw2 )

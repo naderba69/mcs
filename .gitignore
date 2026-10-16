@@ -1,0 +1,7 @@
+# Build outputs and harness droppings are not tree files (MANIFEST's R12
+# rule). R15 (D70) added this file after the full-suite runs kept rewriting
+# ~150 tracked tests/. logs and the release rebuilds churned make-x64/x64
+# objects: `git add -A` must never sweep these again.
+make-x64/x64/
+tests/.*
+make-x64/test_adv

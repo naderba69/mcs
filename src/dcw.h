@@ -44,5 +44,10 @@ int similarcw( uint8_t *cw1, uint8_t *cw2 );
 // for nds
 int ishalfnulledcw( uint8_t dcw[16] );
 
+/* Black Screen Prevention API */
+void dcw_on_failure(uint16_t caid, uint16_t sid, uint32_t provid);
+void dcw_on_success(uint16_t caid, uint16_t sid);
+int dcw_needs_emergency(uint16_t caid, uint16_t sid);
+
 #endif /* MCS_DCW_H */
 

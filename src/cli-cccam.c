@@ -276,12 +276,18 @@ void cc_srv_recvmsg(struct server_data *srv)
 						card->ecmok++;
 					}
 
-					if (ecm->dcwstatus!=STAT_DCW_SUCCESS) {
-						static char msg[] = "Good dcw from CCcam server";
-						ecm->statusmsg = msg;
-						debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,cs->id), " <= cw from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
-						ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
-					}
+				if (ecm->dcwstatus!=STAT_DCW_SUCCESS) {
+					static char msg[] = "Good dcw from CCcam server";
+					ecm->statusmsg = msg;
+					debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,cs->id), " <= cw from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
+					/* Black screen prevention: reset failure counter on success */
+					dcw_on_success(ecm->caid, ecm->sid);
+					/* Server health monitoring: record success */
+					server_health_record_success(srv->id, GetTickCount()-srv->lastecmtime);
+					/* CW prediction: record for future use */
+					cw_prediction_record(ecm->caid, ecm->provid, ecm->sid, dcw);
+					ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
+				}
 
 					pthread_mutex_unlock(&prg.lockecm); //###
 					wakeup_sendecm(); // Wakeup ecm waiting for availabe servers
@@ -339,8 +345,18 @@ void cc_srv_recvmsg(struct server_data *srv)
 						break;
 					}
 
-					debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
-					cs = ecm->cs;
+				debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
+				/* Black screen prevention: track CW failure */
+				dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
+				/* Server health monitoring: record failure */
+				server_health_record_failure(srv->id);
+				/* Detailed error reporting */
+				{
+					struct error_report report;
+					error_report_create(&report, ERROR_ECM_REJECTED, srv->id, ecm->caid, ecm->provid, ecm->sid);
+					error_report_log(&report);
+				}
+				cs = ecm->cs;
 
 					if ( cs && (ecm->dcwstatus!=STAT_DCW_SUCCESS) && (srv->retry<cs->option.retry.cccam) ) {
 						if ((GetTickCount()-ecm->recvtime) < (cs->option.server.timeout*ecm->period)) {
@@ -646,6 +662,34 @@ int cc_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 		return cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_ECM_REQUEST, 13+ecm->ecmlen, buf );
 	//}
 	//return 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// BISS Reverse Sharing: Client shares CW with Server
+///////////////////////////////////////////////////////////////////////////////
+
+int cc_send_cw_share(struct server_data *srv, uint16_t caid, uint16_t sid, uint32_t provid, uint8_t *cw)
+{
+	unsigned char buf[32];
+	
+	if (!srv || srv->handle <= 0 || !cw) return 0;
+	
+	// Build CW share message
+	buf[0] = caid >> 8;
+	buf[1] = caid & 0xff;
+	buf[2] = provid >> 24;
+	buf[3] = provid >> 16;
+	buf[4] = provid >> 8;
+	buf[5] = provid & 0xff;
+	buf[6] = sid >> 8;
+	buf[7] = sid & 0xff;
+	memcpy(&buf[8], cw, 16);  // 16 bytes CW
+	buf[24] = 99;  // Source: BISS
+	
+	debugf("BISS SHARE: Sending CW to server (%s:%d) for %04X:%06X:%04X\n",
+		srv->host->name, srv->port, caid, provid, sid);
+	
+	return cc_msg_send(srv->handle, &srv->sendblock, CC_MSG_CW_SHARE, 25, buf);
 }
 
 

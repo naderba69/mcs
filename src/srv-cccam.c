@@ -2,6 +2,8 @@
 // File: srv-cccam.c
 ///////////////////////////////////////////////////////////////////////////////
 
+#include "biss.h"
+
 ///////////////////////////////////////////////////////////////////////////////
 // PROTO
 ///////////////////////////////////////////////////////////////////////////////
@@ -1050,6 +1052,40 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			//debugf( getdbgflag(DBG_CACHEEX, 0, 0)," CACHEEX PUSH from client '%s' %04x:%06x:%04x:%08x\n",cli->user,cacheex.caid,cacheex.provid,cacheex.sid,cacheex.hash);
 			break;
 #endif
+
+		 case CC_MSG_CW_SHARE:
+			// BISS Reverse Sharing: Client shares CW with Server
+			{
+				if (len < 25) break;  // Need at least 25 bytes
+				
+				uint16_t share_caid = (buf[0] << 8) | buf[1];
+				uint32_t share_provid = (buf[2] << 24) | (buf[3] << 16) | (buf[4] << 8) | buf[5];
+				uint16_t share_sid = (buf[6] << 8) | buf[7];
+				uint8_t cw[16];
+				memcpy(cw, &buf[8], 16);
+				uint8_t source = buf[24];
+				
+				// Validate CW (basic checks)
+				if (dcw_hard_reject(cw)) {
+					debugf("BISS SHARE: Rejected invalid CW from client '%s' for %04X:%06X:%04X\n",
+						cli->user, share_caid, share_provid, share_sid);
+					break;
+				}
+				
+				// Save to BISS keys table
+				if (biss_add(share_caid, share_sid, share_provid, cw)) {
+					debugf("BISS SHARE: Received CW from client '%s' for %04X:%06X:%04X (source=%d)\n",
+						cli->user, share_caid, share_provid, share_sid, source);
+					
+					// Update client stats
+					cli->cacheex.got[0]++;
+					
+					// Log for monitoring
+					biss_keys.keys[biss_keys.count-1].last_used = GetTickCount();
+					biss_keys.keys[biss_keys.count-1].use_count++;
+				}
+				break;
+			}
 
 		 case CC_MSG_BAD_ECM:
 			break;

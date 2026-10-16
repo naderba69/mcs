@@ -1,0 +1,18 @@
+soak: 1200s, RSS ceiling 65536 kB, growth after 2 min 16384 kB
+binary: ../bin/multics-r82a-stats-x64
+  peer reply pid 1795 port 17102
+  peer repush-same pid 1796 port 17103
+  peer repush-rotate pid 1797 port 17104
+  peer mirror pid 1798 port 17105
+  peer forged pid 1799 port 17106
+  peer cycle pid 1800 port 17107
+  peer short pid 1801 port 17108
+  peer stranger pid 1802 port 17109
+  server pid 1814
+  HTTP up
+  reply peer advertised
+  client pid 1878
+  baseline RSS at 2 min: 1480 kB
+counters match, total 3881
+elapsed 1202s, ECMs 382, max RSS 1700 kB, end 1700 kB
+SOAK: PASS

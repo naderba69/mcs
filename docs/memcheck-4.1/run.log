@@ -1,0 +1,82 @@
+== unit tests ==
+compiling ASan+UBSan units
+compiling TSan units
+compiling valgrind units
+asan: 42 passed, 0 failed
+tsan: 42 passed, 0 failed
+  FAIL valgrind test_cache_purge
+  FAIL valgrind test_cache_relay
+  FAIL valgrind test_cache_threshold
+  FAIL valgrind test_cacheex_gates
+  FAIL valgrind test_cacheguard
+  FAIL valgrind test_cachepref
+  FAIL valgrind test_cachequeue
+  FAIL valgrind test_cafamily
+  FAIL valgrind test_cexvis
+  FAIL valgrind test_cexwire
+  FAIL valgrind test_cfgfield
+  FAIL valgrind test_chanhealth
+  FAIL valgrind test_cw_reuse
+  FAIL valgrind test_cwcm
+  FAIL valgrind test_cwconsensus
+  FAIL valgrind test_cwcycle
+  FAIL valgrind test_cwentropy
+  FAIL valgrind test_cwlate
+  FAIL valgrind test_cwlog
+  FAIL valgrind test_cwneg
+  FAIL valgrind test_cwplaus
+  FAIL valgrind test_cwtime
+  FAIL valgrind test_dcw
+  FAIL valgrind test_dcwfilter
+  FAIL valgrind test_dcwstats
+  FAIL valgrind test_dcwstruct
+  FAIL valgrind test_debugcore
+  FAIL valgrind test_htmlesc
+  FAIL valgrind test_ledger
+  FAIL valgrind test_loginthrottle
+  FAIL valgrind test_monjson
+  FAIL valgrind test_parser
+  FAIL valgrind test_peer_origin
+  FAIL valgrind test_peercard
+  FAIL valgrind test_peerrep
+  FAIL valgrind test_phase1cfg
+  FAIL valgrind test_ptguard
+  FAIL valgrind test_retry_detect
+  FAIL valgrind test_rotation
+  FAIL valgrind test_trust
+  FAIL valgrind test_trustagg
+  FAIL valgrind test_trustlife
+valgrind: 0 passed, 42 failed
+== short live session ==
+LINK FAIL x64/mem-asan/multics
+/usr/bin/ld: /home/user/mcs/make-x64/../src/clustredcache.c:1082: undefined reference to `peerrep_save'
+/usr/bin/ld: x64/mem-asan/main.o: in function `cache_send_request':
+/home/user/mcs/make-x64/../src/clustredcache.c:1150: undefined reference to `peerrep_ask_ok'
+/usr/bin/ld: x64/mem-asan/main.o: in function `cache_setdcw':
+/home/user/mcs/make-x64/../src/clustredcache.c:1957: undefined reference to `peerrep_stage'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/clustredcache.c:1982: undefined reference to `cwconsensus_verdict'
+/usr/bin/ld: x64/mem-asan/main.o: in function `cache_recvmsg':
+/home/user/mcs/make-x64/../src/clustredcache.c:2326: undefined reference to `peerrep_push_ok'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/clustredcache.c:2644: undefined reference to `peerrep_stage'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/clustredcache.c:2683: undefined reference to `peerrep_stage'
+/usr/bin/ld: x64/mem-asan/main.o: in function `cache_thread':
+/home/user/mcs/make-x64/../src/clustredcache.c:3404: undefined reference to `cwconsensus_expired'
+/usr/bin/ld: x64/mem-asan/main.o: in function `mainprocess':
+/home/user/mcs/make-x64/../src/main.c:2923: undefined reference to `peerrep_on'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/main.c:2923: undefined reference to `peerrep_on'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/main.c:2924: undefined reference to `peerrep_load'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/main.c:2925: undefined reference to `peerrep_file'
+/usr/bin/ld: x64/mem-asan/telnet.o: in function `telnetprocess':
+/home/user/mcs/make-x64/../src/telnet.c:88: undefined reference to `login_allowed'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/telnet.c:105: undefined reference to `login_note_failure'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/telnet.c:106: undefined reference to `login_delay_ms'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/telnet.c:129: undefined reference to `login_note_success'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/telnet.c:121: undefined reference to `login_note_failure'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/telnet.c:122: undefined reference to `login_delay_ms'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/telnet.c:248: undefined reference to `peerrep_on'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/telnet.c:248: undefined reference to `peerrep_on'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/telnet.c:252: undefined reference to `peerrep_count'
+/usr/bin/ld: /home/user/mcs/make-x64/../src/telnet.c:258: undefined reference to `peerrep_get'
+/usr/bin/ld: warning: creating DT_TEXTREL in a PIE
+collect2: error: ld returned 1 exit status
+MEMCHECK: findings recorded in ../docs/memcheck-4.1
