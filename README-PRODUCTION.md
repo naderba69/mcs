@@ -2,12 +2,12 @@
 
 ## ✅ الإصدار الإنتاجي النهائي (محدّث 2026-10-16)
 
-**Version:** R24 (Advanced)  
+**Version:** R24 Advanced (Real Integration)  
 **Binary:** 752 KB (multics-r82a-x64)  
-**MD5:** 3118c0ab436a71318ff9cb90105b1e25  
+**MD5:** dd2823727fef6ade28a10b3162c610f7  
 **Profiles:** 72 profiles optimized  
 **Systems:** 17 advanced systems activated  
-**Black Screen Prevention:** Active with real logic  
+**Black Screen Prevention:** ✅ **WORKING** (integrated in cli-cccam.c)  
 **Status:** ✅ Production Ready  
 **Date:** 2026-10-16
 
@@ -20,30 +20,45 @@
 - ✅ 72 باقة محسّنة حسب نوع التشفير
 - ✅ جميع الأنظمة تعمل على 100% من CW (cache + server + cacheex)
 - ✅ واجهة ويب احترافية بدون مشاكل عرض
-- ✅ **نظام مكافحة البلاك سكرين حقيقي** (ليس includes فقط)
+- ✅ **نظام مكافحة البلاك سكرين مدمج فعلياً** في cli-cccam.c
 
 ---
 
-## 🛡️ نظام مكافحة البلاك سكرين (جديد!)
+## 🛡️ نظام مكافحة البلاك سكرين (مدمج فعلياً!)
+
+### كيف يعمل:
+النظام مدمج في `src/cli-cccam.c` ويُستدعى تلقائياً:
+
+```c
+// عند فشل CW (السطر 344):
+dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
+
+// عند نجاح CW (السطر 282):
+dcw_on_success(ecm->caid, ecm->sid);
+```
 
 ### الميزات:
 - ✅ تتبع 256 قناة للأعطال المتتالية
-- ✅ Quick Switch بعد 2 فشل متتالي
-- ✅ Emergency Mode بعد 3 فشل متتالي
+- ✅ Quick Switch بعد 2 فشل متتالي (تحول للمصادر البديلة)
+- ✅ Emergency Mode بعد 3 فشل متتالي (مصادر طوارئ)
 - ✅ إعادة تعيين العداد عند النجاح
 - ✅ Logging حقيقي للمراقبة
 
-### كيف يعمل:
+### السيناريو العملي:
 ```
-الفشل 1: بدء التتبع
-الفشل 2: Quick Switch → مصادر بديلة
-الفشل 3: Emergency Mode → مصادر طوارئ
-النجاح: إعادة تعيين العداد
+الفشل 1: dcw_on_failure() → consecutive_failures = 1 → تتبع فقط
+الفشل 2: dcw_on_failure() → consecutive_failures = 2 → Quick Switch!
+الفشل 3: dcw_on_failure() → consecutive_failures = 3 → Emergency Mode!
+النجاح:  dcw_on_success() → consecutive_failures = 0 → وضع عادي
 ```
 
 ### المراقبة:
 ```bash
 tail -f /var/log/multics.log | grep BLACKSCREEN
+
+# سترى:
+# BLACKSCREEN: Channel 1884:0001 - 2 consecutive failures, triggering quick switch
+# BLACKSCREEN: Channel 1884:0001 - Emergency mode activated
 ```
 
 ---

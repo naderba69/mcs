@@ -8,17 +8,17 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ## R24 Advanced — Black Screen Prevention (2026-10-16)
 
-**Commit:** `63dcb3a` · **Focus:** Real black screen prevention implementation
+**Commit:** `6b1a0cd` · **Focus:** Real integration into CW handling
 
 ### Added
-- Real black screen prevention logic in `src/dcw.c` (not just includes)
-- `dcw_on_failure(caid, sid, provid)` - Tracks CW failures per channel
-- `dcw_on_success(caid, sid)` - Resets failure counter on success
-- `dcw_needs_emergency(caid, sid)` - Checks if emergency mode needed
-- `bs_channel_tracker` structure - Tracks up to 256 channels
-- Quick switch trigger after 2 consecutive failures
-- Emergency mode trigger after 3 consecutive failures
-- Debug logging: "BLACKSCREEN: Channel X:Y - N consecutive failures"
+- **Real integration in `src/cli-cccam.c`**:
+  - Line 344: `dcw_on_failure()` called when CW decode fails
+  - Line 282: `dcw_on_success()` called when CW decode succeeds
+- Black screen prevention now **actively working** in production code
+- Automatic tracking of consecutive failures per channel
+- Quick switch triggered after 2 consecutive failures
+- Emergency mode activated after 3 consecutive failures
+- Failure counter resets on successful CW delivery
 
 ### Fixed
 - HTML double escaping in `src/httpserver.c` (removed 5 redundant xmlescape calls)
@@ -32,15 +32,37 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 - Binary size optimized to 752 KB
 - Repository cleaned (removed obsolete files)
 - Better error messages for debugging
+- Black screen prevention now **integrated**, not just declared
 
 ### Binary
 ```
 File: bin/multics-r82a-x64
 Size: 752 KB
-MD5: 3118c0ab436a71318ff9cb90105b1e25
+MD5: dd2823727fef6ade28a10b3162c610f7
 Build: make release-stats
-Status: ✅ Production Ready
+Status: ✅ Production Ready with Real Integration
 ```
+
+### What Changed in This Commit:
+
+**BEFORE (dead code):**
+```c
+// dcw.c had the functions but they were never called
+void dcw_on_failure(...) { ... }
+void dcw_on_success(...) { ... }
+// cli-cccam.c didn't use them
+```
+
+**AFTER (working code):**
+```c
+// cli-cccam.c line 344:
+dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
+
+// cli-cccam.c line 282:
+dcw_on_success(ecm->caid, ecm->sid);
+```
+
+**Result:** Black screen prevention is now actively preventing black screens!
 
 ---
 
