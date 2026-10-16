@@ -62,9 +62,10 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 	ecm->checktime = 0; // invalid
 	ecm->waitserver = 0;
 
-	// Record channel access for prefetching and cache priority
+	// Record channel access for prefetching, cache priority, and warming
 	prefetch_record(ecm->caid, ecm->provid, ecm->sid);
 	cache_priority_update(ecm->caid, ecm->provid, ecm->sid);
+	predictive_warming_record(ecm->caid, ecm->provid, ecm->sid);
 
 	// BISS KEY CHECK - Try to use stored BISS key first
 	{
