@@ -730,6 +730,7 @@ struct cardserver_data
 		uint8_t dcwfilter_checksum;
 		uint8_t dcwfilter_repeat;
 		uint8_t dcwfilter_cycle; /* TASK R2 (D56): the delivery-time cycle gate */
+		uint8_t dcwfilter_pattern; /* TASK R28 (D79): structural fake gate */
 		/* TASK R26 (D77): `CA MODERN: ON` — arm the casystem.h
 		 * CW-format rules for this profile's CAID (see dcw.h).
 		 * 0 (the memset default) = stock acceptDCW decision. */

@@ -29,6 +29,11 @@ int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode);
 int acceptDCW_for_ca(uint8_t *data, uint16_t caid, int checksum_mode,
 		     int repeat_mode, int ca_modern);
 
+/* TASK R28 (D79): the structural fake verdict + the gated decision. */
+int dcw_pattern_fake(uint8_t *data);
+int acceptDCW_pattern(uint8_t *data, uint16_t caid, int checksum_mode,
+		      int repeat_mode, int ca_modern, int pattern_mode);
+
 /*
  * TASK 3.14 — the documented BAD-DCW list.
  *

@@ -1169,10 +1169,11 @@ link_radegast_server:
 		else if (!strcmp(str,"DCWFILTER")) {
 			parse_name(str);
 			uppercase(str);
-			if (!strcmp(str,"REPEAT")||!strcmp(str,"CHECKSUM")||!strcmp(str,"CYCLE")) {
-				int which; /* 0 checksum, 1 repeat, 2 cycle (TASK R2) */
+			if (!strcmp(str,"REPEAT")||!strcmp(str,"CHECKSUM")||!strcmp(str,"CYCLE")||!strcmp(str,"PATTERN")) {
+				int which; /* 0 checksum, 1 repeat, 2 cycle (TASK R2), 3 pattern (TASK R28) */
 				if (str[0]=='R') which = 1;
 				else if (str[0]=='C' && str[1]=='Y') which = 2;
+				else if (str[0]=='P') which = 3;
 				else which = 0;
 				parse_spaces();
 				if ((*iparser!=':')&&(*iparser!='=')) {
@@ -1193,13 +1194,15 @@ link_radegast_server:
 					int mode = on ? DCWFILTER_ON : DCWFILTER_OFF;
 					if (which==1) cardserver->option.dcwfilter_repeat = mode;
 					else if (which==2) cardserver->option.dcwfilter_cycle = mode;
+					else if (which==3) cardserver->option.dcwfilter_pattern = mode;
 					else cardserver->option.dcwfilter_checksum = mode;
-					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s (profile %s)\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":"CHECKSUM"), on?"ON":"OFF", cardserver->name);
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s (profile %s)\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":"CHECKSUM")), on?"ON":"OFF", cardserver->name);
 				} else {
 					if (which==1) dcw_filter_repeat = on;
 					else if (which==2) dcw_filter_cycle = on;
+					else if (which==3) dcw_filter_pattern = on;
 					else dcw_filter_checksum = on;
-					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":"CHECKSUM"), on?"ON":"OFF");
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":"CHECKSUM")), on?"ON":"OFF");
 				}
 			}
 			/*
@@ -6887,14 +6890,17 @@ int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
 			 uint16_t caid)
 {
 	int c = DCWFILTER_INHERIT, r = DCWFILTER_INHERIT;
-	int modern = 0;
+	int modern = 0, pattern = DCWFILTER_INHERIT;
 
 	if (cs) {
 		c = cs->option.dcwfilter_checksum;
 		r = cs->option.dcwfilter_repeat;
 		modern = cs->option.ca_modern;
+		pattern = cs->option.dcwfilter_pattern;
 	}
-	return acceptDCW_for_ca(data, caid, c, r, modern);
+	/* TASK R28 (D79): pattern INHERIT with the global gate OFF (the
+	 * default) keeps this decision identical to pre-R28. */
+	return acceptDCW_pattern(data, caid, c, r, modern, pattern);
 }
 
 void dcw_badlist_commit(struct dcw_data *list)

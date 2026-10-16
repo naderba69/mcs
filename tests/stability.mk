@@ -4944,3 +4944,60 @@ md: .ncclient.bin .cachepeer.bin
 	if [ "$$ok" = "1" ]; then rm -f $(MD_CFG) .md-*.log; echo "md: 3/3 ok"; \
 	else echo "md: FAILED (logs kept under tests/.md-*)"; exit 1; fi
 
+# TASK R28 (D79) -- fake-CW kill proof, LIVE. One honest-looking
+# cache peer pushes a CHECKSUM-VALID generator fake (a complement
+# mirror with repaired checksum bytes -- the classic fake shape).
+#   P1 (stock: no DCWFILTER PATTERN) -> the fake is DELIVERED
+#        (documents the black-screen hole stock leaves open);
+#   P2 (DCWFILTER PATTERN: ON in the profile) -> the same fake is
+#        refused AND the honest key right behind it is DELIVERED
+#        (no black screen for real keys on an armed profile);
+#   P3 (global DCWFILTER PATTERN: ON) -> staircase fake refused too.
+FK_HPORT = 17020
+FK_CACHE = 17021
+FK_NPORT = 17022
+FK_PEER  = 17023
+FK_CFG   = .fk-srv.cfg
+FK_FAKE  = 9F3AC7A004B2D58B60C5385DFB4D2A72
+FK_MONO  = 80A0C0E00020406061FA0964376BD274
+FK_HONEST = 9F3AC7A004B2D58B61FA0964376BD274
+FK_KEY   = 0102030405060708091011121314
+
+.PHONY: fk
+fk: .ncclient.bin .cachepeer.bin
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
+	@rm -f $(FK_CFG) .fk-*.log; ok=1; \
+	run_fk() { \
+	  stdbuf -o0 -e0 $(BIN) -C $(FK_CFG) -v > .fk$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	  stdbuf -o0 -e0 ./$(CACHEPEER) $(FK_CACHE) $(FK_PEER) "$$2" 64 18840000 > .fk$$1-peer.log 2>&1 & ph=$$!; \
+	  for i in $$(seq 1 30); do grep -q "come Online" .fk$$1-srv.log && break; sleep 0.5; done; sleep 1; \
+	  NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(FK_NPORT) u1 p1 $(FK_KEY) 0 1884 64 > .fk$$1-cli.log 2>&1; \
+	  grep -q "DELIVERED A CONTROL WORD" .fk$$1-cli.log || { sleep 2; NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(FK_NPORT) u1 p1 $(FK_KEY) 0 1884 64 >> .fk$$1-cli.log 2>&1; }; \
+	  kill -9 $$ph 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	}; \
+	echo "  [ -- ] P1: stock -- the checksum-valid mirror fake must show the hole"; \
+	{ printf 'HTTP PORT: $(FK_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(FK_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(FK_PEER)\n\n[ fk ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(FK_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n\n'; } > $(FK_CFG); \
+	run_fk 1 "$(FK_FAKE)"; \
+	if grep -q "DELIVERED A CONTROL WORD" .fk1-cli.log; then \
+	  echo "  [ ok ] P1: stock delivers the fake (hole documented -- arm PATTERN to close it)"; \
+	else echo "[FAIL] P1: even stock refused it -- fixture or path broken, see .fk1-*.log"; ok=0; fi; \
+	echo "  [ -- ] P2: PATTERN ON in profile -- fake refused, honest key delivered"; \
+	{ printf 'HTTP PORT: $(FK_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(FK_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(FK_PEER)\n\n[ fk ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(FK_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nDCWFILTER PATTERN: ON\nUSER: u1 p1\n\n'; } > $(FK_CFG); \
+	run_fk 2 "$(FK_FAKE)"; \
+	if grep -q "DELIVERED A CONTROL WORD" .fk2-cli.log; then echo "[FAIL] P2: the mirror fake was DELIVERED under PATTERN ON"; ok=0; \
+	else echo "  [ ok ] P2a: the fake is refused under PATTERN ON"; fi; \
+	run_fk 3 "$(FK_HONEST)"; \
+	mv .fk3-cli.log .fk2h-cli.log; mv .fk3-srv.log .fk2h-srv.log; mv .fk3-peer.log .fk2h-peer.log; \
+	if grep -q "DELIVERED A CONTROL WORD" .fk2h-cli.log; then \
+	  echo "  [ ok ] P2b: the honest key is DELIVERED under PATTERN ON (no black screen)"; \
+	else echo "[FAIL] P2b: honest key refused under PATTERN ON -- see .fk2h-*.log"; ok=0; fi; \
+	echo "  [ -- ] P3: PATTERN ON globally -- the staircase fake is refused too"; \
+	{ printf 'HTTP PORT: $(FK_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nCACHE PORT: $(FK_CACHE)\nCACHE FILTER: OFF\nDCWFILTER PATTERN: ON\nCACHE PEER: 127.0.0.1:$(FK_PEER)\n\n[ fk ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(FK_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n\n'; } > $(FK_CFG); \
+	run_fk 4 "$(FK_MONO)"; \
+	mv .fk4-cli.log .fk3-cli.log; mv .fk4-srv.log .fk3-srv.log; mv .fk4-peer.log .fk3-peer.log; \
+	if grep -q "DELIVERED A CONTROL WORD" .fk3-cli.log; then echo "[FAIL] P3: the staircase fake was DELIVERED under global PATTERN ON"; ok=0; \
+	else echo "  [ ok ] P3: global PATTERN ON refuses the staircase fake"; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(FK_CFG) .fk-*.log; echo "fk: 3/3 ok"; \
+	else echo "fk: FAILED (logs kept under tests/.fk-*)"; exit 1; fi
+

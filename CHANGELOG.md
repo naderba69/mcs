@@ -6,6 +6,22 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R28 — Fake-CW Kill Gate + Black-Screen Prevention (2026-10-16)
+
+**Decision:** D79 · **Report:** `docs/REPORT-R28-ar.md`
+
+### Added
+- **`DCWFILTER PATTERN: ON|OFF`** (global or per profile, tristate like CYCLE) — refuses generator-shaped fake CWs inside the single accept decision: complement-mirror (5+/6 free pairs, incl. the checksum-repaired variant stock delivered), identical halves, repeated-byte/constant-step/two-value halves. `dcw_pattern_fake()` verdict pinned against dcwstruct/cwcm semantics by `test_cwfake` (35 checks: armed refuses all fakes, delivers honest, 2000-key fuzz clean; disarmed provably still delivers — stock hole pinned). New DCWSTATS reason `pattern-fake` (count 10→11).
+- **`tests/fk` live target** (in `make all`, 3/3): stock delivers the checksum-valid mirror fake (hole documented live); profile-armed refuses it and delivers the honest key behind it; global-armed refuses the staircase fake.
+
+### Default posture (unchanged promise)
+- Gate defaults OFF: every decision is bit-for-bit stock r82a until an operator arms it. Honest-key false-positive risk ~1e-12/key.
+
+### Verification
+- `make test` exit 0 (1510 checks incl. test_cwfake 35/35); release + release-stats clean (dcwstats 0/2); `tests/md` 3/3 and `tests/fk` 3/3 live.
+
+---
+
 ## R27 — Live Modern-CA Proof + Gradual Crypto (2026-10-16)
 
 **Decision:** D78 · **Report:** `docs/REPORT-R27-ar.md`

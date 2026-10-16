@@ -3285,3 +3285,42 @@ and severs compatibility. SHA-256 is the foundation for any future
 negotiated upgrade. Also: `main.o` gained its missing `setdcw.c` /
 `loadbalance.c` dependencies in src/Makefile (stale-object trap
 found while instrumenting).
+
+## D79 (R28) — The fake-shape refusal: DCWFILTER PATTERN
+
+**Decision.** Add an opt-in blocking gate for generator-shaped fake
+CWs. `dcw_pattern_fake()` (dcw.c) convicts: a complement mirror on
+the six free byte pairs (cwcm's 5+/6 rule — the checksum-repaired
+mirror passes checksumDCW and stock delivery), byte-identical
+halves, a repeated-byte half, a constant-step half, or a two-value
+half (dcwstruct semantics; the verdict's agreement with both
+evidence scanners is pinned by test_cwfake). `acceptDCW_pattern()`
+applies it inside the single accept decision, after the r82a tests
+and the BAD-DCW walk; `DCW_REJ_PATTERN` ("pattern-fake") keeps
+reason attribution stable in the stats. Armed globally or per
+profile via the existing DCWFILTER tristate (`DCWFILTER PATTERN:`),
+resolved by acceptDCW_profile_ca so all twelve delivery/ingest
+sites inherit it. **Default OFF** (dcw_filter_pattern = 0, the cycle
+gate's precedent, D56): until an operator arms it, every decision
+is bit-for-bit stock.
+
+**Why refusal is safe here.** Genuine CWs are indistinguishable
+from random; the documented false-positive rate of these shapes is
+~1e-12 per key or below (dcwstruct.h/cwcm.h), and 2000 fuzzed
+checksum-valid keys produced zero refusals. The fakes this kills
+are the manufactured families (mirror/pattern generators). A
+perfectly random fake from a lone trusted-looking source carries no
+shape; its cure stays consensus + trust (vl/cn), unchanged.
+
+**Proof.** test_cwfake 35/35 (fixtures all checksum-valid; disarmed
+gate provably still delivers the fakes — the hole is pinned, not
+hidden; armed refuses them and delivers honest; profile OFF beats
+global ON; null never rescued). Live `tests/fk` 3/3: stock delivers
+the mirror fake (P1), profile-armed refuses it and delivers the
+honest key behind it (P2), global-armed refuses the staircase fake
+(P3). Full unit suite green; release/release-stats clean.
+Collateral: test_dcwstats/test_dcwfilter adapted to own the new
+gate under MCS_DCWFILTER_NOGLOBALS, with per-copy renames for the
+double inclusion and DCW_REJ_COUNT 10→11. The pre-change full live
+suite ended exit=2 but its log body could not be re-read; targeted
+live proofs above are what this decision stands on.

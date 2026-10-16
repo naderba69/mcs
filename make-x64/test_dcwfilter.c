@@ -35,6 +35,11 @@ void debugf(unsigned int flag, char *format, ...) { (void)flag; (void)format; }
 /* The gates, defined here for this test binary only. */
 int dcw_filter_checksum = 1;
 int dcw_filter_repeat   = 1;
+/* TASK R28 (D79): this translation unit owns every gate (NOGLOBALS),
+ * so the pattern gate storage lives here too -- disarmed, keeping
+ * this suite's stock-decision proof untouched. */
+int dcw_filter_cycle    = 0;
+int dcw_filter_pattern  = 0;
 /* TASK 3.14: this binary excludes the list snapshot, so the walk is off. */
 int dcw_on_badlist(uint8_t *data) { (void)data; return 0; }
 
