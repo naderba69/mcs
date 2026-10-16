@@ -62,6 +62,10 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 	ecm->checktime = 0; // invalid
 	ecm->waitserver = 0;
 
+	// Record channel access for prefetching and cache priority
+	prefetch_record(ecm->caid, ecm->provid, ecm->sid);
+	cache_priority_update(ecm->caid, ecm->provid, ecm->sid);
+
 	// BISS KEY CHECK - Try to use stored BISS key first
 	{
 		uint8_t biss_key[8];
@@ -72,6 +76,9 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 			memcpy(dcw+8, biss_key, 8);    // Repeat for second 8 bytes
 			
 			debugf("BISS: Using stored key for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+			
+			// Record for CW prediction
+			cw_prediction_record(ecm->caid, ecm->provid, ecm->sid, dcw);
 			
 			// Set DCW directly
 			ecm_setdcw(ecm, dcw, 99, 0);  // Source 99 = BISS

@@ -284,6 +284,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 					dcw_on_success(ecm->caid, ecm->sid);
 					/* Server health monitoring: record success */
 					server_health_record_success(srv->id, GetTickCount()-srv->lastecmtime);
+					/* CW prediction: record for future use */
+					cw_prediction_record(ecm->caid, ecm->provid, ecm->sid, dcw);
 					ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
 				}
 
@@ -348,6 +350,12 @@ void cc_srv_recvmsg(struct server_data *srv)
 				dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
 				/* Server health monitoring: record failure */
 				server_health_record_failure(srv->id);
+				/* Detailed error reporting */
+				{
+					struct error_report report;
+					error_report_create(&report, ERROR_ECM_REJECTED, srv->id, ecm->caid, ecm->provid, ecm->sid);
+					error_report_log(&report);
+				}
 				cs = ecm->cs;
 
 					if ( cs && (ecm->dcwstatus!=STAT_DCW_SUCCESS) && (srv->retry<cs->option.retry.cccam) ) {
