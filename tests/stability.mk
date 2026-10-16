@@ -4054,6 +4054,11 @@ rs:
 #
 #   baseline : no gate armed -- a good push for a PENDING newcamd ECM is
 #              delivered, all three gate counters stay zero;
+#   (TASK R38: the unsolicited push uses its OWN key (CE_UNSOL).
+#   It once reused CE_GOOD, and the TASK 1.3 reuse proof -- same
+#   key, two SIDs -- correctly convicted the confirmed key before
+#   it could serve; whether the conviction landed first was a
+#   scheduling race that made this target flap on every build.)
 #   gated    : DEFAULT CACHEEX LOCAL_ONLY/BLOCK_FAKE_CW/CWCHECK armed,
 #              DCWFILTER forced OFF so the fake gate's OWN checksum run is
 #              what catches the corrupted key -- unsolicited push dropped
@@ -4075,6 +4080,7 @@ CE_NPORT  = 15702
 CE_CPORT  = 15703
 CE_CFG    = .ce-srv.cfg
 CE_GOOD   = 01020306112233660A0B0C21515253F6
+CE_UNSOL  = 2122236631323396414243C6515253F6
 CE_KEY    = 0102030405060708091011121314
 
 .PHONY: ce
@@ -4115,7 +4121,7 @@ ce: $(CXPEER)
 	  printf 'CCCAM PORT: $(CE_CPORT)\nF: cxu cxp { cacheex_mode=3; }\n\n'; \
 	  printf '[ cxg ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CE_NPORT)\nENABLE CACHEEX: YES\nDCW TIMEOUT: 9000\nUSER: u1 p1\n'; } > $(CE_CFG); \
 	start_srv; \
-	./$(CXPEER) 127.0.0.1 $(CE_CPORT) cxu cxp "push 1884 0 C8 $(CE_GOOD)" > .ce-peer.out 2>&1; \
+	./$(CXPEER) 127.0.0.1 $(CE_CPORT) cxu cxp "push 1884 0 C8 $(CE_UNSOL)" > .ce-peer.out 2>&1; \
 	grep -q "\[ ok \] push" .ce-peer.out && echo "  [ ok ] the unsolicited push was sent by the peer" || { echo "  [FAIL] the peer could not push"; ok=0; }; \
 	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(CE_NPORT) u1 p1 $(CE_KEY) 0 1884 64 > .ce-nc.out 2>&1 & nc=$$!; \
 	sleep 2; \
@@ -5130,6 +5136,12 @@ at: .ncclient.bin .cachepeer.bin
 #      the [MINTIME] line fires.  P5 same card without MINTIME: the
 #      CW is delivered.  P6 HEADERWLST with a foreign prefix: the
 #      ECM is refused before any server sees it, nothing delivered.
+#   P7 ENABLE SOFTCAM: NO with a stored BISS key: the softcam answer
+#      is closed, nothing delivered.  P8 control without the line:
+#      the same stored key delivers (TASK R38 gap closure).  Both
+#      carry CA MODERN: ON like the shipped profiles -- a BISS1 key
+#      has no checksum bytes, and frozen stock refuses it at the
+#      checksum gate without MODERN (verified against D53).
 # ===========================================================================
 SC_HPORT = 17200
 SC_CACHE = 17201
@@ -5141,6 +5153,7 @@ SC_CFG   = .sc-srv.cfg
 SC_GOOD  = 11223366445566FF77889998ABBCCD34
 SC_BAD   = 11223399445566FF77889998ABBCCD34
 SC_KEY   = 0102030405060708091011121314
+SC_BISS1 = 1122334455667788
 SC_SKEY  = 01 02 03 04 05 06 07 08 09 10 11 12 13 14
 
 .PHONY: sc
@@ -5198,7 +5211,26 @@ sc: .ncclient.bin .cachepeer.bin $(NCSERVER)
 	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc6-c.log); \
 	if [ "$$d" = "0" ]; then echo "  [ ok ] P6: the non-whitelisted ECM header never reached the card (nothing delivered)"; \
 	else echo "[FAIL] P6 (dcw to client=$$d) -- see .sc6-*.log"; ok=0; fi; \
-	if [ "$$ok" = "1" ]; then rm -f $(SC_CFG) .sc-*.log; echo "sc: 6/6 ok"; \
+	echo "  [ -- ] P7: ENABLE SOFTCAM: NO -- stored BISS key must NOT answer"; \
+	{ printf 'HTTP PORT: $(SC_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n\n[ sc3 ]\nCAID: 2600\nPROVIDERS: 0\nPORT: $(SC_NPORT2)\nDCW TIMEOUT: 4000\nCA MODERN: ON\nENABLE SOFTCAM: NO\nUSER: u1 p1\n\n'; } > $(SC_CFG); pkill -9 '^multics' 2>/dev/null; sleep 2; boot 7; \
+	for i in $$(seq 1 20); do grep -q "started on port $(SC_NPORT2)" .sc7-srv.log && break; sleep 0.5; done; \
+	if grep -q "bind port failed" .sc7-srv.log; then echo "[FAIL] P7 bind race -- see .sc7-srv.log"; ok=0; fi; \
+	curl -s -m 3 -u a:a -o /dev/null "http://127.0.0.1:$(SC_HPORT)/biss?action=add&caid=2600&sid=0001&provid=000000&key=$(SC_BISS1)"; \
+	NC_ECMS=1 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 2600 1 > .sc7-c.log 2>&1; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc7-c.log); \
+	if [ "$$d" = "0" ]; then echo "  [ ok ] P7: with SOFTCAM off the stored BISS key stays silent"; \
+	else echo "[FAIL] P7 (delivered=$$d) -- see .sc7-*.log"; ok=0; fi; \
+	echo "  [ -- ] P8: control -- same BISS key, no SOFTCAM line, delivered"; \
+	{ printf 'HTTP PORT: $(SC_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n\n[ sc3 ]\nCAID: 2600\nPROVIDERS: 0\nPORT: $(SC_NPORT2)\nDCW TIMEOUT: 4000\nCA MODERN: ON\nUSER: u1 p1\n\n'; } > $(SC_CFG); pkill -9 '^multics' 2>/dev/null; sleep 2; boot 8; \
+	for i in $$(seq 1 20); do grep -q "started on port $(SC_NPORT2)" .sc8-srv.log && break; sleep 0.5; done; \
+	if grep -q "bind port failed" .sc8-srv.log; then echo "[FAIL] P8 bind race -- see .sc8-srv.log"; ok=0; fi; \
+	curl -s -m 3 -u a:a -o /dev/null "http://127.0.0.1:$(SC_HPORT)/biss?action=add&caid=2600&sid=0001&provid=000000&key=$(SC_BISS1)"; \
+	NC_ECMS=1 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 2600 1 > .sc8-c.log 2>&1; \
+	grep -q "DELIVERED A CONTROL WORD" .sc8-c.log || { sleep 2; NC_ECMS=1 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 2600 1 >> .sc8-c.log 2>&1; }; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc8-c.log); \
+	if [ "$$d" -ge 1 ]; then echo "  [ ok ] P8: without the line the stored BISS key answers as stock"; \
+	else echo "[FAIL] P8 (delivered=$$d) -- see .sc8-*.log"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(SC_CFG) .sc-*.log; echo "sc: 8/8 ok"; \
 	else echo "sc: FAILED (logs kept under tests/.sc-*)"; exit 1; fi
 
 # TASK R32 (D83) -- the shipped profiles file, proven bootable.

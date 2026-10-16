@@ -1,7 +1,7 @@
-# MANIFEST-md5 — regenerated at R37 (2026-10-16, D93): developed
-# protections merged into the shipped profiles. Verify: md5sum -c MANIFEST-md5
+# MANIFEST-md5 — regenerated at R38 (2026-10-16, D94-D97): gaps
+# covered (NOPROVCHK wired, SOFTCAM proven, MINTIME completed); binaries rebuilt. Verify: md5sum -c MANIFEST-md5
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-3ea8746089d9dc0f9a0a61421888b172  CHANGELOG.md
+86b8d82e57143256fc1b9709da8534d6  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
@@ -14,12 +14,12 @@ f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 800177a56d2f4e6f3a0a0ce5dac71c95  bin/multics-r82a-arm
 dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-b73ee54316a8bc83fbdcf555cedfd83a  bin/multics-r82a-stats-x64
-91b77ce8682bcff722560cb7e5566d5c  bin/multics-r82a-stock-x64
+d1d463ba229157ba7036279942954b62  bin/multics-r82a-stats-x64
+67c280081934b65a00a5e7efffa5d753  bin/multics-r82a-stock-x64
 8ae2afeb6a89480c1e9a0d052bc4dbfe  bin/multics-r82a-x64
-b73ee54316a8bc83fbdcf555cedfd83a  bin/multics.x64
-b73ee54316a8bc83fbdcf555cedfd83a  dist/multics-r82a-stats-x64
-91b77ce8682bcff722560cb7e5566d5c  dist/multics-r82a-stock-x64
+d1d463ba229157ba7036279942954b62  bin/multics.x64
+d1d463ba229157ba7036279942954b62  dist/multics-r82a-stats-x64
+67c280081934b65a00a5e7efffa5d753  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 2c0c47e7cdb35fbcfcdeeeaa92d09f5c  docs/BLACKSCREEN.md
@@ -28,10 +28,10 @@ a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 1a94d24e74f0002ee55ef7e9c3519711  docs/COMPAT-ar.md
 c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 14f1aa728369d3b5aa87e65f2e4f97bd  docs/CONFIG-REFERENCE-ar.md
-360ccb2ccdbcf0ae1643945f70bee87f  docs/DECISIONS.md
+4ce572d3f484df6b27894bd8178d10bc  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
-228c3ffd147289b5d027439411efaf13  docs/FIELD-GUIDE-ar.md
+950cf3989478ec2665122e6b14d339e2  docs/FIELD-GUIDE-ar.md
 6a549c88dcfd53e331e2ff2bcf0e0180  docs/FINAL-SUMMARY-REPORT-ar.md
 69efaa74a2560a82d0afb76f00d68b39  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
@@ -101,6 +101,7 @@ b066ea4f34df0e045c4ef5711415c56a  docs/REPORT-R32-ar.md
 e7611f3e669f4d92e00e47e0dd591c6c  docs/REPORT-R35-ar.md
 ea96c3318093b3ffa0f8a16eb18fe928  docs/REPORT-R36-ar.md
 c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
+458c5445465e8fb3fece72cf5af9c225  docs/REPORT-R38-ar.md
 a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
@@ -318,7 +319,7 @@ ee478157f48579b1cfde0fdfbcee5f75  make-x64/test_rotation.c
 266a1130913160ff4a5d4b324075ac20  make-x64/test_trust.c
 0e58c1b87132ab91e211b0acae5b2faf  make-x64/test_trustagg.c
 6a9b188611bd6f5e373df0313928fcb8  make-x64/test_trustlife.c
-b4200aad7a7f5add3dc083a4dc4e9b7d  multics-r24-optimized.cfg
+bb388a5fba4372bbc4269ba95cc21310  multics-r24-optimized.cfg
 0b91199696099224a18e4a7d7a70b15d  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
 f23040a9339c8f5dfa3e6c946764050a  src/advanced-optimizations.c
@@ -348,7 +349,7 @@ a812e9fb5be67650f7a75c591c7acc4f  src/cacheex.c
 312acf517d478947f46caa67aae15aed  src/cachequeue.c
 0d4a93f38639394e36ec5faf6b509038  src/cachequeue.h
 bb0f1a46352ea4db6e7e62e295c2f3e2  src/cachewarm.h
-eaf7303af2026c35ceff6b6bc0c9d44b  src/cafamily.h
+1cec0bd88ae32e74e75c886a9d5f1938  src/cafamily.h
 f62470a67ac838c59d8b5e979b4470d5  src/casystem.h
 e3477204adc61aa3ac4b3fa8e863173b  src/cexvis.h
 bbb8636e6b121a90c2a8c70ba6e5e0f8  src/cexwire.h
@@ -364,7 +365,7 @@ dab16ded17636914eb5d75a9d7ce0b30  src/chanhealth.h
 1977c8ddc067ba110703b4564959322b  src/clientbuf.h
 6e50862442a47f4ade4bfe034c1151a2  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-35e12480cdc8386408fc460a0a14eb73  src/config.c
+36c1ebd25e5c8676d003eb25b9411e24  src/config.c
 adec1c624dd6289c3956bfff2a5e72dc  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
@@ -457,7 +458,7 @@ ac7cbc70f6a75229e763945fd612b5d8  src/ledger.h
 0383bf89ff9e3851278efa6d34e85f65  src/loginthrottle.c
 0d864aaa9d3bf263f7427bd171614ed8  src/loginthrottle.h
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
-ccde012543b8e0f8620b6ad43873b4a8  src/main.c
+c87ed5971827682a1c892a0d1edfba91  src/main.c
 7c9b369b98079fa723d5f8cb9eea74f9  src/main.h
 c0b01b7562cd6e450abced778967200f  src/md5.c
 99fc08532a6cf0afc9360597c2a848be  src/md5.h
@@ -551,5 +552,5 @@ b2caeeac7e48b211710f9236a020fdb7  tests/multics-live.cfg
 b15af4b90f3df83d9880d9601260f980  tests/r107peer.c
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
-2f3456b8e561832ea58085649b23b017  tests/stability.mk
+a307384a73a2214b9f615a280c4b3e79  tests/stability.mk
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c

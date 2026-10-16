@@ -3966,9 +3966,10 @@ link_mgcamd_user:
 			/* TASK R36 (D92): `CAID FAMILY HALFNULLED: 09, 0E` -- a global
 			 * (profile-less) line filling cafamily_tab. HALFNULLED is
 			 * enforced (ca_halfnull_ok in setdcw.c/clustredcache.c);
-			 * NOPROVCHK is parsed-and-logged only, like CACHEEX
-			 * MAXHOP_LG: its two stock sites still disagree, so the
-			 * table value is NOT enforced yet. */
+			 * NOPROVCHK is enforced at getcsbycaidprov() (main.c),
+			 * whose stock list IS the table default {18,09,0B} (D94);
+			 * loadbalance.c's card matching keeps stock's inverse
+			 * rule and is not driven by this table. */
 			{
 				char *savep = iparser; char fam[64];
 				parse_name(fam); uppercase(fam);
@@ -3980,13 +3981,13 @@ link_mgcamd_user:
 						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
 						continue;
 					} else iparser++;
-					if (!strcmp(flag,"NOPROVCHK"))
-						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CAID FAMILY NOPROVCHK: not implemented; provider-check sites unchanged\n",file->nbline,iparser-currentline);
 					for (;;) {
 						char hb[64];
 						if (parse_hex(hb)<=0) break;
 						if (!strcmp(flag,"HALFNULLED"))
 							cafamily_add(&cafamily_tab, CAFAM_HALFNULLED, (unsigned)hex2int(hb));
+						else if (!strcmp(flag,"NOPROVCHK"))
+							cafamily_add(&cafamily_tab, CAFAM_NOPROVCHK, (unsigned)hex2int(hb));
 						parse_spaces();
 						if (*iparser==',') { iparser++; continue; }
 						break;

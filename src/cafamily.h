@@ -21,9 +21,15 @@
  *   8-byte half real, the other zero). Default {09} = NDS, stock's
  *   behaviour. (Half-nulled SEEDS for such a family get the CW0/CW1
  *   cycle marks; keys for other families are refused at the gate.)
- *   NOPROVCHK  -- a card of this family matches a request WITHOUT the
- *   provider check. Default {18,09,0B} = Nagravision/NDS/Viaccess,
- *   stock's list.
+ *   NOPROVCHK  -- a profile matches a request WITHOUT the provider
+ *   check. Default {18,09,0B} = Nagravision/NDS/Conax, stock's list
+ *   at getcsbycaidprov() (main.c) -- the one site that ever used it.
+ *   TASK R36 (D92) wired HALFNULLED; TASK R38 (D94) wired this flag
+ *   at that same site, byte-identical by default. The card-selection
+ *   sites in loadbalance.c keep stock's inverse rule (provider-strict
+ *   only for Seca 01 / Viaccess 05): loosening card matching to this
+ *   list would refuse real cards whose announced providers differ,
+ *   so that side is deliberately NOT driven by this table.
  *
  * OWNERSHIP SEMANTICS (D71). cafamily_add() on a flag's FIRST family
  * clears that flag's defaults: the first `CAID FAMILY <FLAG>:` line owns

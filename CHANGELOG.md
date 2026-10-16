@@ -18,6 +18,21 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 ### Verification
 - prof 5/5, sc 6/6, fz 2/2, at 3/3, unit suite all-pass; boot log parses every merged line with zero profile-variable warnings. Remaining gaps enumerated honestly in `docs/REPORT-R37-ar.md` (unmerged PR #2, NOPROVCHK unenforced, 28 profiles without MINTIME, deployment secrets by design, full live suite still not run end-to-end).
 
+## R38 — Covering the Gaps (2026-10-16)
+
+**Decisions:** D94–D97
+
+### Added
+- **`CAID FAMILY NOPROVCHK` enforced (D94)** at getcsbycaidprov — the one live site whose stock list is the table default {18,09,0B}; card matching in loadbalance.c deliberately stays on stock's inverse rule (documented in cafamily.h).
+- **SOFTCAM gate proven live (D95)** — `tests sc` is now 8 phases: stored BISS1 key delivers only while the softcam answer is open. Building the control exposed a stock trap (frozen D53 refuses a plain BISS profile's key at the checksum gate identically); `CA MODERN: ON` in the shipped profiles is the remedy, and P8 is its live proof.
+
+### Changed
+- **`DCW MINTIME: 100` completed into 26 profiles (D96)** — the user's 44 existing values are uniformly 100; his pattern completed, BISS/Tandberg exempt. Commented deployment block added before the profiles.
+- **Test fix (D97):** ce's unsolicited push carries its own key — it previously reused the confirmed key, tripping the TASK 1.3 reuse proof in a scheduling race (reproduced on the R35 binary too; no product code at fault).
+
+### Verification
+- **Full live suite run end-to-end**: 384 checks ok; the single failing target (ce) was root-caused to the pre-existing test-design race above, fixed, and passed 3/3 consecutive runs. Unit suite all-pass; prof 5/5, sc 8/8, md 3/3, fz 2/2, at 3/3 on the rebuilt releases; delivered `bin/multics.x64` boots the adopted profiles (HTTP 200, 72 listeners).
+
 ## R36 — The User's Written Keys, Implemented; His Config Adopted (2026-10-16)
 
 **Decisions:** D87–D92

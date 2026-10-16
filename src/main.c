@@ -1,4 +1,5 @@
 #include "common.h"
+#include "cafamily.h"	/* TASK R38 (D94) */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1960,9 +1961,7 @@ struct cardserver_data *getcsbycaidprov( uint16_t caid, uint32_t prov)
 	while (cs) {
 		if (cs->card.caid==caid) {
 			for(i=0; i<cs->card.nbprov;i++) if (cs->card.prov[i].id==prov) return cs;
-			if ( ((cs->card.caid & 0xff00)==0x1800)
-				|| ((cs->card.caid & 0xff00)==0x0900)
-				|| ((cs->card.caid & 0xff00)==0x0b00) ) return cs;
+			if ( ca_provchk_skip(cs->card.caid) ) return cs; /* TASK R38 (D94): CAID FAMILY NOPROVCHK (stock default 18,09,0B) */
 		}
 		cs = cs->next;
 	}

@@ -3770,3 +3770,60 @@ profile-variable warnings. The remaining gaps are enumerated in
 docs/REPORT-R37-ar.md — the headline ones: PR #2 still unmerged,
 NOPROVCHK unenforced (D92), 28 profiles without MINTIME, and the
 file is a deployment template (no operator secrets by design).
+
+## D94 (R38) — CAID FAMILY NOPROVCHK enforced at its one stock site
+
+D92 left NOPROVCHK parsed-but-unenforced because "the two stock
+sites disagree". Re-measured: only ONE live site ever used the
+{18,09,0B} list — `getcsbycaidprov()` (main.c, profile routing);
+loadbalance.c's two card-matching sites use the inverse rule
+(provider-strict only for Seca 01 / Viaccess 05), and their
+{18,09,0B} block is commented-out dead code. **Decision:** wire
+`ca_provchk_skip()` at getcsbycaidprov (table default = the exact
+stock list, byte-identical behaviour), fill the table from
+`CAID FAMILY NOPROVCHK:` lines, and document in cafamily.h why
+card matching is NOT driven by the table (tightening it would
+refuse real cards whose announced providers differ — a black-screen
+risk against the mission). `test_cafamily` 37/37 covers the
+predicate; the parser arm is exercised at every adopted-cfg boot.
+
+## D95 (R38) — SOFTCAM gate proven live; BISS1's stock trap named
+
+`tests sc` gains P7/P8: a stored BISS1 key delivers only while the
+softcam answer is open; `ENABLE SOFTCAM: NO` silences it (8/8).
+Building the control exposed a stock trap, verified against the
+frozen D53 binary: a plain BISS profile's key is refused at the
+checksum gate (a constant key has no checksum bytes) — frozen stock
+decode-fails identically. `CA MODERN: ON`, now in every shipped
+profile (R37), is the in-tree remedy: casystem marks 2600
+CA_CW_CONST, so the checksum test is waived and the stored key
+delivers. P8 is that proof.
+
+## D96 (R38) — Profile gaps closed from the operator's own data
+
+`DCW MINTIME: 100` completed into the 26 CA profiles that lacked
+it — the user's 44 present values are uniformly 100 across every
+family, so this is his pattern completed, not an invented number
+(BISS/Tandberg softcam profiles exempt: no card replies to time).
+A commented deployment block (HTTP/USER/CACHE PEER/USER examples)
+now sits before the profiles: the file stays secret-free, and the
+operator sees exactly what to add. prof 5/5 after each step.
+
+## D97 (R38) — The ce flap was a test-design collision, not a regression
+
+The first full `tests all` run in several rounds failed exactly one
+target: ce scenario 2 ("the confirmed push never served"). Root
+cause, proven from the server log: the scenario pushed the SAME key
+for sid C8 (the unsolicited drop probe) and sid 64 (the confirmed
+delivery) — which is precisely the TASK 1.3 reuse-proof pattern
+(same CW, different ECM, different SID), so negative memory
+correctly convicted the key before the confirming push could
+serve. Whether the conviction landed first was a scheduling race:
+the R35 stats binary fails identically under the same conditions
+(and passed once), and the current binary passed manual replays.
+No product code was at fault — srv-cccam.c's offer path, cw_reuse.h
+and the cwn gate are untouched since before R36. **Fix, test-side
+only:** the unsolicited push now carries its own checksum-valid key
+(CE_UNSOL); the scenario's intent is unchanged. ce passes 3/3
+consecutive runs. Suite accounting for the full run: 384 checks ok,
+one target (ce) failed and is now fixed and re-verified.
