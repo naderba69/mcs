@@ -3462,3 +3462,82 @@ nothing. Full suite: pre-`ce` segment 379 ok, `ce` re-verified
 HEAD binary under load — environment flake, unrelated), remainder
 80 ok incl. fz 2/2 and at 2/2; unit suite all-pass; release /
 release-stats clean.
+
+## D82 (R31) — Closing the attestation gaps: every protocol attests, the shared ECM retires, one-line protection
+
+The user asked to close every deficiency listed after R30. Five were
+closable in code; two are safety boundaries and are recorded as such
+below, not papered over.
+
+**Closed in code.**
+
+1. *Attestation counted Newcamd clients only.* `retry_classify` was
+   tapped only in srv-newcamd, and the sibling servers did not even
+   record the delivered bytes (`lastecm.dcw` was written nowhere
+   else). All five siblings with a delivery record (cccam, camd35,
+   cs378x, mgcamd, freecccam) now (a) copy the delivered bytes onto
+   `lastecm.dcw` at the reply, beside the existing source copy, and
+   (b) run the identical classification at ECM receipt and call
+   `attest_note` on RETRY_HARD. Attester ids are namespaced per
+   protocol (`ATTEST_TAG_*`) so connection ids cannot merge across
+   protocols. Trust/rotation taps are deliberately NOT mirrored:
+   attestation only counts bytes; changing what scores a source on
+   four more protocols is a separate, larger decision. Radegast
+   keeps no per-client delivery record at all, so there is nothing
+   honest to classify from; it is excluded and says so.
+
+2. *A committed shared ECM kept serving filed bytes until its
+   timeout.* A filing now also retires matching ECM_DATA: same
+   channel, `dcwstatus==SUCCESS`, byte-identical `cw` -> reset to
+   WAIT (status first, then zero, then `checktime=1`), so the next
+   identical ECM re-runs the gated find instead of answering from
+   `ecm->cw`. The reset mirrors the checkfreeze precedent's plain
+   stores from client threads and takes NO lock -- every caller
+   already holds `prg.lockecm` at the classification point, and the
+   first live run deadlocked exactly there before this was removed
+   (recorded because it is the kind of bug only a live run finds).
+   Proven in tests/at P2: a fourth client re-asking the SAME ECM on
+   the SAME service receives nothing, with the `CW ATTEST ECM` line.
+
+3. *The filing lifetime was fixed at 300 s.* `CACHE ATTEST TTL:
+   <60..3600>` (seconds) now sizes it; absent = 300 s, read per call
+   (`attest_ttl_ms()`), so a config reread applies. Seasonal fakes
+   can be held longer by the operator's choice; the default stays
+   conservative because attestation is evidence, not proof.
+
+4. *Every protection had to be armed line by line.* `CACHE
+   PROTECTION: STANDARD` is the one-line recipe: consensus ON
+   (window 600 if unset, sources 3), `DCWFILTER PATTERN` ON, attest
+   2 -- applied at its point in the file, and any later line
+   overrides its piece, so customisations go after it. Proven live
+   in tests/at P3 (the recipe alone files the key; third client
+   spared). Still opt-in; absent = stock, as always.
+
+5. *Dead code.* `src/cwexpire.h` (cwlearn patterns, referenced
+   only by the equally unreferenced `r22layers.h`) is deleted,
+   with its include and init call stripped from `r22layers.h`.
+   Nothing in the tree names it any more.
+
+**Recorded as boundaries, not closed.** (a) The first receivers
+still meet the fake before the threshold can file it, and a
+single-client channel can never file by attestation alone: one
+receiver cannot be judge, because one broken box would then file
+good keys (GR3). The existing compensation runs from the FIRST
+retry -- rotation moves the client to another source and trust
+records the SOFT event -- so the harm is bounded to the threshold
+crossing, not repeated. (b) No field test exists yet: everything
+is proven against simulated lines and clients; only the user's
+real lines can close that one, and this decision does not pretend
+otherwise. The trust engine's graduation (score, 60 s
+request-skip probation with a single test request, then the
+peerrep DISTRUST/ISOLATE/BAN ladder) already provides the
+watched-middle state; it is documented in the field guide rather
+than rebuilt.
+
+**Verification.** Unit suite all-pass; `tests/at` 3/3 (P1 stock
+hole, P2 filing + sister-service refusal + shared-ECM retirement,
+P3 one-line recipe); live suite: 379 ok before `ce`, `ce` 10/10
+standalone (its in-run failure was reproduced with the stock HEAD
+binary failing even its baseline in the same environment --
+rig timing, not this round), remainder 81 ok incl. fz 2/2;
+release / release-stats clean (0 / 2).

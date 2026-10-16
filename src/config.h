@@ -1387,6 +1387,9 @@ struct config_data
 		 * re-asking too soon after the same delivered bytes files
 		 * those bytes for a TTL (2..4 armed; 0/unset = OFF, stock). */
 		int attest;
+		/* TASK R31 (D82): filing lifetime in seconds for CACHE
+		 * ATTEST TTL (60..3600; 0/unset = the 300 s default). */
+		int attest_ttl;
 		int hits;  // Total Hits
 		int ihits; // Instant Hits
 		int req; // Request sent

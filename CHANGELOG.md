@@ -6,6 +6,26 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R31 — Closing the Attestation Gaps (2026-10-16)
+
+**Decision:** D82 · **Report:** `docs/REPORT-R31-ar.md`
+
+### Added
+- **Attestation now counts every client protocol** — cccam, camd35, cs378x, mgcamd and freecccam record the delivered bytes (`lastecm.dcw`) and run the same RETRY_HARD classification into `attest_note`, with per-protocol attester namespaces. Radegast keeps no delivery record and is honestly excluded.
+- **A filing retires the shared ECM** — ECM_DATA that committed the filed bytes as SUCCESS is reset to WAIT, so an identical ECM re-runs the gated find instead of being answered from memory until its timeout (`CW ATTEST ECM` line; live-proven in tests/at P2). The reset takes no lock: callers already hold `prg.lockecm`, and the first live run deadlocked there before this was fixed.
+- **`CACHE ATTEST TTL: <60..3600>`** — operator-sized filing lifetime (default 300 s).
+- **`CACHE PROTECTION: STANDARD`** — the one-line recipe (consensus 600/3 + DCWFILTER PATTERN + ATTEST 2); later lines override pieces. Live-proven in tests/at P3.
+
+### Removed
+- **`src/cwexpire.h`** — dead cwlearn code, referenced only by the unreferenced `r22layers.h` (its include/init stripped there).
+
+### Recorded as boundaries (not code)
+- The first receivers still meet the fake before the threshold files it, and a one-client channel cannot file alone (GR3: one broken box must not judge a key); first-retry rotation/trust already bound the harm.
+- No field test yet — only the operator's real lines can close that.
+
+### Verification
+- Unit suite all-pass; `tests/at` **3/3**; live suite 379 ok + `ce` 10/10 standalone (in-run failure reproduced with stock HEAD failing even baseline — rig timing) + 81 ok remainder (fz 2/2); releases clean (0 / 2).
+
 ## R30 — Receiver Attestation: Independent Clients File the Fake's Bytes (2026-10-16)
 
 **Decision:** D81 · **Report:** `docs/REPORT-R30-ar.md`

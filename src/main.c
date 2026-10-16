@@ -1085,8 +1085,27 @@ unsigned long cwattest_hits  = 0; /* offers refused because of a filing   */
 unsigned long cwattest_lines = 0; /* filing/refusal lines written         */
 
 /* Defined after clustredcache.c (the sweep's DCW_ERROR lives there). */
-static void attest_purge(int srctype, int srcid, uint16_t caid,
-                         uint32_t provid, uint16_t sid, uint32_t ticks_now);
+static void attest_purge(int srctype, int srcid, const uint8_t *cw,
+                         uint16_t caid, uint32_t provid, uint16_t sid,
+                         uint32_t ticks_now);
+
+/* TASK R31 (D82): attester namespaces per client protocol, so a
+ * connection id from one protocol can never merge with another's
+ * in the distinct-client count. OR-ed with the per-protocol id. */
+#define ATTEST_TAG_NEWCAMD   0x1000000u
+#define ATTEST_TAG_CCCAM     0x2000000u
+#define ATTEST_TAG_CAMD35    0x3000000u
+#define ATTEST_TAG_CS378X    0x4000000u
+#define ATTEST_TAG_MGCAMD    0x5000000u
+#define ATTEST_TAG_FREECCCAM 0x6000000u
+
+/* The armed filing lifetime: CACHE ATTEST TTL seconds when set,
+ * else the module default. Read per call, so a reread applies. */
+static uint32_t attest_ttl_ms(void)
+{
+	return cfg.cache.attest_ttl ? (uint32_t)cfg.cache.attest_ttl * 1000u
+	                            : CWATTEST_TTL_MS;
+}
 
 /*
  * Record one receiver's attestation. Called from srv-newcamd on
@@ -1109,7 +1128,7 @@ static void attest_note(uint32_t clientid, const uint8_t *cw,
 	pthread_mutex_lock(&cwattest_lock);
 	cwattest_note(&cwattest_tab, cw, caid, provid, sid,
 	              (uint8_t)srctype, (uint32_t)srcid, clientid,
-	              required, ticks_now, CWATTEST_TTL_MS, &ev);
+	              required, ticks_now, attest_ttl_ms(), &ev);
 	pthread_mutex_unlock(&cwattest_lock);
 
 	if (!ev.crossed) return;
@@ -1118,8 +1137,8 @@ static void attest_note(uint32_t clientid, const uint8_t *cw,
 	/* The stored entry must stop being served too: purge its origin for
 	 * this channel (attest_purge, defined after clustredcache.c below
 	 * because the sweep's DCW_ERROR lives there). */
-	attest_purge(srctype, srcid, caid, provid, sid, ticks_now);
-	n = cwattest_format_filed(&ev, required, CWATTEST_TTL_MS,
+	attest_purge(srctype, srcid, cw, caid, provid, sid, ticks_now);
+	n = cwattest_format_filed(&ev, required, attest_ttl_ms(),
 	                          line, (int)sizeof(line));
 	if (n > 0) {
 		cwattest_lines++;
@@ -1144,7 +1163,7 @@ static int attest_gate(const uint8_t *cw, uint16_t caid, uint32_t provid,
 
 	pthread_mutex_lock(&cwattest_lock);
 	hit = cwattest_hit(&cwattest_tab, cw, caid, provid, sid,
-	                   ticks_now, CWATTEST_TTL_MS, &ev);
+	                   ticks_now, attest_ttl_ms(), &ev);
 	if (hit) cwattest_hits++;
 	pthread_mutex_unlock(&cwattest_lock);
 
@@ -1152,7 +1171,7 @@ static int attest_gate(const uint8_t *cw, uint16_t caid, uint32_t provid,
 
 	if (ev.fired) {
 		cwattest_lines++;
-		n = cwattest_format(&ev, CWATTEST_TTL_MS, line, (int)sizeof(line));
+		n = cwattest_format(&ev, attest_ttl_ms(), line, (int)sizeof(line));
 		if (n > 0)
 			debugf(DBG_ERROR," !!! %s\n", line);
 	}
@@ -2207,9 +2226,12 @@ int pipe_send_cacheex_push_cache(struct cache_data *pcache, uint8_t *cw, uint8_t
  * client thread does not hold, so it is taken here -- attest_note has
  * already released the attestation lock, so no locks ever nest.
  */
-static void attest_purge(int srctype, int srcid, uint16_t caid,
-                         uint32_t provid, uint16_t sid, uint32_t ticks_now)
+static void attest_purge(int srctype, int srcid, const uint8_t *cw,
+                         uint16_t caid, uint32_t provid, uint16_t sid,
+                         uint32_t ticks_now)
 {
+	int ninvalid = 0;
+
 	pthread_mutex_lock(&prg.lockcache);
 	if ( cache_purge_mark(&purge_tab, (uint8_t)srctype, (uint32_t)srcid,
 	                      caid, sid, provid, ticks_now) ) {
@@ -2220,6 +2242,44 @@ static void attest_purge(int srctype, int srcid, uint16_t caid,
 		       caid, provid, sid, npurged, srctype, (unsigned)srcid);
 	}
 	pthread_mutex_unlock(&prg.lockcache);
+
+	/* TASK R31 (D82) -- retire the SHARED ECM: an ECM_DATA that
+	 * already committed these bytes as SUCCESS would otherwise keep
+	 * answering identical ECMs from `ecm->cw` until its timeout,
+	 * bypassing both the gate and the sweep. Matching ECMs (same
+	 * channel, same bytes) are reset to WAIT exactly as the
+	 * checkfreeze path resets them, so the next identical ECM
+	 * re-runs the now-gated find. No lock is taken: every caller
+	 * thread already holds prg.lockecm at the classification point
+	 * (taking it again deadlocked the first live run), and the
+	 * reset is the precedent's plain stores, status first. */
+	if (cw) {
+		struct cardserver_data *cs = cfg.cardserver;
+		while (cs) {
+			ECM_DATA *head = cs->ecmdata;
+			if (head) {
+				ECM_DATA *e = head;
+				int guard = 0;
+				do {
+					if ( e->caid==caid && e->provid==provid && e->sid==sid &&
+					     e->dcwstatus==STAT_DCW_SUCCESS &&
+					     !memcmp(e->cw, cw, 16) ) {
+						e->dcwstatus = STAT_DCW_WAIT;
+						memset(e->cw, 0, 16);
+						e->checktime = 1; /* recheck now */
+						ninvalid++;
+					}
+					e = e->csnext;
+				} while (e && e!=head && ++guard<8192);
+			}
+			cs = cs->next;
+		}
+		if (ninvalid) {
+			pipe_wakeup( prg.pipe.ecm[1] );
+			debugf(DBG_ERROR," !!! CW ATTEST ECM: ch %04x:%06x:%04x retired %d shared ecm(s) holding the filed key -- identical ecms re-run the gated find\n",
+			       caid, provid, sid, ninvalid);
+		}
+	}
 }
 
 #include "cli-common.c"

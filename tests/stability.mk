@@ -5060,8 +5060,13 @@ fz: .ncclient.bin .cachepeer.bin
 #        (the hole this task closes);
 #   P2 (CACHE ATTEST: 2): client 1 and client 2 each re-ask too soon
 #        after the same delivered fake; the second distinct attestation
-#        files the bytes (CW ATTEST FILED in the server log) and the
-#        third client never receives them.
+#        files the bytes (CW ATTEST FILED in the server log), the
+#        sister-service client never receives them, and -- TASK R31 --
+#        a fourth client re-asking the SAME ECM on the SAME service
+#        is spared too (the filing retires the shared ECM);
+#   P3 (TASK R31): CACHE PROTECTION: STANDARD alone arms the stack;
+#        two attestations against a random-shaped key file it and the
+#        third client is spared.
 AT_HPORT = 17050
 AT_CACHE = 17051
 AT_NPORT = 17052
@@ -5075,11 +5080,12 @@ at: .ncclient.bin .cachepeer.bin
 	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(AT_CFG) .at-*.log; ok=1; \
 	run_at() { stdbuf -o0 -e0 $(BIN) -C $(AT_CFG) -v > .at$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
-	  stdbuf -o0 -e0 ./$(CACHEPEER) $(AT_CACHE) 17060 "$(AT_FAKE)" 64 18840000 > .at$$1-f.log 2>&1 & fp=$$!; \
+	  stdbuf -o0 -e0 ./$(CACHEPEER) $(AT_CACHE) 17060 "$${AT_PEER_CW:-$(AT_FAKE)}" 64 18840000 > .at$$1-f.log 2>&1 & fp=$$!; \
 	  sleep 2; \
 	  NC_ECMS=3 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u1 p1 $(AT_KEY) 0 1884 64 > .at$$1-c1.log 2>&1; \
 	  NC_ECMS=3 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u2 p2 $(AT_KEY) 0 1884 64 > .at$$1-c2.log 2>&1; \
 	  NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u3 p3 $(AT_KEY) 0 1884 C8 > .at$$1-c3.log 2>&1; \
+	  NC_ECMS=1 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u1 p1 $(AT_KEY) 0 1884 64 > .at$$1-c4.log 2>&1; \
 	  kill -9 $$fp 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; }; \
 	echo "  [ -- ] P1: stock -- the same fake serves every client, attestation absent"; \
 	{ printf 'HTTP PORT: $(AT_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(AT_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:17060\n\n[ at ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(AT_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\nUSER: u2 p2\nUSER: u3 p3\n\n'; } > $(AT_CFG); \
@@ -5091,10 +5097,17 @@ at: .ncclient.bin .cachepeer.bin
 	echo "  [ -- ] P2: CACHE ATTEST: 2 -- two receivers file the bytes, client 3 is spared"; \
 	{ printf 'HTTP PORT: $(AT_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(AT_CACHE)\nCACHE FILTER: OFF\nCACHE ATTEST: 2\nCACHE PEER: 127.0.0.1:17060\n\n[ at ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(AT_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\nUSER: u2 p2\nUSER: u3 p3\n\n'; } > $(AT_CFG); \
 	run_at 2; \
-	f1=$$(grep -ci "60C5385DFB4D2A72" .at2-c1.log); f3=$$(grep -ci "60C5385DFB4D2A72" .at2-c3.log); \
-	filed=$$(grep -c "CW ATTEST FILED" .at2-srv.log); ref=$$(grep -c "CW ATTEST: ch" .at2-srv.log); \
-	if [ "$$f1" -ge 1 ] && [ "$$filed" -ge 1 ] && [ "$$ref" -ge 1 ] && [ "$$f3" = "0" ]; then \
-	  echo "  [ ok ] P2: filed by independent receivers (server lines $$filed), re-offer refused at ingest ($$ref), client 3 never received the fake"; \
-	else echo "[FAIL] P2 (fake to c1=$$f1, filed=$$filed, refused=$$ref, fake to c3=$$f3) -- see .at2-*.log"; ok=0; fi; \
-	if [ "$$ok" = "1" ]; then rm -f $(AT_CFG) .at-*.log; echo "at: 2/2 ok"; \
+	f1=$$(grep -ci "60C5385DFB4D2A72" .at2-c1.log); f3=$$(grep -ci "60C5385DFB4D2A72" .at2-c3.log); f4=$$(grep -ci "60C5385DFB4D2A72" .at2-c4.log); \
+	filed=$$(grep -c "CW ATTEST FILED" .at2-srv.log); ref=$$(grep -c "CW ATTEST: ch" .at2-srv.log); ret=$$(grep -c "CW ATTEST ECM" .at2-srv.log); \
+	if [ "$$f1" -ge 1 ] && [ "$$filed" -ge 1 ] && [ "$$ref" -ge 1 ] && [ "$$f3" = "0" ] && [ "$$f4" = "0" ] && [ "$$ret" -ge 1 ]; then \
+	  echo "  [ ok ] P2: filed by independent receivers (server lines $$filed), re-offer refused at ingest ($$ref), sister-service client spared, and the shared ECM was retired ($$ret) so the same-ECM client got nothing"; \
+	else echo "[FAIL] P2 (fake to c1=$$f1, filed=$$filed, refused=$$ref, fake to c3=$$f3, fake to c4=$$f4, retired=$$ret) -- see .at2-*.log"; ok=0; fi; \
+	echo "  [ -- ] P3: CACHE PROTECTION: STANDARD only -- the one-line recipe arms attest"; \
+	{ printf 'HTTP PORT: $(AT_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(AT_CACHE)\nCACHE FILTER: OFF\nCACHE PROTECTION: STANDARD\nCACHE PEER: 127.0.0.1:17060\n\n[ at ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(AT_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\nUSER: u2 p2\nUSER: u3 p3\n\n'; } > $(AT_CFG); \
+	AT_PEER_CW=9F3AC7A004B2D58B61FA0964376BD274 run_at 3; \
+	g3=$$(grep -ci "61FA0964376BD274" .at3-c3.log); filed3=$$(grep -c "CW ATTEST FILED" .at3-srv.log); prot=$$(grep -c "CACHE PROTECTION: STANDARD" .at3-srv.log); \
+	if [ "$$prot" -ge 1 ] && [ "$$filed3" -ge 1 ] && [ "$$g3" = "0" ]; then \
+	  echo "  [ ok ] P3: the one-line PROTECTION recipe armed the stack (config line $$prot) and receiver attestation filed the key (filed $$filed3); third client spared"; \
+	else echo "[FAIL] P3 (protection line=$$prot, filed=$$filed3, key to c3=$$g3) -- see .at3-*.log"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(AT_CFG) .at-*.log; echo "at: 3/3 ok"; \
 	else echo "at: FAILED (logs kept under tests/.at-*)"; exit 1; fi

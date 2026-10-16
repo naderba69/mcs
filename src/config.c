@@ -3726,7 +3726,13 @@ link_mgcamd_user:
 			/* TASK R30 (D81): CACHE ATTEST: <0..4> -- distinct clients
 			 * whose too-soon re-asks file the delivered key bytes for a
 			 * TTL. 0/absent = OFF (stock); 1 arms as 2 (one client can
-			 * never file a key alone, GR3). */
+			 * never file a key alone, GR3).
+			 * TASK R31 (D82): CACHE ATTEST TTL: <60..3600> seconds of
+			 * filing lifetime (absent = 300). CACHE PROTECTION:
+			 * STANDARD is the one-line recipe: it arms CONSENSUS
+			 * (WINDOW 600, SOURCES 3), DCWFILTER PATTERN and ATTEST 2
+			 * at this point in the file; any later line overrides its
+			 * piece, so customisations go after it. */
 			else if (!strcmp(str,"ATTEST")) {
 				parse_spaces();
 				if ((*iparser==':')||(*iparser=='=')) {
@@ -3737,6 +3743,37 @@ link_mgcamd_user:
 					else if (cfg->cache.attest==1) cfg->cache.attest = 2;
 					else if (cfg->cache.attest>4) cfg->cache.attest = 4;
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE ATTEST: %d\n",file->nbline,iparser-currentline, cfg->cache.attest);
+					continue;
+				}
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"TTL")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cache.attest_ttl = atoi(str);
+					if (cfg->cache.attest_ttl<60) cfg->cache.attest_ttl = 60;
+					else if (cfg->cache.attest_ttl>3600) cfg->cache.attest_ttl = 3600;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE ATTEST TTL: %d\n",file->nbline,iparser-currentline, cfg->cache.attest_ttl);
+				}
+			}
+			else if (!strcmp(str,"PROTECTION")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) {
+					iparser++;
+					parse_name(str);
+					uppercase(str);
+					if (!strcmp(str,"STANDARD")) {
+						cfg->cache.consensus = 1;
+						if (!cfg->cache.consensus_window) cfg->cache.consensus_window = 600;
+						if (cfg->cache.consensus_sources<3) cfg->cache.consensus_sources = 3;
+						if (!cfg->cache.attest) cfg->cache.attest = 2;
+						dcw_filter_pattern = 1;
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE PROTECTION: STANDARD (consensus 600/3, pattern, attest 2)\n",file->nbline,iparser-currentline);
+					}
 					continue;
 				}
 			}

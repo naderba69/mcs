@@ -619,7 +619,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						 * enforces it), since the gate sits at cache ingest.
 						 */
 						if (rcls==RETRY_HARD && !led_proof)
-							attest_note( (uint32_t)cli->id, cli->lastecm.dcw,
+							attest_note( ATTEST_TAG_NEWCAMD | (uint32_t)cli->id, cli->lastecm.dcw,
 								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
 
