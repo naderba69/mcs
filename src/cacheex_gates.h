@@ -56,10 +56,11 @@
  *     itself. N=1 would be the stock threshold; the gate enforces
  *     max(existing CACHE THRESHOLD, N) for exchange arrivals only.
  *
- *   MAXHOP_LG: NOT ADOPTED. No public reference documents it; the
- *   enforced send cap in this tree is CACHEEX MAXHOP. The config parser
- *   now prints a one-line notice so a migrated line is no longer
- *   silently dead (it stays inert).
+ *   MAXHOP_LG: implemented (specified R18/D73; the code was absent
+ *   from the tree and landed in TASK R39/D99). Writes the same
+ *   option.cacheex.maxhop MAXHOP writes, clamped [1,10] instead of
+ *   [1,2], at both the DEFAULT and per-profile sites; lines apply
+ *   in file order so the last MAXHOP/MAXHOP_LG wins.
  *
  * COUNTERS. Three dcwstats reasons (DCW_REJ_CEXLOCAL/CEXFAKE/CEXCONF)
  * so `telnet> dcwstats` shows exactly what each gate did.

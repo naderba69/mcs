@@ -4065,7 +4065,7 @@ rs:
 #              (cacheex-local-only), fake push dropped (cacheex-fake-cw),
 #              first good push held (cacheex-confirm-wait), second
 #              identical push crosses the floor and the client is served;
-#   parser   : MAXHOP_LG prints its notice, CWCHECK clamps to the cap.
+#   parser   : MAXHOP_LG: 4 lands on the profile page (D99), CWCHECK clamps.
 #
 # GOODCW is a key with all four checksumDCW() group sums correct; the
 # `bad` job flag bumps cw[15] so checksumDCW() fails. Needs the stats
@@ -4141,7 +4141,8 @@ ce: $(CXPEER)
 	  printf 'DEFAULT CACHEEX MAXHOP_LG: 4\nDEFAULT CACHEEX CWCHECK: 9\n\n'; \
 	  printf '[ cxg ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CE_NPORT)\nENABLE CACHEEX: YES\nDCW TIMEOUT: 9000\nUSER: u1 p1\n'; } > $(CE_CFG); \
 	start_srv; \
-	grep -q "MAXHOP_LG: not implemented" .ce-srv.log && echo "  [ ok ] MAXHOP_LG says it is not implemented" || { echo "  [FAIL] MAXHOP_LG stayed silent"; ok=0; }; \
+	grep -q "MAXHOP_LG: not implemented" .ce-srv.log && { echo "  [FAIL] MAXHOP_LG still inert (R39 regression)"; ok=0; } || echo "  [ ok ] MAXHOP_LG no longer reports itself unimplemented"; \
+	curl -s -m 3 -u admin:admin "http://127.0.0.1:$(CE_HPORT)/profile?id=100" | grep -q "CACHEEX MAXHOP</td><td>4" && echo "  [ ok ] MAXHOP_LG: 4 landed (stock MAXHOP caps at 2)" || { echo "  [FAIL] MAXHOP_LG value not on the profile page"; ok=0; }; \
 	grep -q "CWCHECK capped at 5" .ce-srv.log && echo "  [ ok ] CWCHECK 9 clamped to the cap 5" || { echo "  [FAIL] CWCHECK was not clamped"; ok=0; }; \
 	kill_srv; \
 	\
@@ -5142,6 +5143,14 @@ at: .ncclient.bin .cachepeer.bin
 #      carry CA MODERN: ON like the shipped profiles -- a BISS1 key
 #      has no checksum bytes, and frozen stock refuses it at the
 #      checksum gate without MODERN (verified against D53).
+#   P9 (TASK R39/D100) Tandberg CAID 1010: an 8-byte key stored via
+#      the same /biss route answers a 1010 ECM -- the fixed-key table
+#      matches caid+sid+provid for ANY system, which is exactly how a
+#      Tandberg fixed key is served. The key is checksum-valid
+#      (SC_TBG): 1010 classifies as CSA-family, so CA MODERN keeps
+#      the checksum test for it (only no-checksum systems are
+#      relaxed) -- a real Tandberg word passes, a fake-shaped one
+#      is refused, as the P9 log's CW STRUCT line shows.
 # ===========================================================================
 SC_HPORT = 17200
 SC_CACHE = 17201
@@ -5154,6 +5163,7 @@ SC_GOOD  = 11223366445566FF77889998ABBCCD34
 SC_BAD   = 11223399445566FF77889998ABBCCD34
 SC_KEY   = 0102030405060708091011121314
 SC_BISS1 = 1122334455667788
+SC_TBG   = 11223366445566FF
 SC_SKEY  = 01 02 03 04 05 06 07 08 09 10 11 12 13 14
 
 .PHONY: sc
@@ -5230,7 +5240,15 @@ sc: .ncclient.bin .cachepeer.bin $(NCSERVER)
 	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc8-c.log); \
 	if [ "$$d" -ge 1 ]; then echo "  [ ok ] P8: without the line the stored BISS key answers as stock"; \
 	else echo "[FAIL] P8 (delivered=$$d) -- see .sc8-*.log"; ok=0; fi; \
-	if [ "$$ok" = "1" ]; then rm -f $(SC_CFG) .sc-*.log; echo "sc: 8/8 ok"; \
+	echo "  [ -- ] P9: Tandberg 1010 -- stored /biss key must deliver"; \
+	{ printf 'HTTP PORT: $(SC_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n\n[ sc3 ]\nCAID: 1010\nPROVIDERS: 0\nPORT: $(SC_NPORT2)\nDCW TIMEOUT: 4000\nCA MODERN: ON\nUSER: u1 p1\n\n'; } > $(SC_CFG); pkill -9 '^multics' 2>/dev/null; sleep 2; boot 9; \
+	curl -s -m 3 -u a:a -o /dev/null "http://127.0.0.1:$(SC_HPORT)/biss?action=add&caid=1010&sid=0001&provid=000000&key=$(SC_TBG)"; \
+	NC_ECMS=1 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 1010 1 > .sc9-c.log 2>&1; \
+	grep -q "DELIVERED A CONTROL WORD" .sc9-c.log || { sleep 2; NC_ECMS=1 NC_ECM_GAP_MS=800 timeout 45 ./$(NCCLIENT) 127.0.0.1 $(SC_NPORT2) u1 p1 $(SC_KEY) 0 1010 1 >> .sc9-c.log 2>&1; }; stopall; \
+	d=$$(grep -c "DELIVERED A CONTROL WORD" .sc9-c.log); \
+	if [ "$$d" -ge 1 ]; then echo "  [ ok ] P9: the stored key answers Tandberg 1010 via the fixed-key table"; \
+	else echo "[FAIL] P9 (delivered=$$d) -- see .sc9-*.log"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(SC_CFG) .sc-*.log; echo "sc: 9/9 ok"; \
 	else echo "sc: FAILED (logs kept under tests/.sc-*)"; exit 1; fi
 
 # TASK R32 (D83) -- the shipped profiles file, proven bootable.
@@ -5268,3 +5286,158 @@ prof:
 	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then rm -f $(PROF_CFG) .prof-srv.log; echo "prof: 5/5 ok"; \
 	else echo "prof: FAILED (logs kept under tests/.prof-*)"; exit 1; fi
+
+# TASK R39 (D101) -- the CACHE_QUEUE flavour joins the periodic checks.
+# Until now release-queue/release-queue-stats were built by hand only;
+# nothing in the suite ever booted them, so a queue-only breakage
+# (startup, config parse, the queue thread itself) could ship green.
+# qv boots the queue-stats flavour on the SHIPPED profiles file and
+# asserts the same surface prof asserts for the dev binary, plus the
+# flavour fingerprint: the [CACHE QUEUE] stats format string exists
+# only in -DCACHE_QUEUE builds (stock strings: none). The flavour is
+# built on demand; the release target wipes make-x64/x64, so the dev
+# binary is restored right after, keeping the suite order-safe.
+QV_BIN   ?= ../bin/multics-r82a-queue-stats-x64
+QV_HPORT = 17150
+QV_CFG   = .qv-boot.cfg
+
+.PHONY: qv
+qv:
+	@test -x $(QV_BIN) || { echo "qv: building the queue-stats flavour first"; $(MAKE) -C ../make-x64 release-queue-stats; }
+	@test -x ../make-x64/x64/multics || $(MAKE) -C ../make-x64 >/dev/null
+	@strings $(QV_BIN) | grep -q "CACHE QUEUE" || { echo "[FAIL] $(QV_BIN) is not a CACHE_QUEUE build"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@rm -f $(QV_CFG) .qv-srv.log; ok=1; \
+	{ printf 'HTTP PORT: $(QV_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n'; cat ../multics-r24-optimized.cfg; } > $(QV_CFG); \
+	stdbuf -o0 -e0 $(QV_BIN) -C $(QV_CFG) -v > .qv-srv.log 2>&1 & srv=$$!; \
+	code=000; for i in $$(seq 1 30); do \
+	  code=$$(curl -s -m 3 -u a:a -o /dev/null -w '%{http_code}' http://127.0.0.1:$(QV_HPORT)/ 2>/dev/null); \
+	  [ "$$code" = "200" ] && break; sleep 1; done; \
+	if [ "$$code" = "200" ]; then echo "  [ ok ] queue flavour boots the shipped profiles and HTTP answers"; \
+	else echo "[FAIL] queue flavour HTTP answered '$$code' -- see .qv-srv.log"; ok=0; fi; \
+	nports=$$(grep '^PORT: ' ../multics-r24-optimized.cfg | awk '{print $$2}' | sort -u | wc -l); \
+	nopen=0; for p in $$(grep '^PORT: ' ../multics-r24-optimized.cfg | awk '{print $$2}' | sort -u); do \
+	  bash -c "exec 3<>/dev/tcp/127.0.0.1/$$p" 2>/dev/null && nopen=$$((nopen+1)); done; \
+	if [ "$$nopen" = "$$nports" ]; then echo "  [ ok ] queue flavour: all $$nports profile ports listen"; \
+	else echo "[FAIL] queue flavour: $$nopen of $$nports profile ports listen"; ok=0; fi; \
+	grep -qi "segmentation\|SIGSEGV" .qv-srv.log && { echo "[FAIL] queue flavour logged a segfault"; ok=0; } || echo "  [ ok ] queue flavour: no crash in the log"; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	if [ "$$ok" = "1" ]; then rm -f $(QV_CFG) .qv-srv.log; echo "qv: 4/4 ok"; \
+	else echo "qv: FAILED (logs kept under tests/.qv-*)"; exit 1; fi
+
+# TASK R41 (D104) -- the SAME key on the NEXT ECM must still be delivered.
+#
+# The field report: a CCcam 2.3.2 client watching one channel, four lines
+# answering with the SAME valid key, the server page saying "Decode
+# success" -- and a black screen. The gate was checkfreeze_setdcw(): it
+# refused any control word identical to the last one delivered for the
+# channel, without asking WHICH ECM. A provider repeats its CW across the
+# ECMs of one crypto period (the tag flips 0x80/0x81 every few seconds,
+# the key lives ten or more), so every second ECM of the same period was
+# thrown away -- and the retry threw it away again -- until the DCW
+# timeout. Stock, measured here before the fix: ECM#1 tag 0x80 delivered
+# in 91 ms, ECM#2 tag 0x81 of the same channel NOK after 6005 ms, and so
+# on for every alternating ECM: half the stream never answered.
+#
+# The rig: a real newcamd card server (ncserver) answers ONE valid key,
+# a real CCcam client (ccdcw) asks four ECMs of one channel, the tag
+# alternating 0x80/0x81 with a different body each time (the identity
+# hash starts at byte 3, so the body must move too). All four must be
+# answered, and the server must log no decode failure.
+R41_HPORT = 16100
+R41_CARD  = 16101
+R41_NPORT = 16102
+R41_CPORT = 16103
+R41_CFG   = .r41-cf.cfg
+R41_SKEY  = 0102030405060708091011121314
+
+.ccdcw.bin: ccdcw.c ../src/sha1.c ../src/sha1.h ../src/md5.c
+	$(CC) -O2 -m64 -std=gnu89 -Wall -o $@ ccdcw.c
+	@chmod +x $@
+
+.PHONY: cf
+cf: .ccdcw.bin $(NCSERVER)
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.ncserver.bin' 2>/dev/null; sleep 1; chmod +x .ccdcw.bin $(NCSERVER) 2>/dev/null; true
+	@rm -f $(R41_CFG) .r41-ns.log .r41-srv.log .r41-cli.log; ok=1; \
+	{ printf 'HTTP PORT: $(R41_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n'; \
+	  printf 'DEFAULT DCW CHECK: YES\nCCCAM PORT: $(R41_CPORT)\nF: u1 p1\n'; \
+	  printf 'N: 127.0.0.1 $(R41_CARD) srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n\n'; \
+	  printf '[ r41 ]\nCAID: 0500\nPROVIDERS: 0\nPORT: $(R41_NPORT)\nDCW TIMEOUT: 6000\nDCW CHECK: YES\nUSER: u1 p1\n\n'; } > $(R41_CFG); \
+	NS_DELAYS=60 stdbuf -o0 -e0 ./$(NCSERVER) $(R41_CARD) $(R41_SKEY) 0500 000000 > .r41-ns.log 2>&1 & ns=$$!; \
+	sleep 1; \
+	stdbuf -o0 -e0 $(BIN) -C $(R41_CFG) -v > .r41-srv.log 2>&1 & srv=$$!; \
+	for i in $$(seq 1 30); do grep -q "connect to server" .r41-srv.log && break; sleep 1; done; \
+	sleep 3; \
+	timeout 70 ./.ccdcw.bin 127.0.0.1 $(R41_CPORT) u1 p1 0500 40 0x80 0x81 0x80 0x81 > .r41-cli.log 2>&1; \
+	kill $$srv $$ns 2>/dev/null; sleep 1; kill -9 $$srv $$ns 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	d=$$(grep -c ' DCW' .r41-cli.log); b=$$(grep -c ' NOK\| TIMEOUT' .r41-cli.log); \
+	if [ "$$d" = "4" ] && [ "$$b" = "0" ]; then \
+	  echo "  [ ok ] R41: all 4 ECMs of one crypto period answered (tag 0x80/0x81 alternating)"; \
+	else echo "[FAIL] R41: $$d of 4 answered, $$b refused -- see .r41-*.log"; ok=0; fi; \
+	if grep -q "decode failed to CCcam client" .r41-srv.log; then \
+	  echo "[FAIL] R41: the server logged a decode failure on a key it held"; ok=0; \
+	else echo "  [ ok ] R41: no decode failure for the repeated key (was: 6005 ms timeout on every 2nd ECM)"; fi; \
+	rm -f $(R41_CFG) .r41-ns.log .r41-srv.log .r41-cli.log; \
+	[ "$$ok" = "1" ]
+
+# TASK R43 (D106) -- a NEW ECM is not a retry.
+#
+# The field question: "the receiver checks the CW against the ECM -- true?"
+# No. The ECM is encrypted; only the card can decrypt it, and no protocol
+# carries a negative ACK. The one honest signal a receiver gives is that it
+# asks AGAIN, and the project already reads that (retry_detect.h, R30/D81).
+# The defect this target pins: the gate compared only the CHANNEL, so the
+# provider's next ECM -- a new hash every few seconds -- counted as "this
+# client re-asked because the key failed". Two receivers doing normal
+# rotation were enough to file a perfectly good key (cwattest) and black
+# the channel out for the whole TTL.
+#
+# The rig: one cache peer answers with ONE valid key, real CCcam clients
+# (ccdcw) ask. Phase A and B each ask ECM 0x80:0 then the next ECM 0x81:1
+# of the same crypto period. Phase C asks a genuinely new ECM 0x80:2 that
+# nobody has asked yet -- the zapping viewer. Before the fix phase C is
+# refused (the key was filed by phase A/B's normal rotation); after it,
+# every request is served. The true-positive half -- a client re-asking the
+# SAME ECM -- is pinned by `tests cachecw`, which runs in the same suite.
+RT_HPORT  = 16400
+RT_CACHE  = 16402
+RT_PEER   = 16403
+RT_CPORT  = 16404
+RT_NPORT  = 16405
+RT_CFG    = .rt-srv.cfg
+RT_CW     = 11223366445566FF77889998AABBCC31
+
+.PHONY: rt
+rt: .ccdcw.bin $(CACHEPEER)
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@rm -f $(RT_CFG) .rt-srv.log .rt-peer.log .rt-a.log .rt-b.log .rt-c.log; ok=1; \
+	{ printf 'HTTP PORT: $(RT_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nTELNET PORT: 0\n'; \
+	  printf 'CACHE PORT: $(RT_CACHE)\nCACHE PEER: 127.0.0.1:$(RT_PEER) { csp=1 }\n'; \
+	  printf 'CACHE FILTER: OFF\nCACHE ATTEST: 2\n'; \
+	  printf 'CCCAM PORT: $(RT_CPORT)\nF: u1 p1\nF: u2 p2\nF: u3 p3\n\n'; \
+	  printf '[ rt ]\nCAID: 1884\nPORT: $(RT_NPORT)\nUSER: u1 p1\nDCW CHECK: NO\nDCW TIMEOUT: 3000\n\n'; } > $(RT_CFG); \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(RT_CACHE) $(RT_PEER) $(RT_CW) 12 > .rt-peer.log 2>&1 & peer=$$!; \
+	sleep 1; \
+	stdbuf -o0 -e0 $(BIN) -C $(RT_CFG) -v > .rt-srv.log 2>&1 & srv=$$!; \
+	for i in $$(seq 1 40); do grep -q "come Online" .rt-srv.log && break; sleep 0.5; done; \
+	for i in $$(seq 1 40); do grep -q "advertised card" .rt-peer.log && break; sleep 0.5; done; \
+	sleep 1; \
+	timeout 40 ./.ccdcw.bin 127.0.0.1 $(RT_CPORT) u1 p1 1884 64 0x80:0 0x81:1 > .rt-a.log 2>&1; \
+	timeout 40 ./.ccdcw.bin 127.0.0.1 $(RT_CPORT) u2 p2 1884 64 0x80:0 0x81:1 > .rt-b.log 2>&1; \
+	timeout 40 ./.ccdcw.bin 127.0.0.1 $(RT_CPORT) u3 p3 1884 64 0x80:2 > .rt-c.log 2>&1; \
+	kill $$srv $$peer 2>/dev/null; sleep 1; kill -9 $$srv $$peer 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	a=$$(grep -c ' DCW' .rt-a.log); b=$$(grep -c ' DCW' .rt-b.log); c=$$(grep -c ' DCW' .rt-c.log); \
+	if [ "$$a" = "2" ] && [ "$$b" = "2" ]; then \
+	  echo "  [ ok ] R43: both clients served on the rotation (2+2 ECMs, one key)"; \
+	else echo "[FAIL] R43: rotation served $$a/2 and $$b/2 -- see tests/.rt-*.log"; ok=0; fi; \
+	if grep -q "CW ATTEST FILED" .rt-srv.log; then \
+	  echo "[FAIL] R43: normal ECM rotation filed the good key as bad (CW ATTEST FILED)"; ok=0; \
+	else echo "  [ ok ] R43: a new ECM inside the retry window is not evidence -- no filing"; fi; \
+	if [ "$$c" = "1" ]; then \
+	  echo "  [ ok ] R43: the late viewer's fresh ECM is served (was: black screen for the TTL)"; \
+	else echo "[FAIL] R43: the fresh ECM after rotation was refused -- the good key was filed"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(RT_CFG) .rt-srv.log .rt-peer.log .rt-a.log .rt-b.log .rt-c.log; \
+	else echo "[FAIL] logs kept under tests/.rt-*"; fi; \
+	[ "$$ok" = "1" ]

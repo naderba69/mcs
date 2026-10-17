@@ -8,10 +8,10 @@ BIN     ?= ../make-x64/x64/multics
 CFG      = multics-live.cfg
 HTTPPORT = 15500
 
-.PHONY: pm jm sk cn smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs prof ce cy au pr soak pq all
+.PHONY: pm jm sk cn smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr soak pq qv rt all
 include stability.mk
 # soak is deliberately NOT in `all`. It runs for about 20 minutes.
-all: smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs prof ce cy au pr jm pq sk cn vl ri md fk fz at md sc
+all: smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr jm pq sk cn vl ri md fk fz at md sc qv cf rt
 
 # TASK 4.2. Stats binary, not the stock one: counters must be on.
 SOAK_BIN ?= ../bin/multics-r82a-stats-x64
@@ -120,3 +120,11 @@ dcwfilter:
 # real line. Cheap, and it catches the error this project keeps making.
 docrefs:
 	@sh docrefs.sh
+
+# TASK R40 (D103) -- the shipped profiles file gets a static audit before it is
+# booted. prof/qv prove the file STARTS; this proves it MEANS what it says:
+# no dead keys, no global-only key inside a profile, and the per-family rules
+# from src/casystem.h (09xx half-nulled, iCam strict, fixed keys local).
+# Fast and side-effect free, so it runs before the boot targets in `all`.
+cfgcheck:
+	@python3 cfgcheck.py ../multics-r24-optimized.cfg

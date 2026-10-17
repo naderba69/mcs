@@ -127,7 +127,7 @@
 **سرعة:**
 ```
 ✅ CACHE TIMEOUT: 350ms → 250ms (29% أسرع)
-✅ DCW MINTIME: 150ms → 100ms (33% أسرع)
+✅ DCW MINTIME: مطفأ (0) — الحد القديم كان يرمي إجابات صحيحة سريعة (D105)
 ✅ SERVER FIRST: 3 → 2 (33% أسرع)
 ✅ SERVER TIMEOUT: 1000ms → 800ms (20% أسرع)
 ✅ FILTER TIME: 100ms → 50ms (50% أسرع)
@@ -269,22 +269,23 @@ BISS SHARE: Received CW from client USER1 for 2600:000000:1234
 ### 1. Binary (التطبيق)
 ```
 File: bin/multics.x64 — THE fixed delivery name (R34); internals: bin/multics-r82a-stock-x64 / bin/multics-r82a-stats-x64
-Size: 767 KB stock / 779 KB stats
-MD5: af9a5c1e85c1405c6326031efdcc0f37 (stock) / f006bfbbb381c3e071079dd311fb4676 (stats)
+Size: 771 KB stock / 783 KB stats
+MD5: 7edabb3bbc239dfdbe954a53787e1ca1 (stock) / 35e2344e315ab543612cc0b717015eb1 (stats)
 Build: make -C make-x64 release / release-stats
-Features: the R26-R32 hardening stack (unified CA layer, fake-CW gate,
-consensus SOURCES, receiver attestation, PROTECTION recipe) — every
-feature opt-in, default OFF = stock r82a behaviour
-Status: ✅ Production Ready (R32, 2026-10-16 — see CHANGELOG.md)
+Features: the R26-R43 hardening stack (unified CA layer, fake-CW gate,
+consensus SOURCES, receiver attestation, PROTECTION recipe, repeated-key
+fix, MINTIME opt-in, same-ECM retry proof) — every feature opt-in,
+default OFF = stock r82a behaviour
+Status: ✅ Production Ready (R43, 2026-10-17 — see CHANGELOG.md)
 ```
 
 ### 2. Configuration (الإعدادات)
 ```
 File: multics-r24-optimized.cfg
 Size: 21 KB
-Profiles: 71 profiles, one uniform live-tested stability block
+Profiles: 72 profiles, one uniform live-tested stability block
 Lines: 1010 lines — every line verified against the real parser (R32)
-Status: ✅ Guarded live by `make -C tests prof` (all 71 ports probed)
+Status: ✅ Guarded live by `make -C tests prof` (all 72 ports probed)
 ```
 
 ### 3. Start Script (سكريبت التشغيل)
@@ -374,7 +375,7 @@ SERVER INTERVAL: 100ms            (100ms بين المحاولات)
 ⚠️ SuperSmartFilter: DISABLED (CACHE SF_FILTER: 0)
 ⚠️ DCW STRICT: DISABLED (DEFAULT DCW STRICT: NO)
 ✅ DCW CHECK: YES (التحقق الأساسي مفعّل)
-✅ DCW MINTIME: 100ms (الحد الأدنى)
+✅ DCW MINTIME: 0 (مطفأ افتراضيًا — فعّله بنفسك فقط إن أردت، D105)
 ```
 
 **ملاحظة:** تم تعطيل الأنظمة الصارمة (SuperSmartFilter + DCW STRICT) لضمان استقرار جميع الباقات.

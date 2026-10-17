@@ -494,9 +494,11 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 					 *    positive GR3 forbids, so the block only runs when this
 					 *    request is provably the same channel as the last delivery.
 					 *    The caid/provid/sid test is upstream's own convention for
-					 *    "same channel" (see the freeze check below); GR6 is still
-					 *    met because the evidence stores are keyed on the hash and
-					 *    on caid/provid/sid, never on sid alone.
+					 *    "same channel" (see the freeze check below). R43 (D106)
+					 *    tightened this to what GR6 always demanded: the gate
+					 *    now requires the SAME ECM (hash and tag), because a
+					 *    new ECM on the channel is normal rotation, not a
+					 *    verdict on the key that was delivered.
 					 *
 					 * Cost of the gate: a zap produces no GOOD event for the
 					 * channel that was left. Under-reporting GOOD in that one case
@@ -510,7 +512,12 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 					int samechan = ( cli->lastecm.caid==clicd.caid )
 								&& ( cli->lastecm.prov==clicd.provid )
 								&& ( cli->lastecm.sid ==clicd.sid );
-					if ( samechan ) {
+					/* TASK R43 (D106) -- a retry is the SAME ECM asked again:
+					 * same hash and same tag. A NEW ECM inside the window is
+					 * the provider's normal rotation, not evidence that the
+					 * key failed; counting it filed good keys as bad. */
+					if ( samechan && ecm && (ecm->hash==cli->lastecm.hash)
+					     && (ecm->ecm[0]==cli->lastecm.tag) ) {
 						int rcls = retry_classify( ticks, cli->lastdcwtime,
 							cli->lastecm.status, retry_window_ms, soft_fail_window_ms );
 						if (rcls==RETRY_HARD) {
@@ -958,6 +965,10 @@ void cs_senddcw_cli(struct cs_client_data *cli)
 	 * both the success and the decode-failed path.
 	 */
 	cli->lastecm.hash = ecm->hash;
+	/* TASK R43 (D106): the retry guard names the ECM by hash AND tag;
+	 * without the tag a flipped 0x80/0x81 on the same body looked like
+	 * a re-ask of the delivered ECM. */
+	cli->lastecm.tag = ecm->ecm[0];
 	cli->lastecm.decodetime = GetTickCount()-cli->ecm.recvtime;
 	cli->lastecm.request = cli->ecm.request;
 

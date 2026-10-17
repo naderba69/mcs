@@ -3827,3 +3827,280 @@ only:** the unsolicited push now carries its own checksum-valid key
 (CE_UNSOL); the scenario's intent is unchanged. ce passes 3/3
 consecutive runs. Suite accounting for the full run: 384 checks ok,
 one target (ce) failed and is now fixed and re-verified.
+
+## D98 (R39) — Card matching joins the CAID FAMILY table (third flag)
+
+The audit's item 3: two provider rules lived in two places —
+NOPROVCHK's set drove profile matching (D94), while loadbalance's
+card matching kept stock's hard-coded inverse rule (strict only for
+01/05) outside the table. cafamily.h now carries a third flag,
+CAFAM_CARDPROV (default {01,05} = stock byte-for-byte), and both
+cs_cmp_card/match_card sites read `ca_card_prov_required()`. Grammar
+`CAID FAMILY PROVIDERCHECK: ..` owns the set like the other flags.
+One table now holds every CAID-family provider rule, each with its
+own stock default and its own question: PROVIDERCHECK tightens or
+loosens WHICH cards count as the same card; NOPROVCHK decides when
+a profile may answer without a provider match. test_cafamily 47/47
+(new CARDPROV block incl. per-flag ownership isolation); sc/timing
+live-green, proving the default path is unchanged.
+
+## D99 (R39) — MAXHOP_LG: documented, specified, and absent — restored
+
+Item 4 was worse than "parsed but inert": R18/D73 had specified
+(and the reference docs still describe) exactly this implementation,
+but the code in the tree only printed "not implemented" at both
+parser sites — the R18 code never survived into this history, and
+COMPAT-ar.md/FIELD-GUIDE disagreed with each other about it.
+Restored to the documented spec: `CACHEEX MAXHOP_LG: N` writes the
+same option.cacheex.maxhop MAXHOP writes (the field every cacheex
+forward path enforces), clamped [1,10] (= CEXW_MAX_NODES) instead of
+[1,2], at the DEFAULT and per-profile sites; file order applies, so
+the last MAXHOP/MAXHOP_LG line wins. Proven live off the profile web
+page (httpserver prints the field): LG 4 → 4, LG8+MAXHOP2 → 2,
+MAXHOP1+LG7 → 7, LG99 → 10. ce scenario 3 now asserts the value
+landed instead of asserting the old notice; cacheex_gates.h and
+FIELD-GUIDE no longer claim it unimplemented.
+
+## D100 (R39) — Tandberg 1010 served by the fixed-key table, proven
+
+Item 5 asked for a live path for Tandberg (1010). It already
+existed in mechanism: the /biss store matches caid+sid+provid for
+any CAID, so a Tandberg fixed key is a table entry, not a decoder.
+sc P9 proves it end-to-end (stored 1010 key answers a 1010 ECM).
+Building P9 also produced the round's most useful negative result:
+1010 classifies as CSA-family, so CA MODERN keeps the checksum
+test for it — the first test key (a BISS-shaped repeated word with
+invalid checksum bytes) was refused, correctly. The phase uses a
+checksum-valid key, which is what a genuine Tandberg word is.
+
+## D101 (R39) — CACHE_QUEUE joins the periodic verification
+
+Item 2: the queue flavours (release-queue/release-queue-stats, R6)
+were buildable by hand but never booted by the suite. New target
+`tests qv` (in `all`): builds queue-stats on demand, fingerprints
+the flavour (the [CACHE QUEUE] stats format exists only in queue
+builds), boots the shipped 72 profiles, asserts HTTP 200, all
+ports, no crash — 4/4. Also fixed while here: `make -C make-x64
+test` named test_cwattest in its recipe but never built it
+(Error 127); the prerequisite list now includes it. The standing
+debt NOT taken this round, by the user's choice: CI, and the 15
+targets that require prebuilt stats binaries.
+
+## D102 (R40) — The profiles file, rewritten per CA family
+
+The operator asked for a professional update of the shipped profiles
+"with every property appropriate to each package". The audit behind it
+was measured, not editorial: every CAID was classified from
+src/casystem.h (the code's own registry), and every key was checked
+against a parser branch in config.c. That turned up four classes of
+defect, all fixed in one pass:
+
+1. FAMILY-INAPPROPRIATE VALUES. Ten VideoGuard CSA profiles carried
+   `DCW HALFNULLED: NO`; stock's family table allows half-nulled keys
+   for 09, and with the profile flag off, checkfreeze_setdcw() rejects
+   the legitimate half after the first decode -- a direct black-screen
+   cause for NDS. They are now YES, and the three CSA profiles that had
+   no SWAP line got one. iCam (0963/098D/098E) is AES with a full CW:
+   it stays HALFNULLED NO and loses SWAP (inert for it), which is both
+   stricter and honest.
+2. DEAD KEYS. `CACHEEX PUSH`/`RELAY` (30 lines) have no parser branch;
+   `DCW VALIDECMTIME` (15 + the DEFAULT one) has none either -- the real
+   key is SERVER VALIDECMTIME, now present in every CA profile.
+3. GLOBAL KEYS HIDING INSIDE PROFILES. `FILTER`/`FILTER TIME` (46 lines)
+   and `ACCEPT NULL ONID` (3) are parsed globally; every per-profile
+   copy silently rewrote the global. They moved to one global block with
+   the values that were actually in force (strict FILTER: NO, 10 s
+   window). Same for the DEFAULT lines the DEFAULT parser does not
+   implement (DEFAULT ECM CHECK/ECM CHECK LENGTH/FILTER/FILTER TIME/
+   DCW VALIDECMTIME).
+4. A REAL DOWNGRADE. `CACHEEX MAXHOP: 4` in 15 profiles clamped to 2
+   (stock's [1..2]); they now use CACHEEX MAXHOP_LG: 4 (R39/D99), and
+   the profile page proves 4.
+
+Fixed-key profiles (BISS1 2600, Tandberg 1010) now say ENABLE CACHE: NO
+and ENABLE CACHEEX: NO -- a local constant key must not be stored or
+pushed to cache peers. Writing that proof uncovered a worse defect:
+CACHE PROTECTION: STANDARD arms DCWFILTER PATTERN, whose dcw_pattern_fake()
+returns 1 when the two 8-byte halves are identical -- exactly the shape
+of a BISS/Tandberg fixed key. Measured live: the key stores, /biss lists
+it, "Used" stays 0, and the client never receives it. The two profiles
+now carry DCWFILTER PATTERN: OFF (per-profile tristate); every CSA
+profile keeps the gate. After the fix the same run delivers 1 BISS and
+1 Tandberg word on the shipped file. No operator data was invented: SID
+lists, HEADERWLST (Movistar only) and providers are exactly his. 17
+duplicate lines inside four profiles were removed. Verified: prof 5/5
+(72/72 ports), qv 4/4, live profile pages, live fixed-key delivery.
+
+## D103 (R40) — cfgcheck: the file's meaning, asserted before boot
+
+prof/qv prove the shipped profiles file STARTS; nothing proved it MEANS
+what it says. tests/cfgcheck (python3, side-effect free, sub-second) now
+parses every profile and asserts: no dead key at either level; no
+global-only key inside a profile; unique ports; CA profiles carry
+CA MODERN/DCW CHECK/MINTIME 100/SERVER VALIDECMTIME; VideoGuard CSA is
+HALFNULLED+SWAP, iCam is neither, every other family is strict; fixed
+key profiles are cache-isolated AND carry DCWFILTER PATTERN: OFF when
+their key is a repeated 8-byte constant (2600/1010) -- the rule that
+would have caught the black screen above. Wired into `tests all` before
+prof. On the pre-R40 file it reports 144 failures; on the new one, 4/4 ok.
+
+## D104 (R41) — The repeated control word: DCW CHECK refused half the stream
+
+**Context.** Field report, a CCcam 2.3.2 client on one channel: four
+different lines answered with the SAME valid key (573–1099 ms), the client
+page said "Decode success" with the CW printed under it, and the screen was
+black. The page's own counters were the clue: 64 ECM requests, 64 accepted,
+**9 good answers**, average 1047 ms, Total Freeze 0.
+
+**Root cause.** `checkfreeze_setdcw()` (`src/ecmdata.c`, stock r82a, live
+behind `CHECK_NEXTDCW` and armed by `DCW CHECK: YES` in every shipped
+profile) began with
+
+    if ( dcwcmp16(dcw,ecm->lastdecode.dcw) ) return 0;
+
+It refused ANY control word identical to the last one delivered for the
+channel, without asking WHICH ECM asked. A provider repeats its CW across
+the ECMs of one crypto period — the tag flips 0x80/0x81 every few seconds
+while the key lives ten seconds or more — so on every second ECM the
+correct key was refused, the ECM zeroed and re-asked, and the retry refused
+it again because the same bytes met the same `lastdecode.dcw`. Six seconds
+later the ECM died of "decode failed, dcw timeout". Measured live with the
+new rig (real CCcam client, real newcamd card server answering one valid
+key, one channel, tags alternating):
+
+    stock : ECM1 tag80 DCW, ECM2 tag81 NOK (6005 ms), ECM3 tag80 DCW, ECM4 tag81 NOK
+    fixed : ECM1..ECM4 DCW (91 / 76 / 1 / 0 ms)
+
+Half of every channel's ECMs never answered, while the server page still
+showed the "Decode success" recorded by the ECM that first carried that
+key. Four lines agreeing had nothing to do with the black screen — the
+server was throwing the answer away after the first ECM of each period.
+
+**Fix.** The identical-key refusal is gone. Every call site already
+guarantees this is not a true duplicate: `setdcw.c` returns early when the
+ECM is already `STAT_DCW_SUCCESS`, and the reply paths (`srv-cccam.c`,
+`srv-camd35.c`) only re-test a key the server has already committed. What
+is left is the normal case — a provider repeating its key across the ECMs
+of one period — and the stale-answer case, which no key-only test at this
+point can tell apart from it; the consensus / attest layers judge that on
+their own evidence. A same-key delivery is harmless (the receiver asked
+for it); a refusal is a black screen by construction.
+
+**Why not simply turn DCW CHECK off.** The check has a real job: refusing a
+key that contradicts the half bookkeeping at delivery time. Turning it off
+in 72 profiles would have hidden the defect and dropped that protection.
+The failure was in the "identical key" test, not in the feature.
+
+**Proof.** New harness `tests/ccdcw.c` — the first CCcam *ECM client* in the
+rig (`checkfreeze` runs only in the CCcam / camd35 server paths, so none of
+the existing newcamd/cache rigs could reach it). New target `tests cf`:
+2/2 ok on the fixed tree, 2 of 4 ECMs answered on the stock tree. Wired
+into `tests all` after `sc`.
+
+**Limit of the proof.** The key the card server answers is constant, so the
+rig pins the *repeated-key* half of the defect. The `cwcycle` half-guess a
+few lines below (which can refuse a legitimate half change when no
+`cw1cycle` is declared for the SID) was NOT measured to fire in this
+report and is left untouched — policy after measurement, D9.
+
+## D105 (R42) — DCW MINTIME is opt-in and OFF in the shipped file
+
+**Context.** Field follow-up on the same receiver: channel 1884:000000:1168
+never opened at all, and the 1814 MEO profile still froze. The lines were
+healthy and the keys correct. The suspicion fell on the profile file: it
+armed `DCW MINTIME: 100` in 70 of 72 profiles (D88/R36, completed in R38/D96).
+
+**Root cause, measured.** The floor is applied to card-server answers only
+(cache is exempt). A line answering faster than 100 ms has its correct key
+discarded with `[MINTIME] ... too fast to be real, CW skipped`; the ECM then
+waits for another source and dies of `decode failed, dcw timeout`. Live lab,
+same binary, a real card server answering in ~30 ms on 1884:000000:1168,
+four ECMs with alternating tags:
+
+    MINTIME 100 : ECM1 TIMEOUT, ECM2/3/4 NOK, two [MINTIME] lines, decode failed 6005 ms
+    MINTIME 0   : ECM1..ECM4 DCW, no MINTIME line, no decode failure
+
+This reproduces both field shapes at once: a channel that opens from cache
+and freezes when it needs a line (1814), and a channel that never opens
+because it always needs the line (1884). It also explains why other builds
+with the user's original settings work: they carry no such floor.
+
+**Decision.** Every shipped profile carries `DCW MINTIME: 0`, the code's own
+default. The feature stays in the binary (opt-in) for an operator whose lines
+are all slower than a floor he chooses. `tests/cfgcheck.py` now fails if any
+CA profile arms it again; before this round the same check demanded 100,
+which is how the defect was locked in.
+
+**Why the floor was ever armed.** D88 defended against a source that echoes
+or manufactures keys instantly. That concern is real, but a fixed floor is
+not evidence: legitimate LAN readers answer in 20-50 ms (the file's own
+header warned about exactly this). The fake-key work is carried by the
+checksum/pattern/consensus/attest layers, which judge the bytes and the
+sources rather than the clock.
+
+**Limit of the proof.** The lab pins the floor as the cause for a fast line.
+A deployment whose lines answer slower than 100 ms was not harmed by the
+floor, and for it this change is neutral: MINTIME 0 rejects nothing.
+
+**Verification.** Same binary, config-only change: lab 4/4 DCW at 0 vs 0/4 at
+100; `tests cfgcheck` 4 checks ok; `tests prof` 5/5; the shipped file boots
+with zero profile-variable warnings.
+
+## D106 (R43) — A retry is the same ECM, not the same channel
+
+**Question that started it.** "Does the receiver check the CW against the
+ECM?" No. The ECM is encrypted and only the card decrypts it; no protocol
+carries a negative ACK. The only honest signal is that the receiver asks
+AGAIN, which R30/D81 already reads as receiver attestation. This round asked
+whether that signal is read correctly.
+
+**Defect.** The attestation tap in all six server protocols compared the
+CHANNEL only (caid/provid/sid) plus "a delivery happened". A provider sends a
+fresh ECM every few seconds, so normal rotation was classified RETRY_HARD.
+Two clients simply watching filed the delivered key: cwattest purged the
+stored copy, retired every ECM already delivered with those bytes
+(`CW ATTEST ECM`), and the gate refused the bytes for the TTL (300 s). The
+resulting black screen was produced by our own shield, with a valid key and
+an innocent source.
+
+**Fix.** The gate requires the SAME ECM: `ecm->hash == lastecm.hash` and
+`ecm->ecm[0] == lastecm.tag`. The hash covers the ECM body from byte 3; the
+tag is added because a flipped 0x80/0x81 over the same body is a new ECM of
+the period too. Where the request is for an ECM not yet in the table
+(`ecm == NULL`), it is by definition new and cannot be evidence about the
+delivered one.
+
+**Supporting fix.** `newcamd` and `mgcamd` never recorded `lastecm.hash`
+(newcamd) or `lastecm.hash`+`lastecm.tag` (mgcamd). Without the record the
+tightened gate would never match there — a safe false negative, but it would
+leave those two protocols unable to attest at all, and mgcamd's freeze
+counter compared against an always-zero hash. Both paths now record what
+every other server path records.
+
+**Not changed.** The threshold (2 clients), the TTL, the counters, and the
+rule that nothing is scored and no source is disabled on attestation. A
+same-ECM re-ask is still RETRY_HARD; `tests cachecw` proves it on the fixed
+binary.
+
+**Proof (same build path, real CCcam clients, one cache peer answering one
+valid key).** Clients 1 and 2 each ask ECM 0x80:0 then the next ECM 0x81:1;
+a third client asks a fresh ECM 0x80:2 (the zapping viewer).
+
+    before : client1 2/2, client2 1/2, viewer NOK 3003 ms, CW ATTEST FILED at 2 clients
+    after  : client1 2/2, client2 2/2, viewer DCW, no filing
+
+**Limit.** The rig pins the NEW-ECM half, which is the false positive this
+round found. The same-ECM half was already pinned by cachecw and stays
+green. Attestation remains evidence, never proof: it expires, it scores
+nothing, and it disables no source.
+
+**Verification.** Full `make -C tests all`: 488 ok, 0 failures, 29
+conditional skips, exit 0. `tests rt` 3/3 (new), `tests cachecw` 8/8 (true
+positive intact), `tests cf` 2/2, unit suite 42 blocks / 1025 assertions all
+green, `prof` 5/5, `cfgcheck` 4 checks ok.
+
+---
+
+
+---
+

@@ -574,7 +574,12 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 			 * (attest_note). Classification only -- nothing is
 			 * scored or refused here, and nothing runs unless
 			 * CACHE ATTEST is armed. */
-			if ( (cli->lastecm.caid==caid) && (cli->lastecm.prov==provid) && (cli->lastecm.sid==sid) && cli->lastecm.status ) {
+			/* TASK R43 (D106) -- a retry is the SAME ECM asked again:
+			 * same hash and same tag. A NEW ECM inside the window is
+			 * the provider's normal rotation, not evidence that the
+			 * key failed; counting it filed good keys as bad. */
+			if ( (cli->lastecm.caid==caid) && (cli->lastecm.prov==provid) && (cli->lastecm.sid==sid) && cli->lastecm.status
+				&& ecm && (ecm->hash==cli->lastecm.hash) && (ecm->ecm[0]==cli->lastecm.tag) ) {
 				if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
 					attest_note( ATTEST_TAG_CS378X | (uint32_t)cli->id, cli->lastecm.dcw,
 						cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
