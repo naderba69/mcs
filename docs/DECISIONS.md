@@ -3943,3 +3943,62 @@ key profiles are cache-isolated AND carry DCWFILTER PATTERN: OFF when
 their key is a repeated 8-byte constant (2600/1010) -- the rule that
 would have caught the black screen above. Wired into `tests all` before
 prof. On the pre-R40 file it reports 144 failures; on the new one, 4/4 ok.
+
+## D104 (R41) — The repeated control word: DCW CHECK refused half the stream
+
+**Context.** Field report, a CCcam 2.3.2 client on one channel: four
+different lines answered with the SAME valid key (573–1099 ms), the client
+page said "Decode success" with the CW printed under it, and the screen was
+black. The page's own counters were the clue: 64 ECM requests, 64 accepted,
+**9 good answers**, average 1047 ms, Total Freeze 0.
+
+**Root cause.** `checkfreeze_setdcw()` (`src/ecmdata.c`, stock r82a, live
+behind `CHECK_NEXTDCW` and armed by `DCW CHECK: YES` in every shipped
+profile) began with
+
+    if ( dcwcmp16(dcw,ecm->lastdecode.dcw) ) return 0;
+
+It refused ANY control word identical to the last one delivered for the
+channel, without asking WHICH ECM asked. A provider repeats its CW across
+the ECMs of one crypto period — the tag flips 0x80/0x81 every few seconds
+while the key lives ten seconds or more — so on every second ECM the
+correct key was refused, the ECM zeroed and re-asked, and the retry refused
+it again because the same bytes met the same `lastdecode.dcw`. Six seconds
+later the ECM died of "decode failed, dcw timeout". Measured live with the
+new rig (real CCcam client, real newcamd card server answering one valid
+key, one channel, tags alternating):
+
+    stock : ECM1 tag80 DCW, ECM2 tag81 NOK (6005 ms), ECM3 tag80 DCW, ECM4 tag81 NOK
+    fixed : ECM1..ECM4 DCW (91 / 76 / 1 / 0 ms)
+
+Half of every channel's ECMs never answered, while the server page still
+showed the "Decode success" recorded by the ECM that first carried that
+key. Four lines agreeing had nothing to do with the black screen — the
+server was throwing the answer away after the first ECM of each period.
+
+**Fix.** The identical-key refusal is gone. Every call site already
+guarantees this is not a true duplicate: `setdcw.c` returns early when the
+ECM is already `STAT_DCW_SUCCESS`, and the reply paths (`srv-cccam.c`,
+`srv-camd35.c`) only re-test a key the server has already committed. What
+is left is the normal case — a provider repeating its key across the ECMs
+of one period — and the stale-answer case, which no key-only test at this
+point can tell apart from it; the consensus / attest layers judge that on
+their own evidence. A same-key delivery is harmless (the receiver asked
+for it); a refusal is a black screen by construction.
+
+**Why not simply turn DCW CHECK off.** The check has a real job: refusing a
+key that contradicts the half bookkeeping at delivery time. Turning it off
+in 72 profiles would have hidden the defect and dropped that protection.
+The failure was in the "identical key" test, not in the feature.
+
+**Proof.** New harness `tests/ccdcw.c` — the first CCcam *ECM client* in the
+rig (`checkfreeze` runs only in the CCcam / camd35 server paths, so none of
+the existing newcamd/cache rigs could reach it). New target `tests cf`:
+2/2 ok on the fixed tree, 2 of 4 ECMs answered on the stock tree. Wired
+into `tests all` after `sc`.
+
+**Limit of the proof.** The key the card server answers is constant, so the
+rig pins the *repeated-key* half of the defect. The `cwcycle` half-guess a
+few lines below (which can refuse a legitimate half change when no
+`cw1cycle` is declared for the SID) was NOT measured to fire in this
+report and is left untouched — policy after measurement, D9.

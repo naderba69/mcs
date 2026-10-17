@@ -5324,3 +5324,59 @@ qv:
 	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then rm -f $(QV_CFG) .qv-srv.log; echo "qv: 4/4 ok"; \
 	else echo "qv: FAILED (logs kept under tests/.qv-*)"; exit 1; fi
+
+# TASK R41 (D104) -- the SAME key on the NEXT ECM must still be delivered.
+#
+# The field report: a CCcam 2.3.2 client watching one channel, four lines
+# answering with the SAME valid key, the server page saying "Decode
+# success" -- and a black screen. The gate was checkfreeze_setdcw(): it
+# refused any control word identical to the last one delivered for the
+# channel, without asking WHICH ECM. A provider repeats its CW across the
+# ECMs of one crypto period (the tag flips 0x80/0x81 every few seconds,
+# the key lives ten or more), so every second ECM of the same period was
+# thrown away -- and the retry threw it away again -- until the DCW
+# timeout. Stock, measured here before the fix: ECM#1 tag 0x80 delivered
+# in 91 ms, ECM#2 tag 0x81 of the same channel NOK after 6005 ms, and so
+# on for every alternating ECM: half the stream never answered.
+#
+# The rig: a real newcamd card server (ncserver) answers ONE valid key,
+# a real CCcam client (ccdcw) asks four ECMs of one channel, the tag
+# alternating 0x80/0x81 with a different body each time (the identity
+# hash starts at byte 3, so the body must move too). All four must be
+# answered, and the server must log no decode failure.
+R41_HPORT = 16100
+R41_CARD  = 16101
+R41_NPORT = 16102
+R41_CPORT = 16103
+R41_CFG   = .r41-cf.cfg
+R41_SKEY  = 0102030405060708091011121314
+
+.ccdcw.bin: ccdcw.c ../src/sha1.c ../src/sha1.h ../src/md5.c
+	$(CC) -O2 -m64 -std=gnu89 -Wall -o $@ ccdcw.c
+	@chmod +x $@
+
+.PHONY: cf
+cf: .ccdcw.bin $(NCSERVER)
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.ncserver.bin' 2>/dev/null; sleep 1; chmod +x .ccdcw.bin $(NCSERVER) 2>/dev/null; true
+	@rm -f $(R41_CFG) .r41-ns.log .r41-srv.log .r41-cli.log; ok=1; \
+	{ printf 'HTTP PORT: $(R41_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n'; \
+	  printf 'DEFAULT DCW CHECK: YES\nCCCAM PORT: $(R41_CPORT)\nF: u1 p1\n'; \
+	  printf 'N: 127.0.0.1 $(R41_CARD) srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n\n'; \
+	  printf '[ r41 ]\nCAID: 0500\nPROVIDERS: 0\nPORT: $(R41_NPORT)\nDCW TIMEOUT: 6000\nDCW CHECK: YES\nUSER: u1 p1\n\n'; } > $(R41_CFG); \
+	NS_DELAYS=60 stdbuf -o0 -e0 ./$(NCSERVER) $(R41_CARD) $(R41_SKEY) 0500 000000 > .r41-ns.log 2>&1 & ns=$$!; \
+	sleep 1; \
+	stdbuf -o0 -e0 $(BIN) -C $(R41_CFG) -v > .r41-srv.log 2>&1 & srv=$$!; \
+	for i in $$(seq 1 30); do grep -q "connect to server" .r41-srv.log && break; sleep 1; done; \
+	sleep 3; \
+	timeout 70 ./.ccdcw.bin 127.0.0.1 $(R41_CPORT) u1 p1 0500 40 0x80 0x81 0x80 0x81 > .r41-cli.log 2>&1; \
+	kill $$srv $$ns 2>/dev/null; sleep 1; kill -9 $$srv $$ns 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	d=$$(grep -c ' DCW' .r41-cli.log); b=$$(grep -c ' NOK\| TIMEOUT' .r41-cli.log); \
+	if [ "$$d" = "4" ] && [ "$$b" = "0" ]; then \
+	  echo "  [ ok ] R41: all 4 ECMs of one crypto period answered (tag 0x80/0x81 alternating)"; \
+	else echo "[FAIL] R41: $$d of 4 answered, $$b refused -- see .r41-*.log"; ok=0; fi; \
+	if grep -q "decode failed to CCcam client" .r41-srv.log; then \
+	  echo "[FAIL] R41: the server logged a decode failure on a key it held"; ok=0; \
+	else echo "  [ ok ] R41: no decode failure for the repeated key (was: 6005 ms timeout on every 2nd ECM)"; fi; \
+	rm -f $(R41_CFG) .r41-ns.log .r41-srv.log .r41-cli.log; \
+	[ "$$ok" = "1" ]
