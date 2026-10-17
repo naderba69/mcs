@@ -21,15 +21,18 @@
  *   8-byte half real, the other zero). Default {09} = NDS, stock's
  *   behaviour. (Half-nulled SEEDS for such a family get the CW0/CW1
  *   cycle marks; keys for other families are refused at the gate.)
+ *   CARDPROV   -- card matching is provider-STRICT for these
+ *   families (loadbalance.c). Default {01, 05} = stock's Seca/
+ *   Viaccess rule, hard-coded there until TASK R39 (D98).
  *   NOPROVCHK  -- a profile matches a request WITHOUT the provider
  *   check. Default {18,09,0B} = Nagravision/NDS/Conax, stock's list
  *   at getcsbycaidprov() (main.c) -- the one site that ever used it.
  *   TASK R36 (D92) wired HALFNULLED; TASK R38 (D94) wired this flag
- *   at that same site, byte-identical by default. The card-selection
- *   sites in loadbalance.c keep stock's inverse rule (provider-strict
- *   only for Seca 01 / Viaccess 05): loosening card matching to this
- *   list would refuse real cards whose announced providers differ,
- *   so that side is deliberately NOT driven by this table.
+ *   at that same site, byte-identical by default. Card matching
+ *   keeps its own inverse rule as the separate CARDPROV flag
+ *   (D98): tightening IT to this list would refuse real cards
+ *   whose announced providers differ, so the two questions keep
+ *   two sets -- both now in this one table, both configurable.
  *
  * OWNERSHIP SEMANTICS (D71). cafamily_add() on a flag's FIRST family
  * clears that flag's defaults: the first `CAID FAMILY <FLAG>:` line owns
@@ -40,13 +43,14 @@
 #define MCS_CAFAMILY_H
 #include <stdint.h>
 
-/* Two flags (index into b[]): */
+/* Three flags (index into b[]): */
 #define CAFAM_HALFNULLED 0
 #define CAFAM_NOPROVCHK  1
+#define CAFAM_CARDPROV   2
 
 struct cafamily_tab {
-	uint32_t b[2][8]; /* 2 x 256 bits */
-	int owned[2];     /* first cafamily_add() on a flag drops its defaults */
+	uint32_t b[3][8]; /* 3 x 256 bits */
+	int owned[3];     /* first cafamily_add() on a flag drops its defaults */
 };
 
 /* Stock r82a defaults (D71): half-nulled keys for NDS only; the provider
@@ -57,6 +61,7 @@ static void cafamily_init(struct cafamily_tab *t)
 	for (i = 0; i < 8; i++) { t->b[CAFAM_HALFNULLED][i] = 0; t->b[CAFAM_NOPROVCHK][i] = 0; }
 	t->owned[CAFAM_HALFNULLED] = 0;
 	t->owned[CAFAM_NOPROVCHK] = 0;
+	t->owned[CAFAM_CARDPROV] = 0;
 	/* HALFNULLED default: {09} -- stock r82a's hard-coded NDS rule.
 	 * (A draft briefly shipped NONE here; the table had no parser and
 	 * no callers then, so the change was inert. TASK R36 (D92) wired
@@ -65,6 +70,10 @@ static void cafamily_init(struct cafamily_tab *t)
 	 * set from there.) */
 	/* NOPROVCHK default: 18, 09, 0B */
 	t->b[CAFAM_HALFNULLED][0x09 >> 5] |= (uint32_t)1 << (0x09 & 31);
+	/* CARDPROV default: {01, 05} -- stock's card-matching rule in
+	 * loadbalance.c (provider-strict for Seca/Viaccess only). */
+	t->b[CAFAM_CARDPROV][0x01 >> 5] |= (uint32_t)1 << (0x01 & 31);
+	t->b[CAFAM_CARDPROV][0x05 >> 5] |= (uint32_t)1 << (0x05 & 31);
 	t->b[CAFAM_NOPROVCHK][0x18 >> 5] |= (uint32_t)1 << (0x18 & 31);
 	t->b[CAFAM_NOPROVCHK][0x09 >> 5] |= (uint32_t)1 << (0x09 & 31);
 	t->b[CAFAM_NOPROVCHK][0x0B >> 5] |= (uint32_t)1 << (0x0B & 31);
@@ -72,7 +81,7 @@ static void cafamily_init(struct cafamily_tab *t)
 
 static void cafamily_own(struct cafamily_tab *t, int flag)
 {
-	if (flag != CAFAM_HALFNULLED && flag != CAFAM_NOPROVCHK) return;
+	if (flag != CAFAM_HALFNULLED && flag != CAFAM_NOPROVCHK && flag != CAFAM_CARDPROV) return;
 	if (!t->owned[flag]) {
 		int i;
 		for (i = 0; i < 8; i++) t->b[flag][i] = 0;
@@ -82,7 +91,7 @@ static void cafamily_own(struct cafamily_tab *t, int flag)
 
 static void cafamily_add(struct cafamily_tab *t, int flag, unsigned fam)
 {
-	if (flag != CAFAM_HALFNULLED && flag != CAFAM_NOPROVCHK) return;
+	if (flag != CAFAM_HALFNULLED && flag != CAFAM_NOPROVCHK && flag != CAFAM_CARDPROV) return;
 	fam &= 0xFF;
 	/* first configured family owns the set: drop the defaults */
 	cafamily_own(t, flag);
@@ -91,7 +100,7 @@ static void cafamily_add(struct cafamily_tab *t, int flag, unsigned fam)
 
 static int cafamily_has(const struct cafamily_tab *t, int flag, unsigned fam)
 {
-	if (flag != CAFAM_HALFNULLED && flag != CAFAM_NOPROVCHK) return 0;
+	if (flag != CAFAM_HALFNULLED && flag != CAFAM_NOPROVCHK && flag != CAFAM_CARDPROV) return 0;
 	fam &= 0xFF;
 	return (t->b[flag][fam >> 5] >> (fam & 31)) & 1;
 }
@@ -108,6 +117,15 @@ static int ca_halfnull_ok(unsigned caid)
 static int ca_provchk_skip(unsigned caid)
 {
 	return cafamily_has(&cafamily_tab, CAFAM_NOPROVCHK, caid >> 8);
+}
+
+/* TASK R39 (D98): card matching (loadbalance.c) is provider-strict
+ * only for these families -- stock's {01, 05}, now table-driven so
+ * both provider rules live in one table. `CAID FAMILY
+ * PROVIDERCHECK: 01, 05` owns this set like the other flags. */
+static int ca_card_prov_required(unsigned caid)
+{
+	return cafamily_has(&cafamily_tab, CAFAM_CARDPROV, caid >> 8);
 }
 
 #endif /* MCS_CAFAMILY_H */

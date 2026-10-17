@@ -676,7 +676,36 @@ int checkfreeze_setdcw( ECM_DATA *ecm, uint8_t dcw[16] )
 
 	if (!ecm->lastdecode.ecm) return 1; // no old successful decode, random select
 
-	if ( dcwcmp16(dcw,ecm->lastdecode.dcw) ) return 0;
+	/*
+	 * TASK R41 (D104) -- the same key on a NEW ECM is not a duplicate.
+	 *
+	 * Stock refused every control word identical to the last one it
+	 * delivered for the channel, with no test of WHICH ECM asked. But a
+	 * provider repeats its CW across the ECMs of one crypto period: the
+	 * tag flips 0x80/0x81 every few seconds while the key lives on for
+	 * ten or more. On every such ECM the correct key came back, matched
+	 * lastdecode.dcw and was thrown away -- and the retry threw it away
+	 * again, because setdcw re-runs this test on the same bytes. The ECM
+	 * then died of "decode failed, dcw timeout", the receiver kept the
+	 * previous period's key and the screen went black, while the server
+	 * pages still showed "Decode success" on the ECM that first carried
+	 * that key. Measured live (R41): CCcam client, card server answering
+	 * one valid key, ECM#1 tag 0x80 delivered in 92 ms, ECM#2 tag 0x81
+	 * of the same channel and the same key: never answered, timeout at
+	 * 6005 ms.
+	 *
+	 * The refusal is gone. Every call site already guarantees that this
+	 * is not a true duplicate: setdcw.c returns early when the ECM is
+	 * already STAT_DCW_SUCCESS, and the reply paths (srv-cccam.c,
+	 * srv-camd35.c) only re-test a key the server already committed.
+	 * What is left is the normal case -- a provider repeating its key
+	 * across the ECMs of one period -- and the stale-answer case, which
+	 * no key-only test here can tell apart from it; the consensus and
+	 * attest layers judge that on their own evidence. A same-key
+	 * delivery is harmless (the receiver asked for it); a refusal is a
+	 * black screen by construction.
+	 */
+	if ( dcwcmp16(dcw,ecm->lastdecode.dcw) ) return 1;
 
 	if ( dcwcmp8(dcw,nullcw) || dcwcmp8(dcw+8,nullcw) ) return 0;
 

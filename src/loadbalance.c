@@ -1,3 +1,4 @@
+#include "cafamily.h"	/* TASK R39 (D98): provider-strict families for card matching */
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -17,7 +18,7 @@ int cs_cmp_card( struct cs_card_data *card, struct cardserver_data *cs)
 		|| ((card->caid & 0xff00)==0x0900)
 		|| ((card->caid & 0xff00)==0x0b00) ) return 1;
 */
-	if ( ((card->caid & 0xff00)!=0x0100) && ((card->caid & 0xff00)!=0x0500) ) return 1;
+	if ( !ca_card_prov_required(card->caid) ) return 1; /* TASK R39 (D98): CAID FAMILY PROVIDERCHECK, stock default {01,05} */
 
 	for(i=0; i<card->nbprov;i++) {
 		found = 0;
@@ -40,7 +41,7 @@ int match_card( uint16_t caid, uint32_t prov, struct cs_card_data* card)
 {
 	if (caid!=card->caid) return 0;
 	// Dont care about provider for caid non via/seca
-	if ( ((card->caid & 0xff00)!=0x0100) && ((card->caid & 0xff00)!=0x0500) ) return 1;
+	if ( !ca_card_prov_required(card->caid) ) return 1; /* TASK R39 (D98): CAID FAMILY PROVIDERCHECK, stock default {01,05} */
 	int i;
 	for(i=0; i<card->nbprov;i++) if (prov==card->prov[i]) return 1;
 	return 0;

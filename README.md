@@ -16,7 +16,18 @@ A hardened fork of MultiCS r82a (x86_64) focused on **cache exchange integrity**
 - **Fake-CW kill gate** (R28): `DCWFILTER PATTERN` refuses shaped manufactured keys at delivery time.
 - **Independent-source consensus** (R29): `CACHE CONSENSUS SOURCES: 3` — nine lines echoing one fake never count as agreement.
 - **Receiver attestation** (R30–R31): `CACHE ATTEST: 2` — distinct clients re-asking too soon after the same delivered bytes file those bytes (300 s+), the stored entry is purged, and the shared ECM is retired. All client protocols attest; `CACHE PROTECTION: STANDARD` arms the whole stack in one line.
-- **Honest shipped profiles** (R32): `multics-r24-optimized.cfg` — 71 profiles, every line verified against the real parser, guarded live by `tests/prof`.
+- **Honest shipped profiles** (R32–R40): `multics-r24-optimized.cfg` — 72 profiles,
+  every line verified against the real parser, rewritten per CA family (R40), guarded
+  live by `tests/prof` and `tests/cfgcheck`.
+- **The repeated control word** (R41): `checkfreeze_setdcw()` refused any CW identical
+  to the last delivered one, without asking which ECM asked — every second ECM of a
+  crypto period died of `dcw timeout`. Proven live, fixed, pinned by `tests cf`.
+- **The fast correct answer** (R42): `DCW MINTIME: 100` was armed in 70 profiles and
+  threw away every card-server answer faster than 100 ms. The floor is now opt-in and
+  OFF in the shipped file; `tests/cfgcheck` fails if it is armed again.
+- **"Came back" means the same ECM** (R43): the receiver-attestation gate compared the
+  channel only, so normal ECM rotation filed valid keys as fake and blacked the channel
+  out for the TTL. The gate now requires the same ECM (hash + tag); pinned by `tests rt`.
 
 Start from `multics-r24-optimized.cfg` (profiles + shield) and `docs/FIELD-GUIDE-ar.md` (the field guide). Full history: `CHANGELOG.md`; per-round Arabic reports: `docs/REPORT-R*-ar.md`.
 
@@ -66,10 +77,10 @@ Key sections:
 ## Testing
 
 ```bash
-# Unit tests (1643 checks, 42 blocks)
+# Unit tests (42 blocks, 1025 counted assertions)
 make -C make-x64 test
 
-# Live integration tests (530 scenarios)
+# Live integration suite (488 ok, 0 failures, 29 conditional skips)
 make -C tests all
 
 # Soak test (1200s stress test)
@@ -86,17 +97,17 @@ cd make-x64 && bash memcheck.sh all
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — Internal architecture (1710 lines)
 - **[docs/FIELD-GUIDE-ar.md](docs/FIELD-GUIDE-ar.md)** — Operator's field guide
 - **[docs/COMPAT-ar.md](docs/COMPAT-ar.md)** — Peer compatibility matrix
-- **[docs/DECISIONS.md](docs/DECISIONS.md)** — Decision log D1–D76
+- **[docs/DECISIONS.md](docs/DECISIONS.md)** — Decision log D1–D106
 - **[docs/DEPLOYMENT-ar.md](docs/DEPLOYMENT-ar.md)** — Deployment guide
 - **[docs/CONFIG-REFERENCE-ar.md](docs/CONFIG-REFERENCE-ar.md)** — Configuration reference
 - **[docs/API-REFERENCE-ar.md](docs/API-REFERENCE-ar.md)** — HTTP/telnet API reference
 - **[docs/TROUBLESHOOTING-ar.md](docs/TROUBLESHOOTING-ar.md)** — Troubleshooting guide
 - **[docs/TESTING-ar.md](docs/TESTING-ar.md)** — Testing guide
-- **[docs/REPORT-*-ar.md](docs/)** — 50+ mission reports (R1–R21)
+- **[docs/REPORT-*-ar.md](docs/)** — 60+ mission reports (R1–R43)
 
 ## Project History
 
-This fork started from MultiCS r82a and underwent systematic hardening across 21 missions (R1–R21):
+This fork started from MultiCS r82a and underwent systematic hardening across the missions below (R1–R43):
 
 - **Phase 1 (R1–R12)**: Trust model, source tracking, CW reuse proof, cache purge, instant rotation, config keys, agreement ledger, retry detection, structural filters, cache preference, lock race fix.
 - **Phase 2 (2.1–2.10)**: Bounded buffers, login throttling, peer reputation, CW consensus, entropy checks, plausibility filters, cycle detection, negative marking, CM guard, time windows.
@@ -105,17 +116,19 @@ This fork started from MultiCS r82a and underwent systematic hardening across 21
 - **Reopening (3.8b)**: `parse_quotes` bounded (D53).
 - **Phase R13–R20**: Late-truth, pollution guard, channel health, CAID families, oscam compat, MAXHOP_LG, cccam client, cacheex visibility.
 - **Phase R21**: Closure (D76) — soak 1200s PASS, memcheck clean, DoD closed.
+- **Phase R26–R38**: Unified modern-CA layer, fake-CW kill gate, independent-source consensus, receiver attestation on every protocol, honest profiles, CA-family rewrite, and the audit gaps (D77–D101).
+- **Phase R39–R43**: Four audit gaps implemented (D98–D101), profiles rewritten per CA family (D102–D103), and three field-defect fixes proven live: the repeated control word (R41/D104), the fast correct answer thrown away by `DCW MINTIME` (R42/D105), and the new ECM misread as a retry (R43/D106).
 
 See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ## Verification
 
 - **Build**: gcc 14.2.0, GNU Make 4.4.1
-- **Units**: 1643 checks, 42 blocks, all green
-- **Integration**: 530 scenarios, 0 failures
+- **Units**: 42 blocks, 1025 counted assertions, 0 failures
+- **Integration**: `make -C tests all` — 488 ok, 0 failures, 29 conditional skips, exit 0 (R43, 2026-10-17)
 - **Soak**: 1200s stress test PASS (382 ECMs, RSS growth 220 kB)
 - **Memcheck**: ASan+UBSan clean, TSan clean (valgrind unavailable in sandbox)
-- **Fingerprints**: See [MANIFEST-md5](MANIFEST-md5) (422 entries)
+- **Fingerprints**: See [MANIFEST-md5](MANIFEST-md5) (564 entries, regenerated every round)
 
 ## Ground Rules (GR1–GR10)
 
