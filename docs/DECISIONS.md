@@ -4046,5 +4046,60 @@ floor, and for it this change is neutral: MINTIME 0 rejects nothing.
 100; `tests cfgcheck` 4 checks ok; `tests prof` 5/5; the shipped file boots
 with zero profile-variable warnings.
 
+## D106 (R43) — A retry is the same ECM, not the same channel
+
+**Question that started it.** "Does the receiver check the CW against the
+ECM?" No. The ECM is encrypted and only the card decrypts it; no protocol
+carries a negative ACK. The only honest signal is that the receiver asks
+AGAIN, which R30/D81 already reads as receiver attestation. This round asked
+whether that signal is read correctly.
+
+**Defect.** The attestation tap in all six server protocols compared the
+CHANNEL only (caid/provid/sid) plus "a delivery happened". A provider sends a
+fresh ECM every few seconds, so normal rotation was classified RETRY_HARD.
+Two clients simply watching filed the delivered key: cwattest purged the
+stored copy, retired every ECM already delivered with those bytes
+(`CW ATTEST ECM`), and the gate refused the bytes for the TTL (300 s). The
+resulting black screen was produced by our own shield, with a valid key and
+an innocent source.
+
+**Fix.** The gate requires the SAME ECM: `ecm->hash == lastecm.hash` and
+`ecm->ecm[0] == lastecm.tag`. The hash covers the ECM body from byte 3; the
+tag is added because a flipped 0x80/0x81 over the same body is a new ECM of
+the period too. Where the request is for an ECM not yet in the table
+(`ecm == NULL`), it is by definition new and cannot be evidence about the
+delivered one.
+
+**Supporting fix.** `newcamd` and `mgcamd` never recorded `lastecm.hash`
+(newcamd) or `lastecm.hash`+`lastecm.tag` (mgcamd). Without the record the
+tightened gate would never match there — a safe false negative, but it would
+leave those two protocols unable to attest at all, and mgcamd's freeze
+counter compared against an always-zero hash. Both paths now record what
+every other server path records.
+
+**Not changed.** The threshold (2 clients), the TTL, the counters, and the
+rule that nothing is scored and no source is disabled on attestation. A
+same-ECM re-ask is still RETRY_HARD; `tests cachecw` proves it on the fixed
+binary.
+
+**Proof (same build path, real CCcam clients, one cache peer answering one
+valid key).** Clients 1 and 2 each ask ECM 0x80:0 then the next ECM 0x81:1;
+a third client asks a fresh ECM 0x80:2 (the zapping viewer).
+
+    before : client1 2/2, client2 1/2, viewer NOK 3003 ms, CW ATTEST FILED at 2 clients
+    after  : client1 2/2, client2 2/2, viewer DCW, no filing
+
+**Limit.** The rig pins the NEW-ECM half, which is the false positive this
+round found. The same-ECM half was already pinned by cachecw and stays
+green. Attestation remains evidence, never proof: it expires, it scores
+nothing, and it disables no source.
+
+**Verification.** `tests rt` 3/3 (new), `tests cachecw` 8/8 (true positive
+intact), `tests cf` 2/2, `make -C make-x64 test` all green, `prof` 5/5,
+`cfgcheck` 4 checks ok.
+
+---
+
+
 ---
 

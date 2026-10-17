@@ -5380,3 +5380,64 @@ cf: .ccdcw.bin $(NCSERVER)
 	else echo "  [ ok ] R41: no decode failure for the repeated key (was: 6005 ms timeout on every 2nd ECM)"; fi; \
 	rm -f $(R41_CFG) .r41-ns.log .r41-srv.log .r41-cli.log; \
 	[ "$$ok" = "1" ]
+
+# TASK R43 (D106) -- a NEW ECM is not a retry.
+#
+# The field question: "the receiver checks the CW against the ECM -- true?"
+# No. The ECM is encrypted; only the card can decrypt it, and no protocol
+# carries a negative ACK. The one honest signal a receiver gives is that it
+# asks AGAIN, and the project already reads that (retry_detect.h, R30/D81).
+# The defect this target pins: the gate compared only the CHANNEL, so the
+# provider's next ECM -- a new hash every few seconds -- counted as "this
+# client re-asked because the key failed". Two receivers doing normal
+# rotation were enough to file a perfectly good key (cwattest) and black
+# the channel out for the whole TTL.
+#
+# The rig: one cache peer answers with ONE valid key, real CCcam clients
+# (ccdcw) ask. Phase A and B each ask ECM 0x80:0 then the next ECM 0x81:1
+# of the same crypto period. Phase C asks a genuinely new ECM 0x80:2 that
+# nobody has asked yet -- the zapping viewer. Before the fix phase C is
+# refused (the key was filed by phase A/B's normal rotation); after it,
+# every request is served. The true-positive half -- a client re-asking the
+# SAME ECM -- is pinned by `tests cachecw`, which runs in the same suite.
+RT_HPORT  = 16400
+RT_CACHE  = 16402
+RT_PEER   = 16403
+RT_CPORT  = 16404
+RT_NPORT  = 16405
+RT_CFG    = .rt-srv.cfg
+RT_CW     = 11223366445566FF77889998AABBCC31
+
+.PHONY: rt
+rt: .ccdcw.bin $(CACHEPEER)
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@rm -f $(RT_CFG) .rt-srv.log .rt-peer.log .rt-a.log .rt-b.log .rt-c.log; ok=1; \
+	{ printf 'HTTP PORT: $(RT_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nTELNET PORT: 0\n'; \
+	  printf 'CACHE PORT: $(RT_CACHE)\nCACHE PEER: 127.0.0.1:$(RT_PEER) { csp=1 }\n'; \
+	  printf 'CACHE FILTER: OFF\nCACHE ATTEST: 2\n'; \
+	  printf 'CCCAM PORT: $(RT_CPORT)\nF: u1 p1\nF: u2 p2\nF: u3 p3\n\n'; \
+	  printf '[ rt ]\nCAID: 1884\nPORT: $(RT_NPORT)\nUSER: u1 p1\nDCW CHECK: NO\nDCW TIMEOUT: 3000\n\n'; } > $(RT_CFG); \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(RT_CACHE) $(RT_PEER) $(RT_CW) 12 > .rt-peer.log 2>&1 & peer=$$!; \
+	sleep 1; \
+	stdbuf -o0 -e0 $(BIN) -C $(RT_CFG) -v > .rt-srv.log 2>&1 & srv=$$!; \
+	for i in $$(seq 1 40); do grep -q "come Online" .rt-srv.log && break; sleep 0.5; done; \
+	for i in $$(seq 1 40); do grep -q "advertised card" .rt-peer.log && break; sleep 0.5; done; \
+	sleep 1; \
+	timeout 40 ./.ccdcw.bin 127.0.0.1 $(RT_CPORT) u1 p1 1884 64 0x80:0 0x81:1 > .rt-a.log 2>&1; \
+	timeout 40 ./.ccdcw.bin 127.0.0.1 $(RT_CPORT) u2 p2 1884 64 0x80:0 0x81:1 > .rt-b.log 2>&1; \
+	timeout 40 ./.ccdcw.bin 127.0.0.1 $(RT_CPORT) u3 p3 1884 64 0x80:2 > .rt-c.log 2>&1; \
+	kill $$srv $$peer 2>/dev/null; sleep 1; kill -9 $$srv $$peer 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	a=$$(grep -c ' DCW' .rt-a.log); b=$$(grep -c ' DCW' .rt-b.log); c=$$(grep -c ' DCW' .rt-c.log); \
+	if [ "$$a" = "2" ] && [ "$$b" = "2" ]; then \
+	  echo "  [ ok ] R43: both clients served on the rotation (2+2 ECMs, one key)"; \
+	else echo "[FAIL] R43: rotation served $$a/2 and $$b/2 -- see tests/.rt-*.log"; ok=0; fi; \
+	if grep -q "CW ATTEST FILED" .rt-srv.log; then \
+	  echo "[FAIL] R43: normal ECM rotation filed the good key as bad (CW ATTEST FILED)"; ok=0; \
+	else echo "  [ ok ] R43: a new ECM inside the retry window is not evidence -- no filing"; fi; \
+	if [ "$$c" = "1" ]; then \
+	  echo "  [ ok ] R43: the late viewer's fresh ECM is served (was: black screen for the TTL)"; \
+	else echo "[FAIL] R43: the fresh ECM after rotation was refused -- the good key was filed"; ok=0; fi; \
+	if [ "$$ok" = "1" ]; then rm -f $(RT_CFG) .rt-srv.log .rt-peer.log .rt-a.log .rt-b.log .rt-c.log; \
+	else echo "[FAIL] logs kept under tests/.rt-*"; fi; \
+	[ "$$ok" = "1" ]

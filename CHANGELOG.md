@@ -6,6 +6,44 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R43 — The Next ECM Is Not a Retry: a good key was filed as fake (2026-10-17)
+
+**Decisions:** D106
+
+### Fixed (product code)
+- **The receiver-attestation gate (R30/D81) counted a NEW ECM as a re-ask.**
+  It compared only the channel (CAID/provider/SID), so the provider's normal
+  rotation — a fresh ECM every few seconds — read as "this client came back
+  because the key failed". Two clients doing nothing but watching were enough
+  to file a perfectly good key as bad: the stored copy was purged, every ECM
+  already delivered with those bytes was retired, and the key was refused at
+  the gate for the whole TTL (300 s). A viewer who zapped in during that window
+  got a black screen, with no source at fault.
+- The gate now requires the **same ECM**: same identity hash AND same tag.
+  A same-ECM re-ask is still `RETRY_HARD`, unchanged.
+- `lastecm.hash`/`lastecm.tag` are now recorded in the `newcamd` and `mgcamd`
+  server paths, which never set them; without that the tightened gate could
+  never match there (and mgcamd's freeze counter always saw "different").
+
+### Added
+- **`tests/ccdcw` body seeds** (`0x80:2`): a second ECM body for the same tag,
+  so a rig can ask a genuinely new ECM instead of re-asking the delivered one.
+- **`tests rt`** — live regression wired into `tests all`: one cache peer, one
+  valid key, two clients rotating ECMs, then a late viewer's fresh ECM. Before
+  the fix: `CW ATTEST FILED` and the late viewer times out. After: 5/5 served,
+  no filing.
+
+### Measured (same binary build path, real CCcam clients)
+| tree | client 1 | client 2 | late viewer (new ECM) | filing |
+|---|---|---|---|---|
+| before | 2/2 | **1/2** | **NOK (3003 ms)** | **`CW ATTEST FILED`** |
+| after | 2/2 | 2/2 | **DCW** | none |
+
+The true-positive path is pinned by `tests cachecw`, which still reports
+`RETRY_HARD` for a client re-asking the same ECM on the fixed binary.
+
+---
+
 ## R42 — The Fast Correct Answer Was Being Thrown Away: DCW MINTIME armed in 70 profiles (2026-10-17)
 
 **Decisions:** D105

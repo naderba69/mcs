@@ -182,7 +182,7 @@ static int cc_msg_send(int fd, struct cc_crypt_block *sb, int cmd, int len, uint
 }
 
 /* ------------------------------------------------------------------ */
-static void ecm_build(uint16_t sid, uint8_t tag, uint8_t *ecm)
+static void ecm_build(uint16_t sid, uint8_t tag, int seed, uint8_t *ecm)
 {
 	int i;
 	memset(ecm, 0, 64);
@@ -193,7 +193,10 @@ static void ecm_build(uint16_t sid, uint8_t tag, uint8_t *ecm)
 	 * only flipped the tag would be the SAME ECM to the server. Vary the
 	 * body with the tag: a different tag AND a different payload is one
 	 * new ECM of the same channel, which is what the stream sends. */
-	for (i = 3; i < 64; i++) ecm[i] = (uint8_t)(i * 7 + 1 + (sid & 0xFF) + (tag & 0x0F));
+	/* TASK R43 (D106): `seed` makes a SECOND body for the same tag,
+	 * so a test can ask a genuinely new ECM (new identity hash) of
+	 * the same channel instead of re-asking the delivered one. */
+	for (i = 3; i < 64; i++) ecm[i] = (uint8_t)(i * 7 + 1 + (sid & 0xFF) + (tag & 0x0F) + seed * 0x40);
 }
 
 static int tcp_connect(const char *host, int port)
@@ -277,10 +280,14 @@ int main(int argc, char **argv)
 	if (cc_msg_send(fd, &sendblock, CC_MSG_CLI_INFO, 64, buf) < 0) goto connfail;
 
 	for (ecmno = 7; ecmno < argc; ecmno++) {
-		int tag = (int)strtol(argv[ecmno], NULL, 0);
+		/* "0x80" or "0x80:2" -- the suffix is the body seed (R43). */
+		char *pend = NULL;
+		int seed = 0;
+		int tag = (int)strtol(argv[ecmno], &pend, 0);
+		if (pend && *pend == ':') seed = (int)strtol(pend + 1, NULL, 0);
 		int got_dcw = 0, got_nok = 0;
 
-		ecm_build(sid, (uint8_t)tag, ecm);
+		ecm_build(sid, (uint8_t)tag, seed, ecm);
 		memset(payload, 0, sizeof(payload));
 		payload[0] = caid >> 8;
 		payload[1] = caid & 0xff;
