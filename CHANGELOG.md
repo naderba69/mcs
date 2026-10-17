@@ -42,6 +42,14 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 The true-positive path is pinned by `tests cachecw`, which still reports
 `RETRY_HARD` for a client re-asking the same ECM on the fixed binary.
 
+### Verified
+Full `make -C tests all` on the final tree: **488 ok, 0 failures, 29
+conditional skips, exit 0** — the first fully green complete suite since the
+work began; `rt` 3/3, `cachecw` 8/8, `cf` 2/2, `prof` 5/5, `cfgcheck` 4
+checks ok. Unit suite: 42 blocks, 1025 counted assertions, 0 failures.
+Releases rebuilt (stock/stats/queue/queue-stats) and `MANIFEST-md5`
+regenerated over every tracked file.
+
 ---
 
 ## R42 — The Fast Correct Answer Was Being Thrown Away: DCW MINTIME armed in 70 profiles (2026-10-17)

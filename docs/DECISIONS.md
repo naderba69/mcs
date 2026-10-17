@@ -4094,9 +4094,10 @@ round found. The same-ECM half was already pinned by cachecw and stays
 green. Attestation remains evidence, never proof: it expires, it scores
 nothing, and it disables no source.
 
-**Verification.** `tests rt` 3/3 (new), `tests cachecw` 8/8 (true positive
-intact), `tests cf` 2/2, `make -C make-x64 test` all green, `prof` 5/5,
-`cfgcheck` 4 checks ok.
+**Verification.** Full `make -C tests all`: 488 ok, 0 failures, 29
+conditional skips, exit 0. `tests rt` 3/3 (new), `tests cachecw` 8/8 (true
+positive intact), `tests cf` 2/2, unit suite 42 blocks / 1025 assertions all
+green, `prof` 5/5, `cfgcheck` 4 checks ok.
 
 ---
 
