@@ -3816,6 +3816,8 @@ void http_send_profile(int sock, http_request *req)
 	sprintf( http_buf,"<tr><td>SERVER TIMEOUT</td><td>%dms</td></tr>", cs->option.server.timeout); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 //	sprintf( http_buf,"<tr><td>SERVER TIMEPERECM:</td><td>%d</td></tr>", cs->option.server.timeperecm); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf,"<tr><td>SERVER VALIDECMTIME</td><td>%dms</td></tr>", cs->option.server.validecmtime); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf,"<tr><td>DCW VALIDECMTIME</td><td>%dms</td></tr>", cs->option.dcw.validecmtime); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) ); /* TASK R44 */
+	sprintf( http_buf,"<tr><td>ENABLE ECMLOOPING</td><td>%s</td></tr>", yesno(cs->option.ecmlooping)); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) ); /* TASK R44 */
 	sprintf( http_buf,"<tr><td>SERVER FIRST</td><td>%d</td></tr>", cs->option.server.first); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	//
 	sprintf( http_buf,"<tr><td>ACCEPT NULL CAID</td><td>%s</td></tr>", yesno(cs->option.faccept0caid) ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );

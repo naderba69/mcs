@@ -4104,3 +4104,66 @@ green, `prof` 5/5, `cfgcheck` 4 checks ok.
 
 ---
 
+
+## D107 (R44) — Two opt-in CA controls: a late key is refused, and a keyless round is asked again
+
+**Scope.** The owner approved exactly two changes after the R43 merge: (1) a
+per-profile limit on how late a control word may arrive (`DCW VALIDECMTIME`),
+and (2) `ENABLE ECMLOOPING`, which asks the same servers again when every one of
+them answered without a key. Both are opt-in and OFF in the shipped file and in
+the stock build's behaviour. The frozen D53 pair is untouched.
+
+**(1) `DCW VALIDECMTIME: <ms>`** (0 = off, the default; range 0–5000, clamped).
+A control word is refused when it arrives more than `<ms>` after the ECM was
+first received (`ecm->recvtime`, the same clock the DCW timeout uses). The
+decision is a pure function, `dcw_arrives_too_late(now, recvtime, limit)`, in
+`src/dcwtiming.h`, and it runs before both `acceptDCW_profile_ca_sid` calls in
+`setdcw.c`. A refused word is logged as `[VALIDECMTIME]` and skipped; the ECM
+then follows the normal timeout. It is not added to any counter. Limit 0 never
+refuses.
+
+**(2) `ENABLE ECMLOOPING: YES`** (default NO). When the last server asked for an
+ECM has answered without a key and no server is left, the ECM is asked again
+of the same servers, at most `ECMLOOP_MAX` = 2 rounds, while the server window is
+still open. Each round clears the per-ECM server table (`ecm_resetservers`) and
+is logged as `[ECMLOOPING]`. A paid ECM is never re-sent by this path.
+
+**Three defects found by the live proof, all fixed before the decision:**
+- **No round fired after the last keyless reply.** The reply path set the
+  failure flag but nothing woke the ECM thread before the DCW timeout, so the
+  round was only seen after the whole timeout had elapsed. `ecm_setsrvflag`
+  now, and only when the option is on, makes the ECM due now and sends the same
+  `PIPE_SRV_AVAILABLE` wake the reply paths use. The wake must come AFTER the
+  flag: the reply paths send it before, and that wake is consumed too early.
+- **A round fired with nobody asked.** With no server connected yet,
+  `srvtab_arrange` also returns -1, so the loop ran with zero sends. The
+  predicate now requires `server_totalsent > 0`.
+- **The live rig never sent a keyless reply.** `cs_message_send` writes the body
+  length into header bytes 1–2; a 16-byte control word therefore reads `0x10`
+  there, and a keyless answer must be a bare 3-byte header (length 0). The
+  first rig build sent a full 19-byte reply and so tested nothing. Fixed in
+  `tests/ncserver.c` (`NS_NOK_FIRST`).
+
+**Proof (`make -C tests r44`, one real CCcam client, one real newcamd card
+server, a fresh process per case).**
+
+    A late key      limit 800, card 1500 ms : client DCW=0, [VALIDECMTIME] logged
+    B control       no limit,  card 1500 ms : client DCW=1   (stock behaviour)
+    C inside limit  limit 800, card 300 ms  : client DCW=1
+    D loop OFF      first reply keyless     : DCW=0, card replies=1 (stock)
+    E loop ON       first reply keyless     : DCW=1, card replies=2, [ECMLOOPING] logged
+    F loop bounded  every reply keyless     : DCW=0, card replies=3, then stops
+
+Unit proof: `make -C make-x64 test`, plus `x64/test_dcwtiming`, 16 checks
+covering the limit boundaries and the round predicate (including the
+nobody-asked case).
+
+**Not decided here.** This round does not address channel `1884:000000:1136`
+(the field NOK at 2003 ms). That failure is a configuration question about
+SKIPCWC and the checksum filter, which is still open with the owner. Nothing
+here changes that profile.
+
+**Limits.** The live rig uses one card server. Multi-server rounds are proven
+only by the unit predicate, not live. `DCW VALIDECMTIME` measures from the
+first ECM arrival, not from the last resend, which is deliberate: a resend must
+not reset the clock that protects against a late key.

@@ -1,5 +1,5 @@
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-5fb5468a6f78ef77f926bed24b186208  CHANGELOG.md
+fe54146ab3f2c8bcbb4ee718d676b134  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
@@ -30,7 +30,7 @@ a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 ec5b0f81b3d501843c4f61f5e9074dc6  docs/COMPAT-ar.md
 c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 48215436613e05f450664ced32128a99  docs/CONFIG-REFERENCE-ar.md
-f02db71ec9bd294d8e8b05a35f9d8b4b  docs/DECISIONS.md
+a46e0fddd6f24d5d13e8bab1c2e4428e  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
 645deb7ab4b313e8009d8a204a94573e  docs/FIELD-GUIDE-ar.md
@@ -271,7 +271,7 @@ a1a4c6908cb92319e0d923ebf04febbe  make-cross/Makefile
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
 71db1eb7a48e9eadf5b006e521c7c068  make-cross/cross-mipsel/multics
 dd70e1f361729a919b007241f311c9b1  make-cross/cross-sh4/multics
-4cdfc20f00473e74cc143f4be94a212e  make-x64/Makefile
+a2843d0d6cac934e3bfbba674cf27690  make-x64/Makefile
 650fd7a14c324c80ce132d7f17016244  make-x64/memcheck.sh
 846da9f9d1b473bb531ac20393fc0613  make-x64/memcheck.supp
 441ca78d955dc9a8fc2eb605d4ec8856  make-x64/port_gnu89.h
@@ -308,6 +308,7 @@ c1ae4f94eaaa4cb4056c7345f469857a  make-x64/test_cwlog.c
 dee4df6ee4259dac30ad398b558ac1fc  make-x64/test_dcwfilter.c
 337c306f88bdb94cfaa7b9a0d06eaa5c  make-x64/test_dcwstats.c
 389f254ed099cd00d8ae34453bc49440  make-x64/test_dcwstruct.c
+e93cc8fdd9a1cf845a4041af0dfd1ab3  make-x64/test_dcwtiming.c
 dea07d147e62ff1203b2d9a17d8a486a  make-x64/test_debugcore.c
 066a660817a29e57b1faca730f5a6d3a  make-x64/test_htmlesc.c
 15838758f10383b15d76cfa4e0199c8f  make-x64/test_ledger.c
@@ -372,8 +373,8 @@ dab16ded17636914eb5d75a9d7ce0b30  src/chanhealth.h
 1977c8ddc067ba110703b4564959322b  src/clientbuf.h
 6e50862442a47f4ade4bfe034c1151a2  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-e3f826e3ab085ab7b123a531e2b4b321  src/config.c
-adec1c624dd6289c3956bfff2a5e72dc  src/config.h
+635a6fef5027fe9aebc011bb042fadc1  src/config.c
+4a0ea8017dfc01202c76ff0583e18c14  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
 40863224046ccab4dbc0b957c87ebe99  src/country.c
@@ -435,6 +436,7 @@ db537c3f1010682b1cddfdf12af734e0  src/dcw.h
 a5fa6ed31e82f2b82e1f2a58bea02ad2  src/dcwstats.h
 d17607fd1166cd87fe4df0d8f5ff268d  src/dcwstrict.h
 a01d421a3390eb25ab90d0ecc26899bf  src/dcwstruct.h
+b17b7f1a10aa1ae1cc790290dccd0d5c  src/dcwtiming.h
 290a255cb00b2014c9e9a1f1c10a89af  src/debug.c
 b3e06a3ae58adfeabf113d06f7e86133  src/debug.h
 5ac70aeabbab7f3139464e4c10035b1d  src/debugcore.h
@@ -445,14 +447,14 @@ ee210101a52467b26a1638a978545a09  src/ecm-optimizations.c
 92e1a2b2763ec226704189fc431e2301  src/ecm-optimizations.h
 065a86e5092f6f1c8924dd5fde41468a  src/ecmcache.h
 79411654bcaa3e4661229a7c51cb20ce  src/ecmcompress.h
-29d0484a3688288963622ea1887998d7  src/ecmdata.c
-dc0bd1980e2b9de5bb6dadc573ba3168  src/ecmdata.h
+e9762485e77bda84a3a29553e5ffcee9  src/ecmdata.c
+663e3188bc43f9e7348e11f30e1fd557  src/ecmdata.h
 38f0d7ee59c57bc9a9c29690d2960da5  src/ecmprefetch.h
 54373e8292d92f415ebccef5266a09a3  src/fallback.h
 35e6ede5769c06a8a22850ff9a16851b  src/fastretx.h
 53bf1ba928072a0c68dcb81566acb029  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-7311a209cf1b8743bfece5328519b93e  src/httpserver.c
+7ce2e509a596f9234c0b4051e39e971d  src/httpserver.c
 f5b6ea3dc27287ae7b1411316bde8b72  src/httpserver.h
 a43344053ef6be6a6af0b301eae0fd34  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
@@ -503,7 +505,7 @@ bb42a53e55698772ba3b4e6dd8fb80f6  src/scramchk.h
 7c07391929b577661750fb0ae1a06f25  src/server-health.c
 046230d093f4a8bef1480c7fa026523f  src/server-health.h
 443bfe888cce44b30ec6639915ec090c  src/server-performance.h
-7c957a9ba0632bc520202bb0b27a7db6  src/setdcw.c
+3f01d48c0e968225d044aaec547aa0d2  src/setdcw.c
 193aeae3fb6e68449c2281c4b07d9773  src/sha1.c
 f245f7e5032e0752df586d67ed24942a  src/sha1.h
 9cfcb141eba70989f1caf2ff070cc994  src/sha256.c
@@ -527,7 +529,7 @@ e79043a4563b3f9a8cf0acacc292f691  src/telnet.h
 3276e29ab436ad2694698a0a1ea9be7a  src/th-cfg.c
 f79f0bec8fa0d48f1d16950b820aa08f  src/th-date.c
 74c10a6dc462b5e75dc4eb2ce6113302  src/th-dns.c
-868ddf04102d6fb19f83e6dd69836566  src/th-ecm.c
+d3de7d186964df1ac9180bd4fb635519  src/th-ecm.c
 316f991009de3bd06c1de5059addb60e  src/th-srv.c
 c38b5031ba9adc40d8450b7e339a66b7  src/threads.c
 97a758fbc46ecddfa48ba7166fb6a7ed  src/threads.h
@@ -543,7 +545,7 @@ af09ddc7d479b76a2bd9a9bbc69aef24  src/twin.c
 3df6fdaba14614992ffcf0c168682c2b  src/zerolatency.h
 49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-e834c9dbb56d67c53a4273c36f6529d0  tests/Makefile
+fb7603dc4a2884d782c864be92d4b629  tests/Makefile
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 518ab2e1a2864eee5bab964fc612aa4f  tests/ca-bite.c
 5081b47e7ffe26768c6f69153719d4e4  tests/cachepeer.c
@@ -557,9 +559,10 @@ a16adeb896de5c72ffea07012c9c44d3  tests/dt-probe.c
 be36a40834f6b8b4be29de871b8843a5  tests/multics-filter.cfg
 b2caeeac7e48b211710f9236a020fdb7  tests/multics-live.cfg
 26566d656bd6e5da2e27dd21771a206b  tests/ncclient.c
-45fd5df42eb90b259a77baf3a0e42eff  tests/ncserver.c
+c732a14bcd22f50c229e54a1a195b1e9  tests/ncserver.c
 b15af4b90f3df83d9880d9601260f980  tests/r107peer.c
+9dc1dbd8345bc31bcc37a4c65915e731  tests/r44.sh
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
-c71990ec89d99cbaafdebae6e2ddff1b  tests/stability.mk
+f655ac7a216aa705bc47535f2d42a9e7  tests/stability.mk
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c

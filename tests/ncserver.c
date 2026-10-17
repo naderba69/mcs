@@ -165,6 +165,7 @@ static void make_cw(uint8_t cw[16], uint16_t sid)
 
 static int delays[256];
 static int ndelays = 0;
+static unsigned long nok_first = 0;   /* R44: NS_NOK_FIRST, replies sent without a key */
 
 static void load_delays(void)
 {
@@ -209,6 +210,8 @@ int main(int argc, char **argv)
 			sscanf(argv[2] + i * 2, "%2hhx", &key[i]);
 	}
 	if (getenv("NS_VERBOSE")) verbose = atoi(getenv("NS_VERBOSE"));
+	/* R44: the first N replies carry no key (a decode failure), the rest are valid */
+	if (getenv("NS_NOK_FIRST")) nok_first = (unsigned long)atol(getenv("NS_NOK_FIRST"));
 	load_delays();
 	srand(4321);   /* reproducible keymods: a failing run can be replayed */
 
@@ -330,20 +333,22 @@ int main(int argc, char **argv)
 				if (d > 0) usleep((useconds_t)d * 1000);
 				t1 = ms_now();
 
+				/* R44: a keyless answer is a bare 0x81 header (length 0). cs_message_send
+				 * writes the body length into out[1..2], so a 16-byte CW reads 0x10 there
+				 * and anything else is a decode failure on the client side. */
+				int nok = (replies < nok_first);
 				memset(out, 0, sizeof(out));
 				out[0] = 0x81;
-				out[1] = 0;
-				out[2] = 0x10;
-				memcpy(out + 3, cw, 16);
-				if (!cs_message_send(fd, &cd, out, 19, sessionkey)) {
+				if (!nok) memcpy(out + 3, cw, 16);
+				if (!cs_message_send(fd, &cd, out, nok ? 3 : 19, sessionkey)) {
 					printf("NCSERVER: send failed\n");
 					close(fd);
 					break;
 				}
 				replies++;
 				if (verbose)
-					printf("NCSERVER: reply %lu ch %04x:%06x:%04x delayed %d ms (measured %ld ms)\n",
-					       replies, cd.caid, cd.provid, sid, d, t1 - t0);
+					printf("NCSERVER: reply %lu ch %04x:%06x:%04x delayed %d ms (measured %ld ms)%s\n",
+					       replies, cd.caid, cd.provid, sid, d, t1 - t0, nok ? " NO KEY" : "");
 				fflush(stdout);
 			}
 		}

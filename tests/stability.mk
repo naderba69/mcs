@@ -5441,3 +5441,14 @@ rt: .ccdcw.bin $(CACHEPEER)
 	if [ "$$ok" = "1" ]; then rm -f $(RT_CFG) .rt-srv.log .rt-peer.log .rt-a.log .rt-b.log .rt-c.log; \
 	else echo "[FAIL] logs kept under tests/.rt-*"; fi; \
 	[ "$$ok" = "1" ]
+
+# TASK R44 (D107) -- DCW VALIDECMTIME (a late key is refused) and ENABLE
+# ECMLOOPING (every server keyless -> ask the same servers again, bounded).
+# The live rig and its six cases are documented in r44.sh.
+.PHONY: r44
+r44: .ccdcw.bin $(NCSERVER)
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 -x '.ncserver.bin' 2>/dev/null; sleep 1; true
+	@rm -f .r44-results.txt; \
+	if sh r44.sh $(BIN) ./$(NCSERVER) ./.ccdcw.bin; then echo "  r44: all cases as designed"; \
+	else echo "[FAIL] r44: see tests/.r44-*.log"; exit 1; fi

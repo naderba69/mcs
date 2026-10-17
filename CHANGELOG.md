@@ -6,6 +6,47 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R44 — Two opt-in CA controls: a late key is refused, a keyless round is asked again (2026-10-17)
+
+**Decisions:** D107
+
+### Added (product code, both OFF by default)
+- **`DCW VALIDECMTIME: <ms>`** (per profile; 0 = off, range 0–5000). A control
+  word arriving more than `<ms>` after the ECM was first received is logged as
+  `[VALIDECMTIME]` and skipped. Decision in `src/dcwtiming.h`, applied in
+  `src/setdcw.c` before both acceptance calls.
+- **`ENABLE ECMLOOPING: YES`** (default NO). When every server asked has
+  answered without a key and none is left, the same ECM is asked again of the
+  same servers, at most 2 rounds, while the window is open. Logged as
+  `[ECMLOOPING]`. Implemented in `src/th-ecm.c`; `ecm_resetservers` in
+  `src/ecmdata.c`.
+- Both settings are in the status page (`httpserver.c`).
+
+### Fixed while proving it
+- After the last keyless reply, the ECM thread was not woken, so a round was
+  only seen when the whole DCW timeout had elapsed. The flag now makes the ECM
+  due at once and wakes the thread, only when ECMLOOPING is on.
+- A round could fire with nobody asked (no server connected yet). Now it needs
+  at least one send.
+
+### Tests
+- `tests/stability.mk`: new target `r44` (in `make -C tests all`), driven by
+  `tests/r44.sh`: six live cases with a real CCcam client and a real newcamd
+  card server. A late key is refused; the same late key is served with no
+  limit; a key inside the limit is served; with the loop off the stock single
+  round holds; with the loop on round 2 serves the key; with every reply
+  keyless the loop stops after 3 sends.
+- `tests/ncserver.c`: `NS_NOK_FIRST=N` makes the first N replies keyless (a bare
+  0x81 header, length 0). Before this, the rig could not produce a keyless reply.
+- `make-x64/test_dcwtiming.c`: 16 checks on the limit boundaries and the round
+  predicate; wired into `make -C make-x64 test`.
+
+### Not changed
+- Channel `1884:000000:1136` is not touched by this round. Its failure is a
+  configuration question (SKIPCWC and the checksum filter), still open.
+
+---
+
 ## R43 — The Next ECM Is Not a Retry: a good key was filed as fake (2026-10-17)
 
 **Decisions:** D106

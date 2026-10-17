@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "cafamily.h"	/* TASK R36 (D92) */
+#include "dcwtiming.h"	/* TASK R44: DCW VALIDECMTIME gate */
 #include <stdlib.h>
 
 inline void peer_hitprofile( struct cachepeer_data *peer, int csid )
@@ -243,6 +244,19 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 				break;
 			}
 		}
+	}
+
+	/*
+	 * TASK R44 -- DCW VALIDECMTIME (per profile, 0 = off, the stock default).
+	 * A control word that reaches us more than the profile's limit after the
+	 * ECM was first received is refused, whatever its source. The request
+	 * stays open for a source that answers in time; the client does not see a
+	 * late key. Measured from ecm->recvtime, the first time the ECM arrived.
+	 */
+	if (dcw_arrives_too_late(GetTickCount(), ecm->recvtime, cs->option.dcw.validecmtime)) {
+		debugf(DBG_ERROR, " !!! [VALIDECMTIME] %s: CW for ch %04x:%06x:%04x came %ums after the ECM, limit %dms - late, CW skipped\n",
+			cs->name, ecm->caid, ecm->provid, ecm->sid, (unsigned)(GetTickCount()-ecm->recvtime), cs->option.dcw.validecmtime);
+		return;
 	}
 
 	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;
@@ -645,6 +659,19 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 				break;
 			}
 		}
+	}
+
+	/*
+	 * TASK R44 -- DCW VALIDECMTIME (per profile, 0 = off, the stock default).
+	 * A control word that reaches us more than the profile's limit after the
+	 * ECM was first received is refused, whatever its source. The request
+	 * stays open for a source that answers in time; the client does not see a
+	 * late key. Measured from ecm->recvtime, the first time the ECM arrived.
+	 */
+	if (dcw_arrives_too_late(GetTickCount(), ecm->recvtime, cs->option.dcw.validecmtime)) {
+		debugf(DBG_ERROR, " !!! [VALIDECMTIME] %s: CW for ch %04x:%06x:%04x came %ums after the ECM, limit %dms - late, CW skipped\n",
+			cs->name, ecm->caid, ecm->provid, ecm->sid, (unsigned)(GetTickCount()-ecm->recvtime), cs->option.dcw.validecmtime);
+		return;
 	}
 
 	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;

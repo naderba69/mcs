@@ -73,6 +73,7 @@ struct ecm_request {
 	int cw1cycle; // 0x80 / 0x81
 
 	unsigned int checktime; // time when recheck the ecm.
+	uint8_t loops; // R44 ECMLOOPING: extra rounds already sent to the same servers
 	unsigned int waitserver; // wait for available server.
 
 	unsigned char cachestatus;// 0:nothing sent;; 1:request sent;; 2:reply sent
@@ -135,6 +136,7 @@ struct ecm_request *search_ecmdata_byhash( uint16_t caid, uint16_t sid,uint32_t 
 struct ecm_request *search_ecmdata_byecmd5( uint16_t caid, uint32_t provid, uint8_t ecmd5[16] );
 
 int ecm_addsrv(ECM_DATA *ecm, unsigned srvid);
+void ecm_resetservers(ECM_DATA *ecm); /* TASK R44 */
 void ecm_addsrvip(ECM_DATA *ecm, unsigned int ip);
 int ecm_checksrvip(ECM_DATA *ecm, unsigned int ip);
 int ecm_nbsentsrv(ECM_DATA *ecm);
