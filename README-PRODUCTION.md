@@ -127,7 +127,7 @@
 **سرعة:**
 ```
 ✅ CACHE TIMEOUT: 350ms → 250ms (29% أسرع)
-✅ DCW MINTIME: 150ms → 100ms (33% أسرع)
+✅ DCW MINTIME: مطفأ (0) — الحد القديم كان يرمي إجابات صحيحة سريعة (D105)
 ✅ SERVER FIRST: 3 → 2 (33% أسرع)
 ✅ SERVER TIMEOUT: 1000ms → 800ms (20% أسرع)
 ✅ FILTER TIME: 100ms → 50ms (50% أسرع)
@@ -374,7 +374,7 @@ SERVER INTERVAL: 100ms            (100ms بين المحاولات)
 ⚠️ SuperSmartFilter: DISABLED (CACHE SF_FILTER: 0)
 ⚠️ DCW STRICT: DISABLED (DEFAULT DCW STRICT: NO)
 ✅ DCW CHECK: YES (التحقق الأساسي مفعّل)
-✅ DCW MINTIME: 100ms (الحد الأدنى)
+✅ DCW MINTIME: 0 (مطفأ افتراضيًا — فعّله بنفسك فقط إن أردت، D105)
 ```
 
 **ملاحظة:** تم تعطيل الأنظمة الصارمة (SuperSmartFilter + DCW STRICT) لضمان استقرار جميع الباقات.

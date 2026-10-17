@@ -4002,3 +4002,49 @@ rig pins the *repeated-key* half of the defect. The `cwcycle` half-guess a
 few lines below (which can refuse a legitimate half change when no
 `cw1cycle` is declared for the SID) was NOT measured to fire in this
 report and is left untouched — policy after measurement, D9.
+
+## D105 (R42) — DCW MINTIME is opt-in and OFF in the shipped file
+
+**Context.** Field follow-up on the same receiver: channel 1884:000000:1168
+never opened at all, and the 1814 MEO profile still froze. The lines were
+healthy and the keys correct. The suspicion fell on the profile file: it
+armed `DCW MINTIME: 100` in 70 of 72 profiles (D88/R36, completed in R38/D96).
+
+**Root cause, measured.** The floor is applied to card-server answers only
+(cache is exempt). A line answering faster than 100 ms has its correct key
+discarded with `[MINTIME] ... too fast to be real, CW skipped`; the ECM then
+waits for another source and dies of `decode failed, dcw timeout`. Live lab,
+same binary, a real card server answering in ~30 ms on 1884:000000:1168,
+four ECMs with alternating tags:
+
+    MINTIME 100 : ECM1 TIMEOUT, ECM2/3/4 NOK, two [MINTIME] lines, decode failed 6005 ms
+    MINTIME 0   : ECM1..ECM4 DCW, no MINTIME line, no decode failure
+
+This reproduces both field shapes at once: a channel that opens from cache
+and freezes when it needs a line (1814), and a channel that never opens
+because it always needs the line (1884). It also explains why other builds
+with the user's original settings work: they carry no such floor.
+
+**Decision.** Every shipped profile carries `DCW MINTIME: 0`, the code's own
+default. The feature stays in the binary (opt-in) for an operator whose lines
+are all slower than a floor he chooses. `tests/cfgcheck.py` now fails if any
+CA profile arms it again; before this round the same check demanded 100,
+which is how the defect was locked in.
+
+**Why the floor was ever armed.** D88 defended against a source that echoes
+or manufactures keys instantly. That concern is real, but a fixed floor is
+not evidence: legitimate LAN readers answer in 20-50 ms (the file's own
+header warned about exactly this). The fake-key work is carried by the
+checksum/pattern/consensus/attest layers, which judge the bytes and the
+sources rather than the clock.
+
+**Limit of the proof.** The lab pins the floor as the cause for a fast line.
+A deployment whose lines answer slower than 100 ms was not harmed by the
+floor, and for it this change is neutral: MINTIME 0 rejects nothing.
+
+**Verification.** Same binary, config-only change: lab 4/4 DCW at 0 vs 0/4 at
+100; `tests cfgcheck` 4 checks ok; `tests prof` 5/5; the shipped file boots
+with zero profile-variable warnings.
+
+---
+

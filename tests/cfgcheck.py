@@ -110,8 +110,13 @@ def main(path):
                 bad("%s: CA MODERN must be ON" % name)
             if kv.get("DCW CHECK", [""])[0].upper() != "YES":
                 bad("%s: DCW CHECK must be YES" % name)
-            if kv.get("DCW MINTIME", [""])[0] != "100":
-                bad("%s: DCW MINTIME must be 100" % name)
+            # TASK R42 (D105): the floor is opt-in and OFF in the shipped
+            # file. 100 was armed in 70 profiles and threw away every
+            # legitimate answer faster than 100 ms (measured: a 30 ms card
+            # server scored 0/4 with it, 4/4 without). A future edit that
+            # arms it again fails here.
+            if kv.get("DCW MINTIME", [""])[0] != "0":
+                bad("%s: DCW MINTIME must be 0 (opt-in off, D105)" % name)
             if "SERVER VALIDECMTIME" not in kv:
                 bad("%s: SERVER VALIDECMTIME missing" % name)
             if kv.get("ENABLE CACHEEX", [""])[0].upper() != "YES":

@@ -6,6 +6,41 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R42 — The Fast Correct Answer Was Being Thrown Away: DCW MINTIME armed in 70 profiles (2026-10-17)
+
+**Decisions:** D105
+
+### Fixed (shipped configuration)
+- **`DCW MINTIME: 100` was armed in 70 of the 72 shipped profiles.** The key is a
+  floor for card-server answers: an answer that arrives faster is discarded and
+  logged `[MINTIME] ... too fast to be real, CW skipped`, while the ECM waits for
+  another source until `decode failed, dcw timeout`. Cache answers are exempt, so
+  a channel worked from cache and failed whenever it needed a line.
+- Every profile now carries `DCW MINTIME: 0` (the code's own default). The feature
+  remains in the binary, opt-in, for an operator who knows his lines are slow.
+
+### Measured (same binary, same card server answering in ~30 ms, channel 1884:000000:1168)
+| profile setting | ECM1 0x80 | ECM2 0x81 | ECM3 0x80 | ECM4 0x81 |
+|---|---|---|---|---|
+| `DCW MINTIME: 100` | **TIMEOUT** | **NOK** | **NOK** | **NOK** |
+| `DCW MINTIME: 0` | DCW | DCW | DCW | DCW |
+
+Server log with the floor armed: `[MINTIME] ... answered in 30ms < 100ms - too fast
+to be real, CW skipped` twice, then `decode failed ... (6005ms)`. With it off: no
+MINTIME line, no decode failure. This is the field shape of both reports: 1814 MEO
+freezes (cache hit works, line answer is dropped) and 1884 never opening at all
+(every ECM needs the line).
+
+### Added
+- **`tests/cfgcheck.py` now fails if any CA profile arms `DCW MINTIME` again** —
+  the regression net that had locked the bad value in (it used to demand 100).
+
+### Not changed
+- The C code: the floor and its guard stay exactly as built in R36/D88. Only the
+  shipped configuration changes.
+
+---
+
 ## R41 — The Repeated Control Word: half of every channel's ECMs were refused (2026-10-17)
 
 **Decisions:** D104

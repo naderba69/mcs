@@ -1,9 +1,9 @@
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-787c2f848d306d72fd346d474903971c  CHANGELOG.md
+4599a57f3cac185027f88ef459b34149  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
-71d32b821c5b23fe63455a176ee99f29  README-PRODUCTION.md
+8f60f1ca841823326dd8b8836ceb104b  README-PRODUCTION.md
 441fee89ffd6bd53fe8ae99e4edc5e9b  README.md
 60e7ba6de9e6d79b916869342dddce86  RESOURCE-OPTIMIZATION-GUIDE.md
 f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
@@ -30,12 +30,12 @@ a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 ec5b0f81b3d501843c4f61f5e9074dc6  docs/COMPAT-ar.md
 c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 48215436613e05f450664ced32128a99  docs/CONFIG-REFERENCE-ar.md
-a623c9cd727e7cdde53df0af49b33b2d  docs/DECISIONS.md
+690a69c57db86c598804b31abda4bf48  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
-7762c07d998c36d2a3ecfb0e48872897  docs/FIELD-GUIDE-ar.md
+93a5b6ece8f6426f6244f5e04b13957e  docs/FIELD-GUIDE-ar.md
 6a549c88dcfd53e331e2ff2bcf0e0180  docs/FINAL-SUMMARY-REPORT-ar.md
-e44205c87916e3bf4a6f30eade90e158  docs/INDEX-ar.md
+f857303dcab637b0909f4070f9b95056  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
 29b414a90dfa651c1d4a3fe4e0253175  docs/MODERN-CA-GUIDE-ar.md
 70ab1bccd5e598d5ec3b59a888ba17d8  docs/ORIGIN.md
@@ -324,7 +324,7 @@ ee478157f48579b1cfde0fdfbcee5f75  make-x64/test_rotation.c
 266a1130913160ff4a5d4b324075ac20  make-x64/test_trust.c
 0e58c1b87132ab91e211b0acae5b2faf  make-x64/test_trustagg.c
 6a9b188611bd6f5e373df0313928fcb8  make-x64/test_trustlife.c
-9b64b1b715ced9ff21946d2b9dae352d  multics-r24-optimized.cfg
+e18d62d7561029204307f1dfecfa0f8b  multics-r24-optimized.cfg
 0b91199696099224a18e4a7d7a70b15d  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
 f23040a9339c8f5dfa3e6c946764050a  src/advanced-optimizations.c
@@ -548,7 +548,7 @@ c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 429cc8d7f3acb146dfbcd7ae49cc886f  tests/cardfill.c
 27185b1564501eb4dad6eed4e328ee94  tests/ccdcw.c
 0ff0ccc77e0e2d3673a64f0a4945cc86  tests/cedcw.py
-27d7e522c25cf943a3fc37f56a20e761  tests/cfgcheck.py
+7e5b3e71718ce5ea8770cc24284f51cb  tests/cfgcheck.py
 640f76a98e8bcdcd38eaed9e33f26bc7  tests/cxpeer.c
 b5cf4be5602fcf8a63af62118e18f288  tests/docrefs.sh
 a16adeb896de5c72ffea07012c9c44d3  tests/dt-probe.c
