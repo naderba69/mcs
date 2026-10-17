@@ -13,12 +13,14 @@
 #   python3 cfgcheck.py ../multics-r24-optimized.cfg
 import sys, re, collections
 
+# TASK R45: "DCW VALIDECMTIME" is LIVE since R44 (D107, config.c 2533 and 4492),
+# both at DEFAULT and per profile. It is not listed here any more. It stays
+# absent from the shipped file on purpose: 0 (off) is the opt-in default.
 DEAD_GLOBAL = {
     "DEFAULT FILTER", "DEFAULT FILTER TIME", "DEFAULT ECM CHECK",
-    "DEFAULT ECM CHECK LENGTH", "DEFAULT DCW VALIDECMTIME",
+    "DEFAULT ECM CHECK LENGTH",
 }
 DEAD_PROFILE = {
-    "DCW VALIDECMTIME",     # no parser branch anywhere (SERVER VALIDECMTIME is the real key)
     "CACHEEX PUSH",         # no parser branch
     "CACHEEX RELAY",        # no parser branch
     "FILTER", "FILTER TIME",# global keys; a per-profile line silently rewrites the global
@@ -148,6 +150,29 @@ def main(path):
                 bad("%s: a repeated 8-byte key trips DCWFILTER PATTERN -- set it OFF" % name)
             if "DCW MINTIME" in kv:
                 bad("%s: fixed-key profile must not carry DCW MINTIME" % name)
+    # ---- TASK R45 (D108): per-speed timeouts + ECMLOOPING ----
+    fails_before_r45 = len(fails)
+    # The "بطيء" (slow) class is the 10 profiles that carry SERVER TIMEOUT 2000.
+    # Two rules keep the timeouts coherent:
+    #  (a) the whole-request timeout must exceed the server window whenever it is set,
+    #      otherwise the server window (and the ECMLOOPING round inside it) never runs;
+    #  (b) the slow class is locked to its count, so a silent slide back to 800 fails.
+    if glob.get("DEFAULT ENABLE ECMLOOPING", [""])[0].upper() != "YES":
+        bad("DEFAULT ENABLE ECMLOOPING must be YES (R45: retries only when all servers NOK)")
+    slow = 0
+    for p in profs:
+        kv = p["kv"]
+        st = kv.get("SERVER TIMEOUT", [""])[0]
+        dt = kv.get("DCW TIMEOUT", [""])[0]
+        if st.isdigit() and st == "2000":
+            slow += 1
+        if st.isdigit() and dt.isdigit() and int(dt) <= int(st):
+            bad("%s: DCW TIMEOUT %s must exceed SERVER TIMEOUT %s" % (p["name"], dt, st))
+    if slow != 10:
+        bad("slow class (SERVER TIMEOUT 2000) must be exactly 10 profiles, found %d" % slow)
+    if len(fails) == fails_before_r45:
+        ok("R45 timeouts: slow class=10, DCW TIMEOUT > SERVER TIMEOUT, ECMLOOPING on")
+
     for port, n in ports.items():
         if n > 1:
             bad("duplicate PORT %s in %d profiles" % (port, n))
@@ -160,8 +185,8 @@ def main(path):
     if fails:
         print("cfgcheck: %d failed, %d passed" % (len(fails), len(oks)))
         return 1
-    print("  [ ok ] " + oks[0])
-    print("  [ ok ] " + oks[1])
+    for msg in oks:
+        print("  [ ok ] " + msg)
     print("  [ ok ] dead keys: none (global or per-profile)")
     print("  [ ok ] family policy: VideoGuard CSA half+swap, iCam strict, fixed keys local")
     print("cfgcheck: %d checks ok" % (len(oks) + 2))

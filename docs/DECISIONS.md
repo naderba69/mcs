@@ -4167,3 +4167,25 @@ here changes that profile.
 only by the unit predicate, not live. `DCW VALIDECMTIME` measures from the
 first ECM arrival, not from the last resend, which is deliberate: a resend must
 not reset the clock that protects against a late key.
+
+## D108 (R45) — Slow profiles get longer server windows, and ECMLOOPING is on
+
+**Context.** Every profile in `multics-r24-optimized.cfg` used `SERVER TIMEOUT
+800` and `SERVER VALIDECMTIME 800`. The server window bounds the send branch in
+`th-ecm.c` (line 177), and the ECMLOOPING round lives inside that branch. The
+card-exclusion limit in `loadbalance.c` (~222–240) drops a card after more than
+ten good answers when its average is above the limit.
+
+**Decision.** The ten profiles labelled "بطيء" get `SERVER TIMEOUT 2000`,
+`SERVER VALIDECMTIME 2000` and `DCW TIMEOUT 4000`. The whole-request timeout
+must exceed the server window (checked by `cfgcheck.py`). `DEFAULT ENABLE
+ECMLOOPING: YES` is set globally, so the bounded retry (two rounds, only when
+every server answered NOK) is active everywhere. Fast and standard profiles keep
+800. Nothing is armed by default that changes the path of a successful answer.
+
+**Proof.** A slow card (1500 ms) over 14 distinct ECMs: stock values 11 DCW and
+3 NOK; R45 values 14 of 14 DCW. `prof` 5/5, `qv` 4/4, `cfgcheck` 5/5.
+
+**Open.** The cache-first request is not met by configuration: the server is
+still asked alongside the cache peer (`pB`, `pC`). It needs a delivery gate,
+which is a code decision. Channel `1884:000000:1136` remains open with the owner.

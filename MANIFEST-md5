@@ -1,5 +1,5 @@
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-fe54146ab3f2c8bcbb4ee718d676b134  CHANGELOG.md
+e8c2b701ce010d5935bddcbd98021867  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
@@ -30,7 +30,7 @@ a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 ec5b0f81b3d501843c4f61f5e9074dc6  docs/COMPAT-ar.md
 c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 48215436613e05f450664ced32128a99  docs/CONFIG-REFERENCE-ar.md
-a46e0fddd6f24d5d13e8bab1c2e4428e  docs/DECISIONS.md
+dea111ed4599212c837dc838a7f3870f  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
 645deb7ab4b313e8009d8a204a94573e  docs/FIELD-GUIDE-ar.md
@@ -327,7 +327,7 @@ ee478157f48579b1cfde0fdfbcee5f75  make-x64/test_rotation.c
 266a1130913160ff4a5d4b324075ac20  make-x64/test_trust.c
 0e58c1b87132ab91e211b0acae5b2faf  make-x64/test_trustagg.c
 6a9b188611bd6f5e373df0313928fcb8  make-x64/test_trustlife.c
-e18d62d7561029204307f1dfecfa0f8b  multics-r24-optimized.cfg
+e9961c37e182d7ae2e275de0d3ccaa3d  multics-r24-optimized.cfg
 0b91199696099224a18e4a7d7a70b15d  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
 f23040a9339c8f5dfa3e6c946764050a  src/advanced-optimizations.c
@@ -552,7 +552,7 @@ c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 429cc8d7f3acb146dfbcd7ae49cc886f  tests/cardfill.c
 3cb75655a2a85b6454b82e98b54ff1e4  tests/ccdcw.c
 0ff0ccc77e0e2d3673a64f0a4945cc86  tests/cedcw.py
-7e5b3e71718ce5ea8770cc24284f51cb  tests/cfgcheck.py
+db6abcc5ecce6c606db78dc06c043e00  tests/cfgcheck.py
 640f76a98e8bcdcd38eaed9e33f26bc7  tests/cxpeer.c
 b5cf4be5602fcf8a63af62118e18f288  tests/docrefs.sh
 a16adeb896de5c72ffea07012c9c44d3  tests/dt-probe.c

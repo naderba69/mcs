@@ -6,6 +6,39 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R45 — Timeouts by speed class, and ECMLOOPING on by default in the file (2026-10-18)
+
+**Decisions:** D108
+
+**What changed.** `multics-r24-optimized.cfg` gave all 72 profiles the same
+`SERVER TIMEOUT 800` and `SERVER VALIDECMTIME 800`, including the ten profiles
+labelled "بطيء" (slow). The measured effect: a slow card that answers in about
+1.5 s is dropped after its first ten good answers, because its average is above
+800 ms. The ten slow profiles now use `SERVER TIMEOUT 2000`,
+`SERVER VALIDECMTIME 2000` and `DCW TIMEOUT 4000`. `DEFAULT ENABLE ECMLOOPING: YES`
+is set in the global section. The other 62 profiles are unchanged.
+
+**Proof.** Scratch script `/tmp/cf45/slow.sh` (not committed): one card server
+that answers after 1500 ms, 14 distinct ECMs, one user each.
+
+    stock values  (800 / 800 / 3000, loop NO) : card asked 11, DCW 11, NOK 3
+    R45 values    (2000 / 2000 / 4000, loop YES): card asked 14, DCW 14, NOK 0
+
+`make -C tests prof` 5/5, `make -C tests qv` 4/4, `tests/cfgcheck.py` 5 checks
+(new: loop on, DCW TIMEOUT > SERVER TIMEOUT, slow class = exactly 10).
+
+**Cleanup.** The stale header line that said `DCW VALIDECMTIME` has no parser
+branch is removed. The key is live since R44 (config.c 2533 and 4492), and
+`cfgcheck.py` no longer lists it as dead.
+
+**Not solved here: cache first.** Measured with a cache peer (`/tmp/cf45`): a
+peer that holds the key still does not stop the server from being asked. The
+server is asked in the same `WAIT` as the peer, and the late answer carries a
+different key. `CACHE STATIC: YES` only adds the cache timeout (251 ms) to every
+miss and does not protect the server. Making the cache the first line needs a
+delivery gate in `th-ecm.c`, which is opt-in and waits for the owner's decision.
+Channel `1884:000000:1136` is also unchanged.
+
 ## R44 — Two opt-in CA controls: a late key is refused, a keyless round is asked again (2026-10-17)
 
 **Decisions:** D107
