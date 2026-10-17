@@ -1,7 +1,5 @@
-# MANIFEST-md5 — regenerated at R39 (2026-10-16, D98-D101): the four
-# audit gaps implemented and proven; all four flavours rebuilt. Verify: md5sum -c MANIFEST-md5
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-68c1f34be97763ff4c1826cff5f43430  CHANGELOG.md
+78d1c147b4a2bf6e2eb715c2d29adb91  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
@@ -30,17 +28,17 @@ a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
 ec5b0f81b3d501843c4f61f5e9074dc6  docs/COMPAT-ar.md
 c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 48215436613e05f450664ced32128a99  docs/CONFIG-REFERENCE-ar.md
-9b2f16a3b29e33cd20db10fd75a217d2  docs/DECISIONS.md
+0af93033b41e0ff090e0e98a970d5e6e  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
-8beb2fd14c569df2bc4bb0e25ffc0183  docs/FIELD-GUIDE-ar.md
+8d9e190f0c090a1b87777bba3b660a04  docs/FIELD-GUIDE-ar.md
 6a549c88dcfd53e331e2ff2bcf0e0180  docs/FINAL-SUMMARY-REPORT-ar.md
-69efaa74a2560a82d0afb76f00d68b39  docs/INDEX-ar.md
+ddd1d8746c9b6dbcd001f5b8732a6620  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
 29b414a90dfa651c1d4a3fe4e0253175  docs/MODERN-CA-GUIDE-ar.md
 70ab1bccd5e598d5ec3b59a888ba17d8  docs/ORIGIN.md
 c16b39bad6ebc83d5ad5bae1c1cc90f1  docs/PATCH-PLAN.md
-fcbebb61030672779e9d6fb564580999  docs/PROFILES-AUDIT-REPORT-ar.md
+5a77307915765e38508c869973d00476  docs/PROFILES-AUDIT-REPORT-ar.md
 acf661bbd1f1e5ce213733351cec6836  docs/PROJECT-ANALYSIS-REPORT-ar.md
 b3e9b0715ac9bd6c55df190336999b93  docs/PROJECT-PLAN-ar.md
 18258348daf1543bf56d92fb1d688d5a  docs/REPORT-2.10-ar.md
@@ -106,6 +104,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 458c5445465e8fb3fece72cf5af9c225  docs/REPORT-R38-ar.md
 0b633ba81acdefaa86a1ef8324cda94a  docs/REPORT-R39-ar.md
 a1eda7ef200e964fd82331095266450a  docs/REPORT-R4-ar.md
+0c29d8ffead65211b70fc425bd74de79  docs/REPORT-R40-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -322,7 +321,7 @@ ee478157f48579b1cfde0fdfbcee5f75  make-x64/test_rotation.c
 266a1130913160ff4a5d4b324075ac20  make-x64/test_trust.c
 0e58c1b87132ab91e211b0acae5b2faf  make-x64/test_trustagg.c
 6a9b188611bd6f5e373df0313928fcb8  make-x64/test_trustlife.c
-bb388a5fba4372bbc4269ba95cc21310  multics-r24-optimized.cfg
+9b64b1b715ced9ff21946d2b9dae352d  multics-r24-optimized.cfg
 0b91199696099224a18e4a7d7a70b15d  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
 f23040a9339c8f5dfa3e6c946764050a  src/advanced-optimizations.c
@@ -539,12 +538,13 @@ af09ddc7d479b76a2bd9a9bbc69aef24  src/twin.c
 3df6fdaba14614992ffcf0c168682c2b  src/zerolatency.h
 49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-633c08a7ea446f55b06a45f76dbc2b3a  tests/Makefile
+01abc1a4cd7f55a64c01a829986a83bb  tests/Makefile
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 518ab2e1a2864eee5bab964fc612aa4f  tests/ca-bite.c
 5081b47e7ffe26768c6f69153719d4e4  tests/cachepeer.c
 429cc8d7f3acb146dfbcd7ae49cc886f  tests/cardfill.c
 0ff0ccc77e0e2d3673a64f0a4945cc86  tests/cedcw.py
+27d7e522c25cf943a3fc37f56a20e761  tests/cfgcheck.py
 640f76a98e8bcdcd38eaed9e33f26bc7  tests/cxpeer.c
 b5cf4be5602fcf8a63af62118e18f288  tests/docrefs.sh
 a16adeb896de5c72ffea07012c9c44d3  tests/dt-probe.c

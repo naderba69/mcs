@@ -3885,3 +3885,61 @@ test` named test_cwattest in its recipe but never built it
 (Error 127); the prerequisite list now includes it. The standing
 debt NOT taken this round, by the user's choice: CI, and the 15
 targets that require prebuilt stats binaries.
+
+## D102 (R40) — The profiles file, rewritten per CA family
+
+The operator asked for a professional update of the shipped profiles
+"with every property appropriate to each package". The audit behind it
+was measured, not editorial: every CAID was classified from
+src/casystem.h (the code's own registry), and every key was checked
+against a parser branch in config.c. That turned up four classes of
+defect, all fixed in one pass:
+
+1. FAMILY-INAPPROPRIATE VALUES. Ten VideoGuard CSA profiles carried
+   `DCW HALFNULLED: NO`; stock's family table allows half-nulled keys
+   for 09, and with the profile flag off, checkfreeze_setdcw() rejects
+   the legitimate half after the first decode -- a direct black-screen
+   cause for NDS. They are now YES, and the three CSA profiles that had
+   no SWAP line got one. iCam (0963/098D/098E) is AES with a full CW:
+   it stays HALFNULLED NO and loses SWAP (inert for it), which is both
+   stricter and honest.
+2. DEAD KEYS. `CACHEEX PUSH`/`RELAY` (30 lines) have no parser branch;
+   `DCW VALIDECMTIME` (15 + the DEFAULT one) has none either -- the real
+   key is SERVER VALIDECMTIME, now present in every CA profile.
+3. GLOBAL KEYS HIDING INSIDE PROFILES. `FILTER`/`FILTER TIME` (46 lines)
+   and `ACCEPT NULL ONID` (3) are parsed globally; every per-profile
+   copy silently rewrote the global. They moved to one global block with
+   the values that were actually in force (strict FILTER: NO, 10 s
+   window). Same for the DEFAULT lines the DEFAULT parser does not
+   implement (DEFAULT ECM CHECK/ECM CHECK LENGTH/FILTER/FILTER TIME/
+   DCW VALIDECMTIME).
+4. A REAL DOWNGRADE. `CACHEEX MAXHOP: 4` in 15 profiles clamped to 2
+   (stock's [1..2]); they now use CACHEEX MAXHOP_LG: 4 (R39/D99), and
+   the profile page proves 4.
+
+Fixed-key profiles (BISS1 2600, Tandberg 1010) now say ENABLE CACHE: NO
+and ENABLE CACHEEX: NO -- a local constant key must not be stored or
+pushed to cache peers. Writing that proof uncovered a worse defect:
+CACHE PROTECTION: STANDARD arms DCWFILTER PATTERN, whose dcw_pattern_fake()
+returns 1 when the two 8-byte halves are identical -- exactly the shape
+of a BISS/Tandberg fixed key. Measured live: the key stores, /biss lists
+it, "Used" stays 0, and the client never receives it. The two profiles
+now carry DCWFILTER PATTERN: OFF (per-profile tristate); every CSA
+profile keeps the gate. After the fix the same run delivers 1 BISS and
+1 Tandberg word on the shipped file. No operator data was invented: SID
+lists, HEADERWLST (Movistar only) and providers are exactly his. 17
+duplicate lines inside four profiles were removed. Verified: prof 5/5
+(72/72 ports), qv 4/4, live profile pages, live fixed-key delivery.
+
+## D103 (R40) — cfgcheck: the file's meaning, asserted before boot
+
+prof/qv prove the shipped profiles file STARTS; nothing proved it MEANS
+what it says. tests/cfgcheck (python3, side-effect free, sub-second) now
+parses every profile and asserts: no dead key at either level; no
+global-only key inside a profile; unique ports; CA profiles carry
+CA MODERN/DCW CHECK/MINTIME 100/SERVER VALIDECMTIME; VideoGuard CSA is
+HALFNULLED+SWAP, iCam is neither, every other family is strict; fixed
+key profiles are cache-isolated AND carry DCWFILTER PATTERN: OFF when
+their key is a repeated 8-byte constant (2600/1010) -- the rule that
+would have caught the black screen above. Wired into `tests all` before
+prof. On the pre-R40 file it reports 144 failures; on the new one, 4/4 ok.

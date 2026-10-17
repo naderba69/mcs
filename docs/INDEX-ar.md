@@ -131,5 +131,7 @@
 | `REPORT-R30-ar.md` | شهادة المستقبِلين CACHE ATTEST (D81) |
 | `REPORT-R31-ar.md` | إغلاق نقائص الشهادة: كل البروتوكولات + سحب ECM (D82) |
 | `REPORT-R32-ar.md` | البروفايلات المُسلَّمة صادقة ومحروسة حيًّا (D83) |
+| `REPORT-R39-ar.md` | النواقص الأربعة منفّذة ومُثبتة (D98–D101) |
+| `REPORT-R40-ar.md` | البروفايلات محدَّثة مهنيًا لكل عائلة CA (D102–D103) |
 | `PROFILES-AUDIT-REPORT-ar.md` | جرد البروفايلات بالمقاس لا بالادعاء |
-| `../multics-r24-optimized.cfg` | 71 بروفايلًا جاهزًا (يُختبر بـ `tests/prof`) |
+| `../multics-r24-optimized.cfg` | 72 بروفايلًا جاهزًا بخصائص عائلتها (يُختبر بـ `tests/cfgcheck` و`tests/prof`) |

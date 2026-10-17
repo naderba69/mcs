@@ -6,6 +6,25 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R40 — The Profiles File, Rewritten per CA Family (2026-10-17)
+
+**Decisions:** D102–D103
+
+### Changed (operator config only — no product code)
+- **Every CAID classified from `src/casystem.h`** (8 commercial labels were wrong: 09BD was called Conax, 091F CryptoWorks, 092F Nagra, 1708 NDS, 1841 NDS, 4AEE Bulcrypt, 004106 Nagra...). Each block now carries a `# SYSTEM:` line naming the real family and why its properties differ.
+- **VideoGuard CSA (10 profiles): `DCW HALFNULLED: YES` + SWAP.** Stock's family table allows half-nulled keys for 09; the old profile flag made checkfreeze reject the legitimate half after the first decode. iCam (3) stays strict: AES full CW, no SWAP.
+- **Fixed keys isolated — and un-blocked:** BISS1 and Tandberg now `ENABLE CACHE: NO` / `ENABLE CACHEEX: NO`, and `DCWFILTER PATTERN: OFF` inside those two profiles. The shield's pattern gate treats two identical halves as a fake shape — which is exactly a fixed key — so the live test found stored keys that were **never delivered** under `CACHE PROTECTION: STANDARD`. After the fix: BISS delivered 1, Tandberg delivered 1, on the shipped file.
+- **15 × `CACHEEX MAXHOP: 4` → `CACHEEX MAXHOP_LG: 4`** (the old key clamped to 2; profile page now proves 4).
+
+### Removed (116 lines: dead, mis-scoped, duplicate)
+- `CACHEEX PUSH`/`RELAY` 30, `DCW VALIDECMTIME` 16, per-profile `FILTER`/`FILTER TIME` 46, `ACCEPT NULL ONID` 3, dead DEFAULT keys 5, duplicates 17. The global-only keys moved to one explicit global block with the values actually in force (strict `FILTER: NO`, 10 s window).
+
+### Added
+- **`tests/cfgcheck` (D103)** — static audit of the shipped profiles, in `all` before prof: dead keys, per-family rules, unique ports. 4/4 (the old file fails 144).
+
+### Verification
+cfgcheck 4/4, prof 5/5 (72/72 ports), qv 4/4, live profile pages (Vivacom YES/YES/4, Sky DE iCam NO/NO, BISS cache off).
+
 ## R39 — The Four Audit Gaps, Implemented and Proven (2026-10-16)
 
 **Decisions:** D98–D101
