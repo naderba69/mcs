@@ -6,6 +6,34 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R46 — DCW counters on their own page, `/stats` (2026-10-18)
+
+**Decisions:** D109
+
+**What changed.** The DCW counter table moved off the home page to `/stats`
+(stats flavour only). The home page and its refresh now show the ON/OFF state
+and a link. The `/stats` page has the same reason names, the same `%lu` counts
+and the same `html_esc` rule, plus a note that counters are server-wide and
+reset with `dcwstats reset`. The menu has a "DCW Stats" entry.
+
+**Stock is untouched.** Every new line is under `#ifdef MCS_DCWSTATS`. A stock
+build from this commit is byte-identical to a build from the previous commit
+(`cmp` equal, 793816 bytes).
+
+**Proof.**
+- `make -C tests dw`: 8 checks ok (the counter page matches telnet, the home
+  page renders with the link, the refresh fragment carries the link, OFF
+  readout, stock page renders with no table).
+- `make -C tests bd`: 8 checks ok. Its `bad-dcw-list` reads now come from `/stats`.
+- Live: `/` 200 with the link, `/stats` 200 with 11 rows, both 401 without auth.
+
+**Test changes.** The `dw` and `bd` proofs read the table from `/stats`. They
+no longer read it from the home page or its refresh fragment. This is the
+intended change, not a weakening: the same counters are still compared with telnet.
+
+**Not changed, noticed.** On every build, an unknown path such as `/nosuchpage`
+gets an empty reply rather than a 404. This predates R46 and is recorded only.
+
 ## R45 — Timeouts by speed class, and ECMLOOPING on by default in the file (2026-10-18)
 
 **Decisions:** D108

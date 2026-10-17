@@ -4189,3 +4189,25 @@ every server answered NOK) is active everywhere. Fast and standard profiles keep
 **Open.** The cache-first request is not met by configuration: the server is
 still asked alongside the cache peer (`pB`, `pC`). It needs a delivery gate,
 which is a code decision. Channel `1884:000000:1136` remains open with the owner.
+
+## D109 (R46) — The DCW counters live on their own page, not on the home page
+
+**Context.** The counter table sat inside the home page block that refreshes
+every few seconds. On a slow box that made the home page heavy, and the
+counters were mixed in with uptime and totals.
+
+**Decision.** The table moves to `/stats`, a page of its own, in the stats
+flavour only. The home page and its refresh keep the ON/OFF state and a link.
+The page follows the R7 page rules and the same authenticated chain as
+`/cwlog`. Every new line is under `#ifdef MCS_DCWSTATS`, so the stock build is
+byte-identical to the previous commit.
+
+**Proof.** `make -C tests dw` 8/8 and `make -C tests bd` 8/8, with the table
+read from `/stats`. Live `/stats` shows the 11 reasons. A stock build of this
+commit matches the previous commit byte for byte.
+
+**Open.** The committed `dist/` and `bin/` stats binaries still have the old
+home page. They were restored to `HEAD` after the tests, per the rule that a
+binary is committed only on request. A stock build from `HEAD` does not match
+the committed `dist/multics-r82a-stock-x64` either, and that predates R46.
+

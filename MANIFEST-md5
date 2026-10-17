@@ -1,5 +1,5 @@
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-e8c2b701ce010d5935bddcbd98021867  CHANGELOG.md
+05c97a11184697bef2499b61bf244aff  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
@@ -23,14 +23,14 @@ dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 35e2344e315ab543612cc0b717015eb1  dist/multics-r82a-stats-x64
 7edabb3bbc239dfdbe954a53787e1ca1  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
-a47f3f956e848a16f5f11eb784c0dda7  docs/ARCHITECTURE.md
+207456c8a4e07a695b5492190d878cd0  docs/ARCHITECTURE.md
 7b9bd8f6cdecb55e1c35aa467a425a06  docs/BLACKSCREEN.md
 797863f9c6d87675f97e3965189f7c45  docs/BUILD-PATCHES.md
 088d92251d68affde9c8b2fa437ed079  docs/CACHE-OPTIMIZATION-ar.md
 ec5b0f81b3d501843c4f61f5e9074dc6  docs/COMPAT-ar.md
 c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 48215436613e05f450664ced32128a99  docs/CONFIG-REFERENCE-ar.md
-dea111ed4599212c837dc838a7f3870f  docs/DECISIONS.md
+0cc57474495dccf67a9cf57c48b3c8e0  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
 645deb7ab4b313e8009d8a204a94573e  docs/FIELD-GUIDE-ar.md
@@ -454,7 +454,7 @@ e9762485e77bda84a3a29553e5ffcee9  src/ecmdata.c
 35e6ede5769c06a8a22850ff9a16851b  src/fastretx.h
 53bf1ba928072a0c68dcb81566acb029  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-7ce2e509a596f9234c0b4051e39e971d  src/httpserver.c
+65759dc35ca45082a48aabbe1fbbcd58  src/httpserver.c
 f5b6ea3dc27287ae7b1411316bde8b72  src/httpserver.h
 a43344053ef6be6a6af0b301eae0fd34  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
@@ -564,5 +564,5 @@ b15af4b90f3df83d9880d9601260f980  tests/r107peer.c
 9dc1dbd8345bc31bcc37a4c65915e731  tests/r44.sh
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
-f655ac7a216aa705bc47535f2d42a9e7  tests/stability.mk
+d2a77ac33ecc82052710ac6521ef2b3c  tests/stability.mk
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c

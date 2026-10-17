@@ -664,6 +664,7 @@ static void http_style_write(struct tcp_buffer_data *tcpbuf, int sock)
 #define PAGE_DEBUG     14
 #define PAGE_CWLOG     15   /* TASK R11 (D65), stats flavour only */
 #define PAGE_BISS      16   /* BISS key management */
+#define PAGE_DCWSTATS  17   /* TASK R46 (D109): the DCW stats page, stats flavour only */
 
 
 char *yesno( int a )
@@ -797,6 +798,10 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	 * counters exist -- the stock menu (and binary) is untouched. */
 	if (selected==PAGE_CWLOG) class = cSelected; else class = cNormal;
 	sprintf( buf, class, "/cwlog", mlabel("CW Log","سجل الأحكام")); tcp_writestr(tcpbuf, sock, buf);
+
+	/* TASK R46 (D109): the DCW counters have their own page now. */
+	if (selected==PAGE_DCWSTATS) class = cSelected; else class = cNormal;
+	sprintf( buf, class, "/stats", mlabel("DCW Stats","إحصائيات DCW")); tcp_writestr(tcpbuf, sock, buf);
 #endif
 
 #ifdef FREECCCAM_SRV
@@ -1203,18 +1208,14 @@ void http_send_index(int sock, http_request *req)
 	 * not reference the symbol; it says so, once, like telnet.
 	 */
 #ifdef MCS_DCWSTATS
+	/* TASK R46 (D109): the counter table moved to /stats. The home page keeps
+	 * only the switch state and a link, so it stays small on a slow box. */
 	{
 		char hesc[64];
-		int i;
 		html_esc(hesc, (int)sizeof(hesc), dcwstats_on ? "ON" : "OFF");
-		sprintf(http_buf, "<br><br><b>DCW stats</b> %s<table class=option border=1px cellspacing=0><tr><th>Reason</th><th>Count</th></tr>", hesc);
+		sprintf(http_buf, "<br><br><b>DCW stats</b> %s &middot; <a href='/stats'>%s</a>",
+			hesc, mlabel("open the statistics page", "افتح صفحة الإحصائيات"));
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
-		for (i = 0; i < DCW_REJ_COUNT; i++) {
-			html_esc(hesc, (int)sizeof(hesc), dcwstats_reason_name(i));
-			sprintf(http_buf, "<tr><td>%s</td><td>%lu</td></tr>", hesc, dcwstats[i]);
-			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
-		}
-		tcp_writestr(&tcpbuf, sock, "</table>");
 	}
 #else
 	{
@@ -7417,6 +7418,57 @@ static void http_send_cwlog(int sock, struct http_request *req)
 	tcp_writestr(&tcpbuf, sock, "</p>\n</body></html>\n");
 	tcp_flush(&tcpbuf, sock);
 }
+/*
+ * TASK R46 (D109) -- /stats: the DCW counters on their own page. The table
+ * that used to sit on the home page moves here unchanged: same reason names
+ * (dcwstats_reason_name), same %lu counts, same html_esc rule. The R7 page
+ * rules and the authenticated chain apply, exactly as for /cwlog.
+ */
+static void http_send_stats(int sock, http_request *req)
+{
+	char hesc[64];
+	char http_buf[2048];
+	struct tcp_buffer_data tcpbuf;
+	int i;
+
+	tcp_init(&tcpbuf);
+	http_replyok_write(req, &tcpbuf, sock);
+	http_html_write(req, &tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head, strlen(http_head) );
+	sprintf( http_buf, html_title, cfg.http.title, mlabel("DCW Stats","إحصائيات DCW"));
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	tcp_write(&tcpbuf, sock, http_link, strlen(http_link) );
+	http_style_write(&tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head_, strlen(http_head_) );
+	tcp_write(&tcpbuf, sock, http_body, strlen(http_body) );
+	tcp_write_menu(&tcpbuf, sock, PAGE_DCWSTATS);
+
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("DCW stats", "إحصائيات DCW"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n");
+
+	html_esc(hesc, (int)sizeof(hesc), dcwstats_on ? "ON" : "OFF");
+	sprintf( http_buf, "<p>%s <b>%s</b></p>\n",
+		mlabel("counting", "العدّ"), hesc);
+	tcp_writestr(&tcpbuf, sock, http_buf);
+
+	tcp_writestr(&tcpbuf, sock, "<table class=option border=1px cellspacing=0><tr><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Reason", "السبب"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Count", "العدد"));
+	tcp_writestr(&tcpbuf, sock, "</th></tr>\n");
+	for (i = 0; i < DCW_REJ_COUNT; i++) {
+		html_esc(hesc, (int)sizeof(hesc), dcwstats_reason_name(i));
+		sprintf( http_buf, "<tr><td>%s</td><td>%lu</td></tr>\n", hesc, dcwstats[i]);
+		tcp_writestr(&tcpbuf, sock, http_buf);
+	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n<p style='font-size:0.8em;'>");
+	tcp_writestr(&tcpbuf, sock, mlabel(
+		"counters since start, or since the last `dcwstats reset`; they are server-wide, not per channel",
+		"العدادات منذ التشغيل أو منذ آخر `dcwstats reset`؛ وهي للسيرفر كله لا لكل قناة"));
+	tcp_writestr(&tcpbuf, sock, "</p>\n</body></html>\n");
+	tcp_flush(&tcpbuf, sock);
+}
 #endif /* MCS_DCWSTATS */
 
 
@@ -7939,6 +7991,9 @@ void *gererClient(struct connect_data *param)
 #ifdef MCS_DCWSTATS
 				else if (strcmp(req.path,"/cwlog")==0) { /* TASK R11 (D65): the verdict page */
 					http_send_cwlog(sock,&req);
+				}
+				else if (strcmp(req.path,"/stats")==0) { /* TASK R46 (D109): the DCW counters page */
+					http_send_stats(sock,&req);
 				}
 #endif
 				else if ( !memcmp(req.path,"/flag_",6) && !memcmp(req.path+8,".gif",4) ) {

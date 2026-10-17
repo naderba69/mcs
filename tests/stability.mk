@@ -3351,6 +3351,10 @@ dt: $(DT_PROBE) $(CACHEPEER)
 # ---------------------------------------------------------------------------
 # TASK 3.12 -- DCW stats on the home page.
 #
+# TASK R46 (D109): the counter table moved to /stats. The home page and its
+# refresh carry the ON/OFF state and a link; the proofs below read the table
+# from /stats.
+#
 # THE SECTION. The home page (/) already shows uptime and totals, and its
 # own refresh (/?action=div) replaces mainDiv. The counters live in that
 # block, so a refresh moves the numbers. Names are dcwstats_reason_name(),
@@ -3399,34 +3403,34 @@ dw: $(DT_PROBE) $(CACHEPEER)
 	stdbuf -o0 -e0 $(STATS_BIN) -C $(DW_CFG) -v > .dw-srv.log 2>&1 & srv=$$!; \
 	got=0; code=000; \
 	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-	  code=$$(curl -s -m 3 -u admin:admin -o .dw-page.html -w '%{http_code}' http://127.0.0.1:$(DW_HPORT)/); \
+	  code=$$(curl -s -m 3 -u admin:admin -o .dw-page.html -w '%{http_code}' http://127.0.0.1:$(DW_HPORT)/stats); \
 	  if [ "$$code" = "200" ] && grep -q "null/half-null</td><td>[1-9]" .dw-page.html; then got=1; break; fi; \
 	  sleep 1; \
 	done; \
 	if [ "$$got" = "1" ]; then \
-	  echo "  [ ok ] home page 200 and the rejected CW is on it"; \
+	  echo "  [ ok ] counter page 200 and the rejected CW is on it"; \
 	else echo "[FAIL] page never showed the rejection (http $$code)"; tail -6 .dw-srv.log; ok=0; fi; \
 	kill $$peer 2>/dev/null; sleep 1; kill -9 $$peer 2>/dev/null; sleep 1; \
-	code=$$(curl -s -m 3 -u admin:admin -o .dw-page.html -w '%{http_code}' http://127.0.0.1:$(DW_HPORT)/); \
+	code=$$(curl -s -m 3 -u admin:admin -o .dw-home.html -w '%{http_code}' http://127.0.0.1:$(DW_HPORT)/); \
+	curl -s -m 3 -u admin:admin -o .dw-page.html http://127.0.0.1:$(DW_HPORT)/stats || true; \
 	curl -s -m 3 --http0.9 -u admin:admin -o .dw-div.html 'http://127.0.0.1:$(DW_HPORT)/?action=div' || true; \
 	./$(DT_PROBE) 127.0.0.1 $(DW_TPORT) admin admin dcwstats > .dw-tel.txt 2>&1; \
-	if [ "$$code" != "200" ] || ! grep -q "</html>" .dw-page.html || ! grep -q "Uptime:" .dw-page.html || ! grep -q "</table>" .dw-page.html; then \
+	if [ "$$code" != "200" ] || ! grep -q "</html>" .dw-home.html || ! grep -q "Uptime:" .dw-home.html || ! grep -q "href='/stats'" .dw-home.html || ! grep -q "</table>" .dw-page.html; then \
 	  echo "[FAIL] the home page is not intact (http $$code)"; ok=0; \
-	else echo "  [ ok ] the home page still renders (200, uptime, table, </html>)"; fi; \
-	if grep -q "</table>" .dw-div.html && ! grep -q "<html" .dw-div.html; then \
-	  echo "  [ ok ] the refresh fragment carries the table and is not a second document"; \
+	else echo "  [ ok ] home page renders (200, uptime, link to /stats); the table is on /stats"; fi; \
+	if grep -q "href='/stats'" .dw-div.html && ! grep -q "<html" .dw-div.html; then \
+	  echo "  [ ok ] the refresh fragment carries the link and is not a second document"; \
 	else echo "[FAIL] action=div fragment"; ok=0; fi; \
 	miss=0; \
 	for name in accepted checksum null/half-null repeat-3-bytes bad-dcw-list; do \
 	  web=$$(grep -o "$${name}</td><td>[0-9][0-9]*" .dw-page.html | head -1 | sed 's/.*<td>//'); \
-	  div=$$(grep -o "$${name}</td><td>[0-9][0-9]*" .dw-div.html | head -1 | sed 's/.*<td>//'); \
 	  tel=$$(awk -v n="$$name" '$$1==n { print $$2; exit }' .dw-tel.txt); \
-	  if [ -z "$$web" ] || [ "$$web" != "$$tel" ] || [ "$$web" != "$$div" ]; then \
-	    echo "[FAIL] $$name page='$$web' div='$$div' telnet='$$tel'"; miss=1; \
+	  if [ -z "$$web" ] || [ "$$web" != "$$tel" ]; then \
+	    echo "[FAIL] $$name page='$$web' telnet='$$tel'"; miss=1; \
 	  fi; \
 	done; \
 	if [ "$$miss" = "0" ]; then \
-	  echo "  [ ok ] every counter on the page matches telnet and the refresh fragment"; \
+	  echo "  [ ok ] every counter on /stats matches telnet"; \
 	else ok=0; fi; \
 	if grep -q "null/half-null</td><td>0" .dw-page.html; then \
 	  echo "[FAIL] the matched count is zero -- the rejection was lost before the compare"; ok=0; \
@@ -3441,8 +3445,9 @@ dw: $(DT_PROBE) $(CACHEPEER)
 	  code=$$(curl -s -m 3 -u admin:admin -o .dw-off.html -w '%{http_code}' http://127.0.0.1:$(DW_HPORT)/); \
 	  [ "$$code" = "200" ] && break; sleep 1; \
 	done; \
+	curl -s -m 3 -u admin:admin -o .dw-off-stats.html http://127.0.0.1:$(DW_HPORT)/stats || true; \
 	./$(DT_PROBE) 127.0.0.1 $(DW_TPORT) admin admin dcwstats > .dw-off-tel.txt 2>&1 || true; \
-	if grep -q "DCW stats</b> OFF" .dw-off.html && grep -q "null/half-null</td><td>0" .dw-off.html && grep -q "dcwstats: OFF" .dw-off-tel.txt; then \
+	if grep -q "DCW stats</b> OFF" .dw-off.html && grep -q "null/half-null</td><td>0" .dw-off-stats.html && grep -q "dcwstats: OFF" .dw-off-tel.txt; then \
 	  echo "  [ ok ] no config line: page and telnet both say OFF and zero"; \
 	else echo "[FAIL] OFF readout"; ok=0; fi; \
 	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; \
@@ -3593,7 +3598,7 @@ bd: $(CACHEPEER) $(NCCLIENT)
 	n=$$(grep -c "DELIVERED A CONTROL WORD" .bd-cli.log); \
 	if [ "$$n" = "0" ]; then echo "  [ ok ] the listed key was not delivered"; \
 	else echo "[FAIL] the listed key was delivered $$n times"; ok=0; fi; \
-	curl -s -m 3 -u admin:admin -o .bd-page.html http://127.0.0.1:$(BD_HPORT)/; \
+	curl -s -m 3 -u admin:admin -o .bd-page.html http://127.0.0.1:$(BD_HPORT)/stats; \
 	hits=$$(grep -o 'bad-dcw-list</td><td>[0-9]*' .bd-page.html | grep -o '[0-9]*$$'); \
 	if [ -n "$$hits" ] && [ "$$hits" != "0" ]; then \
 	  echo "  [ ok ] bad-dcw-list counted $$hits"; \
@@ -3616,7 +3621,7 @@ bd: $(CACHEPEER) $(NCCLIENT)
 	sleep 1; \
 	NC_ECM_GAP_MS=200 ./$(NCCLIENT) 127.0.0.1 $(BD_NPORT) u1 p1 0102030405060708091011121314 0 1884 0064 > .bd-cli.log 2>&1; \
 	n=$$(grep -c "DELIVERED A CONTROL WORD" .bd-cli.log); \
-	curl -s -m 3 -u admin:admin -o .bd-page.html http://127.0.0.1:$(BD_HPORT)/; \
+	curl -s -m 3 -u admin:admin -o .bd-page.html http://127.0.0.1:$(BD_HPORT)/stats; \
 	hits2=$$(grep -o 'bad-dcw-list</td><td>[0-9]*' .bd-page.html | grep -o '[0-9]*$$'); \
 	if [ "$$n" = "2" ] && grep -q "dcw=$(BD_OTHER)" .bd-cli.log && [ "$$hits2" = "0" ]; then \
 	  echo "  [ ok ] a key that is not on the list was delivered, and bad-dcw-list stayed 0"; \

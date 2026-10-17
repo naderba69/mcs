@@ -1646,6 +1646,8 @@ TASK 3.10 arms. Contract, since TASK 3.11:
 
 ## §30 — DCW stats on the home page (TASK 3.12)
 
+> **R46 (D109) — moved.** The counter table no longer sits on the home page. It has its own page, `/stats` (stats flavour only, same authenticated chain as `/cwlog`, menu entry "DCW Stats"). The home page and its refresh keep only the ON/OFF state and a link to `/stats`. The names, counts and html_esc rule are unchanged. The text below describes the table as it now appears on `/stats`.
+
 The home page section and the telnet command are one readout. Contract,
 since TASK 3.12:
 
