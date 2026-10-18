@@ -1,5 +1,5 @@
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-61fd41ea471f82c6fd0e1915948fdcca  CHANGELOG.md
+11f1995c91070a1dbc33cdc3ad42a924  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
@@ -24,6 +24,7 @@ ecb3f2d021b6bbfb71260f10df1615f7  bin/multics-r82a-stock-x64
 ecb3f2d021b6bbfb71260f10df1615f7  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 5e9abd6e39a6c94e7ec7485ef45390c7  docs/ARCHITECTURE.md
+f66122bce6e2f88285d4228000c95dc4  docs/AUDIT-R52-ar.md
 7b9bd8f6cdecb55e1c35aa467a425a06  docs/BLACKSCREEN.md
 797863f9c6d87675f97e3965189f7c45  docs/BUILD-PATCHES.md
 088d92251d68affde9c8b2fa437ed079  docs/CACHE-OPTIMIZATION-ar.md
@@ -556,7 +557,7 @@ c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 429cc8d7f3acb146dfbcd7ae49cc886f  tests/cardfill.c
 3cb75655a2a85b6454b82e98b54ff1e4  tests/ccdcw.c
 0ff0ccc77e0e2d3673a64f0a4945cc86  tests/cedcw.py
-db6abcc5ecce6c606db78dc06c043e00  tests/cfgcheck.py
+8e0e12fd7f3bb3551ed3a461f55394a7  tests/cfgcheck.py
 640f76a98e8bcdcd38eaed9e33f26bc7  tests/cxpeer.c
 b5cf4be5602fcf8a63af62118e18f288  tests/docrefs.sh
 a16adeb896de5c72ffea07012c9c44d3  tests/dt-probe.c

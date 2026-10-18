@@ -11,7 +11,7 @@
 # It reads the file only; it never starts anything.
 #
 #   python3 cfgcheck.py ../multics-r24-optimized.cfg
-import sys, re, collections
+import os, sys, re, collections
 
 # TASK R45: "DCW VALIDECMTIME" is LIVE since R44 (D107, config.c 2533 and 4492),
 # both at DEFAULT and per profile. It is not listed here any more. It stays
@@ -178,6 +178,30 @@ def main(path):
             bad("duplicate PORT %s in %d profiles" % (port, n))
     if len(ports) == len(profs):
         ok("72 profiles: unique ports, one family block each")
+
+    # ---- TASK R52: every key word is a parser word (typo net) ----
+    # The parser ignores an unknown key inside a profile without a
+    # message, so a misspelt line would be dead silently. Each word of
+    # every key must be a string literal the parser compares against
+    # (src/config.c). `SID LIST !` is the valid exclusion form (`!`).
+    cfg_c = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "..", "src", "config.c")
+    if os.path.exists(cfg_c):
+        lits = {w.upper() for w in re.findall(r'"([A-Za-z_0-9]+)"',
+                open(cfg_c, encoding="utf-8", errors="replace").read())}
+        all_keys = set(glob.keys())
+        for p in profs:
+            all_keys.update(p["kv"].keys())
+        typos = []
+        for k in sorted(all_keys):
+            miss = [w for w in k.split() if w != "!" and w not in lits]
+            if miss:
+                typos.append("%s (%s)" % (k, ", ".join(miss)))
+        if typos:
+            for t in typos:
+                bad("unknown key word, the parser would ignore it: " + t)
+        else:
+            ok("every key word is known to the parser (%d keys)" % len(all_keys))
 
     # ---- summary ----
     for f in fails:

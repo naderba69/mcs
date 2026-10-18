@@ -6,6 +6,24 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R52 — Line-by-line audit of the profiles, and the typo net (2026-10-18)
+
+**Audit.** Every profile line was checked against the parser and against the CA
+registry (`src/casystem.h`). Result: 107 key spellings, all known to the parser; 0
+family-rule mismatches out of 72 profiles; no duplicate key; no shared port. The full
+per-profile table is in `docs/AUDIT-R52-ar.md`.
+
+**New check.** `tests/cfgcheck.py` now fails on any key word the parser does not know.
+The parser ignores an unknown key inside a profile without a message, so a typo used to
+be silent. A typo run confirmed the check fails (exit 1).
+
+**Not changed.** No timing or behaviour value changed. Timing needs field data (`/diag`
+over 24 hours). `ECM LENGTH` lists are operator data, and a strict list refuses any
+other length. `ECM CHECK LENGTH: NO` on 21 profiles is an operator choice, and profile
+1884 is unchanged pending the operator's decision.
+
+---
+
 ## R51 — Production check of the profiles file (2026-10-18)
 
 **Audit, no profile changed.** `multics-r24-optimized.cfg` (72 profiles, 2042 lines)
