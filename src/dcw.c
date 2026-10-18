@@ -442,3 +442,28 @@ int ishalfnulledcw( uint8_t dcw[16] )
 }
 
 
+#ifdef MCS_DCWSTATS
+/* TASK R65: the /diag page's read-only view of the CA registry. casystem.h
+ * keeps these helpers static; the stats page reads them through these three
+ * wrappers, so the page and acceptDCW can never disagree about a system. */
+const char *diag_ca_system(uint16_t caid)
+{
+	return ca_name(caid);
+}
+
+const char *diag_ca_format(uint16_t caid)
+{
+	return ca_cwformat_name(ca_cwformat(caid));
+}
+
+int diag_ca_checksum_expected(uint16_t caid)
+{
+	return ca_cw_checksum_expected(caid);
+}
+
+/* TASK R65: the global DCWFILTER CYCLE, which a profile on INHERIT follows. */
+int diag_cycle_global(void)
+{
+	return dcw_filter_cycle ? 1 : 0;
+}
+#endif /* MCS_DCWSTATS */

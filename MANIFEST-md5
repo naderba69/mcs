@@ -1,5 +1,5 @@
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-1c38d9fb1998932ba054b09a1240a084  CHANGELOG.md
+75093cd8360400a261f5c126da89b819  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
@@ -11,16 +11,16 @@ f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 5a0ca5e83740983dd381a366f2b8aa7e  bin/README-R24-x64.md
 800177a56d2f4e6f3a0a0ce5dac71c95  bin/multics-r82a-arm
 dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
-6d90ce204aa17980778e2fe8b4cabc3b  bin/multics-r82a-queue-stats-x64
+21a17269efe5f739915c22b0c9d73fc7  bin/multics-r82a-queue-stats-x64
 dffead03fbac3cf1fc319c832bea8cd9  bin/multics-r82a-queue-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-0f3dd2ca3fa286ef1db25ca5b0facce3  bin/multics-r82a-stats-x64
+2608cb83581869d6c4625e0955acf355  bin/multics-r82a-stats-x64
 57da7ab479b03313764a448d9a5356e2  bin/multics-r82a-stock-x64
 8ae2afeb6a89480c1e9a0d052bc4dbfe  bin/multics-r82a-x64
-0f3dd2ca3fa286ef1db25ca5b0facce3  bin/multics.x64
-6d90ce204aa17980778e2fe8b4cabc3b  dist/multics-r82a-queue-stats-x64
+2608cb83581869d6c4625e0955acf355  bin/multics.x64
+21a17269efe5f739915c22b0c9d73fc7  dist/multics-r82a-queue-stats-x64
 dffead03fbac3cf1fc319c832bea8cd9  dist/multics-r82a-queue-x64
-0f3dd2ca3fa286ef1db25ca5b0facce3  dist/multics-r82a-stats-x64
+2608cb83581869d6c4625e0955acf355  dist/multics-r82a-stats-x64
 57da7ab479b03313764a448d9a5356e2  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 5e9abd6e39a6c94e7ec7485ef45390c7  docs/ARCHITECTURE.md
@@ -311,7 +311,7 @@ dee4df6ee4259dac30ad398b558ac1fc  make-x64/test_dcwfilter.c
 389f254ed099cd00d8ae34453bc49440  make-x64/test_dcwstruct.c
 e93cc8fdd9a1cf845a4041af0dfd1ab3  make-x64/test_dcwtiming.c
 dea07d147e62ff1203b2d9a17d8a486a  make-x64/test_debugcore.c
-3a8c0ac2d59151e3407af5c9549516f1  make-x64/test_diag.c
+eb8a5107d052ffb003e2739aba9db6b8  make-x64/test_diag.c
 b714153694d287291e76273f67e85d25  make-x64/test_diagscope.c
 066a660817a29e57b1faca730f5a6d3a  make-x64/test_htmlesc.c
 15838758f10383b15d76cfa4e0199c8f  make-x64/test_ledger.c
@@ -432,7 +432,7 @@ f868ada5f76fa1863ca2e277d349bcf0  src/cwrollback.h
 cf3422e7e10e69479e6bf53fa8cacbf8  src/cwtime.h
 a856b248d979f9bdf6ea79166d34b907  src/cwvalidity.h
 eea4557a1d93c03a001dafecf656b537  src/cwverify.h
-9c153c27baaca0628b44a3cc2a2dad36  src/dcw.c
+845bc234e95b94247491e3cc5676e4eb  src/dcw.c
 db537c3f1010682b1cddfdf12af734e0  src/dcw.h
 0421215a285de9ede5fd3600fe0c0f9e  src/dcwfilter.c
 055eb20db6075709d3abf4b4befd7b87  src/dcwfilter.h
@@ -445,7 +445,7 @@ b3e06a3ae58adfeabf113d06f7e86133  src/debug.h
 5ac70aeabbab7f3139464e4c10035b1d  src/debugcore.h
 ff819ba0ed59803687c2e99869d638a3  src/des.c
 424195333cfaa7171feaa1848f067c04  src/des.h
-fd23925a8251105e04802feef3588af8  src/diag.h
+7929155521a70d4a4d89cf0adeda2ed7  src/diag.h
 ce6dc69905fab7c3831ed7f0529dcc7e  src/diagscope.h
 333301865f35485299c3ea8c259ccd18  src/dyn_buffer.c
 ee210101a52467b26a1638a978545a09  src/ecm-optimizations.c
@@ -459,7 +459,7 @@ e9762485e77bda84a3a29553e5ffcee9  src/ecmdata.c
 35e6ede5769c06a8a22850ff9a16851b  src/fastretx.h
 53bf1ba928072a0c68dcb81566acb029  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-024be71e05394e433bf1ab3779ba5379  src/httpserver.c
+94e65f2c42b68841ac891bf1e46e7505  src/httpserver.c
 f5b6ea3dc27287ae7b1411316bde8b72  src/httpserver.h
 a43344053ef6be6a6af0b301eae0fd34  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
@@ -572,5 +572,5 @@ b15af4b90f3df83d9880d9601260f980  tests/r107peer.c
 f8629bcab7831d4dfb9b63f41d86176c  tests/r48-tn.py
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
-568c4db0b326cc786ee03d7ae6cb6d38  tests/stability.mk
+bfdcbabc4b8d585428e8da3bfe8ab8e4  tests/stability.mk
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c

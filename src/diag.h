@@ -28,6 +28,12 @@
 #define DIAG_HEALTHY_PCT   90   /* delivered share at or above: healthy   */
 #define DIAG_DOMINANT_PCT  70   /* one peer owning this share of refusals */
 #define DIAG_REASONS       (CWLOG_R_PATTERN + 1)   /* ring reasons 0..20 */
+#define DIAG_NOANSWER_PCT  30   /* TASK R65: no-answer share of attempts at or above */
+#define DIAG_SLOW_MS       1000 /* TASK R65: average card answer at or above (ms)   */
+/* DCWFILTER values, as dcw.h defines them: the profile's checksum tristate. */
+#define DIAG_CSUM_INHERIT  0
+#define DIAG_CSUM_ON       1
+#define DIAG_CSUM_OFF      2
 
 /* One bit per finding. A channel can carry several at once. */
 enum diag_finding {
@@ -45,11 +51,16 @@ enum diag_finding {
 	DIAG_HELD,		/* consensus holds: waiting for a second voter   */
 	DIAG_DISPUTED,		/* the card contradicted the cache               */
 	DIAG_MIXED,		/* refusals with no single cause                 */
+	DIAG_NOANSWER,		/* TASK R65: the card or server does not answer  */
+	DIAG_SLOW,		/* TASK R65: the card answers, but slowly        */
 	DIAG_FINDINGS
 };
 
 /* What the page knows about one channel. */
 struct diag_evidence {
+	uint32_t noanswer;		/* TASK R65: channel table, detail scope only */
+	uint32_t lat_n;			/* TASK R65: answers measured (detail scope)  */
+	uint32_t lat_avg;		/* TASK R65: average answer ms               */
 	uint32_t delivered;		/* channel table: since start or reset */
 	uint32_t refused;		/* channel table                       */
 	uint32_t held;			/* channel table                       */
@@ -90,6 +101,7 @@ static int diag_severity(enum diag_finding f)
 	switch (f) {
 	case DIAG_DYING:
 		return 2;
+	case DIAG_NOANSWER: case DIAG_SLOW:
 	case DIAG_CHECKSUM: case DIAG_SHAPE: case DIAG_CONSENSUS:
 	case DIAG_CEX: case DIAG_TRUST: case DIAG_DISPUTED: case DIAG_MIXED:
 		return 1;
@@ -124,6 +136,12 @@ static uint32_t diag_classify(const struct diag_evidence *e)
 
 	if (e->streak >= DIAG_DYING_STREAK)
 		mask |= 1u << DIAG_DYING;
+
+	/* TASK R65: two findings from the table's own measured counters. */
+	if (e->noanswer && diag_pct_ge(e->noanswer, total + e->noanswer, DIAG_NOANSWER_PCT))
+		mask |= 1u << DIAG_NOANSWER;
+	if (e->lat_n >= DIAG_MIN_SAMPLE && e->lat_avg >= DIAG_SLOW_MS)
+		mask |= 1u << DIAG_SLOW;
 
 	if (diag_pct_ge(e->delivered, total, DIAG_HEALTHY_PCT) && !mask)
 		return 1u << DIAG_OK;
@@ -200,7 +218,7 @@ static const char *diag_label(enum diag_finding f)
 		"مفاتيح تبدو مزيفة", "بوابة البروفايل تمنع", "خلاف بين النظراء",
 		"بوابة CACHEEX تمنع", "توقيت البطاقة", "نظير غير موثوق",
 		"أقل من CACHE THRESHOLD", "محجوز بانتظار مؤكد",
-		"البطاقة تناقض الكاش", "أسباب متفرقة"
+		"البطاقة تناقض الكاش", "أسباب متفرقة", "بلا جواب من البطاقة", "بطاقة بطيئة"
 	};
 	return (f >= 0 && f < DIAG_FINDINGS) ? name[f] : "?";
 }
@@ -227,7 +245,9 @@ static const char *diag_advice(enum diag_finding f)
 		"المفاتيح أقل من حد CACHE THRESHOLD. راجع هذا الحد.",
 		"مفاتيح محجوزة بانتظار مؤكد ثانٍ. إن طال الحجز فراجع عدد النظراء المؤكدة.",
 		"البطاقة تناقض الكاش. قارن النظير المسؤول في /cwlog؛ القرار لك.",
-		"أسباب متفرقة بلا سبب غالب. راجع السجل الخام في /cwlog."
+		"أسباب متفرقة بلا سبب غالب. راجع السجل الخام في /cwlog.",
+		"البطاقة أو الخادم لا يجيب على نسبة من الطلبات. راجع الاتصال بالبطاقة أو الخادم، و SERVER TIMEOUT. لا تغيّر من هذه الصفحة. هذا الحكم يظهر بالتفاصيل فقط.",
+		"متوسط زمن البطاقة فوق الحد. قِس قبل أي تغيير على DCW TIMEOUT أو DCW VALIDECMTIME. هذا الحكم يظهر بالتفاصيل فقط."
 	};
 	return (f >= 0 && f < DIAG_FINDINGS) ? text[f] : "?";
 }
@@ -269,6 +289,159 @@ static int diag_setting_hint(enum diag_finding f, int top_reason,
 		break;
 	}
 	return out[0] != 0;
+}
+
+/*
+ * TASK R65: the page's new pure rules. Each one is a plain function with a
+ * test in make-x64/test_diag.c; the page only formats their results.
+ */
+
+/* Delivered share of the decided verdicts (delivered + refused), 0..100.
+ * -1 when there is no decided verdict yet: no share, not 0%. */
+__attribute__((unused))
+static int diag_ratio_pct(uint32_t delivered, uint32_t refused)
+{
+	uint32_t t = delivered + refused;
+
+	if (!t) return -1;
+	return (int)(delivered * 100u / t);
+}
+
+/* How many of n ring ticks fall within the last span_ms of now. Subtraction
+ * is unsigned, so a tick that wraps or lies ahead of now is never counted. */
+__attribute__((unused))
+static uint32_t diag_recent(const uint32_t *tick, int n, uint32_t now, uint32_t span_ms)
+{
+	uint32_t c = 0;
+	int i;
+
+	for (i = 0; i < n; i++)
+		if (now - tick[i] <= span_ms) c++;
+	return c;
+}
+
+/* The effective checksum gate of a profile, as dcw.c decides it:
+ *   ON  -> on;   OFF -> off;
+ *   INHERIT -> the global gate, switched off only when CA MODERN is armed
+ *              AND the system's control word carries no CSA checksum.
+ * Returns 1 or 0. */
+__attribute__((unused))
+static int diag_checksum_effective(int mode, int global_on, int ca_modern, int checksum_expected)
+{
+	if (mode == DIAG_CSUM_ON) return 1;
+	if (mode == DIAG_CSUM_OFF) return 0;
+	if (!global_on) return 0;
+	if (ca_modern && !checksum_expected) return 0;
+	return 1;
+}
+
+/* What a ring reason means, in plain words, for the legend on the page.
+ * Reason 10 is a hold, not a refusal, and says so. */
+__attribute__((unused))
+static const char *diag_reason_meaning(int reason)
+{
+	static const char *const text[DIAG_REASONS] = {
+		"قُبل المفتاح",
+		"فشل فحص checksum: بايتات التحقق في المفتاح غير صحيحة",
+		"مفتاح صفري أو نصفه صفر",
+		"المفتاح يكرر 3 بايتات (نمط مزيف)",
+		"قائمة مفاتيح غير صالحة",
+		"CACHEEX: بوابة LOCAL_ONLY منعت المفتاح",
+		"CACHEEX: بوابة BLOCK_FAKE_CW منعت المفتاح",
+		"CACHEEX: ينتظر تأكيداً قبل القبول",
+		"تناقض في دورة المفاتيح",
+		"خلاف بين النظراء على المفتاح",
+		"محجوز بانتظار مؤكد ثانٍ (ليس رفضاً)",
+		"ذاكرة نظير مُدان: رُفض لأن النظير أخطأ من قبل",
+		"أقل من CACHE THRESHOLD",
+		"فلتر البروفايل منع المفتاح",
+		"تناقض متأخر مع الكاش",
+		"بوابة الحقيقة المتأخرة منعت المفتاح",
+		"بوابة مخزن الثقة منعت المفتاح",
+		"بوابة ترحيل الثقة منعت المفتاح",
+		"البطاقة أسرع من DCW MINTIME",
+		"البطاقة أبطأ من المهلة (DCW VALIDECMTIME)",
+		"نمط المفتاح مزيف (DCWFILTER PATTERN)"
+	};
+	return (reason >= 0 && reason < DIAG_REASONS) ? text[reason] : "?";
+}
+
+/* Profile-level warnings. Each one is a fact read from a profile, judged
+ * against the family it serves. The page lists them; nothing applies them. */
+enum diag_pwarn {
+	PW_CA_MODERN_OFF,	/* CA MODERN off on a system that needs it   */
+	PW_DCW_CHECK_OFF,	/* DCW CHECK off: the structural check is gone */
+	PW_CSA_CHECKSUM_OFF,	/* checksum effectively off on a CSA system  */
+	PW_CYCLE_OFF,		/* DCWFILTER CYCLE off                        */
+	PW_HALFNULL_NONVG,	/* HALFNULLED on for a non-VideoGuard system  */
+	PW_SKIPCWC_OFF,		/* ENABLE SKIPCWC off (information)           */
+	PW_ECM_LEN_OFF,		/* ECM CHECK LENGTH off (information)         */
+	PW_FINDINGS
+};
+
+struct diag_pfacts {
+	int checksum_expected;	/* 1: the system's CW carries CSA checksum bytes */
+	int checksum_eff;	/* diag_checksum_effective() of the profile      */
+	int vg_csa;		/* 1: VideoGuard CSA (not iCam)                   */
+	int ca_modern;
+	int dcw_check;
+	int cycle;
+	int skipcwc;
+	int halfnulled;
+	int checkecmlength;
+};
+
+/* The warnings of one profile, as a bitmask (1 << PW_*). */
+__attribute__((unused))
+static uint32_t diag_profile_warn(const struct diag_pfacts *f)
+{
+	uint32_t m = 0;
+
+	if (!f->ca_modern && !f->checksum_expected) m |= 1u << PW_CA_MODERN_OFF;
+	if (!f->dcw_check) m |= 1u << PW_DCW_CHECK_OFF;
+	if (!f->checksum_eff && f->checksum_expected) m |= 1u << PW_CSA_CHECKSUM_OFF;
+	if (!f->cycle) m |= 1u << PW_CYCLE_OFF;
+	if (f->halfnulled && !f->vg_csa) m |= 1u << PW_HALFNULL_NONVG;
+	if (!f->skipcwc) m |= 1u << PW_SKIPCWC_OFF;
+	if (!f->checkecmlength) m |= 1u << PW_ECM_LEN_OFF;
+	return m;
+}
+
+/* 2 = act (a fake or checksum gate is off), 1 = look, 0 = information. */
+__attribute__((unused))
+static int diag_pwarn_severity(enum diag_pwarn w)
+{
+	return (w == PW_SKIPCWC_OFF || w == PW_ECM_LEN_OFF) ? 0 : 1;
+}
+
+__attribute__((unused))
+static const char *diag_pwarn_label(enum diag_pwarn w)
+{
+	static const char *const name[PW_FINDINGS] = {
+		"CA MODERN معطّل على نظام يحتاجه",
+		"DCW CHECK معطّل",
+		"checksum موقوف على نظام CSA",
+		"DCWFILTER CYCLE معطّل",
+		"HALFNULLED على نظام غير VideoGuard",
+		"SKIPCWC معطّل",
+		"ECM CHECK LENGTH معطّل"
+	};
+	return (w >= 0 && w < PW_FINDINGS) ? name[w] : "?";
+}
+
+__attribute__((unused))
+static const char *diag_pwarn_advice(enum diag_pwarn w)
+{
+	static const char *const text[PW_FINDINGS] = {
+		"على نظام AES أو CONST بدون CA MODERN يُطبَّق فحص checksum خطأً فتُرفض مفاتيح صحيحة. راجع هذه الباقة.",
+		"DCW CHECK هو الفحص البنيوي للمفتاح. إيقافه يسمح بمفاتيح مشوهة. أبقِه ما لم يثبت القياس خلافه.",
+		"checksum موقوف على باقة CSA، فتمرّ المفاتيح التالفة. أبقِه إلا إذا أثبت القياس أنه يرفض مفاتيح صحيحة.",
+		"DCWFILTER CYCLE معطّل: لا تُكشف تناقضات الدورة. راجع قبل الإبقاء عليه.",
+		"HALFNULLED مسموح به لغير VideoGuard CSA. تحقّق من العائلة قبل الإبقاء عليه.",
+		"SKIPCWC معطّل: لا تُفرض بطارية checksum عند التسليم. معلومة فقط.",
+		"ECM CHECK LENGTH معطّل: لا تُفحص أطوال قوائم ECM. معلومة فقط، ولا تُغيَّر دون قياس الأطوال."
+	};
+	return (w >= 0 && w < PW_FINDINGS) ? text[w] : "?";
 }
 
 #endif /* MCS_DIAG_H */

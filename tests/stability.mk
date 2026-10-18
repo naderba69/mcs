@@ -5467,6 +5467,8 @@ r44: .ccdcw.bin $(NCSERVER)
 # is named "card" in /cwlog with reason card-too-fast. Script: r47-dg.sh.
 # TASK R48 (D111): the detail scope switched on live (telnet diagscope), no restart.
 # Script: r48-scope.sh (telnet client: r48-tn.py).
+# TASK R65: the rebuilt /diag page end to end (drill-down, filters, TXT export,
+# counting and reset, the global CYCLE readout). Script: r65-diag.sh.
 .PHONY: dg
 dg: $(NCSERVER) $(NCCLIENT)
 	@make -s -C ../make-x64 release-stats > /dev/null || { echo "[FAIL] stats release build"; exit 1; }
@@ -5474,3 +5476,4 @@ dg: $(NCSERVER) $(NCCLIENT)
 	@pkill -9 -x ".ncserver.bin" 2>/dev/null; sleep 1; true
 	@sh r47-dg.sh $(STATS_BIN) ./$(NCSERVER) ./$(NCCLIENT)
 	@sh r48-scope.sh $(STATS_BIN) ./$(NCSERVER) ./$(NCCLIENT)
+	@sh r65-diag.sh $(STATS_BIN) ./$(NCSERVER) ./$(NCCLIENT)

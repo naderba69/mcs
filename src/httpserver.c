@@ -7532,6 +7532,8 @@ struct diag_chan {
 	struct chanhealth_row row;
 	struct diag_evidence ev;
 	uint32_t mask;
+	uint32_t last_age;	/* TASK R65: age of the newest ring row, ms (0xFFFFFFFF: none) */
+	uint32_t ref1m, ref5m, ref15m;	/* TASK R65: refusals in the ring, last 1/5/15 minutes */
 };
 
 /* The most severe finding of a mask (ties: the lower enum value). */
@@ -7547,15 +7549,6 @@ static enum diag_finding diag_top(uint32_t mask)
 	return best < 0 ? DIAG_OK : (enum diag_finding)best;
 }
 
-/* Worst first, then the channel with more refusals. */
-static int diag_before(const struct diag_chan *a, const struct diag_chan *b)
-{
-	int sa = diag_worst(a->mask), sb = diag_worst(b->mask);
-
-	if (sa != sb) return sa > sb;
-	return a->row.refused > b->row.refused;
-}
-
 /* The ring reason that refused this channel most (0 when none). */
 static int diag_top_reason(const struct diag_evidence *e)
 {
@@ -7564,18 +7557,6 @@ static int diag_top_reason(const struct diag_evidence *e)
 	for (r = 1; r < DIAG_REASONS; r++)
 		if (r != CWLOG_R_HOLD && e->reason[r] > e->reason[top]) top = r;
 	return top;
-}
-
-/* A package's finding: that of its worst channel (order[] is worst first). */
-static enum diag_finding diag_package_top(const struct diag_chan *dc,
-					  const int *order, int nchan, uint32_t caid)
-{
-	int k;
-
-	for (k = 0; k < nchan; k++)
-		if (dc[order[k]].row.caid == caid)
-			return diag_top(dc[order[k]].mask);
-	return DIAG_OK;
 }
 
 /* TASK R48 (D111): the refusals of one channel by ring reason, as text,
@@ -7592,51 +7573,6 @@ static void diag_refs_text(const struct chanhealth_row *row, char *out, size_t l
 				 used ? ", " : "", cwlog_reason_name(r), (unsigned long)row->refused_by[r]);
 	}
 }
-
-/* TASK R48 (D111): `/diag?format=txt`, the same numbers as plain text for a
- * support ticket. Channel ids and counts only. No address, user, password or
- * peer name is written: the peer names are left out on purpose. */
-static void diag_write_txt(int sock, const struct diag_chan *dc, const int *order, int nchan)
-{
-	char line[1024], refs[256], hint[160], since[64], lat[32];
-	struct tcp_buffer_data tcpbuf;
-	const struct diag_chan *d;
-	time_t rt = chanhealth_reset_time();
-	int k;
-
-	if (rt) strftime(since, sizeof(since), "%Y-%m-%d %H:%M:%S", localtime(&rt));
-	else snprintf(since, sizeof(since), "start");
-
-	tcp_init(&tcpbuf);
-	tcp_writestr(&tcpbuf, sock, "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n"
-		"Content-Disposition: attachment; filename=\"multics-diag.txt\"\r\nConnection: close\r\n\r\n");
-	snprintf(line, sizeof(line), "# MultiCS /diag export (R48, D111). Channel ids and counts only: no address, user, password or peer name.\n"
-		"# counting: %s   channels: %d / %d   counters since: %s\n"
-		"channel;delivered;refused;held;streak;no_answer;card_answers;avg_ms;max_ms;finding;refusals_by_reason;setting\n",
-		dcwstats_on ? "ON" : "OFF", nchan, CHANHEALTH_SLOTS, since);
-	tcp_writestr(&tcpbuf, sock, line);
-	for (k = 0; k < nchan; k++) {
-		enum diag_finding top;
-
-		d = &dc[order[k]];
-		top = diag_top(d->mask);
-		diag_refs_text(&d->row, refs, sizeof(refs));
-		if (d->row.lat_n) snprintf(lat, sizeof(lat), "%lu;%lu",
-			(unsigned long)(d->row.lat_sum / d->row.lat_n), (unsigned long)d->row.lat_max);
-		else snprintf(lat, sizeof(lat), "-;-");
-		if (!diag_setting_hint(top, diag_top_reason(&d->ev), d->row.lat_n, d->row.lat_max, hint, sizeof(hint)))
-			snprintf(hint, sizeof(hint), "-");
-		snprintf(line, sizeof(line), "%04X:%06X:%04X;%lu;%lu;%lu;%lu;%lu;%lu;%s;%s;%s;%s\n",
-			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
-			(unsigned long)d->row.delivered, (unsigned long)d->row.refused,
-			(unsigned long)d->row.held, (unsigned long)d->row.streak,
-			(unsigned long)d->row.noanswer, (unsigned long)d->row.lat_n,
-			lat, diag_label(top), refs[0] ? refs : "-", hint);
-		tcp_writestr(&tcpbuf, sock, line);
-	}
-	tcp_flush(&tcpbuf, sock);
-}
-
 
 /* TASK R49 (D112): the detail scope from the web page.
  * The same actions as the telnet `diagscope` command, behind the same login.
@@ -7789,120 +7725,1230 @@ static void diag_scope_form(struct tcp_buffer_data *tcpbuf, int sock, const char
 	tcp_writestr(tcpbuf, sock, "</button></form>\n");
 }
 
-static void http_send_diag(int sock, http_request *req)
-{
-	char buf[2048], pname[48], label[256], rsn[48], refs[256], hint[160], lat[32];
-	struct tcp_buffer_data tcpbuf;
-	struct cwlog_entry rows[CWLOG_CAP];
-	struct chanhealth_row chans[CHANHEALTH_SLOTS];
+/*
+ * TASK R65: the diagnosis page, rebuilt to find a fault and say what to check.
+ *
+ * It stays read-only for every setting: nothing here changes a profile or a
+ * protection gate, and every suggestion is for the operator to decide. What
+ * it adds is the view needed to locate a fault: a findings list, filters and
+ * sorts, a drill-down per channel, the CA system and the checksum gate per
+ * package, the configured profiles with their effective settings and their
+ * warnings, the duplicate CAID:provider pairs, and a legend that explains
+ * every number. Two actions are added, both behind the Sec-Fetch-Site check:
+ * counting on or off, and the counters reset (the same as `dcwstats reset`).
+ */
+
+#include "dcw.h"	/* TASK R65: DCWFILTER_ON / DCWFILTER_OFF for the profile readout */
+extern const char *diag_ca_system(uint16_t caid);
+extern const char *diag_ca_format(uint16_t caid);
+extern int diag_ca_checksum_expected(uint16_t caid);
+extern int diag_cycle_global(void);
+extern int dcw_filter_checksum;
+
+#define DIAG_PROF_MAX 128
+#define DIAG_PAIR_MAX 256
+#define DIAG_PKG_MAX  160
+#define DIAG_LIST_MAX 8
+
+struct diag_prof {
+	struct cardserver_data *cs;
+	uint16_t caid;
+	int nprov;
+	int checksum_expected;
+	int checksum_eff;
+	int cycle_on;
+	uint32_t warn;
+};
+
+struct diag_pair {
+	uint16_t caid;
+	uint32_t prov;
+	int n;		/* distinct profiles carrying this pair */
+	int first;	/* index of the first profile in pf[]  */
+	int last;	/* last profile counted (distinct guard) */
+};
+
+struct diag_view {
+	char show[12];	/* all | problems | dying            */
+	char sort[12];	/* worst | refused | delivered | noanswer | slow | recent */
+	char caid[8];	/* CAID filter in hex, or empty      */
+};
+
+struct diag_pkg {
+	uint16_t caid;
+	int nch;
+	int nprof;
+	uint32_t del, ref, held;
+	int worst;
+};
+
+struct diag_ctx {
 	struct diag_chan dc[CHANHEALTH_SLOTS];
 	int order[CHANHEALTH_SLOTS];
+	int nchan;
+	struct diag_prof pf[DIAG_PROF_MAX];
+	int npf;
+	struct diag_pair pair[DIAG_PAIR_MAX];
+	int npair;
+	struct cwlog_entry rows[CWLOG_CAP];
+	int nrows;
+	uint32_t now;
+	uint32_t ref_win[3];		/* refusals in the ring: 1, 5, 15 minutes */
+	uint32_t ring_age;		/* age of the oldest ring row, ms         */
 	int peerid[DIAG_PEERS_MAX];
 	uint32_t pcount[DIAG_PEERS_MAX];
 	uint32_t phist[DIAG_PEERS_MAX][DIAG_REASONS];
-	int nrows, nchan, npeer = 0, dying = 0;
-	int i, j, k, p, c;
-	struct diag_scope scope_now;
+	int npeer;
+	int dying;
+};
 
-	nrows = cwlog_snapshot(rows, CWLOG_CAP);
-	nchan = chanhealth_snapshot(chans, CHANHEALTH_SLOTS);
+static const char *const diag_sort_names[6] = {
+	"worst", "refused", "delivered", "noanswer", "slow", "recent"
+};
 
-	/* 1. the channel evidence: totals from the table ... */
-	for (i = 0; i < nchan; i++) {
-		memset(&dc[i].ev, 0, sizeof(dc[i].ev));
-		dc[i].row = chans[i];
-		dc[i].ev.delivered = chans[i].delivered;
-		dc[i].ev.refused = chans[i].refused;
-		dc[i].ev.held = chans[i].held;
-		dc[i].ev.streak = chans[i].streak;
+static int diag_sort_index(const char *name)
+{
+	int i;
+
+	for (i = 0; i < 6; i++)
+		if (!strcmp(name, diag_sort_names[i])) return i;
+	return -1;
+}
+
+/* Sort keys: 0 worst first; 1 refusals; 2 deliveries; 3 no-answer; 4 slowest
+ * average answer; 5 refusals in the last 5 minutes. Every key falls back to
+ * the worst-first order, so two channels with equal counts keep a fixed order. */
+static int diag_before_key(const struct diag_chan *a, const struct diag_chan *b, int key)
+{
+	uint32_t la, lb;
+	int sa, sb;
+
+	switch (key) {
+	case 1:
+		if (a->row.refused != b->row.refused) return a->row.refused > b->row.refused;
+		break;
+	case 2:
+		if (a->row.delivered != b->row.delivered) return a->row.delivered > b->row.delivered;
+		break;
+	case 3:
+		if (a->row.noanswer != b->row.noanswer) return a->row.noanswer > b->row.noanswer;
+		break;
+	case 4:
+		la = a->row.lat_n ? (uint32_t)(a->row.lat_sum / a->row.lat_n) : 0;
+		lb = b->row.lat_n ? (uint32_t)(b->row.lat_sum / b->row.lat_n) : 0;
+		if (la != lb) return la > lb;
+		break;
+	case 5:
+		if (a->ref5m != b->ref5m) return a->ref5m > b->ref5m;
+		break;
+	default:
+		break;
 	}
+	sa = diag_worst(a->mask);
+	sb = diag_worst(b->mask);
+	if (sa != sb) return sa > sb;
+	return a->row.refused > b->row.refused;
+}
 
-	/* 2. ... and reasons and peers from the ring window. */
-	for (k = 0; k < nrows; k++) {
-		const struct cwlog_entry *r = &rows[k];
+static void diag_sort(struct diag_ctx *x, int key)
+{
+	int i, j;
 
-		c = -1;
-		for (i = 0; i < nchan; i++)
-			if (chans[i].caid == (uint32_t)r->caid && chans[i].provid == r->provid
-				&& chans[i].sid == r->sid) { c = i; break; }
-		if (c < 0) continue;
-		if (r->verdict == CWLOG_DISPUTED) { dc[c].ev.disputed++; continue; }
-		if (r->verdict != CWLOG_REFUSED) continue;
-		if (r->reason >= DIAG_REASONS) continue;
-		dc[c].ev.reason[r->reason]++;
-
-		p = -1;
-		for (i = 0; i < npeer; i++)
-			if (peerid[i] == r->peerid) { p = i; break; }
-		if (p < 0 && npeer < DIAG_PEERS_MAX) {
-			p = npeer++;
-			peerid[p] = r->peerid;
-			pcount[p] = 0;
-			memset(phist[p], 0, sizeof(phist[p]));
-		}
-		if (p >= 0) {
-			pcount[p]++;
-			phist[p][r->reason]++;
-		}
-	}
-
-	for (i = 0; i < nchan; i++) {
-		dc[i].mask = diag_classify(&dc[i].ev);
-		if (dc[i].mask & (1u << DIAG_DYING)) dying++;
-	}
-	/* stable insertion sort: worst first */
-	for (i = 0; i < nchan; i++) order[i] = i;
-	for (i = 1; i < nchan; i++) {
-		int t = order[i];
+	for (i = 0; i < x->nchan; i++) x->order[i] = i;
+	for (i = 1; i < x->nchan; i++) {
+		int t = x->order[i];
 
 		j = i - 1;
-		while (j >= 0 && diag_before(&dc[t], &dc[order[j]])) {
-			order[j + 1] = order[j];
+		while (j >= 0 && diag_before_key(&x->dc[t], &x->dc[x->order[j]], key)) {
+			x->order[j + 1] = x->order[j];
 			j--;
 		}
-		order[j + 1] = t;
+		x->order[j + 1] = t;
+	}
+}
+
+static void diag_view_read(struct diag_view *v, http_request *req)
+{
+	const char *s;
+	size_t i, n;
+	int ok;
+
+	memset(v, 0, sizeof(*v));
+	snprintf(v->show, sizeof(v->show), "%s", "all");
+	snprintf(v->sort, sizeof(v->sort), "%s", "worst");
+	if ((s = isset_get(req, "show")) && (!strcmp(s, "all") || !strcmp(s, "problems") || !strcmp(s, "dying")))
+		snprintf(v->show, sizeof(v->show), "%s", s);
+	if ((s = isset_get(req, "sort")) && diag_sort_index(s) >= 0)
+		snprintf(v->sort, sizeof(v->sort), "%s", s);
+	if ((s = isset_get(req, "caid"))) {
+		n = strlen(s);
+		ok = n >= 1 && n <= 4;
+		for (i = 0; ok && i < n; i++)
+			if (diag_hexdigit(s[i]) < 0) ok = 0;
+		if (ok) snprintf(v->caid, sizeof(v->caid), "%s", s);
+	}
+}
+
+/* Visible in the channel table under the current filter. */
+static int diag_visible(const struct diag_chan *d, const struct diag_view *v)
+{
+	if (v->caid[0] && (uint32_t)strtoul(v->caid, NULL, 16) != d->row.caid) return 0;
+	if (!strcmp(v->show, "problems")) return diag_worst(d->mask) >= 1;
+	if (!strcmp(v->show, "dying")) return (d->mask & (1u << DIAG_DYING)) != 0;
+	return 1;
+}
+
+/* The configured profiles, read the same unlocked way the other pages read
+ * them. A profile's checksum is its effective gate (diag.h), not the raw key. */
+static int diag_profiles_collect(struct diag_prof *pf, int max)
+{
+	struct cardserver_data *cs;
+	int n = 0;
+
+	for (cs = cfg.cardserver; cs && n < max; cs = cs->next) {
+		struct diag_pfacts f;
+		uint16_t caid = (uint16_t)cs->card.caid;
+
+		memset(&f, 0, sizeof(f));
+		f.checksum_expected = diag_ca_checksum_expected(caid) ? 1 : 0;
+		f.checksum_eff = diag_checksum_effective(cs->option.dcwfilter_checksum, dcw_filter_checksum,
+			cs->option.ca_modern ? 1 : 0, f.checksum_expected);
+		f.vg_csa = f.checksum_expected && (caid >> 8) == 0x09;
+		f.ca_modern = cs->option.ca_modern ? 1 : 0;
+		f.dcw_check = cs->option.dcw.check ? 1 : 0;
+		/* ON, or INHERIT with the global gate on: the same rule as clustredcache.c */
+		f.cycle = (cs->option.dcwfilter_cycle == DCWFILTER_ON) ||
+		          (cs->option.dcwfilter_cycle == DCWFILTER_INHERIT && diag_cycle_global());
+		f.skipcwc = cs->option.skipcwc ? 1 : 0;
+		f.halfnulled = cs->option.dcw.halfnulled ? 1 : 0;
+		f.checkecmlength = cs->option.checkecmlength ? 1 : 0;
+
+		pf[n].cs = cs;
+		pf[n].caid = caid;
+		pf[n].nprov = cs->card.nbprov;
+		pf[n].checksum_expected = f.checksum_expected;
+		pf[n].checksum_eff = f.checksum_eff;
+		pf[n].cycle_on = f.cycle;
+		pf[n].warn = diag_profile_warn(&f);
+		n++;
+	}
+	return n;
+}
+
+/* Which configured profiles share a CAID:provider pair. A pair listed twice
+ * inside one profile is still one profile, so the guard is the last profile. */
+static void diag_pairs_collect(struct diag_ctx *x)
+{
+	int i, j, k, np;
+
+	x->npair = 0;
+	for (i = 0; i < x->npf; i++) {
+		const struct cardserver_data *cs = x->pf[i].cs;
+
+		np = cs->card.nbprov;
+		if (np > CARD_MAXPROV) np = CARD_MAXPROV;
+		for (k = 0; k < np; k++) {
+			uint32_t pv = cs->card.prov[k].id;
+
+			for (j = 0; j < x->npair; j++)
+				if (x->pair[j].caid == x->pf[i].caid && x->pair[j].prov == pv) break;
+			if (j == x->npair) {
+				if (x->npair >= DIAG_PAIR_MAX) continue;
+				x->pair[j].caid = x->pf[i].caid;
+				x->pair[j].prov = pv;
+				x->pair[j].n = 0;
+				x->pair[j].first = i;
+				x->pair[j].last = -1;
+				x->npair++;
+			}
+			if (x->pair[j].last != i) {
+				x->pair[j].last = i;
+				x->pair[j].n++;
+			}
+		}
+	}
+}
+
+/* 0 no profile, 1 every profile on, 2 every profile off, 3 they differ. */
+static int diag_caid_gate(const struct diag_ctx *x, uint16_t caid)
+{
+	int i, n = 0, on = 0, off = 0;
+
+	for (i = 0; i < x->npf; i++)
+		if (x->pf[i].caid == caid) {
+			n++;
+			if (x->pf[i].checksum_eff) on++;
+			else off++;
+		}
+	if (!n) return 0;
+	if (on && off) return 3;
+	return on ? 1 : 2;
+}
+
+static const char *diag_gate_text(int g)
+{
+	switch (g) {
+	case 1: return mlabel("on", "مفعّل");
+	case 2: return mlabel("off", "موقوف");
+	case 3: return mlabel("differs", "مختلف");
+	default: return mlabel("no profile", "لا بروفايل");
+	}
+}
+
+/* Gather every source once: the table, the ring, the profiles. */
+static void diag_gather(struct diag_ctx *x)
+{
+	struct chanhealth_row chans[CHANHEALTH_SLOTS];
+	int i, k, c, p;
+
+	x->now = (uint32_t)GetTickCount();
+	x->nrows = cwlog_snapshot(x->rows, CWLOG_CAP);
+	x->nchan = chanhealth_snapshot(chans, CHANHEALTH_SLOTS);
+	x->npf = diag_profiles_collect(x->pf, DIAG_PROF_MAX);
+	diag_pairs_collect(x);
+	x->ring_age = x->nrows ? x->now - x->rows[x->nrows - 1].tick : 0;
+	x->ref_win[0] = x->ref_win[1] = x->ref_win[2] = 0;
+	x->npeer = 0;
+	x->dying = 0;
+
+	for (i = 0; i < x->nchan; i++) {
+		struct diag_chan *d = &x->dc[i];
+
+		memset(&d->ev, 0, sizeof(d->ev));
+		d->row = chans[i];
+		d->ev.delivered = chans[i].delivered;
+		d->ev.refused = chans[i].refused;
+		d->ev.held = chans[i].held;
+		d->ev.streak = chans[i].streak;
+		d->ev.noanswer = chans[i].noanswer;
+		d->ev.lat_n = chans[i].lat_n;
+		d->ev.lat_avg = chans[i].lat_n ? (uint32_t)(chans[i].lat_sum / chans[i].lat_n) : 0;
+		d->last_age = 0xFFFFFFFFu;
+		d->ref1m = d->ref5m = d->ref15m = 0;
 	}
 
-	{
-		const char *fmt = isset_get(req, "format");
+	for (k = 0; k < x->nrows; k++) {
+		const struct cwlog_entry *e = &x->rows[k];
+		uint32_t age = x->now - e->tick;	/* wrap-safe: a future tick is never inside a window */
 
-		if (fmt && !strcmp(fmt, "txt")) {
-			diag_write_txt(sock, dc, order, nchan);
-			return;
+		if (e->verdict == CWLOG_REFUSED) {
+			if (age <= 60000u) x->ref_win[0]++;
+			if (age <= 300000u) x->ref_win[1]++;
+			if (age <= 900000u) x->ref_win[2]++;
+		}
+		c = -1;
+		for (i = 0; i < x->nchan; i++)
+			if (chans[i].caid == (uint32_t)e->caid && chans[i].provid == e->provid && chans[i].sid == e->sid) {
+				c = i;
+				break;
+			}
+		if (c < 0) continue;
+		if (age < x->dc[c].last_age) x->dc[c].last_age = age;
+		if (e->verdict == CWLOG_DISPUTED) { x->dc[c].ev.disputed++; continue; }
+		if (e->verdict != CWLOG_REFUSED) continue;
+		if (age <= 60000u) x->dc[c].ref1m++;
+		if (age <= 300000u) x->dc[c].ref5m++;
+		if (age <= 900000u) x->dc[c].ref15m++;
+		if (e->reason < 0 || e->reason >= DIAG_REASONS) continue;
+		x->dc[c].ev.reason[e->reason]++;
+
+		p = -1;
+		for (i = 0; i < x->npeer; i++)
+			if (x->peerid[i] == e->peerid) { p = i; break; }
+		if (p < 0 && x->npeer < DIAG_PEERS_MAX) {
+			p = x->npeer++;
+			x->peerid[p] = e->peerid;
+			x->pcount[p] = 0;
+			memset(x->phist[p], 0, sizeof(x->phist[p]));
+		}
+		if (p >= 0) {
+			x->pcount[p]++;
+			x->phist[p][e->reason]++;
 		}
 	}
 
+	for (i = 0; i < x->nchan; i++) {
+		x->dc[i].mask = diag_classify(&x->dc[i].ev);
+		if (x->dc[i].mask & (1u << DIAG_DYING)) x->dying++;
+	}
+	diag_sort(x, 0);
+}
+
+/* A short, copyable line for the findings list: the channel with its drill-down. */
+static void diag_chan_link(char *out, size_t n, const struct chanhealth_row *r)
+{
+	snprintf(out, n, "<a href='/diag?ch=%04X:%06X:%04X'>%04X:%06X:%04X</a>",
+		(unsigned)r->caid, (unsigned)r->provid, (unsigned)r->sid,
+		(unsigned)r->caid, (unsigned)r->provid, (unsigned)r->sid);
+}
+
+/* The names of the profiles that carry this CAID, escaped, comma-separated. Returns how many. */
+static int diag_profile_names(const struct diag_ctx *x, uint16_t caid, char *out, size_t n)
+{
+	int i, cnt = 0;
+
+	out[0] = 0;
+	for (i = 0; i < x->npf; i++)
+		if (x->pf[i].caid == caid) {
+			char esc[128];
+
+			diag_html_escape(esc, x->pf[i].cs->name, sizeof(esc));
+			snprintf(out + strlen(out), n - strlen(out), "%s%s", cnt ? ", " : "", esc);
+			cnt++;
+		}
+	return cnt;
+}
+
+static void diag_th(struct tcp_buffer_data *t, int sock, const char *label, const char *tip)
+{
+	char b[320];
+
+	if (tip && *tip) snprintf(b, sizeof(b), "<th title='%s'>%s</th>", tip, label);
+	else snprintf(b, sizeof(b), "<th>%s</th>", label);
+	tcp_writestr(t, sock, b);
+}
+
+static void diag_li(struct tcp_buffer_data *t, int sock, const char *html)
+{
+	tcp_writestr(t, sock, "<li>");
+	tcp_writestr(t, sock, html);
+	tcp_writestr(t, sock, "</li>\n");
+}
+
+static void diag_page_open(struct tcp_buffer_data *t, int sock, http_request *req, const char *title)
+{
+	char buf[512];
+
+	tcp_init(t);
+	http_replyok_write(req, t, sock);
+	http_html_write(req, t, sock);
+	tcp_write(t, sock, http_head, strlen(http_head));
+	snprintf(buf, sizeof(buf), html_title, cfg.http.title, title);
+	tcp_write(t, sock, buf, strlen(buf));
+	tcp_write(t, sock, http_link, strlen(http_link));
+	http_style_write(t, sock);
+	tcp_write(t, sock, http_head_, strlen(http_head_));
+	tcp_write(t, sock, http_body, strlen(http_body));
+	tcp_write_menu(t, sock, PAGE_DIAG);
+}
+
+/* TASK R48 (D111) / R65: `/diag?format=txt`. Channel ids and counts only: no
+ * address, user, password or peer name. The columns from R48 keep their place;
+ * the R65 columns are appended, so an existing reader keeps working. */
+static void diag_write_txt(int sock, struct diag_ctx *x)
+{
+	char line[1024], refs[256], hint[160], since[64], lat[32], gate[24], ring[40];
+	struct tcp_buffer_data tcpbuf;
+	const struct diag_chan *d;
+	time_t rt = chanhealth_reset_time();
+	int k, ratio;
+	uint32_t g;
+
+	if (rt) strftime(since, sizeof(since), "%Y-%m-%d %H:%M:%S", localtime(&rt));
+	else snprintf(since, sizeof(since), "start");
+
+	tcp_init(&tcpbuf);
+	tcp_writestr(&tcpbuf, sock, "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n"
+		"Content-Disposition: attachment; filename=\"multics-diag.txt\"\r\nConnection: close\r\n\r\n");
+	snprintf(line, sizeof(line), "# MultiCS /diag export (R48, D111; the columns after `setting` were added in R65). Channel ids and counts only: no address, user, password or peer name.\n"
+		"# counting: %s   channels: %d / %d   counters since: %s\n"
+		"channel;delivered;refused;held;streak;no_answer;card_answers;avg_ms;max_ms;finding;refusals_by_reason;setting;ca_system;cw_format;checksum_gate;delivered_pct;refused_1m;refused_5m;last_ring_age_s\n",
+		dcwstats_on ? "ON" : "OFF", x->nchan, CHANHEALTH_SLOTS, since);
+	tcp_writestr(&tcpbuf, sock, line);
+	for (k = 0; k < x->nchan; k++) {
+		enum diag_finding top;
+
+		d = &x->dc[x->order[k]];
+		top = diag_top(d->mask);
+		diag_refs_text(&d->row, refs, sizeof(refs));
+		if (d->row.lat_n) snprintf(lat, sizeof(lat), "%lu;%lu",
+			(unsigned long)(d->row.lat_sum / d->row.lat_n), (unsigned long)d->row.lat_max);
+		else snprintf(lat, sizeof(lat), "-;-");
+		if (!diag_setting_hint(top, diag_top_reason(&d->ev), d->row.lat_n, d->row.lat_max, hint, sizeof(hint)))
+			snprintf(hint, sizeof(hint), "-");
+		g = (uint32_t)diag_caid_gate(x, (uint16_t)d->row.caid);
+		snprintf(gate, sizeof(gate), "%s", g == 1 ? "on" : g == 2 ? "off" : g == 3 ? "differs" : "none");
+		ratio = diag_ratio_pct(d->row.delivered, d->row.refused);
+		if (d->last_age == 0xFFFFFFFFu) snprintf(ring, sizeof(ring), "-");
+		else snprintf(ring, sizeof(ring), "%lu", (unsigned long)(d->last_age / 1000u));
+		snprintf(line, sizeof(line), "%04X:%06X:%04X;%lu;%lu;%lu;%lu;%lu;%lu;%s;%s;%s;%s;%s;%s;%s;%d;%lu;%lu;%s\n",
+			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
+			(unsigned long)d->row.delivered, (unsigned long)d->row.refused,
+			(unsigned long)d->row.held, (unsigned long)d->row.streak,
+			(unsigned long)d->row.noanswer, (unsigned long)d->row.lat_n,
+			lat, diag_label(top), refs[0] ? refs : "-", hint,
+			diag_ca_system((uint16_t)d->row.caid), diag_ca_format((uint16_t)d->row.caid),
+			gate, ratio, (unsigned long)d->ref1m, (unsigned long)d->ref5m, ring);
+		tcp_writestr(&tcpbuf, sock, line);
+	}
+	tcp_flush(&tcpbuf, sock);
+}
+
+/* TASK R65: one channel in full. Every counter, the CA system and the gate,
+ * the findings with their advice, the profiles that serve the CAID, and the
+ * channel's own rows from the ring (no key is printed: /cwlog keeps those). */
+static void diag_send_channel(int sock, http_request *req, struct diag_ctx *x, uint32_t caid, uint32_t prov, uint32_t sid)
+{
+	struct tcp_buffer_data tcpbuf;
+	char buf[1200], refs[256], name[96], esc[256], lat[64];
+	int i, found = -1, nfind = 0, nrows = 0;
+	const struct diag_chan *d;
+	struct diag_scope sc;
+
+	for (i = 0; i < x->nchan; i++)
+		if (x->dc[i].row.caid == caid && x->dc[i].row.provid == prov && x->dc[i].row.sid == sid) {
+			found = i;
+			break;
+		}
+
+	diag_page_open(&tcpbuf, sock, req, mlabel("Channel", "القناة"));
+	snprintf(buf, sizeof(buf), "<h2>%s %04X:%06X:%04X</h2>\n", mlabel("Channel", "القناة"),
+		(unsigned)caid, (unsigned)prov, (unsigned)sid);
+	tcp_writestr(&tcpbuf, sock, buf);
+	tcp_writestr(&tcpbuf, sock, "<p><a href='/diag'>");
+	tcp_writestr(&tcpbuf, sock, mlabel("back to the diagnosis page", "العودة إلى صفحة التشخيص"));
+	tcp_writestr(&tcpbuf, sock, "</a></p>\n");
+
+	if (found < 0) {
+		tcp_writestr(&tcpbuf, sock, "<p><b>");
+		tcp_writestr(&tcpbuf, sock, mlabel(
+			"This channel is not in the table: it has no delivery or refusal since the start or the last reset.",
+			"هذه القناة ليست في الجدول: لا تسليم ولا رفض لها منذ التشغيل أو آخر تصفير."));
+		tcp_writestr(&tcpbuf, sock, "</b></p>\n");
+		tcp_writestr(&tcpbuf, sock, "</body></html>\n");
+		tcp_flush(&tcpbuf, sock);
+		return;
+	}
+	d = &x->dc[found];
+
+	snprintf(buf, sizeof(buf), "<p>%s <b>%s</b> &nbsp; %s <b>%s</b></p>\n",
+		mlabel("System", "النظام"), diag_ca_system((uint16_t)caid),
+		mlabel("Format", "نوع CW"), diag_ca_format((uint16_t)caid));
+	tcp_writestr(&tcpbuf, sock, buf);
+	snprintf(buf, sizeof(buf), "<p>%s <b>%s</b></p>\n",
+		mlabel("checksum gate (all profiles of this CAID)", "فحص checksum (كل بروفايلات هذا CAID)"),
+		diag_gate_text(diag_caid_gate(x, (uint16_t)caid)));
+	tcp_writestr(&tcpbuf, sock, buf);
+
+	/* the counters */
+	if (d->row.lat_n)
+		snprintf(lat, sizeof(lat), "%lu / %lu", (unsigned long)(d->row.lat_sum / d->row.lat_n), (unsigned long)d->row.lat_max);
+	else
+		snprintf(lat, sizeof(lat), "%s", mlabel("not measured (detail scope only)", "لم تُقَس (نطاق التفاصيل فقط)"));
+	tcp_writestr(&tcpbuf, sock, "<table class=option border=1px cellspacing=0><tr>");
+	diag_th(&tcpbuf, sock, mlabel("delivered", "تسليم"), "");
+	diag_th(&tcpbuf, sock, mlabel("refused", "رفض"), "");
+	diag_th(&tcpbuf, sock, mlabel("held", "حجز"), "");
+	diag_th(&tcpbuf, sock, mlabel("streak", "متتالٍ"), "");
+	diag_th(&tcpbuf, sock, mlabel("no answer", "بلا جواب"), "");
+	diag_th(&tcpbuf, sock, mlabel("card answer ms (avg / max)", "زمن البطاقة ms (متوسط / أبطأ)"), "");
+	diag_th(&tcpbuf, sock, mlabel("refused, last 5 min (ring)", "رفض آخر 5 دقائق (السجل)"), "");
+	tcp_writestr(&tcpbuf, sock, "</tr><tr>");
+	snprintf(buf, sizeof(buf), "<td>%lu</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%s</td><td>%lu</td></tr></table>\n",
+		(unsigned long)d->row.delivered, (unsigned long)d->row.refused, (unsigned long)d->row.held,
+		(unsigned long)d->row.streak, (unsigned long)d->row.noanswer, lat, (unsigned long)d->ref5m);
+	tcp_writestr(&tcpbuf, sock, buf);
+
+	/* the findings */
+	tcp_writestr(&tcpbuf, sock, "<h3>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Findings and what to consider (not applied)", "الأحكام وما يُنظر فيه (غير مُطبَّق)"));
+	tcp_writestr(&tcpbuf, sock, "</h3><ul>\n");
+	for (i = 0; i < DIAG_FINDINGS; i++)
+		if (d->mask & (1u << i)) {
+			snprintf(buf, sizeof(buf), "<b>%s</b>: %s", diag_label((enum diag_finding)i), diag_advice((enum diag_finding)i));
+			diag_li(&tcpbuf, sock, buf);
+			nfind++;
+		}
+	if (!nfind) diag_li(&tcpbuf, sock, "-");
+	tcp_writestr(&tcpbuf, sock, "</ul>\n");
+
+	/* refusals by reason */
+	diag_refs_text(&d->row, refs, sizeof(refs));
+	snprintf(buf, sizeof(buf), "<p>%s <code>%s</code></p>\n",
+		mlabel("refusals since reset, by reason:", "الرفض منذ التصفير حسب السبب:"), refs[0] ? refs : "-");
+	tcp_writestr(&tcpbuf, sock, buf);
+
+	/* the profiles that serve this CAID */
+	tcp_writestr(&tcpbuf, sock, "<h3>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Profiles that serve this CAID (read-only)", "البروفايلات التي تخدم هذا CAID (للقراءة)"));
+	tcp_writestr(&tcpbuf, sock, "</h3><ul>\n");
+	for (i = 0; i < x->npf; i++)
+		if (x->pf[i].caid == (uint16_t)caid) {
+			diag_html_escape(name, x->pf[i].cs->name, sizeof(name));
+			snprintf(buf, sizeof(buf), "<a href='/profile?id=%d'>%s</a> &nbsp; checksum: %s",
+				x->pf[i].cs->id, name, diag_gate_text(x->pf[i].checksum_eff ? 1 : 2));
+			diag_li(&tcpbuf, sock, buf);
+		}
+	tcp_writestr(&tcpbuf, sock, "</ul>\n");
+
+	/* the detail scope */
+	diagscope_snapshot(&sc);
+	{
+		int in = diag_scope_find_ch(&sc, d->row.caid, d->row.provid, d->row.sid) >= 0;
+
+		snprintf(buf, sizeof(buf), "<p><a href='/diag/scope?op=%s&kind=ch&ch=%04X:%06X:%04X'>%s</a> &nbsp; %s</p>\n",
+			in ? "del" : "add", (unsigned)caid, (unsigned)prov, (unsigned)sid,
+			in ? mlabel("detail OFF for this channel", "إيقاف التفاصيل لهذه القناة") : mlabel("detail ON for this channel", "تفعيل التفاصيل لهذه القناة"),
+			mlabel("(answer time and no-answer, while the server runs; no restart)", "(زمن الجواب والطلبات بلا جواب، أثناء التشغيل بلا ريستارت)"));
+		tcp_writestr(&tcpbuf, sock, buf);
+	}
+
+	/* the channel's rows in the ring, newest first */
+	tcp_writestr(&tcpbuf, sock, "<h3>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Last verdicts of this channel (ring, newest first)", "آخر أحكام هذه القناة (السجل، الأحدث أولاً)"));
+	tcp_writestr(&tcpbuf, sock, "</h3>\n<table class=option border=1px cellspacing=0><tr>");
+	diag_th(&tcpbuf, sock, mlabel("age", "منذ"), "");
+	diag_th(&tcpbuf, sock, mlabel("verdict", "الحكم"), "");
+	diag_th(&tcpbuf, sock, mlabel("reason", "السبب"), "");
+	diag_th(&tcpbuf, sock, mlabel("source", "المصدر"), "");
+	tcp_writestr(&tcpbuf, sock, "</tr>\n");
+	for (i = 0; i < x->nrows && nrows < 40; i++) {
+		const struct cwlog_entry *e = &x->rows[i];
+
+		if ((uint32_t)e->caid != caid || e->provid != prov || e->sid != sid) continue;
+		diag_peer_name(e->peerid, name, sizeof(name));
+		diag_html_escape(esc, name, sizeof(esc));
+		snprintf(buf, sizeof(buf), "<tr><td>%lu s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",
+			(unsigned long)((x->now - e->tick) / 1000u), cwlog_verdict_name(e->verdict),
+			e->verdict == CWLOG_REFUSED ? cwlog_reason_name(e->reason) : "-", esc);
+		tcp_writestr(&tcpbuf, sock, buf);
+		nrows++;
+	}
+	if (!nrows) {
+		tcp_writestr(&tcpbuf, sock, "<tr><td colspan=4>");
+		tcp_writestr(&tcpbuf, sock, mlabel("no verdict of this channel in the ring", "لا أحكام لهذه القناة في السجل"));
+		tcp_writestr(&tcpbuf, sock, "</td></tr>\n");
+	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n");
+	tcp_writestr(&tcpbuf, sock, "</body></html>\n");
+	tcp_flush(&tcpbuf, sock);
+}
+
+/* TASK R65: the two actions on the page, counting on or off and the counters
+ * reset. Both sit behind the same Sec-Fetch-Site check as the scope, and both
+ * change only the stats: no profile, no gate, no setting. */
+static void http_send_diag_action(int sock, http_request *req)
+{
+	static const char refused[] = "cross-site request refused: open the diagnosis page yourself\n";
+	const char *sfs = isset_header(req, "Sec-Fetch-Site");
+	const char *op = isset_get(req, "op");
+	struct tcp_buffer_data tcpbuf;
+	char msg[256], esc[512], hdr[160];
+
+	if (sfs && !strcmp(sfs, "cross-site")) {
+		snprintf(hdr, sizeof(hdr), "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: text/plain\r\nContent-Length: %u\r\n\r\n",
+				 (unsigned)(sizeof(refused) - 1));
+		send(sock, hdr, strlen(hdr), MSG_NOSIGNAL);
+		send(sock, refused, sizeof(refused) - 1, MSG_NOSIGNAL);
+		return;
+	}
+
+	if (!strcmp(req->path, "/diag/reset")) {
+		dcwstats_reset();
+		chanhealth_reset();
+		snprintf(msg, sizeof(msg), "%s", mlabel("counters reset (the ring keeps its window of the last verdicts)",
+			"تم تصفير العدّادات (السجل يحتفظ بنافذة آخر الأحكام)"));
+	}
+	else if (op && !strcmp(op, "on")) {
+		dcwstats_on = 1;
+		snprintf(msg, sizeof(msg), "%s", mlabel("counting ON until the next restart (DCW STATS in the config sets the start value)",
+			"العدّ مفعّل حتى الريستارت القادم (الإعداد DCW STATS يحدد قيمة البدء)"));
+	}
+	else if (op && !strcmp(op, "off")) {
+		dcwstats_on = 0;
+		snprintf(msg, sizeof(msg), "%s", mlabel("counting OFF until the next restart (DCW STATS in the config sets the start value)",
+			"العدّ متوقف حتى الريستارت القادم (الإعداد DCW STATS يحدد قيمة البدء)"));
+	}
+	else snprintf(msg, sizeof(msg), "%s", mlabel("unknown request", "طلب غير معروف"));
+
+	diag_html_escape(esc, msg, sizeof(esc));
 	tcp_init(&tcpbuf);
 	http_replyok_write(req, &tcpbuf, sock);
-	http_html_write(req, &tcpbuf, sock);
-	tcp_write(&tcpbuf, sock, http_head, strlen(http_head));
-	sprintf(buf, html_title, cfg.http.title, mlabel("Diagnosis", "التشخيص"));
-	tcp_write(&tcpbuf, sock, buf, strlen(buf));
-	tcp_write(&tcpbuf, sock, http_link, strlen(http_link));
-	http_style_write(&tcpbuf, sock);
-	tcp_write(&tcpbuf, sock, http_head_, strlen(http_head_));
-	tcp_write(&tcpbuf, sock, http_body, strlen(http_body));
-	tcp_write_menu(&tcpbuf, sock, PAGE_DIAG);
+	tcp_writestr(&tcpbuf, sock, "<HTML><HEAD><meta http-equiv='refresh' content='3;url=/diag'><title>Diagnosis</title></HEAD><BODY>");
+	tcp_writestr(&tcpbuf, sock, "<p>");
+	tcp_writestr(&tcpbuf, sock, esc);
+	tcp_writestr(&tcpbuf, sock, "</p><p><a href='/diag'>");
+	tcp_writestr(&tcpbuf, sock, mlabel("back to the diagnosis page", "العودة إلى صفحة التشخيص"));
+	tcp_writestr(&tcpbuf, sock, "</a></p></BODY></HTML>\n");
+	tcp_flush(&tcpbuf, sock);
+}
+
+/* One option of a <select>, marked when it is the current value. */
+static void diag_opt(struct tcp_buffer_data *t, int sock, const char *value, const char *label, const char *cur)
+{
+	char b[200];
+
+	snprintf(b, sizeof(b), "<option value=%s%s>%s</option>", value, !strcmp(value, cur) ? " selected" : "", label);
+	tcp_writestr(t, sock, b);
+}
+
+/* The findings list: what the evidence says, most urgent first, each with a link. */
+static void diag_findings(struct tcp_buffer_data *t, int sock, struct diag_ctx *x)
+{
+	char line[600], link[200], name[160], lbl[320];
+	int i, n = 0, f, cnt, dup = 0, low = 0, p;
+
+	tcp_writestr(t, sock, "<h3>");
+	tcp_writestr(t, sock, mlabel("Findings: what the evidence says", "الخلاصة: ما الذي تقوله الأدلة"));
+	tcp_writestr(t, sock, "</h3>\n<ul>\n");
+
+	if (!dcwstats_on) {
+		diag_li(t, sock, mlabel("<b>Counting is OFF</b>: this page has no new data. Turn it on with the button above.",
+			"<b>العدّ متوقف</b>: لا بيانات جديدة في هذه الصفحة. شغّله بالزر أعلاه."));
+		n++;
+	}
+
+	cnt = 0;
+	for (i = 0; i < x->nchan && cnt < DIAG_LIST_MAX; i++)
+		if (x->dc[i].mask & (1u << DIAG_DYING)) {
+			diag_chan_link(link, sizeof(link), &x->dc[i].row);
+			snprintf(line, sizeof(line), "<b>%s</b>: %s، %s %lu", mlabel("fails now", "يفشل الآن"), link,
+				mlabel("refusal streak", "رفض متتالٍ"), (unsigned long)x->dc[i].row.streak);
+			diag_li(t, sock, line);
+			cnt++; n++;
+		}
+
+	cnt = 0;
+	for (i = 0; i < x->nchan && cnt < DIAG_LIST_MAX; i++)
+		if (x->dc[i].mask & (1u << DIAG_CHECKSUM)) {
+			diag_chan_link(link, sizeof(link), &x->dc[i].row);
+			snprintf(line, sizeof(line), "<b>%s</b>: %s، %s %s", diag_label(DIAG_CHECKSUM), link,
+				mlabel("gate", "البوابة"), diag_gate_text(diag_caid_gate(x, (uint16_t)x->dc[i].row.caid)));
+			diag_li(t, sock, line);
+			cnt++; n++;
+		}
+
+	cnt = 0;
+	for (i = 0; i < x->nchan && cnt < DIAG_LIST_MAX; i++)
+		if (x->dc[i].mask & ((1u << DIAG_NOANSWER) | (1u << DIAG_SLOW))) {
+			diag_chan_link(link, sizeof(link), &x->dc[i].row);
+			f = (x->dc[i].mask & (1u << DIAG_NOANSWER)) ? DIAG_NOANSWER : DIAG_SLOW;
+			snprintf(line, sizeof(line), "<b>%s</b>: %s", diag_label((enum diag_finding)f), link);
+			diag_li(t, sock, line);
+			cnt++; n++;
+		}
+
+	cnt = 0;
+	for (p = 0; p < x->npf && cnt < DIAG_LIST_MAX; p++) {
+		uint32_t w = x->pf[p].warn;
+		int first = 1, s1 = 0;
+
+		for (f = 0; f < PW_FINDINGS; f++)
+			if ((w & (1u << f)) && diag_pwarn_severity((enum diag_pwarn)f) >= 1) s1++;
+		if (!s1) continue;
+		diag_html_escape(name, x->pf[p].cs->name, sizeof(name));
+		snprintf(lbl, sizeof(lbl), "<a href='/profile?id=%d'>%s</a>: ", x->pf[p].cs->id, name);
+		for (f = 0; f < PW_FINDINGS; f++)
+			if ((w & (1u << f)) && diag_pwarn_severity((enum diag_pwarn)f) >= 1) {
+				snprintf(lbl + strlen(lbl), sizeof(lbl) - strlen(lbl), "%s%s", first ? "" : "، ",
+					diag_pwarn_label((enum diag_pwarn)f));
+				first = 0;
+			}
+		diag_li(t, sock, lbl);
+		cnt++; n++;
+	}
+
+	for (i = 0; i < x->npair; i++) if (x->pair[i].n > 1) dup++;
+	if (dup) {
+		snprintf(line, sizeof(line), mlabel("CAID:provider pairs in more than one profile: %d (see the table below)",
+			"أزواج CAID:provider الموجودة في أكثر من بروفايل: %d (راجع الجدول أدناه)"), dup);
+		diag_li(t, sock, line);
+		n++;
+	}
+
+	for (i = 0; i < x->nchan; i++) if (x->dc[i].mask & (1u << DIAG_LOW_SAMPLE)) low++;
+	if (low) {
+		snprintf(line, sizeof(line), mlabel("channels with fewer than 5 verdicts (no judgement yet): %d",
+			"القنوات التي عينتها أقل من 5 أحكام (لا حكم بعد): %d"), low);
+		diag_li(t, sock, line);
+		n++;
+	}
+
+	if (!n) diag_li(t, sock, mlabel("No problem shows in the current data.", "لا مشكلة ظاهرة في البيانات الحالية."));
+	tcp_writestr(t, sock, "</ul>\n");
+}
+
+static void diag_summary(struct tcp_buffer_data *t, int sock, struct diag_ctx *x)
+{
+	char buf[700], since[64], ratio_s[16];
+	time_t rt = chanhealth_reset_time();
+	uint32_t del = 0, ref = 0, held = 0, bad_n = 0, noans = 0;
+	int i, ratio;
+
+	for (i = 0; i < x->nchan; i++) {
+		del += x->dc[i].row.delivered;
+		ref += x->dc[i].row.refused;
+		held += x->dc[i].row.held;
+		noans += x->dc[i].row.noanswer;
+		if (diag_worst(x->dc[i].mask) >= 1) bad_n++;
+	}
+	ratio = diag_ratio_pct(del, ref);
+	if (ratio < 0) snprintf(ratio_s, sizeof(ratio_s), "-");
+	else snprintf(ratio_s, sizeof(ratio_s), "%d%%", ratio);
+	if (rt) strftime(since, sizeof(since), "%Y-%m-%d %H:%M:%S", localtime(&rt));
+	else snprintf(since, sizeof(since), "%s", mlabel("start", "بدء التشغيل"));
+
+	tcp_writestr(t, sock, "<table class=option border=1px cellspacing=0>");
+	snprintf(buf, sizeof(buf), "<tr><th>%s</th><td><b>%s</b></td><th>%s</th><td><b>%d / %d</b></td><th>%s</th><td><b>%d</b></td></tr>\n",
+		mlabel("counting", "العدّ"), dcwstats_on ? "ON" : "OFF",
+		mlabel("channels", "القنوات"), x->nchan, CHANHEALTH_SLOTS,
+		mlabel("failing now", "تفشل الآن"), x->dying);
+	tcp_writestr(t, sock, buf);
+	snprintf(buf, sizeof(buf), "<tr><th>%s</th><td><b>%lu</b></td><th>%s</th><td><b>%lu</b> / <b>%lu</b> (%s)</td><th>%s</th><td><b>%lu</b> / <b>%lu</b> / <b>%lu</b></td></tr>\n",
+		mlabel("channels with a problem", "قنوات بها مشكلة"), (unsigned long)bad_n,
+		mlabel("delivered / refused (since reset)", "تسليم / رفض (منذ التصفير)"),
+		(unsigned long)del, (unsigned long)ref, ratio_s,
+		mlabel("refusals in ring: 1 / 5 / 15 min", "رفض في السجل: دقيقة / 5 / 15"),
+		(unsigned long)x->ref_win[0], (unsigned long)x->ref_win[1], (unsigned long)x->ref_win[2]);
+	tcp_writestr(t, sock, buf);
+	snprintf(buf, sizeof(buf), "<tr><th>%s</th><td><b>%d</b> / 100</td><th>%s</th><td><b>%lu</b> / <b>%lu</b></td><th>%s</th><td>%s</td></tr>\n",
+		mlabel("ring rows", "صفوف السجل"), x->nrows,
+		mlabel("held / no answer", "حجز / بلا جواب"), (unsigned long)held, (unsigned long)noans,
+		mlabel("oldest ring row", "أقدم صف في السجل"),
+		x->nrows ? "" : mlabel("nothing yet", "لا شيء بعد"));
+	tcp_writestr(t, sock, buf);
+	if (x->nrows) {
+		snprintf(buf, sizeof(buf), "<tr><th>%s</th><td colspan=5>%lu s</td></tr>\n",
+			mlabel("age of the oldest ring row", "عمر أقدم صف في السجل"), (unsigned long)(x->ring_age / 1000u));
+		tcp_writestr(t, sock, buf);
+	}
+	snprintf(buf, sizeof(buf), "<tr><th>%s</th><td colspan=5>%s</td></tr>\n", mlabel("counters since", "العدّادات منذ"), since);
+	tcp_writestr(t, sock, buf);
+	tcp_writestr(t, sock, "</table>\n");
+}
+
+/* The channels table: the filter and the sort chosen on the page. */
+static void diag_cell(struct tcp_buffer_data *t, int sock, const char *v)
+{
+	tcp_writestr(t, sock, "<td>");
+	tcp_writestr(t, sock, v);
+	tcp_writestr(t, sock, "</td>");
+}
+
+static void diag_channels(struct tcp_buffer_data *t, int sock, struct diag_ctx *x, const struct diag_view *v)
+{
+	struct diag_scope scope_now;
+	char rsn[48], refs[256], hint[160], lat[48], label[256], act[200], link[200], gate[48], cell[320];
+	char ratio_s[16], age_s[24], num[32];
+	int k, i, shown = 0, sev, in, ratio;
+	const struct diag_chan *d;
+	enum diag_finding top;
+
+	/* The first six columns keep their R47/R48 order (channel, delivered, refused,
+	 * held, streak, verdict): an existing reader of this table, and the page's own
+	 * tests, rely on it. Every cell is written on its own, so the row cannot
+	 * disagree with itself. The R65 columns come last. */
+	diagscope_snapshot(&scope_now);
+	tcp_writestr(t, sock, "<h3>");
+	tcp_writestr(t, sock, mlabel("Channels", "القنوات"));
+	tcp_writestr(t, sock, "</h3>\n<table class=option border=1px cellspacing=0><tr>");
+	diag_th(t, sock, mlabel("channel", "القناة"), mlabel("CAID:provider:SID. The link opens the cwlog rows.", "CAID:provider:SID. الرابط يفتح صفوف cwlog."));
+	diag_th(t, sock, mlabel("delivered", "تسليم"), "");
+	diag_th(t, sock, mlabel("refused", "رفض"), "");
+	diag_th(t, sock, mlabel("held", "حجز"), "");
+	diag_th(t, sock, mlabel("streak", "متتالٍ"), mlabel("Refusals in a row since the last delivery.", "رفض متتالٍ منذ آخر تسليم."));
+	diag_th(t, sock, mlabel("finding", "الحكم"), mlabel("The findings of this channel, from the diag.h thresholds.", "أحكام هذه القناة، وفق عتبات diag.h."));
+	diag_th(t, sock, mlabel("reason in ring", "السبب في السجل"), "");
+	diag_th(t, sock, mlabel("what to consider (not applied)", "ما الذي يُنظر فيه (غير مُطبَّق)"), "");
+	diag_th(t, sock, mlabel("refusals since reset, by reason", "الرفض منذ التصفير حسب السبب"), "");
+	diag_th(t, sock, mlabel("delivered %", "نسبة التسليم"), mlabel("Delivered share of the decided verdicts. - means none decided yet.", "نسبة التسليم من الأحكام المحسومة. - تعني لا حكم محسوم بعد."));
+	diag_th(t, sock, mlabel("refused, 5 min", "رفض 5 دقائق"), mlabel("Refusals in the ring during the last 5 minutes.", "رفض في السجل خلال آخر 5 دقائق."));
+	diag_th(t, sock, mlabel("last verdict", "آخر حكم"), mlabel("Age of the newest ring row of this channel. - means none in the ring.", "عمر أحدث صف لهذه القناة في السجل. - تعني لا صف في السجل."));
+	diag_th(t, sock, mlabel("no answer", "بلا جواب"), mlabel("ECMs that ended with no answer at all. Measured in the detail scope only.", "طلبات انتهت بلا أي جواب. تُقاس بنطاق التفاصيل فقط."));
+	diag_th(t, sock, mlabel("card answer ms (avg / max)", "زمن البطاقة ms (متوسط / أبطأ)"), mlabel("Measured in the detail scope only.", "تُقاس بنطاق التفاصيل فقط."));
+	diag_th(t, sock, mlabel("setting to copy (not applied)", "إعداد للنسخ (غير مُطبَّق)"), "");
+	diag_th(t, sock, mlabel("CA system", "نظام التشفير"), mlabel("The CA system from the registry, and the CW format it uses.", "نظام التشفير من السجل، ونوع CW الذي يستعمله."));
+	diag_th(t, sock, mlabel("checksum", "checksum"), mlabel("The effective checksum gate of the profiles that carry this CAID.", "بوابة checksum الفعّالة للبروفايلات التي تحمل هذا CAID."));
+	diag_th(t, sock, mlabel("details", "تفاصيل"), mlabel("Opens this channel alone: every counter, the profiles, and its ring rows.", "يفتح هذه القناة وحدها: كل العدّادات، والبروفايلات، وأحكامها في السجل."));
+	tcp_writestr(t, sock, "</tr>\n");
+
+	if (x->nchan == 0) {
+		tcp_writestr(t, sock, "<tr><td colspan=19>");
+		tcp_writestr(t, sock, mlabel("no channel yet: rows appear after the first delivery or refusal",
+			"لا قنوات بعد: تظهر الصفوف بعد أول تسليم أو رفض"));
+		tcp_writestr(t, sock, "</td></tr>\n");
+	}
+	for (k = 0; k < x->nchan; k++) {
+		d = &x->dc[x->order[k]];
+		if (!diag_visible(d, v)) continue;
+		shown++;
+		top = diag_top(d->mask);
+		sev = diag_worst(d->mask);
+
+		label[0] = 0;
+		for (i = 0; i < DIAG_FINDINGS; i++)
+			if (d->mask & (1u << i)) {
+				if (label[0]) strncat(label, "، ", sizeof(label) - strlen(label) - 1);
+				strncat(label, diag_label((enum diag_finding)i), sizeof(label) - strlen(label) - 1);
+			}
+		snprintf(rsn, sizeof(rsn), "%s", diag_top_reason(&d->ev) ? cwlog_reason_name(diag_top_reason(&d->ev)) : "-");
+		diag_refs_text(&d->row, refs, sizeof(refs));
+		if (d->row.lat_n) snprintf(lat, sizeof(lat), "%lu / %lu",
+			(unsigned long)(d->row.lat_sum / d->row.lat_n), (unsigned long)d->row.lat_max);
+		else snprintf(lat, sizeof(lat), "%s", mlabel("not measured", "لم تُقَس"));
+		if (!diag_setting_hint(top, diag_top_reason(&d->ev), d->row.lat_n, d->row.lat_max, hint, sizeof(hint)))
+			snprintf(hint, sizeof(hint), "-");
+		in = diag_scope_find_ch(&scope_now, d->row.caid, d->row.provid, d->row.sid) >= 0;
+		snprintf(act, sizeof(act), "<br><a href='/diag/scope?op=%s&kind=ch&ch=%04X:%06X:%04X'>%s</a>",
+			in ? "del" : "add",
+			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
+			in ? mlabel("detail off", "إيقاف التفاصيل") : mlabel("detail on", "تفعيل التفاصيل"));
+		snprintf(link, sizeof(link), "<a href='/diag?ch=%04X:%06X:%04X'>%s</a>",
+			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid, mlabel("details", "تفاصيل"));
+		snprintf(gate, sizeof(gate), "%s", diag_gate_text(diag_caid_gate(x, (uint16_t)d->row.caid)));
+		ratio = diag_ratio_pct(d->row.delivered, d->row.refused);
+		if (ratio < 0) snprintf(ratio_s, sizeof(ratio_s), "-");
+		else snprintf(ratio_s, sizeof(ratio_s), "%d%%", ratio);
+		if (d->last_age == 0xFFFFFFFFu) snprintf(age_s, sizeof(age_s), "-");
+		else snprintf(age_s, sizeof(age_s), "%lu s", (unsigned long)(d->last_age / 1000u));
+
+		/* the row: the channel cell first, exactly as before */
+		snprintf(cell, sizeof(cell), "<tr%s><td><a href='/cwlog?ch=%04X:%06X:%04X'>%04X:%06X:%04X</a>%s</td>",
+			sev >= 2 ? " style='background:#fdd'" : (sev == 1 ? " style='background:#ffd'" : ""),
+			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
+			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid, act);
+		tcp_writestr(t, sock, cell);
+		snprintf(num, sizeof(num), "%lu", (unsigned long)d->row.delivered);  diag_cell(t, sock, num);
+		snprintf(num, sizeof(num), "%lu", (unsigned long)d->row.refused);    diag_cell(t, sock, num);
+		snprintf(num, sizeof(num), "%lu", (unsigned long)d->row.held);       diag_cell(t, sock, num);
+		snprintf(num, sizeof(num), "%lu", (unsigned long)d->row.streak);     diag_cell(t, sock, num);
+		diag_cell(t, sock, label);
+		diag_cell(t, sock, rsn);
+		diag_cell(t, sock, diag_advice(top));
+		snprintf(cell, sizeof(cell), "<code>%s</code>", refs[0] ? refs : "-");  diag_cell(t, sock, cell);
+		diag_cell(t, sock, ratio_s);
+		snprintf(num, sizeof(num), "%lu", (unsigned long)d->ref5m);           diag_cell(t, sock, num);
+		diag_cell(t, sock, age_s);
+		snprintf(num, sizeof(num), "%lu", (unsigned long)d->row.noanswer);    diag_cell(t, sock, num);
+		diag_cell(t, sock, lat);
+		snprintf(cell, sizeof(cell), "<code>%s</code>", hint);                diag_cell(t, sock, cell);
+		snprintf(cell, sizeof(cell), "%s<br><small>%s</small>", diag_ca_system((uint16_t)d->row.caid),
+			diag_ca_format((uint16_t)d->row.caid));
+		diag_cell(t, sock, cell);
+		diag_cell(t, sock, gate);
+		diag_cell(t, sock, link);
+		tcp_writestr(t, sock, "</tr>\n");
+	}
+	if (x->nchan && !shown) {
+		tcp_writestr(t, sock, "<tr><td colspan=19>");
+		tcp_writestr(t, sock, mlabel("no channel matches the filter on this page", "لا قناة تطابق الفلتر في هذه الصفحة"));
+		tcp_writestr(t, sock, "</td></tr>\n");
+	}
+	tcp_writestr(t, sock, "</table>\n");
+}
+
+/* The packages: every CAID with traffic or a configured profile, with the CA
+ * system and the checksum gate. Packages with a profile and no traffic show too. */
+static void diag_packages(struct tcp_buffer_data *t, int sock, struct diag_ctx *x)
+{
+	struct diag_pkg pk[DIAG_PKG_MAX];
+	char buf[700];
+	int np = 0, i, p, k;
+	const char *st;
+
+	for (i = 0; i < x->nchan; i++) {
+		const struct diag_chan *d = &x->dc[i];
+
+		for (p = 0; p < np; p++) if (pk[p].caid == d->row.caid) break;
+		if (p == np) {
+			if (np >= DIAG_PKG_MAX) continue;
+			memset(&pk[p], 0, sizeof(pk[p]));
+			pk[p].caid = (uint16_t)d->row.caid;
+			np++;
+		}
+		pk[p].nch++;
+		pk[p].del += d->row.delivered;
+		pk[p].ref += d->row.refused;
+		pk[p].held += d->row.held;
+		if (diag_worst(d->mask) > pk[p].worst) pk[p].worst = diag_worst(d->mask);
+	}
+	for (i = 0; i < x->npf; i++) {
+		for (p = 0; p < np; p++) if (pk[p].caid == x->pf[i].caid) break;
+		if (p == np) {
+			if (np >= DIAG_PKG_MAX) continue;
+			memset(&pk[p], 0, sizeof(pk[p]));
+			pk[p].caid = x->pf[i].caid;
+			np++;
+		}
+		pk[p].nprof++;
+	}
+
+	tcp_writestr(t, sock, "<h3>");
+	tcp_writestr(t, sock, mlabel("Packages (CAID)", "الباقات (CAID)"));
+	tcp_writestr(t, sock, "</h3>\n<table class=option border=1px cellspacing=0><tr>");
+	diag_th(t, sock, "CAID", "");
+	diag_th(t, sock, mlabel("CA system", "نظام التشفير"), "");
+	diag_th(t, sock, mlabel("checksum", "checksum"), mlabel("The effective checksum gate of the profiles that carry this CAID.", "بوابة checksum الفعّالة للبروفايلات التي تحمل هذا CAID."));
+	diag_th(t, sock, mlabel("profiles", "بروفايلات"), mlabel("Configured profiles that carry this CAID. Click to filter the channels.", "البروفايلات المُعرَّفة التي تحمل هذا CAID. اضغط لتصفية القنوات."));
+	diag_th(t, sock, mlabel("channels", "القنوات"), "");
+	diag_th(t, sock, mlabel("delivered", "تسليم"), "");
+	diag_th(t, sock, mlabel("refused", "رفض"), "");
+	diag_th(t, sock, mlabel("held", "حجز"), "");
+	diag_th(t, sock, mlabel("worst", "الأسوأ"), "");
+	tcp_writestr(t, sock, "</tr>\n");
+	for (k = 0; k < np; k++) {
+		uint16_t c = pk[k].caid;
+
+		st = pk[k].nch ? (pk[k].worst >= 2 ? mlabel("fails", "يفشل") : pk[k].worst == 1 ? mlabel("look", "انظر") : mlabel("ok", "سليم"))
+			: mlabel("no traffic", "بلا حركة");
+		snprintf(buf, sizeof(buf), "<tr><td><a href='/diag?caid=%04X'>%04X</a></td><td>%s<br><small>%s</small></td><td>%s</td><td>%d</td><td>%d</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%s</td></tr>\n",
+			(unsigned)c, (unsigned)c, diag_ca_system(c), diag_ca_format(c), diag_gate_text(diag_caid_gate(x, c)),
+			pk[k].nprof, pk[k].nch, (unsigned long)pk[k].del, (unsigned long)pk[k].ref, (unsigned long)pk[k].held, st);
+		tcp_writestr(t, sock, buf);
+	}
+	tcp_writestr(t, sock, "</table>\n");
+}
+
+/* The configured profiles, read-only: every key the page can show, with the
+ * effective checksum and the warnings that the rules in diag.h raise. */
+static void diag_profiles(struct tcp_buffer_data *t, int sock, struct diag_ctx *x)
+{
+	char buf[400], name[96], warn[400], v[80];
+	int p, f, first;
+	const struct cardserver_data *cs;
+
+	tcp_writestr(t, sock, "<h3>");
+	tcp_writestr(t, sock, mlabel("Configured profiles: effective settings (read-only)", "البروفايلات المُعرَّفة: الإعدادات الفعلية (للقراءة فقط)"));
+	tcp_writestr(t, sock, "</h3>\n<p style='font-size:0.85em;'>");
+	tcp_writestr(t, sock, mlabel(
+		"Each row is a profile as the server reads it. The checksum column is the gate that acts (the profile value plus the global default and the CA MODERN rule). Warnings are for you to review on the profile page; nothing here changes them.",
+		"كل صف بروفايل كما يقرأه الخادم. عمود checksum هو البوابة الفعّالة (قيمة البروفايل مع الافتراضي العام وقاعدة CA MODERN). التحذيرات للمراجعة في صفحة البروفايل؛ لا تغيّرها هذه الصفحة."));
+	tcp_writestr(t, sock, "</p>\n<table class=option border=1px cellspacing=0><tr>");
+	diag_th(t, sock, mlabel("profile", "البروفايل"), "");
+	diag_th(t, sock, "CAID", "");
+	diag_th(t, sock, mlabel("providers", "المزوّدون"), "");
+	diag_th(t, sock, "CA MODERN", mlabel("Armed: the checksum rule for non-CSA systems applies.", "مُفعّل: قاعدة checksum لأنظمة غير CSA تعمل."));
+	diag_th(t, sock, "checksum", mlabel("Effective gate, with the profile value in brackets.", "البوابة الفعّالة، وقيمة البروفايل بين قوسين."));
+	diag_th(t, sock, "DCW CHECK", "");
+	diag_th(t, sock, "DCWFILTER CYCLE", "");
+	diag_th(t, sock, "ENABLE SKIPCWC", "");
+	diag_th(t, sock, "DCW HALFNULLED", "");
+	diag_th(t, sock, "DCW SWAP", "");
+	diag_th(t, sock, "ECM CHECK LENGTH", "");
+	diag_th(t, sock, "ECMLOOPING", "");
+	diag_th(t, sock, "CACHE", "");
+	diag_th(t, sock, "CACHEEX", "");
+	diag_th(t, sock, "SERVER FIRST", "");
+	diag_th(t, sock, "SERVER TIMEOUT", "");
+	diag_th(t, sock, "DCW TIMEOUT", "");
+	diag_th(t, sock, "DCW VALIDECMTIME", "");
+	diag_th(t, sock, "MAXFAILED", "");
+	diag_th(t, sock, mlabel("warnings", "التحذيرات"), "");
+	tcp_writestr(t, sock, "</tr>\n");
+
+	for (p = 0; p < x->npf; p++) {
+		const char *mode_s;
+		int mode;
+
+		cs = x->pf[p].cs;
+		diag_html_escape(name, cs->name, sizeof(name));
+		mode = cs->option.dcwfilter_checksum;
+		mode_s = mode == DIAG_CSUM_ON ? "ON" : mode == DIAG_CSUM_OFF ? "OFF" : "inherit";
+		warn[0] = 0;
+		first = 1;
+		for (f = 0; f < PW_FINDINGS; f++)
+			if (x->pf[p].warn & (1u << f)) {
+				snprintf(warn + strlen(warn), sizeof(warn) - strlen(warn), "%s%s", first ? "" : "، ",
+					diag_pwarn_label((enum diag_pwarn)f));
+				first = 0;
+			}
+
+		snprintf(buf, sizeof(buf), "<tr%s>", x->pf[p].warn ? " style='background:#ffd'" : "");
+		tcp_writestr(t, sock, buf);
+		snprintf(buf, sizeof(buf), "<td><a href='/profile?id=%d'>%s</a></td>", cs->id, name);
+		tcp_writestr(t, sock, buf);
+		snprintf(v, sizeof(v), "%04X", (unsigned)cs->card.caid);            diag_cell(t, sock, v);
+		snprintf(v, sizeof(v), "%d", cs->card.nbprov);                      diag_cell(t, sock, v);
+		diag_cell(t, sock, yesno(cs->option.ca_modern));
+		snprintf(v, sizeof(v), "%s (%s)", x->pf[p].checksum_eff ? "ON" : "OFF", mode_s); diag_cell(t, sock, v);
+		diag_cell(t, sock, yesno(cs->option.dcw.check));
+		snprintf(v, sizeof(v), "%s", cs->option.dcwfilter_cycle == DCWFILTER_ON ? "ON" :
+			cs->option.dcwfilter_cycle == DCWFILTER_OFF ? "OFF" :
+			(diag_cycle_global() ? "inherit (global ON)" : "inherit (global OFF)"));
+		diag_cell(t, sock, v);
+		diag_cell(t, sock, yesno(cs->option.skipcwc));
+		diag_cell(t, sock, yesno(cs->option.dcw.halfnulled));
+		diag_cell(t, sock, yesno(cs->option.dcw.swap));
+		diag_cell(t, sock, yesno(cs->option.checkecmlength));
+		diag_cell(t, sock, yesno(cs->option.ecmlooping));
+		diag_cell(t, sock, yesno(cs->option.fallowcache));
+#ifdef CACHEEX
+		diag_cell(t, sock, yesno(cs->option.fallowcacheex));
+#else
+		diag_cell(t, sock, "n/a");
+#endif
+		snprintf(v, sizeof(v), "%lu", (unsigned long)cs->option.server.first);   diag_cell(t, sock, v);
+		snprintf(v, sizeof(v), "%lu", (unsigned long)cs->option.server.timeout); diag_cell(t, sock, v);
+		snprintf(v, sizeof(v), "%lu", (unsigned long)cs->option.dcw.timeout);    diag_cell(t, sock, v);
+		snprintf(v, sizeof(v), "%lu", (unsigned long)cs->option.dcw.validecmtime); diag_cell(t, sock, v);
+		snprintf(v, sizeof(v), "%d", cs->option.maxfailedecm);                  diag_cell(t, sock, v);
+		diag_cell(t, sock, warn[0] ? warn : "-");
+		tcp_writestr(t, sock, "</tr>\n");
+	}
+	tcp_writestr(t, sock, "</table>\n");
+}
+
+/* CAID:provider pairs that sit in more than one profile. */
+static void diag_pair_table(struct tcp_buffer_data *t, int sock, struct diag_ctx *x)
+{
+	char buf[600], names[400];
+	int i, n = 0;
+
+	tcp_writestr(t, sock, "<h3>");
+	tcp_writestr(t, sock, mlabel("Duplicate CAID:provider pairs", "أزواج CAID:provider المكررة"));
+	tcp_writestr(t, sock, "</h3>\n");
+	for (i = 0; i < x->npair; i++) if (x->pair[i].n > 1) n++;
+	if (!n) {
+		tcp_writestr(t, sock, "<p>");
+		tcp_writestr(t, sock, mlabel("None: every pair sits in one profile.", "لا شيء: كل زوج في بروفايل واحد."));
+		tcp_writestr(t, sock, "</p>\n");
+		return;
+	}
+	tcp_writestr(t, sock, "<table class=option border=1px cellspacing=0><tr>");
+	diag_th(t, sock, "CAID:provider", "");
+	diag_th(t, sock, mlabel("profiles", "بروفايلات"), "");
+	diag_th(t, sock, mlabel("which profiles", "أي البروفايلات"), mlabel("When one pair sits in two profiles, the routing can send its ECMs to either. Check which one you meant.", "حين يكون الزوج في بروفايلين قد يُوجَّه طلبه إلى أيّهما. تحقّق من المقصود."));
+	tcp_writestr(t, sock, "</tr>\n");
+	for (i = 0; i < x->npair; i++) {
+		if (x->pair[i].n <= 1) continue;
+		diag_profile_names(x, x->pair[i].caid, names, sizeof(names));
+		snprintf(buf, sizeof(buf), "<tr><td>%04X:%06X</td><td>%d</td><td>%s</td></tr>\n",
+			(unsigned)x->pair[i].caid, (unsigned)x->pair[i].prov, x->pair[i].n, names);
+		tcp_writestr(t, sock, buf);
+	}
+	tcp_writestr(t, sock, "</table>\n");
+}
+
+/* The legend: every number on this page, in plain words. */
+static void diag_legend(struct tcp_buffer_data *t, int sock)
+{
+	char buf[700];
+	int r, f;
+
+	tcp_writestr(t, sock, "<details><summary><b>");
+	tcp_writestr(t, sock, mlabel("Legend: what each number and reason means", "شرح الأرقام والأسباب"));
+	tcp_writestr(t, sock, "</b></summary>\n<table class=option border=1px cellspacing=0><tr>");
+	diag_th(t, sock, mlabel("code", "الرقم"), "");
+	diag_th(t, sock, mlabel("reason in ring", "السبب في السجل"), "");
+	diag_th(t, sock, mlabel("meaning", "المعنى"), "");
+	tcp_writestr(t, sock, "</tr>\n");
+	for (r = 0; r < DIAG_REASONS; r++) {
+		snprintf(buf, sizeof(buf), "<tr><td>%d</td><td><code>%s</code></td><td>%s</td></tr>\n",
+			r, cwlog_reason_name(r), diag_reason_meaning(r));
+		tcp_writestr(t, sock, buf);
+	}
+	tcp_writestr(t, sock, "</table>\n<table class=option border=1px cellspacing=0><tr>");
+	diag_th(t, sock, mlabel("finding", "الحكم"), "");
+	diag_th(t, sock, mlabel("severity", "الشدة"), mlabel("2 act now, 1 look, 0 information", "2 تصرّف الآن، 1 انظر، 0 للعلم"));
+	diag_th(t, sock, mlabel("what to consider", "ما الذي يُنظر فيه"), "");
+	tcp_writestr(t, sock, "</tr>\n");
+	for (f = 0; f < DIAG_FINDINGS; f++) {
+		snprintf(buf, sizeof(buf), "<tr><td>%s</td><td>%d</td><td>%s</td></tr>\n",
+			diag_label((enum diag_finding)f), diag_severity((enum diag_finding)f), diag_advice((enum diag_finding)f));
+		tcp_writestr(t, sock, buf);
+	}
+	tcp_writestr(t, sock, "</table>\n<table class=option border=1px cellspacing=0><tr>");
+	diag_th(t, sock, mlabel("profile warning", "تحذير البروفايل"), "");
+	diag_th(t, sock, mlabel("severity", "الشدة"), "");
+	diag_th(t, sock, mlabel("what to consider", "ما الذي يُنظر فيه"), "");
+	tcp_writestr(t, sock, "</tr>\n");
+	for (f = 0; f < PW_FINDINGS; f++) {
+		snprintf(buf, sizeof(buf), "<tr><td>%s</td><td>%d</td><td>%s</td></tr>\n",
+			diag_pwarn_label((enum diag_pwarn)f), diag_pwarn_severity((enum diag_pwarn)f), diag_pwarn_advice((enum diag_pwarn)f));
+		tcp_writestr(t, sock, buf);
+	}
+	tcp_writestr(t, sock, "</table>\n");
+	snprintf(buf, sizeof(buf), "<p style='font-size:0.85em;'>%s</p>\n", mlabel(
+		"Thresholds (diag.h): a finding needs at least 5 verdicts. Cause share 50%. Healthy 90% delivered. One peer dominant at 70%. Dying: a streak of 5. No answer at 30% of attempts. Slow: average 1000 ms over 5 measured answers. Ring windows: 1, 5 and 15 minutes; the ring keeps the last 100 verdicts.",
+		"العتبات (diag.h): الحكم يحتاج 5 أحكام على الأقل. حصة السبب 50%. صحي عند 90% تسليم. نظير مهيمن عند 70%. يفشل الآن: متتالية 5. بلا جواب عند 30% من الطلبات. بطيئة: متوسط 1000 ms على 5 قياسات. نوافذ السجل: دقيقة و5 و15 دقيقة، والسجل يحفظ آخر 100 حكم."));
+	tcp_writestr(t, sock, buf);
+	tcp_writestr(t, sock, "</details>\n");
+}
+
+static void http_send_diag(int sock, http_request *req)
+{
+	struct diag_ctx *x;
+	struct diag_view v;
+	struct tcp_buffer_data tcpbuf;
+	char buf[2048];
+	const char *fmt, *ch;
+	int key;
+	uint32_t a = 0, b = 0, c = 0;
+
+	x = calloc(1, sizeof(*x));
+	if (!x) return;
+	diag_view_read(&v, req);
+	key = diag_sort_index(v.sort);
+	diag_gather(x);
+
+	if ((fmt = isset_get(req, "format")) && !strcmp(fmt, "txt")) {
+		diag_write_txt(sock, x);
+		free(x);
+		return;
+	}
+	if ((ch = isset_get(req, "ch")) && sscanf(ch, "%x:%x:%x", &a, &b, &c) == 3 && a <= 0xFFFF && c <= 0xFFFF) {
+		diag_send_channel(sock, req, x, a, b, c);
+		free(x);
+		return;
+	}
+
+	diag_sort(x, key < 0 ? 0 : key);
+	diag_page_open(&tcpbuf, sock, req, mlabel("Diagnosis: channels, packages, profiles", "التشخيص: القنوات والباقات والبروفايلات"));
 
 	tcp_writestr(&tcpbuf, sock, "<h2>");
-	tcp_writestr(&tcpbuf, sock, mlabel("Diagnosis: channels, packages, peers", "التشخيص: القنوات والباقات والنظراء"));
+	tcp_writestr(&tcpbuf, sock, mlabel("Diagnosis: channels, packages, profiles", "التشخيص: القنوات والباقات والبروفايلات"));
 	tcp_writestr(&tcpbuf, sock, "</h2>\n");
 
-	sprintf(buf, "<p>%s <b>%s</b> &nbsp; %s <b>%d / %d</b> &nbsp; %s <b>%d / %d</b> &nbsp; %s <b>%d</b></p>\n",
-		mlabel("counting", "العدّ"), dcwstats_on ? "ON" : "OFF",
-		mlabel("channels", "القنوات"), nchan, CHANHEALTH_SLOTS,
-		mlabel("ring rows", "صفوف السجل"), nrows, CWLOG_CAP,
-		mlabel("dying now", "تفشل الآن"), dying);
+	/* the controls: every action is a link behind the same-site check */
+	tcp_writestr(&tcpbuf, sock, "<p>");
+	snprintf(buf, sizeof(buf), "<a href='/diag/counting?op=%s'>%s</a> &nbsp; ", dcwstats_on ? "off" : "on",
+		dcwstats_on ? mlabel("counting: turn OFF", "العدّ: إيقاف") : mlabel("counting: turn ON", "العدّ: تشغيل"));
 	tcp_writestr(&tcpbuf, sock, buf);
+	snprintf(buf, sizeof(buf), "<a href='/diag/reset' onclick=\"return confirm('%s')\">%s</a> &nbsp; ",
+		mlabel("Reset the counters since the start or the last reset?", "تصفير العدّادات منذ التشغيل أو آخر تصفير؟"),
+		mlabel("reset counters", "تصفير العدّادات"));
+	tcp_writestr(&tcpbuf, sock, buf);
+	tcp_writestr(&tcpbuf, sock, "<a href='/diag?format=txt'>");
+	tcp_writestr(&tcpbuf, sock, mlabel("export as text (for a support ticket)", "تصدير كنص (لتذكرة الدعم)"));
+	tcp_writestr(&tcpbuf, sock, "</a> &nbsp; <a href='/json'>JSON</a> &nbsp; <a href='/cwlog'>/cwlog</a> &nbsp; <a href='/stats'>/stats</a>");
+	tcp_writestr(&tcpbuf, sock, "</p>\n");
 
 	if (!dcwstats_on) {
 		tcp_writestr(&tcpbuf, sock, "<p><b>");
 		tcp_writestr(&tcpbuf, sock, mlabel(
-			"Counting is off, so this page is empty. Turn it on with `dcwstats on`.",
-			"العدّ متوقف، لذلك الصفحة فارغة. شغّله بالأمر `dcwstats on`."));
+			"Counting is off, so the figures below are empty. Turn it on with the button above, or set DCW STATS: ON in the config.",
+			"العدّ متوقف، لذلك الأرقام أدناه فارغة. شغّله بالزر أعلاه، أو اضبط DCW STATS: ON في الإعداد."));
 		tcp_writestr(&tcpbuf, sock, "</b></p>\n");
 	}
 
+	diag_summary(&tcpbuf, sock, x);
+	diag_findings(&tcpbuf, sock, x);
+
+	/* the filter and the sort, as one form */
+	tcp_writestr(&tcpbuf, sock, "<form method=get action='/diag' style='margin:6px 0'>");
+	tcp_writestr(&tcpbuf, sock, mlabel("show", "عرض"));
+	tcp_writestr(&tcpbuf, sock, " <select name=show>");
+	diag_opt(&tcpbuf, sock, "all", mlabel("all channels", "كل القنوات"), v.show);
+	diag_opt(&tcpbuf, sock, "problems", mlabel("with a problem", "بها مشكلة فقط"), v.show);
+	diag_opt(&tcpbuf, sock, "dying", mlabel("failing now", "تفشل الآن فقط"), v.show);
+	tcp_writestr(&tcpbuf, sock, "</select> ");
+	tcp_writestr(&tcpbuf, sock, mlabel("sort", "ترتيب"));
+	tcp_writestr(&tcpbuf, sock, " <select name=sort>");
+	diag_opt(&tcpbuf, sock, "worst", mlabel("worst first", "الأسوأ أولاً"), v.sort);
+	diag_opt(&tcpbuf, sock, "refused", mlabel("most refused", "الأكثر رفضاً"), v.sort);
+	diag_opt(&tcpbuf, sock, "delivered", mlabel("most delivered", "الأكثر تسليماً"), v.sort);
+	diag_opt(&tcpbuf, sock, "noanswer", mlabel("most no-answer", "الأكثر بلا جواب"), v.sort);
+	diag_opt(&tcpbuf, sock, "slow", mlabel("slowest card", "الأبطأ"), v.sort);
+	diag_opt(&tcpbuf, sock, "recent", mlabel("refused in last 5 min", "الأكثر رفضاً في 5 دقائق"), v.sort);
+	tcp_writestr(&tcpbuf, sock, "</select> CAID <input name=caid size=6 placeholder='1884' value='");
+	tcp_writestr(&tcpbuf, sock, v.caid);
+	tcp_writestr(&tcpbuf, sock, "'> <button type=submit>");
+	tcp_writestr(&tcpbuf, sock, mlabel("apply", "تطبيق"));
+	tcp_writestr(&tcpbuf, sock, "</button> <a href='/diag'>");
+	tcp_writestr(&tcpbuf, sock, mlabel("reset the filter", "إلغاء الفلتر"));
+	tcp_writestr(&tcpbuf, sock, "</a></form>\n");
+
+	/* ---- detail scope (R48, D111) ---- */
 	/* ---- detail scope (R48, D111) ---- */
 	{
 		struct diag_scope sc;
@@ -7945,169 +8991,49 @@ static void http_send_diag(int sock, http_request *req)
 		tcp_writestr(&tcpbuf, sock, "</a></p>\n");
 	}
 
-	/* ---- channels ---- */
-	tcp_writestr(&tcpbuf, sock, "<h3>");
-	tcp_writestr(&tcpbuf, sock, mlabel("Channels, worst first", "القنوات، الأسوأ أولاً"));
-	tcp_writestr(&tcpbuf, sock, "</h3>\n");
-	tcp_writestr(&tcpbuf, sock, "<table class=option border=1px cellspacing=0><tr><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("channel", "القناة"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("delivered", "تسليم"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("refused", "رفض"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("held", "حجز"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("streak", "متتالٍ"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("finding", "الحكم"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("reason in ring", "السبب في السجل"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("what to consider (not applied)", "ما الذي يُنظر فيه (غير مُطبَّق)"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("refusals since reset, by reason", "الرفض منذ التصفير حسب السبب"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("no answer", "بلا جواب"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("card answer ms (avg / max)", "زمن البطاقة ms (متوسط / أبطأ)"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("setting to copy (not applied)", "إعداد للنسخ (غير مُطبَّق)"));
-	tcp_writestr(&tcpbuf, sock, "</th></tr>\n");
-	if (nchan == 0) {
-		tcp_writestr(&tcpbuf, sock, "<tr><td colspan=12>");
-		tcp_writestr(&tcpbuf, sock, mlabel("no channel yet: rows appear after the first delivery or refusal",
-			"لا قنوات بعد: تظهر الصفوف بعد أول تسليم أو رفض"));
-		tcp_writestr(&tcpbuf, sock, "</td></tr>\n");
-	}
-	diagscope_snapshot(&scope_now);
-	for (k = 0; k < nchan; k++) {
-		const struct diag_chan *d = &dc[order[k]];
-		enum diag_finding top = diag_top(d->mask);
-		int sev = diag_worst(d->mask);
-		char act[200];
 
-		label[0] = 0;
-		for (i = 0; i < DIAG_FINDINGS; i++)
-			if (d->mask & (1u << i)) {
-				if (label[0]) strncat(label, "، ", sizeof(label) - strlen(label) - 1);
-				strncat(label, diag_label((enum diag_finding)i), sizeof(label) - strlen(label) - 1);
-			}
-		snprintf(rsn, sizeof(rsn), "%s", diag_top_reason(&d->ev) ? cwlog_reason_name(diag_top_reason(&d->ev)) : "-");
-		diag_refs_text(&d->row, refs, sizeof(refs));
-		if (d->row.lat_n) snprintf(lat, sizeof(lat), "%lu / %lu",
-			(unsigned long)(d->row.lat_sum / d->row.lat_n), (unsigned long)d->row.lat_max);
-		else snprintf(lat, sizeof(lat), "%s", mlabel("not measured", "لم تُقَس"));
-		if (!diag_setting_hint(top, diag_top_reason(&d->ev), d->row.lat_n, d->row.lat_max, hint, sizeof(hint)))
-			snprintf(hint, sizeof(hint), "-");
-
-		{
-			int in = diag_scope_find_ch(&scope_now, d->row.caid, d->row.provid, d->row.sid) >= 0;
-
-			snprintf(act, sizeof(act), "<br><a href='/diag/scope?op=%s&kind=ch&ch=%04X:%06X:%04X'>%s</a>",
-					 in ? "del" : "add",
-					 (unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
-					 in ? mlabel("detail off", "إيقاف التفاصيل") : mlabel("detail on", "تفعيل التفاصيل"));
-		}
-		snprintf(buf, sizeof(buf), "<tr%s><td><a href='/cwlog?ch=%04X:%06X:%04X'>%04X:%06X:%04X</a>%s</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%lu</td><td>%s</td><td><code>%s</code></td></tr>\n",
-			sev >= 2 ? " style='background:#fdd'" : (sev == 1 ? " style='background:#ffd'" : ""),
-			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
-			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
-			act,
-			(unsigned long)d->row.delivered, (unsigned long)d->row.refused,
-			(unsigned long)d->row.held, (unsigned long)d->row.streak,
-			label, rsn, diag_advice(top), refs[0] ? refs : "-",
-			(unsigned long)d->row.noanswer, lat, hint);
-		tcp_writestr(&tcpbuf, sock, buf);
-	}
-	tcp_writestr(&tcpbuf, sock, "</table>\n");
-
-	/* ---- packages (CAID) ---- */
-	{
-		unsigned pc_caid[CHANHEALTH_SLOTS];
-		uint32_t pc_del[CHANHEALTH_SLOTS], pc_ref[CHANHEALTH_SLOTS];
-		uint32_t pc_held[CHANHEALTH_SLOTS];
-		int pc_n = 0, pc_worst[CHANHEALTH_SLOTS];
-
-		for (i = 0; i < nchan; i++) {
-			for (p = 0; p < pc_n; p++) if (pc_caid[p] == (unsigned)dc[i].row.caid) break;
-			if (p == pc_n) {
-				pc_caid[p] = (unsigned)dc[i].row.caid;
-				pc_del[p] = pc_ref[p] = pc_held[p] = 0;
-				pc_worst[p] = 0;
-				pc_n++;
-			}
-			pc_del[p] += dc[i].row.delivered;
-			pc_ref[p] += dc[i].row.refused;
-			pc_held[p] += dc[i].row.held;
-			if (diag_worst(dc[i].mask) > pc_worst[p]) pc_worst[p] = diag_worst(dc[i].mask);
-		}
-		tcp_writestr(&tcpbuf, sock, "<h3>");
-		tcp_writestr(&tcpbuf, sock, mlabel("Packages (CAID)", "الباقات (CAID)"));
-		tcp_writestr(&tcpbuf, sock, "</h3>\n");
-		tcp_writestr(&tcpbuf, sock, "<table class=option border=1px cellspacing=0><tr><th>CAID</th><th>");
-		tcp_writestr(&tcpbuf, sock, mlabel("channels", "القنوات"));
-		tcp_writestr(&tcpbuf, sock, "</th><th>");
-		tcp_writestr(&tcpbuf, sock, mlabel("delivered", "تسليم"));
-		tcp_writestr(&tcpbuf, sock, "</th><th>");
-		tcp_writestr(&tcpbuf, sock, mlabel("refused", "رفض"));
-		tcp_writestr(&tcpbuf, sock, "</th><th>");
-		tcp_writestr(&tcpbuf, sock, mlabel("held", "حجز"));
-		tcp_writestr(&tcpbuf, sock, "</th><th>");
-		tcp_writestr(&tcpbuf, sock, mlabel("worst", "الأسوأ"));
-		tcp_writestr(&tcpbuf, sock, "</th></tr>\n");
-		for (p = 0; p < pc_n; p++) {
-			int nch = 0;
-
-			for (i = 0; i < nchan; i++) if (dc[i].row.caid == pc_caid[p]) nch++;
-			sprintf(buf, "<tr><td>%04X</td><td>%d</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%s</td></tr>\n",
-				pc_caid[p], nch, (unsigned long)pc_del[p], (unsigned long)pc_ref[p],
-				(unsigned long)pc_held[p],
-				diag_label(diag_package_top(dc, order, nchan, pc_caid[p])));
-			tcp_writestr(&tcpbuf, sock, buf);
-		}
-		tcp_writestr(&tcpbuf, sock, "</table>\n");
-	}
+	diag_channels(&tcpbuf, sock, x, &v);
+	diag_packages(&tcpbuf, sock, x);
+	diag_profiles(&tcpbuf, sock, x);
+	diag_pair_table(&tcpbuf, sock, x);
 
 	/* ---- peers (refusals in the ring window) ---- */
 	tcp_writestr(&tcpbuf, sock, "<h3>");
 	tcp_writestr(&tcpbuf, sock, mlabel("Peers that refused (ring window)", "النظراء الذين رفضوا (نافذة السجل)"));
-	tcp_writestr(&tcpbuf, sock, "</h3>\n");
-	tcp_writestr(&tcpbuf, sock, "<table class=option border=1px cellspacing=0><tr><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("source", "المصدر"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("refused", "رفض"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("main reason", "السبب الغالب"));
-	tcp_writestr(&tcpbuf, sock, "</th><th>");
-	tcp_writestr(&tcpbuf, sock, mlabel("note", "ملاحظة"));
-	tcp_writestr(&tcpbuf, sock, "</th></tr>\n");
+	tcp_writestr(&tcpbuf, sock, "</h3>\n<table class=option border=1px cellspacing=0><tr>");
+	diag_th(&tcpbuf, sock, mlabel("source", "المصدر"), "");
+	diag_th(&tcpbuf, sock, mlabel("refused", "رفض"), "");
+	diag_th(&tcpbuf, sock, mlabel("main reason", "السبب الغالب"), "");
+	diag_th(&tcpbuf, sock, mlabel("note", "ملاحظة"), "");
+	tcp_writestr(&tcpbuf, sock, "</tr>\n");
 	{
-		int dom = diag_dominant(pcount, npeer);
+		int dom = diag_dominant(x->pcount, x->npeer);
+		int p, r, top;
 
-		for (p = 0; p < npeer; p++) {
-			int top = 0, r;
+		for (p = 0; p < x->npeer; p++) {
+			char pname[48];
 
+			top = 0;
 			for (r = 1; r < DIAG_REASONS; r++)
-				if (r != CWLOG_R_HOLD && phist[p][r] > phist[p][top]) top = r;
-			diag_peer_name(peerid[p], pname, sizeof(pname));
-			snprintf(label, sizeof(label), "%s", top ? cwlog_reason_name(top) : "-");
-			sprintf(buf, "<tr><td>%s</td><td>%lu</td><td>%s</td><td>%s</td></tr>\n",
-				pname, (unsigned long)pcount[p], label,
-				p == dom ? mlabel("dominant: most refusals come from this source",
-								  "مهيمن: أغلب الرفض من هذا المصدر")
-						 : "");
+				if (r != CWLOG_R_HOLD && x->phist[p][r] > x->phist[p][top]) top = r;
+			diag_peer_name(x->peerid[p], pname, sizeof(pname));
+			snprintf(buf, sizeof(buf), "<tr><td>%s</td><td>%lu</td><td>%s</td><td>%s</td></tr>\n",
+				pname, (unsigned long)x->pcount[p], top ? cwlog_reason_name(top) : "-",
+				p == dom ? mlabel("dominant: most refusals come from this source", "مهيمن: أغلب الرفض من هذا المصدر") : "");
 			tcp_writestr(&tcpbuf, sock, buf);
 		}
 	}
 	tcp_writestr(&tcpbuf, sock, "</table>\n");
 
+	diag_legend(&tcpbuf, sock);
+
 	tcp_writestr(&tcpbuf, sock, "<p style='font-size:0.8em;'>");
 	tcp_writestr(&tcpbuf, sock, mlabel(
 		"Totals come from the channel table (since start or the last reset). Reasons and peers come from the ring (last 100 verdicts). Nothing on this page changes a setting: each suggestion is for you to decide and apply on the profile page.",
-		"الأعداد الكلية من جدول القنوات (منذ التشغيل أو آخر تصفير). الأسباب والنظراء من السجل (آخر 100 حكم). لا تغيّر هذه الصفحة أي إعداد: كل اقتراح للقرار والتطبيق في صفحة البروفايل بيدك."));
+		"الأعداد الكلية من جدول القنوات (منذ التشغيل أو آخر تصفير). الأسباب والنظراء من السجل (آخر 100 حكم). لا تغيّر هذه الصفحة أي إعداد: كل اقتراح للقرار والتطبيق في صفحة البروفايل."));
 	tcp_writestr(&tcpbuf, sock, "</p>\n</body></html>\n");
 	tcp_flush(&tcpbuf, sock);
+	free(x);
 }
 #endif /* MCS_DCWSTATS */
 
@@ -8639,6 +9565,9 @@ void *gererClient(struct connect_data *param)
 				}
 				else if (strcmp(req.path,"/diag/scope")==0) { /* TASK R49 (D112): the scope from the page */
 					http_send_diag_scope(sock,&req);
+				}
+				else if (strcmp(req.path,"/diag/reset")==0 || strcmp(req.path,"/diag/counting")==0) { /* TASK R65: the two actions */
+					http_send_diag_action(sock,&req);
 				}
 #endif
 				else if ( !memcmp(req.path,"/flag_",6) && !memcmp(req.path+8,".gif",4) ) {

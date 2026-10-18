@@ -189,6 +189,106 @@ int main(void)
         ok(found_b, "the refusing channel is in the table");
     }
 
+    /* ---- TASK R65: the page's new rules ---- */
+    {
+        struct diag_evidence e;
+        uint32_t m;
+        uint32_t tk[4] = { 1000, 9000, 4000, 20 };
+        struct diag_pfacts f;
+
+        /* no-answer share: 30% of attempts (answered + no answer) */
+        memset(&e, 0, sizeof(e));
+        e.delivered = 6; e.refused = 0; e.noanswer = 4;   /* 4 of 10 = 40% */
+        m = diag_classify(&e);
+        ok((m & (1u << DIAG_NOANSWER)) != 0, "R65: 40% no-answer share is flagged");
+        memset(&e, 0, sizeof(e));
+        e.delivered = 9; e.noanswer = 1;                  /* 1 of 10 = 10% */
+        ok((diag_classify(&e) & (1u << DIAG_NOANSWER)) == 0, "R65: 10% no-answer share is not flagged");
+        memset(&e, 0, sizeof(e));
+        e.noanswer = 3;                                   /* 3 attempts, below MIN_SAMPLE */
+        ok(diag_classify(&e) == (1u << DIAG_LOW_SAMPLE), "R65: no-answer below the sample floor stays LOW_SAMPLE");
+
+        /* slow card: needs 5 measured answers and an average at or above 1000 ms */
+        memset(&e, 0, sizeof(e));
+        e.delivered = 10; e.lat_n = 5; e.lat_avg = 1400;
+        ok((diag_classify(&e) & (1u << DIAG_SLOW)) != 0, "R65: average 1400 ms over 5 answers is SLOW");
+        memset(&e, 0, sizeof(e));
+        e.delivered = 10; e.lat_n = 4; e.lat_avg = 1400;
+        ok((diag_classify(&e) & (1u << DIAG_SLOW)) == 0, "R65: 4 answers are below the sample floor for SLOW");
+        memset(&e, 0, sizeof(e));
+        e.delivered = 10; e.lat_n = 9; e.lat_avg = 999;
+        ok((diag_classify(&e) & (1u << DIAG_SLOW)) == 0, "R65: 999 ms is not SLOW");
+        ok(diag_severity(DIAG_NOANSWER) == 1 && diag_severity(DIAG_SLOW) == 1, "R65: both new findings are severity 1");
+        ok(strcmp(diag_label(DIAG_NOANSWER), "?") != 0 && strcmp(diag_label(DIAG_SLOW), "?") != 0,
+           "R65: both new findings have a label");
+        ok(strcmp(diag_advice(DIAG_SLOW), "?") != 0 && strcmp(diag_advice(DIAG_NOANSWER), "?") != 0,
+           "R65: both new findings have advice");
+
+        /* delivered share */
+        ok(diag_ratio_pct(3, 1) == 75, "R65: 3 delivered, 1 refused = 75%");
+        ok(diag_ratio_pct(0, 0) == -1, "R65: no decided verdict = -1 (no share), not 0%");
+        ok(diag_ratio_pct(0, 5) == 0, "R65: only refusals = 0%");
+
+        /* ring window, wrap-safe */
+        ok(diag_recent(tk, 4, 10000, 300000) == 4, "R65: all four ticks inside 5 minutes");
+        ok(diag_recent(tk, 4, 10000, 5000) == 1, "R65: a 5 s window keeps only the tick 1 s old (9000)");
+        ok(diag_recent(tk, 4, 2000, 1000) == 1, "R65: 1 s window at 2000 keeps only the tick at 1000 (the ones ahead of now are not counted)");
+        ok(diag_recent(&tk[1], 1, 2000, 300000) == 0, "R65: a tick ahead of now is never counted");
+
+        /* checksum effective gate, mirrors dcw.c */
+        ok(diag_checksum_effective(DIAG_CSUM_INHERIT, 1, 0, 1) == 1, "R65: INHERIT, global on, CSA -> on");
+        ok(diag_checksum_effective(DIAG_CSUM_INHERIT, 1, 1, 0) == 0, "R65: INHERIT, CA MODERN, AES/CONST -> off");
+        ok(diag_checksum_effective(DIAG_CSUM_INHERIT, 1, 1, 1) == 1, "R65: INHERIT, CA MODERN, CSA -> on");
+        ok(diag_checksum_effective(DIAG_CSUM_INHERIT, 1, 0, 0) == 1, "R65: INHERIT without CA MODERN -> on (stock)");
+        ok(diag_checksum_effective(DIAG_CSUM_INHERIT, 0, 0, 1) == 0, "R65: INHERIT, global off -> off");
+        ok(diag_checksum_effective(DIAG_CSUM_ON, 0, 1, 0) == 1, "R65: explicit ON wins over everything");
+        ok(diag_checksum_effective(DIAG_CSUM_OFF, 1, 0, 1) == 0, "R65: explicit OFF wins over everything");
+
+        /* reason meanings: every ring reason has text; 10 is a hold */
+        {
+            int r, missing = 0;
+            for (r = 0; r < DIAG_REASONS; r++)
+                if (!strcmp(diag_reason_meaning(r), "?")) missing++;
+            ok(missing == 0, "R65: every ring reason 0..20 has a meaning");
+            ok(strstr(diag_reason_meaning(CWLOG_R_HOLD), "ليس رفضاً") != NULL, "R65: reason 10 says it is a hold, not a refusal");
+            ok(strcmp(diag_reason_meaning(99), "?") == 0, "R65: an unknown reason is '?'");
+        }
+
+        /* profile warnings: a healthy CSA profile raises nothing */
+        memset(&f, 0, sizeof(f));
+        f.checksum_expected = 1; f.checksum_eff = 1; f.ca_modern = 0; f.dcw_check = 1;
+        f.cycle = 1; f.skipcwc = 1; f.checkecmlength = 1;
+        ok(diag_profile_warn(&f) == 0, "R65: a healthy CSA profile raises no warning");
+
+        f.ca_modern = 0; f.checksum_expected = 0; f.checksum_eff = 1;
+        ok((diag_profile_warn(&f) & (1u << PW_CA_MODERN_OFF)) != 0, "R65: CA MODERN off on AES/CONST is warned");
+        f.checksum_expected = 1;
+        ok((diag_profile_warn(&f) & (1u << PW_CA_MODERN_OFF)) == 0, "R65: CA MODERN off on CSA is stock, not warned");
+
+        f.checksum_eff = 0;
+        ok((diag_profile_warn(&f) & (1u << PW_CSA_CHECKSUM_OFF)) != 0, "R65: checksum effectively off on CSA is warned");
+        f.checksum_expected = 0; f.ca_modern = 1;
+        ok((diag_profile_warn(&f) & (1u << PW_CSA_CHECKSUM_OFF)) == 0, "R65: checksum off on AES is the intended gate, not warned");
+
+        f.halfnulled = 1; f.vg_csa = 0;
+        ok((diag_profile_warn(&f) & (1u << PW_HALFNULL_NONVG)) != 0, "R65: HALFNULLED on a non-VideoGuard system is warned");
+        f.vg_csa = 1;
+        ok((diag_profile_warn(&f) & (1u << PW_HALFNULL_NONVG)) == 0, "R65: HALFNULLED on VideoGuard CSA is not warned");
+
+        f.dcw_check = 0; f.cycle = 0; f.skipcwc = 0; f.checkecmlength = 0;
+        m = diag_profile_warn(&f);
+        ok((m & (1u << PW_DCW_CHECK_OFF)) && (m & (1u << PW_CYCLE_OFF)), "R65: DCW CHECK and CYCLE off are warned");
+        ok((m & (1u << PW_SKIPCWC_OFF)) && (m & (1u << PW_ECM_LEN_OFF)), "R65: SKIPCWC and ECM LENGTH off are reported");
+        ok(diag_pwarn_severity(PW_SKIPCWC_OFF) == 0 && diag_pwarn_severity(PW_ECM_LEN_OFF) == 0 &&
+           diag_pwarn_severity(PW_DCW_CHECK_OFF) == 1, "R65: skipcwc and ECM LENGTH are information; DCW CHECK is severity 1");
+        {
+            int w, bad = 0;
+            for (w = 0; w < PW_FINDINGS; w++)
+                if (!strcmp(diag_pwarn_label(w), "?") || !strcmp(diag_pwarn_advice(w), "?")) bad++;
+            ok(bad == 0, "R65: every profile warning has a label and advice");
+        }
+    }
+
     printf("\ntest_diag: %s (%d checks, %d failed)\n",
            fails ? "FAILED" : "ok", checks, fails);
     return fails ? 1 : 0;

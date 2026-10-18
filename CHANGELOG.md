@@ -6,6 +6,16 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R65 — /diag page rebuilt: drill-down, filters, export, live actions (2026-10-18)
+
+- `src/httpserver.c` (`http_send_diag`, under `MCS_DCWSTATS`): the page is rebuilt. A summary on top; per-channel findings, with a channel drill-down at `/diag?ch=`; filters `show`, `sort` and `caid`; a packages table (CAID); a read-only table of each profile's effective settings with warnings; duplicate CAID:provider pairs; the peers that refused; a legend of the reasons. Actions are on the page: counting on/off, counters reset, and the detail scope. Each action is refused when it comes from another site (403).
+- `GET /diag?format=txt` is now 19 columns, with `ca_system`, `cw_format`, `checksum_gate`, `delivered_pct`, `refused_1m`, `refused_5m` and `last_ring_age_s` appended after `setting`. No peer names in any row.
+- The profile's CYCLE readout follows the global `DCWFILTER CYCLE` when a profile is on INHERIT (`diag_cycle_global`, `dcw.c`). The same rule as `clustredcache.c`.
+- `src/diag.h`: the pure rules of this round (delivered share, window counts, the sort and filter keys). Unit tests in `make-x64/test_diag.c`.
+- `tests/r65-diag.sh` (in `make -C tests dg`): 37 live checks on a real server run: the page renders to the end, the drill-down, filters, the TXT export's shape, counting and reset, a cross-site refusal, and the CYCLE readout with the global gate off and on. It also passes under ASan.
+- The list of ideas and their status: `docs/DIAG-IDEAS-R65-ar.md`. 50 verified live or by the integrated test, 2 unit-only, 1 by design, 2 partial, 5 deferred or rejected.
+- Nothing here changes a setting or applies a fix. The page only explains and shows.
+
 ## R64 — Package review: encryption systems, problems and settings template (2026-10-18)
 
 - New `tests/package_review.py` (advisory, always exit 0): for each of the 72 production profiles, the CA system the code assigns to its CAID (`casystem.h` rows), the CW format, whether the checksum gate is enforced (`dcw.c` `acceptDCW_impl`), duplicate CAID+provider pairs, and ECM CHECK LENGTH. Output: `docs/PACKAGE-REVIEW-R64.md`.
