@@ -47,6 +47,9 @@ stability:
 	\
 	run_one() { \
 	  bin="$$1"; tag="$$2"; ok=1; \
+	  if curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(STAB_HPORT)/ 2>/dev/null | grep -q 200; then \
+	    echo "  [FAIL] $$tag: port $(STAB_HPORT) already answers before start (stale process?) -- refusing to test it"; exit 1; \
+	  fi; \
 	  rm -f .stab.$$tag.log; \
 	  stdbuf -o0 -e0 "$$bin" -C $(STAB_CFG) -v > .stab.$$tag.log 2>&1 & \
 	  pid=$$!; \

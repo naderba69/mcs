@@ -24,6 +24,7 @@
 #
 # Exit status: 0 when no rule is violated, 1 otherwise.
 import collections
+import os
 import re
 import sys
 import base64
@@ -288,10 +289,30 @@ def live_compare(rows, live_base, auth):
     return shown, mismatch
 
 
+def parser_check():
+    """Every word of every key the audit reports must be a string the parser
+    compares against (strcmp(str, "WORD")) in src/config.c. A key whose word is
+    missing is unknown to the parser, so its value in a file means nothing.
+    Returns the list of missing words (empty = all known)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, "..", "src", "config.c"), encoding="utf-8",
+              errors="replace") as f:
+        src = f.read()
+    missing = []
+    for key in sorted(CODE_DEFAULT):
+        for word in key.split():
+            if ('"%s"' % word) not in src and word not in missing:
+                missing.append(word)
+    return missing
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(2)
+    missing = parser_check()
+    print("parser check: %d keys, unknown words: %s" % (
+        len(CODE_DEFAULT), ", ".join(missing) if missing else "none"))
     rows, violations, unexplained = audit(sys.argv[1])
     print("| # | profile | CAID | family | CA MODERN | HALFNULLED | SWAP | CYCLE | PATTERN | SKIPCWC | MINTIME | VALIDECMTIME | MAXFAILED | ECM CHECK | ECM LEN | LOOPING | CACHE STATIC | CW-CHECK | BLOCK_FAKE | LOCAL_ONLY |")
     print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
