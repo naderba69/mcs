@@ -1,4 +1,7 @@
 #include "common.h"
+#ifdef MCS_DCWSTATS
+#include "chanhealth.h"	/* TASK R47 (D110): dcwstats reset clears the channel table */
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,6 +69,27 @@ struct telnet_conn_data { /* TASK R3 (D57) */
 	int fd;
 	uint32_t ip;
 };
+
+#ifdef MCS_DCWSTATS
+/* TASK R48 (D111): one line back for a `diagscope add|del` edit. The codes
+ * are those of diagscope.h. */
+static void diagscope_say(int fd, int add, const char *what, const char *name, int rc)
+{
+	const char *m;
+
+	if (add) {
+		if (rc == 0) m = "added";
+		else if (rc == 1) m = "already in scope";
+		else if (rc == -1) m = "no room: at most 4 channels and 4 profiles; del one first";
+		else m = "empty, or longer than 63 characters";
+	}
+	else m = (rc == 0) ? "removed" : "not in scope";
+	char line[160];
+
+	sprintf(line, "diagscope: %s %.63s %s\r\n", what, name, m);
+	writes(fd, line);
+}
+#endif
 
 void *telnetprocess(int *param )
 {
@@ -260,12 +284,75 @@ void *telnetprocess(int *param )
 				}
 			}
 		}
+#ifdef MCS_DCWSTATS
+		else if ( !strcmp(str, "DIAGSCOPE") ) { /* TASK R48 (D111): stats flavour only, the stock binary has no such command */
+			struct diag_scope sc;
+			unsigned cu, pu, su;
+			char verb[16], what[16], line[160], nm[40];
+			int i, rc;
+
+			if (!parse_name(verb)) {
+				diagscope_snapshot(&sc);
+				sprintf(wbuf, "diagscope: detail is %s, counters are always on\r\n",
+					diag_scope_empty(&sc) ? "OFF" : "ON");
+				writes(fd, wbuf);
+				for (i = 0; i < sc.nch; i++) {
+					sprintf(wbuf, "  channel %04X:%06X:%04X\r\n", (unsigned)sc.caid[i],
+						(unsigned)sc.provid[i], (unsigned)sc.sid[i]);
+					writes(fd, wbuf);
+				}
+				for (i = 0; i < sc.nprof; i++) {
+					sprintf(wbuf, "  profile %s\r\n", sc.prof[i]);
+					writes(fd, wbuf);
+				}
+				writes(fd, "usage: diagscope add channel CAID:PROV:SID | add profile NAME | del channel CAID:PROV:SID | del profile NAME | clear\r\n");
+			}
+			else {
+				uppercase(verb);
+				if (!strcmp(verb, "CLEAR")) {
+					diagscope_clear();
+					writes(fd, "diagscope: cleared, detail is OFF\r\n");
+				}
+				else if ((!strcmp(verb, "ADD") || !strcmp(verb, "DEL")) && parse_name(what)) {
+					int add = !strcmp(verb, "ADD");
+
+					uppercase(what);
+					if (!strcmp(what, "CHANNEL")) {
+						parse_spaces();
+						if (sscanf(iparser, "%x:%x:%x", &cu, &pu, &su) != 3 || cu > 0xFFFF || su > 0xFFFF) {
+							writes(fd, "diagscope: a channel is CAID:PROV:SID in hex, e.g. 1884:000000:1136\r\n");
+						}
+						else {
+							rc = add ? diagscope_add_channel(cu, pu, (uint16_t)su)
+								  : diagscope_del_channel(cu, pu, (uint16_t)su);
+							sprintf(nm, "%04X:%06X:%04X", (unsigned)cu, (unsigned)pu, (unsigned)su);
+							diagscope_say(fd, add, "channel", nm, rc);
+						}
+					}
+					else if (!strcmp(what, "PROFILE")) {
+						int n;
+
+						parse_spaces();
+						strncpy(line, iparser, sizeof(line) - 1);
+						line[sizeof(line) - 1] = 0;
+						n = strlen(line);
+						while (n > 0 && (line[n - 1] == ' ' || line[n - 1] == '\t')) line[--n] = 0;
+						rc = add ? diagscope_add_profile(line) : diagscope_del_profile(line);
+						diagscope_say(fd, add, "profile", line, rc);
+					}
+					else writes(fd, "diagscope: usage: add|del channel CAID:PROV:SID, add|del profile NAME\r\n");
+				}
+				else writes(fd, "diagscope: usage: diagscope | add|del channel|profile ... | clear\r\n");
+			}
+		}
+#endif /* MCS_DCWSTATS: DIAGSCOPE */
 		else if ( !strcmp(str, "DCWSTATS") ) {
 #ifdef MCS_DCWSTATS
 			if (parse_name(str)) {
 				uppercase(str);
 				if ( !strcmp(str, "RESET") ) {
 					dcwstats_reset();
+					chanhealth_reset();	/* TASK R47 (D110): the /diag totals reset too */
 					writes(fd, "dcwstats: counters reset\r\n");
 				}
 				else writes(fd, "dcwstats: usage: dcwstats [reset]\r\n");

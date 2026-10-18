@@ -95,6 +95,10 @@ int isbadDCW(uint8_t *data)
 #endif
 MCS_DCWSTATS_WEAK int           dcwstats_on = 0;
 MCS_DCWSTATS_WEAK unsigned long dcwstats[DCW_REJ_COUNT] = {0};
+/* TASK R47 (D110): the reason of this thread's last acceptDCW_impl
+ * reject (0 = none). setdcw.c reads it to name a card refusal in the
+ * ring. Thread-local: each ECM thread reads only its own reject. */
+__thread int dcw_last_reject_reason = 0;
 #endif
 #endif
 
@@ -259,18 +263,21 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 	if ( checksum && !checksumDCW(data)) {
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_CHECKSUM);
+		dcw_last_reject_reason = DCW_REJ_CHECKSUM;
 #endif
 		return 0;
 	}
 	if ( isnullDCW(data) ) {
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_NULL);
+		dcw_last_reject_reason = DCW_REJ_NULL;
 #endif
 		return 0;
 	}
 	if ( repeat && isbadDCW(data) ) {
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_REPEAT);
+		dcw_last_reject_reason = DCW_REJ_REPEAT;
 #endif
 		return 0;
 	}
@@ -282,6 +289,7 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 	if ( dcw_on_badlist(data) ) {
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_BADLIST);
+		dcw_last_reject_reason = DCW_REJ_BADLIST;
 #endif
 		return 0;
 	}
@@ -300,6 +308,7 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 		if (pattern && dcw_pattern_fake(data)) {
 #ifdef MCS_DCWSTATS
 			DCWSTATS_REJECT(DCW_REJ_PATTERN);
+			dcw_last_reject_reason = DCW_REJ_PATTERN;
 #endif
 			return 0;
 		}
@@ -381,16 +390,11 @@ void dcw_on_failure(uint16_t caid, uint16_t sid, uint32_t provid)
 		t->total_failures++;
 		t->last_failure_time = time(NULL);
 		
-		/* Layer 1: Quick switch after 2 failures */
+		/* Counter only: no switch is performed here (see DECISIONS.md,
+		 * "dcw_on_failure ... only stamps log words"). The log says so. */
 		if (t->consecutive_failures >= 2) {
-			debugf(0, "BLACKSCREEN: Channel %04X:%04X - %d consecutive failures, triggering quick switch\n",
+			debugf(0, "CW failures %04X:%04X: %d in a row (counter only, no action taken)\n",
 				caid, sid, t->consecutive_failures);
-		}
-		
-		/* Layer 2: Emergency after 3 failures */
-		if (t->consecutive_failures >= 3) {
-			debugf(0, "BLACKSCREEN: Channel %04X:%04X - Emergency mode activated\n",
-				caid, sid);
 		}
 	}
 }

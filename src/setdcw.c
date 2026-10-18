@@ -4,6 +4,56 @@
 
 #include "common.h"
 #include "cafamily.h"	/* TASK R36 (D92) */
+#include "dcwtiming.h"	/* TASK R44: DCW VALIDECMTIME gate */
+#ifdef MCS_DCWSTATS
+/*
+ * TASK R47 (D110): the card path's share of the diagnosis. Before R47 a
+ * card refusal (checksum, pattern, MINTIME, VALIDECMTIME, profile) and a
+ * card delivery left no trace in the ring or the channel table, so a channel
+ * that works on the card alone was invisible. Counters-only: every call
+ * below is a no-op unless dcwstats_on is set, and none changes a decision.
+ */
+#include "cwlog.h"
+#include "chanhealth.h"
+#include "dcwstats.h"
+extern __thread int dcw_last_reject_reason;  /* dcw.c: this thread's last reject */
+
+/* The ring code for the last acceptDCW_impl reject. 0 (no reason set) is the
+ * profile/global structural filter, which returns without naming a reason. */
+static int setdcw_profile_reason(void)
+{
+	int r = dcw_last_reject_reason;
+
+	if (r == DCW_REJ_PATTERN) return CWLOG_R_PATTERN;  /* 10 is HOLD in the ring */
+	return r ? r : CWLOG_R_PROFILE;
+}
+
+static void setdcw_card_refused(ECM_DATA *ecm, const uint8_t *cw, int reason)
+{
+	if (dcwstats_on)
+		cwlog_note(CWLOG_REFUSED, reason, CWLOG_PEER_CARD, ecm->caid, ecm->provid,
+			   ecm->sid, cw, GetTickCount());
+}
+
+static void setdcw_delivered(ECM_DATA *ecm, uint32_t ecmtime)
+{
+	if (dcwstats_on) {
+		chan_note(CWLOG_DELIVERED, 0, ecm->caid, ecm->provid, ecm->sid);
+		/* TASK R48 (D111): the answer time, kept only for the detail scope */
+		diag_note_latency(ecm->caid, ecm->provid, ecm->sid,
+				  ecm->cs ? ecm->cs->name : NULL, ecmtime);
+	}
+}
+
+/* TASK R48 (D111): an ECM that ends with no answer at all. Called from
+ * ecm_faileddcw, the one place a request is closed as failed. */
+static void setdcw_noanswer(ECM_DATA *ecm)
+{
+	if (dcwstats_on)
+		diag_note_noanswer(ecm->caid, ecm->provid, ecm->sid,
+				   ecm->cs ? ecm->cs->name : NULL);
+}
+#endif /* MCS_DCWSTATS */
 #include <stdlib.h>
 
 inline void peer_hitprofile( struct cachepeer_data *peer, int csid )
@@ -238,6 +288,9 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 				int elapsed = (int)(now - ecm->server[k].sendtime);
 				if (elapsed>=0 && elapsed < cs->option.dcw.mintime) {
 					debugf(DBG_ERROR, " !!! [MINTIME] %s: server %d answered in %dms < %dms - too fast to be real, CW skipped\n", cs->name, srcid, elapsed, cs->option.dcw.mintime);
+#ifdef MCS_DCWSTATS
+					setdcw_card_refused(ecm, dcw, CWLOG_R_MINTIME);
+#endif
 					return;
 				}
 				break;
@@ -245,7 +298,31 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 		}
 	}
 
-	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;
+	/*
+	 * TASK R44 -- DCW VALIDECMTIME (per profile, 0 = off, the stock default).
+	 * A control word that reaches us more than the profile's limit after the
+	 * ECM was first received is refused, whatever its source. The request
+	 * stays open for a source that answers in time; the client does not see a
+	 * late key. Measured from ecm->recvtime, the first time the ECM arrived.
+	 */
+	if (dcw_arrives_too_late(GetTickCount(), ecm->recvtime, cs->option.dcw.validecmtime)) {
+		debugf(DBG_ERROR, " !!! [VALIDECMTIME] %s: CW for ch %04x:%06x:%04x came %ums after the ECM, limit %dms - late, CW skipped\n",
+			cs->name, ecm->caid, ecm->provid, ecm->sid, (unsigned)(GetTickCount()-ecm->recvtime), cs->option.dcw.validecmtime);
+#ifdef MCS_DCWSTATS
+		setdcw_card_refused(ecm, dcw, CWLOG_R_LATECARD);
+#endif
+		return;
+	}
+
+#ifdef MCS_DCWSTATS
+	dcw_last_reject_reason = 0;
+#endif
+	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) {
+#ifdef MCS_DCWSTATS
+		setdcw_card_refused(ecm, dcw, setdcw_profile_reason());
+#endif
+		return;
+	}
 
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
@@ -336,6 +413,9 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	// Check timeout
 	uint32_t ecmtime = GetTickCount()-ecm->recvtime;
 	if ( ecmtime > cs->option.dcw.timeout*ecm->period ) return;
+#ifdef MCS_DCWSTATS
+	setdcw_delivered(ecm, ecmtime);
+#endif
 	// Send DCW to clients
 	clients_check_sendcw(ecm);
 
@@ -640,6 +720,9 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 				int elapsed = (int)(now - ecm->server[k].sendtime);
 				if (elapsed>=0 && elapsed < cs->option.dcw.mintime) {
 					debugf(DBG_ERROR, " !!! [MINTIME] %s: server %d answered in %dms < %dms - too fast to be real, CW skipped\n", cs->name, srcid, elapsed, cs->option.dcw.mintime);
+#ifdef MCS_DCWSTATS
+					setdcw_card_refused(ecm, dcw, CWLOG_R_MINTIME);
+#endif
 					return;
 				}
 				break;
@@ -647,7 +730,31 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		}
 	}
 
-	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;
+	/*
+	 * TASK R44 -- DCW VALIDECMTIME (per profile, 0 = off, the stock default).
+	 * A control word that reaches us more than the profile's limit after the
+	 * ECM was first received is refused, whatever its source. The request
+	 * stays open for a source that answers in time; the client does not see a
+	 * late key. Measured from ecm->recvtime, the first time the ECM arrived.
+	 */
+	if (dcw_arrives_too_late(GetTickCount(), ecm->recvtime, cs->option.dcw.validecmtime)) {
+		debugf(DBG_ERROR, " !!! [VALIDECMTIME] %s: CW for ch %04x:%06x:%04x came %ums after the ECM, limit %dms - late, CW skipped\n",
+			cs->name, ecm->caid, ecm->provid, ecm->sid, (unsigned)(GetTickCount()-ecm->recvtime), cs->option.dcw.validecmtime);
+#ifdef MCS_DCWSTATS
+		setdcw_card_refused(ecm, dcw, CWLOG_R_LATECARD);
+#endif
+		return;
+	}
+
+#ifdef MCS_DCWSTATS
+	dcw_last_reject_reason = 0;
+#endif
+	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) {
+#ifdef MCS_DCWSTATS
+		setdcw_card_refused(ecm, dcw, setdcw_profile_reason());
+#endif
+		return;
+	}
 
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
@@ -765,6 +872,9 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	// Check timeout
 	uint32_t ecmtime = GetTickCount()-ecm->recvtime;
 	if ( ecmtime > cs->option.dcw.timeout*ecm->period ) return;
+#ifdef MCS_DCWSTATS
+	setdcw_delivered(ecm, ecmtime);
+#endif
 	// Send DCW to clients
 	clients_check_sendcw(ecm);
 

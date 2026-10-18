@@ -4104,3 +4104,319 @@ green, `prof` 5/5, `cfgcheck` 4 checks ok.
 
 ---
 
+
+## D107 (R44) — Two opt-in CA controls: a late key is refused, and a keyless round is asked again
+
+**Scope.** The owner approved exactly two changes after the R43 merge: (1) a
+per-profile limit on how late a control word may arrive (`DCW VALIDECMTIME`),
+and (2) `ENABLE ECMLOOPING`, which asks the same servers again when every one of
+them answered without a key. Both are opt-in and OFF in the shipped file and in
+the stock build's behaviour. The frozen D53 pair is untouched.
+
+**(1) `DCW VALIDECMTIME: <ms>`** (0 = off, the default; range 0–5000, clamped).
+A control word is refused when it arrives more than `<ms>` after the ECM was
+first received (`ecm->recvtime`, the same clock the DCW timeout uses). The
+decision is a pure function, `dcw_arrives_too_late(now, recvtime, limit)`, in
+`src/dcwtiming.h`, and it runs before both `acceptDCW_profile_ca_sid` calls in
+`setdcw.c`. A refused word is logged as `[VALIDECMTIME]` and skipped; the ECM
+then follows the normal timeout. It is not added to any counter. Limit 0 never
+refuses.
+
+**(2) `ENABLE ECMLOOPING: YES`** (default NO). When the last server asked for an
+ECM has answered without a key and no server is left, the ECM is asked again
+of the same servers, at most `ECMLOOP_MAX` = 2 rounds, while the server window is
+still open. Each round clears the per-ECM server table (`ecm_resetservers`) and
+is logged as `[ECMLOOPING]`. A paid ECM is never re-sent by this path.
+
+**Three defects found by the live proof, all fixed before the decision:**
+- **No round fired after the last keyless reply.** The reply path set the
+  failure flag but nothing woke the ECM thread before the DCW timeout, so the
+  round was only seen after the whole timeout had elapsed. `ecm_setsrvflag`
+  now, and only when the option is on, makes the ECM due now and sends the same
+  `PIPE_SRV_AVAILABLE` wake the reply paths use. The wake must come AFTER the
+  flag: the reply paths send it before, and that wake is consumed too early.
+- **A round fired with nobody asked.** With no server connected yet,
+  `srvtab_arrange` also returns -1, so the loop ran with zero sends. The
+  predicate now requires `server_totalsent > 0`.
+- **The live rig never sent a keyless reply.** `cs_message_send` writes the body
+  length into header bytes 1–2; a 16-byte control word therefore reads `0x10`
+  there, and a keyless answer must be a bare 3-byte header (length 0). The
+  first rig build sent a full 19-byte reply and so tested nothing. Fixed in
+  `tests/ncserver.c` (`NS_NOK_FIRST`).
+
+**Proof (`make -C tests r44`, one real CCcam client, one real newcamd card
+server, a fresh process per case).**
+
+    A late key      limit 800, card 1500 ms : client DCW=0, [VALIDECMTIME] logged
+    B control       no limit,  card 1500 ms : client DCW=1   (stock behaviour)
+    C inside limit  limit 800, card 300 ms  : client DCW=1
+    D loop OFF      first reply keyless     : DCW=0, card replies=1 (stock)
+    E loop ON       first reply keyless     : DCW=1, card replies=2, [ECMLOOPING] logged
+    F loop bounded  every reply keyless     : DCW=0, card replies=3, then stops
+
+Unit proof: `make -C make-x64 test`, plus `x64/test_dcwtiming`, 16 checks
+covering the limit boundaries and the round predicate (including the
+nobody-asked case).
+
+**Not decided here.** This round does not address channel `1884:000000:1136`
+(the field NOK at 2003 ms). That failure is a configuration question about
+SKIPCWC and the checksum filter, which is still open with the owner. Nothing
+here changes that profile.
+
+**Limits.** The live rig uses one card server. Multi-server rounds are proven
+only by the unit predicate, not live. `DCW VALIDECMTIME` measures from the
+first ECM arrival, not from the last resend, which is deliberate: a resend must
+not reset the clock that protects against a late key.
+
+## D108 (R45) — Slow profiles get longer server windows, and ECMLOOPING is on
+
+**Context.** Every profile in `multics-r24-optimized.cfg` used `SERVER TIMEOUT
+800` and `SERVER VALIDECMTIME 800`. The server window bounds the send branch in
+`th-ecm.c` (line 177), and the ECMLOOPING round lives inside that branch. The
+card-exclusion limit in `loadbalance.c` (~222–240) drops a card after more than
+ten good answers when its average is above the limit.
+
+**Decision.** The ten profiles labelled "بطيء" get `SERVER TIMEOUT 2000`,
+`SERVER VALIDECMTIME 2000` and `DCW TIMEOUT 4000`. The whole-request timeout
+must exceed the server window (checked by `cfgcheck.py`). `DEFAULT ENABLE
+ECMLOOPING: YES` is set globally, so the bounded retry (two rounds, only when
+every server answered NOK) is active everywhere. Fast and standard profiles keep
+800. Nothing is armed by default that changes the path of a successful answer.
+
+**Proof.** A slow card (1500 ms) over 14 distinct ECMs: stock values 11 DCW and
+3 NOK; R45 values 14 of 14 DCW. `prof` 5/5, `qv` 4/4, `cfgcheck` 5/5.
+
+**Open.** The cache-first request is not met by configuration: the server is
+still asked alongside the cache peer (`pB`, `pC`). It needs a delivery gate,
+which is a code decision. Channel `1884:000000:1136` remains open with the owner.
+
+## D109 (R46) — The DCW counters live on their own page, not on the home page
+
+**Context.** The counter table sat inside the home page block that refreshes
+every few seconds. On a slow box that made the home page heavy, and the
+counters were mixed in with uptime and totals.
+
+**Decision.** The table moves to `/stats`, a page of its own, in the stats
+flavour only. The home page and its refresh keep the ON/OFF state and a link.
+The page follows the R7 page rules and the same authenticated chain as
+`/cwlog`. Every new line is under `#ifdef MCS_DCWSTATS`, so the stock build is
+byte-identical to the previous commit.
+
+**Proof.** `make -C tests dw` 8/8 and `make -C tests bd` 8/8, with the table
+read from `/stats`. Live `/stats` shows the 11 reasons. A stock build of this
+commit matches the previous commit byte for byte.
+
+**Open.** The committed `dist/` and `bin/` stats binaries still have the old
+home page. They were restored to `HEAD` after the tests, per the rule that a
+binary is committed only on request. A stock build from `HEAD` does not match
+the committed `dist/multics-r82a-stock-x64` either, and that predates R46.
+
+
+## D110 (R47) — One diagnosis page: see, name the fault, suggest the fix
+
+**Context.** The operator had counters (`/stats`) and a verdict ring (`/cwlog`),
+but no single place that answered three questions: what is failing, on which
+channel or package, and what to change. Reading the two pages together was
+slow, and the pages disagreed in places:
+
+- A card refusal was shown with peer `csp:65535`, because the card has no peer
+  id and `-1` was printed as a number.
+- A delivery from the card was never recorded, so a channel that worked had no
+  row to show that it worked.
+- `docs/REPORT-R15-ar.md` described a per-channel health table
+  (`chanhealth`) and its `chan_note` and `chanhealth_snapshot` as wired. They
+  were not. `grep` found no caller before R47.
+
+**Decision.** A diagnosis page `/diag`, stats flavour only, under
+`#ifdef MCS_DCWSTATS`, with three parts that are read-only:
+
+1. **See.** A per-channel table (`chanhealth`, 24 channels, LRU) with
+   deliveries, refusals, the last reason and a streak. Deliveries come from the
+   cache path (`cwlog_deliver`), from the card path (`chan_note` in
+   `setdcw.c`), and from the memory re-ask (`cs_note_resend`).
+2. **Name.** A fixed rule in `src/diag.h`, with no randomness and no learned
+   weights:
+   - DYING when the streak is 5 or more (`CHANHEALTH_STREAK`).
+   - A reason when one reason takes 50% or more of the verdicts.
+   - HEALTHY when deliveries are 90% or more.
+   - MIXED otherwise.
+   - LOW_SAMPLE below 5 verdicts. No verdict is given on a thin sample.
+   - A package's verdict is the worst channel in it (`diag_package_top`).
+3. **Suggest.** One line per verdict, with the setting that a human may change.
+   The page never changes a setting.
+
+**No automatic fixes.** A suggestion is text on the page. The server does not
+change a value, a profile, or a channel by itself. That follows the project
+rule: a feature is opt-in, and a change is made by the operator.
+
+**Counters and the ring.** `dcwstats reset` clears the channel table with the
+counters. The ring (`/cwlog`) is not cleared. The page says so. Reason 18
+(MINTIME, `card-too-fast`), 19 (LATECARD) and 20 (PATTERN, from the card) are
+new ring reasons. Reason 10 stays HOLD, and the card's peer is `CWLOG_PEER_CARD`
+(-2), so it prints as `card`.
+
+**Stock is untouched.** Every new line is under `#ifdef MCS_DCWSTATS`. The
+stock binary from `HEAD` and from this commit have the same md5
+(`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes).
+
+**Proof.**
+- Unit: `make -C make-x64 test` 25/25. `test_diag` 45 checks, `test_chanhealth`
+  36 checks, `test_cwlog` 57 checks.
+- Regression: `make -C tests dg` (new, `tests/r47-dg.sh`) 8 checks. `dw` and
+  `bd` 8/8 each. `make -C tests all` 498 ok, `SUITE_EXIT=0`.
+- Live (ports 16850–16853 and 1686x): a card that answers in time gives
+  delivered 2 on `/diag` for `1884:000000:0064`. The same card under
+  `DCW MINTIME: 500` gives `card-too-fast` with peer `card` on `/cwlog`, and the
+  same reason and peer on `/diag`.
+
+**Limits, stated plainly.**
+- Burst test: 6 client requests gave 2 refusals, not 6. multics reuses a
+  rejected ECM entry with the same hash, so the card is not asked again. The
+  streak reaches 5 only with 5 different ECMs. That is covered by `test_diag`
+  but was not reproduced live.
+- The stale claim in `docs/REPORT-R15-ar.md` is corrected here. The module is
+  now wired, and the report's wording is historical.
+
+**Open, not decided here.**
+- The cache-first gate (R45) still waits for the operator's yes or no. It
+  changes the delivery path and it costs `CACHE TIMEOUT` on each cache miss.
+- Channel `1884:000000:1136` is unchanged. Its checksum refusals are shown on
+  `/diag`. The choice between the three options is still open.
+- The committed `dist/` and `bin/` stats binaries are not updated here. They
+  are restored to `HEAD`, per the rule that a binary is committed only on
+  request.
+
+## D111 (R48) — The detail scope: heavy detail for one profile or one channel, switched on live
+
+**Context.** The diagnosis page (D110) counts cheaply, but the operator's next
+questions need more: how long the card takes to answer, how many requests got
+no answer at all, and which setting to copy. Those cost a time measurement and
+a count per request. Turned on for everything they cost on a busy server, and
+the operator asked for them only for the profile or channel that is failing.
+
+The operator also ruled out a config-only switch: "not in the settings only,
+because a change there needs a restart, and I do not want that." So the detail
+must switch on while the server runs.
+
+**Decision.** A detail scope, stats flavour only, under `#ifdef MCS_DCWSTATS`:
+
+1. **Scope, bounded.** At most 4 channels (`CAID:PROV:SID`) and 4 profile names
+   (up to 63 characters). Empty means OFF: the request path does nothing extra.
+   The rules are pure, in `src/diagscope.h`, and unit-tested in
+   `make-x64/test_diagscope.c`.
+2. **Switched live.** The telnet command `diagscope` shows the scope.
+   `diagscope add|del channel CAID:PROV:SID` and `diagscope add|del profile NAME`
+   change it, and `diagscope clear` turns it OFF. No restart, no config line.
+   A config line for persistence is optional and is not part of R48.
+3. **What the scope adds.** Inside the scope only: the card's answer time
+   (`diag_note_latency`, at delivery, `setdcw_delivered`), and a request that
+   ended with no answer (`diag_note_noanswer`, at `ecm_faileddcw`). Outside the
+   scope these feeds return at once. The per-channel counters and the refusal
+   reasons stay on for every channel, as before.
+4. **Named settings, copyable, never applied.** `diag_setting_hint` gives one
+   text line per finding: `ECMLOOPING: YES` for a dying channel; a
+   `DCW VALIDECMTIME` value (slowest measured answer plus 25%, at least 100 ms)
+   for a slow card; `DCW MINTIME` for a card that is too fast; "measure first"
+   when no answer was timed yet. A checksum or fake-key finding gets no line at
+   all: the page never offers to turn a check off.
+5. **Reading the detail.** `/diag` shows the scope, a link from each channel to
+   `/cwlog?ch=CAID:PROV:SID` (which filters the ring and offers "show all"), and
+   four new columns: refusals since reset, no answer, card answer ms (average
+   and slowest), and the setting to copy. `/diag?format=txt` exports the same
+   rows as plain text, with channel ids and counts only: no address, user,
+   password or peer name.
+
+**Rejected.**
+- *Switch the detail on from the config file only.* Needs a restart. Refused by
+  the operator.
+- *Time every request with the scope off.* Costs a clock read and a lock per
+  request for everyone. The scope exists so that the cost is paid only where it
+  is asked for.
+- *Apply the suggested setting automatically.* Refused by the operator's rule:
+  the tool names the fault and suggests the fix; it does not change a setting.
+- *Time the cache path too.* `pipe_cache2ecm_find_success` does not receive the
+  request, so the elapsed time cannot be measured there without changing the
+  delivery path. Not decided; the card path is measured, the cache path is not.
+
+**Stock is untouched.** The stock binary from this commit matches the stock
+binary from `HEAD` (`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes). The
+`DIAGSCOPE` command exists only in the stats flavour, so the stock binary has no
+trace of it.
+
+**Found while proving it (fixed in R48).**
+- A profile name from the config keeps a blank before the bracket: `[ cardx ]`
+  is stored as `cardx `. The scope compared the stored name with `strcmp` and
+  never matched the card's own profile. Both the stored and the looked-up name
+  are now trimmed of trailing blanks (`diag_name_eq`). The unit test covers it.
+- A newcamd client that re-asks the same ECM makes the server avoid that source
+  for the channel on the next request (`ROTATION`, the existing anti-black-screen
+  rule). The live test therefore sends one request before the scope check and
+  uses a second user for the request after it. The rule itself is unchanged.
+- A newcamd server refuses a second login of the same user within 60 s (stock
+  rule, `srv-newcamd.c`). The live test uses two users, not a wait.
+
+**Proof.**
+- `make -C make-x64 test`: 26/26 units, including `test_diagscope` 58 checks,
+  `test_diag` 45, `test_chanhealth` 36, `test_cwlog` 57.
+- `make -C tests dg`: R47 card path 8/8 (its patterns now follow the channel
+  link), and R48 live (`tests/r48-scope.sh`, telnet client `tests/r48-tn.py`):
+  case A turns timing on for one profile while the server runs, and the next
+  card answer is timed (`card_answers` 0 before, 1 after, `avg_ms` 94); case B
+  counts a request past `DCW TIMEOUT` as no answer for a scoped channel.
+- Stock binary: byte-identical to `HEAD`.
+
+**Limits.**
+- Timing is only for the card path. The cache path has no time yet (above).
+- The no-answer count is taken where a request is closed as failed. A late
+  answer that arrives after `DCW TIMEOUT` is dropped and counted as no answer.
+- The scope lives in memory. A restart clears it; the persistent config line is
+  optional and not built.
+
+
+## D112 (R49) — The detail scope is controlled from the web page
+
+**Context.** D111 switched the scope on and off from telnet. The operator asked for
+everything from the interface: a telnet command is not a place an operator works
+in during an incident.
+
+**Decision.** `/diag` carries the controls. Each action calls a route that does
+exactly what the telnet command does, with the same limits (4 channels, 4
+profiles):
+
+- a channel form and a profile form (add, remove), and a link that turns the
+  detail OFF for all (`op=clear`);
+- each channel row has one link: "detail on" when the channel is out of the
+  scope, "detail off" when it is in;
+- each entry of the scope list has a "remove" link.
+
+The route `/diag/scope` sits behind the same login as `/diag`. It answers with a
+short result page and goes back to `/diag` after three seconds. The result says
+what happened: added, already in scope, no room, removed, not in scope, or a bad
+channel.
+
+**Why GET.** The admin pages of this server use GET actions (`?action=`), and
+the body of a POST is not parsed into the request parameters here. The change
+of state is small: it switches on a measurement, and changes no setting.
+
+**Protection.** A request whose `Sec-Fetch-Site` header is `cross-site` gets a
+403 and changes nothing. A page on another site therefore cannot switch the
+scope through the operator's browser. Browsers that do not send this header are
+not covered; the change they could cause is still limited to the detail scope.
+
+**Telnet stays.** The telnet command is not removed. It works as before (checked
+in `tests/r48-scope.sh`).
+
+**Stock is untouched.** Every new line is under `#ifdef MCS_DCWSTATS`. The stock
+binary still matches `HEAD` (`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes).
+
+**Proof.**
+- `make -C tests dg`: EXIT 0. R47 card path, and R48 live with 35 checks: the web
+  form turns the profile on while the server runs, the next card answer is timed,
+  a cross-site request is refused, the row link turns a channel on and off,
+  telnet still works, and case B counts a no-answer for a channel turned on from
+  the page.
+- `make -C make-x64 test`: EXIT 0. Stock binary: byte-identical to `HEAD`.
+
+**Limits.**
+- A browser without `Sec-Fetch-Site` is not guarded (see above).
+- The scope is in memory. A restart clears it.

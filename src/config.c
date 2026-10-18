@@ -2522,6 +2522,18 @@ sid accept:
 					if (defaultcs.option.dcw.mintime<0) defaultcs.option.dcw.mintime=0;
 					else if (defaultcs.option.dcw.mintime>5000) defaultcs.option.dcw.mintime=5000;
 				}
+				else if (!strcmp(str,"VALIDECMTIME")) { /* TASK R44: refuse a CW arriving later than this after the ECM (ms, 0=off) */
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					parse_spaces();
+					defaultcs.option.dcw.validecmtime = atoi(str);
+					if (defaultcs.option.dcw.validecmtime<0) defaultcs.option.dcw.validecmtime=0;
+					else if (defaultcs.option.dcw.validecmtime>5000) defaultcs.option.dcw.validecmtime=5000;
+				}
 				else if (!strcmp(str,"CYCLE_CHECK")) {
 					parse_spaces();
 					if ((*iparser!=':')&&(*iparser!='=')) {
@@ -2543,6 +2555,14 @@ sid accept:
 						continue;
 					} else iparser++;
 					defaultcs.option.skipcwc = parse_boolean();
+				}
+				else if (!strcmp(str,"ECMLOOPING")) { /* TASK R44: resend an ECM to the same servers when all answered without a key */
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					defaultcs.option.ecmlooping = parse_boolean();
 				}
 				else if (!strcmp(str,"SOFTCAM")) {
 					parse_spaces();
@@ -4461,6 +4481,18 @@ link_mgcamd_user:
 				if (cardserver->option.dcw.mintime<0) cardserver->option.dcw.mintime=0;
 				else if (cardserver->option.dcw.mintime>5000) cardserver->option.dcw.mintime=5000;
 			}
+			else if (!strcmp(str,"VALIDECMTIME")) { /* TASK R44: refuse a CW arriving later than this after the ECM (ms, 0=off) */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				parse_spaces();
+				cardserver->option.dcw.validecmtime = atoi(str);
+				if (cardserver->option.dcw.validecmtime<0) cardserver->option.dcw.validecmtime=0;
+				else if (cardserver->option.dcw.validecmtime>5000) cardserver->option.dcw.validecmtime=5000;
+			}
 			else if (!strcmp(str,"CYCLE_CHECK")) {
 				parse_spaces();
 				if ((*iparser!=':')&&(*iparser!='=')) {
@@ -4827,6 +4859,14 @@ link_mgcamd_user:
 					continue;
 				} else iparser++;
 				cardserver->option.skipcwc = parse_boolean();
+			}
+			else if (!strcmp(str,"ECMLOOPING")) { /* TASK R44: resend an ECM to the same servers when all answered without a key */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.ecmlooping = parse_boolean();
 			}
 			else if (!strcmp(str,"SOFTCAM")) {
 				parse_spaces();

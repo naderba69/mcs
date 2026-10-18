@@ -7,6 +7,10 @@
 #ifdef MCS_DCWSTATS
 #include "cwlog.h"	/* TASK R11 (D65): the /cwlog page + /json section */
 #include "peer_origin.h"/* TASK R11 (D65): peer id masks on the page */
+#ifdef MCS_DCWSTATS
+#include "chanhealth.h"	/* TASK R47 (D110): the channel table /diag reads */
+#include "diag.h"		/* TASK R47 (D110): the pure diagnosis rules */
+#endif
 #endif
 #include "biss.h"	/* BISS key management */
 #include "common.h"
@@ -664,6 +668,8 @@ static void http_style_write(struct tcp_buffer_data *tcpbuf, int sock)
 #define PAGE_DEBUG     14
 #define PAGE_CWLOG     15   /* TASK R11 (D65), stats flavour only */
 #define PAGE_BISS      16   /* BISS key management */
+#define PAGE_DCWSTATS  17   /* TASK R46 (D109): the DCW stats page, stats flavour only */
+#define PAGE_DIAG      18   /* TASK R47 (D110): the diagnosis page, stats flavour only */
 
 
 char *yesno( int a )
@@ -797,6 +803,14 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	 * counters exist -- the stock menu (and binary) is untouched. */
 	if (selected==PAGE_CWLOG) class = cSelected; else class = cNormal;
 	sprintf( buf, class, "/cwlog", mlabel("CW Log","سجل الأحكام")); tcp_writestr(tcpbuf, sock, buf);
+
+	/* TASK R46 (D109): the DCW counters have their own page now. */
+	if (selected==PAGE_DCWSTATS) class = cSelected; else class = cNormal;
+	sprintf( buf, class, "/stats", mlabel("DCW Stats","إحصائيات DCW")); tcp_writestr(tcpbuf, sock, buf);
+
+	/* TASK R47 (D110): the diagnosis page reads every stats source. */
+	if (selected==PAGE_DIAG) class = cSelected; else class = cNormal;
+	sprintf( buf, class, "/diag", mlabel("Diagnosis","التشخيص")); tcp_writestr(tcpbuf, sock, buf);
 #endif
 
 #ifdef FREECCCAM_SRV
@@ -1203,18 +1217,14 @@ void http_send_index(int sock, http_request *req)
 	 * not reference the symbol; it says so, once, like telnet.
 	 */
 #ifdef MCS_DCWSTATS
+	/* TASK R46 (D109): the counter table moved to /stats. The home page keeps
+	 * only the switch state and a link, so it stays small on a slow box. */
 	{
 		char hesc[64];
-		int i;
 		html_esc(hesc, (int)sizeof(hesc), dcwstats_on ? "ON" : "OFF");
-		sprintf(http_buf, "<br><br><b>DCW stats</b> %s<table class=option border=1px cellspacing=0><tr><th>Reason</th><th>Count</th></tr>", hesc);
+		sprintf(http_buf, "<br><br><b>DCW stats</b> %s &middot; <a href='/stats'>%s</a>",
+			hesc, mlabel("open the statistics page", "افتح صفحة الإحصائيات"));
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
-		for (i = 0; i < DCW_REJ_COUNT; i++) {
-			html_esc(hesc, (int)sizeof(hesc), dcwstats_reason_name(i));
-			sprintf(http_buf, "<tr><td>%s</td><td>%lu</td></tr>", hesc, dcwstats[i]);
-			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
-		}
-		tcp_writestr(&tcpbuf, sock, "</table>");
 	}
 #else
 	{
@@ -3816,6 +3826,8 @@ void http_send_profile(int sock, http_request *req)
 	sprintf( http_buf,"<tr><td>SERVER TIMEOUT</td><td>%dms</td></tr>", cs->option.server.timeout); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 //	sprintf( http_buf,"<tr><td>SERVER TIMEPERECM:</td><td>%d</td></tr>", cs->option.server.timeperecm); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf,"<tr><td>SERVER VALIDECMTIME</td><td>%dms</td></tr>", cs->option.server.validecmtime); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf,"<tr><td>DCW VALIDECMTIME</td><td>%dms</td></tr>", cs->option.dcw.validecmtime); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) ); /* TASK R44 */
+	sprintf( http_buf,"<tr><td>ENABLE ECMLOOPING</td><td>%s</td></tr>", yesno(cs->option.ecmlooping)); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) ); /* TASK R44 */
 	sprintf( http_buf,"<tr><td>SERVER FIRST</td><td>%d</td></tr>", cs->option.server.first); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	//
 	sprintf( http_buf,"<tr><td>ACCEPT NULL CAID</td><td>%s</td></tr>", yesno(cs->option.faccept0caid) ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
@@ -7342,6 +7354,22 @@ void http_send_editor(int sock, http_request *req, int index)
  * style, mlabel for the Arabic/English labels, and the same
  * authenticated chain in front as /json (the route below sits in it).
  */
+#ifdef MCS_DCWSTATS
+/* TASK R47 (D110): one peer label for /cwlog and /diag. The card path is
+ * CWLOG_PEER_CARD; -1 has no source (cache seeds) and reads as a dash. */
+static void diag_peer_name(int peerid, char *buf, int len)
+{
+	if (peerid == CWLOG_PEER_CARD)
+		snprintf(buf, len, "%s", mlabel("card", "بطاقة"));
+	else if (peerid < 0)
+		snprintf(buf, len, "-");
+	else
+		snprintf(buf, len, "%s%u",
+			(peerid & PEER_ORIGIN_FLAGS) ? "csp:" : "peer:",
+			(unsigned)(peerid & PEER_ID_MASK));
+}
+#endif /* MCS_DCWSTATS */
+
 static void http_send_cwlog(int sock, struct http_request *req)
 {
 	struct cwlog_entry rows[CWLOG_CAP];
@@ -7365,6 +7393,25 @@ static void http_send_cwlog(int sock, struct http_request *req)
 
 	on = dcwstats_on;
 	n = on ? cwlog_snapshot(rows, CWLOG_CAP) : 0;
+	/* TASK R48 (D111): /cwlog?ch=CAID:PROV:SID shows one channel's rows, so the
+	 * channel link on /diag lands on its evidence. */
+	{
+		const char *chv = isset_get(req, "ch");
+		unsigned cu, pu, su;
+
+		if (chv && sscanf(chv, "%x:%x:%x", &cu, &pu, &su) == 3) {
+			int k, m = 0;
+
+			for (k = 0; k < n; k++)
+				if (rows[k].caid == cu && rows[k].provid == pu && rows[k].sid == su)
+					rows[m++] = rows[k];
+			n = m;
+			sprintf(http_buf, "<p>%s %04X:%06X:%04X &nbsp; <a href='/cwlog'>%s</a></p>\n",
+				mlabel("showing channel", "تصفية: القناة"), cu, pu, su,
+				mlabel("show all", "عرض الكل"));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+	}
 
 	tcp_writestr(&tcpbuf, sock, "<h2>");
 	tcp_writestr(&tcpbuf, sock, mlabel("Cache CW verdicts", "أحكام كاش على مفاتيح CW"));
@@ -7387,15 +7434,17 @@ static void http_send_cwlog(int sock, struct http_request *req)
 	for (i = 0; i < n; i++) {
 		const struct cwlog_entry *r = &rows[i];
 		int j;
+		char pname[48];
 		static const char *vcol[] = { "#1e8449", "#c0392b", "#b9770e", "#5d6d7e" };
 		for (j = 0; j < 16; j++) sprintf( hex + j*2, "%02x", r->cw[j] );
 		hex[32] = 0;
-		sprintf( http_buf, "<tr><td>%d</td><td>+%lumin %lus</td><td>%04x:%06x:%04x</td><td>%s%d</td>"
+		diag_peer_name(r->peerid, pname, sizeof(pname));
+		sprintf( http_buf, "<tr><td>%d</td><td>+%lumin %lus</td><td>%04x:%06x:%04x</td><td>%s</td>"
 			"<td style='color:%s;'>%s</td><td>%s</td><td style='font-family:monospace;'>%s</td></tr>\n",
 			i + 1,
 			(long)(r->tick / 60000), (long)((r->tick / 1000) % 60),
 			r->caid, r->provid, r->sid,
-			(r->peerid & PEER_ORIGIN_FLAGS) ? "csp:" : "peer:", (r->peerid & PEER_ID_MASK),
+			pname,
 			vcol[r->verdict <= CWLOG_STORED ? r->verdict : CWLOG_STORED],
 			cwlog_verdict_name(r->verdict),
 			cwlog_reason_name(r->reason),
@@ -7415,8 +7464,652 @@ static void http_send_cwlog(int sock, struct http_request *req)
 	tcp_writestr(&tcpbuf, sock, "</p>\n</body></html>\n");
 	tcp_flush(&tcpbuf, sock);
 }
+/*
+ * TASK R46 (D109) -- /stats: the DCW counters on their own page. The table
+ * that used to sit on the home page moves here unchanged: same reason names
+ * (dcwstats_reason_name), same %lu counts, same html_esc rule. The R7 page
+ * rules and the authenticated chain apply, exactly as for /cwlog.
+ */
+static void http_send_stats(int sock, http_request *req)
+{
+	char hesc[64];
+	char http_buf[2048];
+	struct tcp_buffer_data tcpbuf;
+	int i;
+
+	tcp_init(&tcpbuf);
+	http_replyok_write(req, &tcpbuf, sock);
+	http_html_write(req, &tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head, strlen(http_head) );
+	sprintf( http_buf, html_title, cfg.http.title, mlabel("DCW Stats","إحصائيات DCW"));
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	tcp_write(&tcpbuf, sock, http_link, strlen(http_link) );
+	http_style_write(&tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head_, strlen(http_head_) );
+	tcp_write(&tcpbuf, sock, http_body, strlen(http_body) );
+	tcp_write_menu(&tcpbuf, sock, PAGE_DCWSTATS);
+
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("DCW stats", "إحصائيات DCW"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n");
+
+	html_esc(hesc, (int)sizeof(hesc), dcwstats_on ? "ON" : "OFF");
+	sprintf( http_buf, "<p>%s <b>%s</b></p>\n",
+		mlabel("counting", "العدّ"), hesc);
+	tcp_writestr(&tcpbuf, sock, http_buf);
+
+	tcp_writestr(&tcpbuf, sock, "<table class=option border=1px cellspacing=0><tr><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Reason", "السبب"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Count", "العدد"));
+	tcp_writestr(&tcpbuf, sock, "</th></tr>\n");
+	for (i = 0; i < DCW_REJ_COUNT; i++) {
+		html_esc(hesc, (int)sizeof(hesc), dcwstats_reason_name(i));
+		sprintf( http_buf, "<tr><td>%s</td><td>%lu</td></tr>\n", hesc, dcwstats[i]);
+		tcp_writestr(&tcpbuf, sock, http_buf);
+	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n<p style='font-size:0.8em;'>");
+	tcp_writestr(&tcpbuf, sock, mlabel(
+		"counters since start, or since the last `dcwstats reset`; they are server-wide, not per channel",
+		"العدادات منذ التشغيل أو منذ آخر `dcwstats reset`؛ وهي للسيرفر كله لا لكل قناة"));
+	tcp_writestr(&tcpbuf, sock, "</p>\n</body></html>\n");
+	tcp_flush(&tcpbuf, sock);
+}
 #endif /* MCS_DCWSTATS */
 
+
+#ifdef MCS_DCWSTATS
+/*
+	TASK R47 (D110): /diag -- the one page that reads every stats source and
+	says what is wrong and what to consider. Read-only: it reads the channel
+	table (chanhealth.h), the refusal ring (cwlog.h) and the counters, and
+	prints findings from diag.h. It changes no setting; a fix is the
+	operator's decision, made on the profile page.
+*/
+#define DIAG_PEERS_MAX 32
+
+struct diag_chan {
+	struct chanhealth_row row;
+	struct diag_evidence ev;
+	uint32_t mask;
+};
+
+/* The most severe finding of a mask (ties: the lower enum value). */
+static enum diag_finding diag_top(uint32_t mask)
+{
+	int f, best = -1, bsev = -1;
+
+	for (f = 0; f < DIAG_FINDINGS; f++)
+		if ((mask & (1u << f)) && diag_severity((enum diag_finding)f) > bsev) {
+			bsev = diag_severity((enum diag_finding)f);
+			best = f;
+		}
+	return best < 0 ? DIAG_OK : (enum diag_finding)best;
+}
+
+/* Worst first, then the channel with more refusals. */
+static int diag_before(const struct diag_chan *a, const struct diag_chan *b)
+{
+	int sa = diag_worst(a->mask), sb = diag_worst(b->mask);
+
+	if (sa != sb) return sa > sb;
+	return a->row.refused > b->row.refused;
+}
+
+/* The ring reason that refused this channel most (0 when none). */
+static int diag_top_reason(const struct diag_evidence *e)
+{
+	int r, top = 0;
+
+	for (r = 1; r < DIAG_REASONS; r++)
+		if (r != CWLOG_R_HOLD && e->reason[r] > e->reason[top]) top = r;
+	return top;
+}
+
+/* A package's finding: that of its worst channel (order[] is worst first). */
+static enum diag_finding diag_package_top(const struct diag_chan *dc,
+					  const int *order, int nchan, uint32_t caid)
+{
+	int k;
+
+	for (k = 0; k < nchan; k++)
+		if (dc[order[k]].row.caid == caid)
+			return diag_top(dc[order[k]].mask);
+	return DIAG_OK;
+}
+
+/* TASK R48 (D111): the refusals of one channel by ring reason, as text,
+ * "reason n, reason n". Only the reasons that were seen. */
+static void diag_refs_text(const struct chanhealth_row *row, char *out, size_t len)
+{
+	int r;
+	size_t used = 0;
+
+	out[0] = 0;
+	for (r = 0; r < DIAG_REASONS; r++) {
+		if (!row->refused_by[r] || used >= len - 1) continue;
+		used += snprintf(out + used, len - used, "%s%s %lu",
+				 used ? ", " : "", cwlog_reason_name(r), (unsigned long)row->refused_by[r]);
+	}
+}
+
+/* TASK R48 (D111): `/diag?format=txt`, the same numbers as plain text for a
+ * support ticket. Channel ids and counts only. No address, user, password or
+ * peer name is written: the peer names are left out on purpose. */
+static void diag_write_txt(int sock, const struct diag_chan *dc, const int *order, int nchan)
+{
+	char line[1024], refs[256], hint[160], since[64], lat[32];
+	struct tcp_buffer_data tcpbuf;
+	const struct diag_chan *d;
+	time_t rt = chanhealth_reset_time();
+	int k;
+
+	if (rt) strftime(since, sizeof(since), "%Y-%m-%d %H:%M:%S", localtime(&rt));
+	else snprintf(since, sizeof(since), "start");
+
+	tcp_init(&tcpbuf);
+	tcp_writestr(&tcpbuf, sock, "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n"
+		"Content-Disposition: attachment; filename=\"multics-diag.txt\"\r\nConnection: close\r\n\r\n");
+	snprintf(line, sizeof(line), "# MultiCS /diag export (R48, D111). Channel ids and counts only: no address, user, password or peer name.\n"
+		"# counting: %s   channels: %d / %d   counters since: %s\n"
+		"channel;delivered;refused;held;streak;no_answer;card_answers;avg_ms;max_ms;finding;refusals_by_reason;setting\n",
+		dcwstats_on ? "ON" : "OFF", nchan, CHANHEALTH_SLOTS, since);
+	tcp_writestr(&tcpbuf, sock, line);
+	for (k = 0; k < nchan; k++) {
+		enum diag_finding top;
+
+		d = &dc[order[k]];
+		top = diag_top(d->mask);
+		diag_refs_text(&d->row, refs, sizeof(refs));
+		if (d->row.lat_n) snprintf(lat, sizeof(lat), "%lu;%lu",
+			(unsigned long)(d->row.lat_sum / d->row.lat_n), (unsigned long)d->row.lat_max);
+		else snprintf(lat, sizeof(lat), "-;-");
+		if (!diag_setting_hint(top, diag_top_reason(&d->ev), d->row.lat_n, d->row.lat_max, hint, sizeof(hint)))
+			snprintf(hint, sizeof(hint), "-");
+		snprintf(line, sizeof(line), "%04X:%06X:%04X;%lu;%lu;%lu;%lu;%lu;%lu;%s;%s;%s;%s\n",
+			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
+			(unsigned long)d->row.delivered, (unsigned long)d->row.refused,
+			(unsigned long)d->row.held, (unsigned long)d->row.streak,
+			(unsigned long)d->row.noanswer, (unsigned long)d->row.lat_n,
+			lat, diag_label(top), refs[0] ? refs : "-", hint);
+		tcp_writestr(&tcpbuf, sock, line);
+	}
+	tcp_flush(&tcpbuf, sock);
+}
+
+
+/* TASK R49 (D112): the detail scope from the web page.
+ * The same actions as the telnet `diagscope` command, behind the same login.
+ * A cross-site request is refused (Sec-Fetch-Site, sent by current browsers):
+ * a page on another site must not change the scope through the operator's
+ * browser. The scope only adds measurement; it changes no setting. */
+static int diag_hexdigit(char c)
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
+/* A query value: '+' is a blank, %XX is one byte. */
+static void diag_urldecode(char *dst, const char *src, size_t n)
+{
+	size_t o = 0;
+	int h, l;
+
+	while (*src && o + 1 < n) {
+		if (*src == '+') {
+			dst[o++] = ' ';
+			src++;
+		}
+		else if (*src == '%' && (h = diag_hexdigit(src[1])) >= 0 && (l = diag_hexdigit(src[2])) >= 0) {
+			dst[o++] = (char)(h * 16 + l);
+			src += 3;
+		}
+		else dst[o++] = *src++;
+	}
+	dst[o] = 0;
+}
+
+/* User text is echoed into HTML only after escaping. */
+static void diag_html_escape(char *dst, const char *src, size_t n)
+{
+	size_t o = 0;
+
+	for (; *src; src++) {
+		const char *rep = NULL;
+		size_t l;
+
+		switch (*src) {
+		case '<': rep = "&lt;"; break;
+		case '>': rep = "&gt;"; break;
+		case '&': rep = "&amp;"; break;
+		case '"': rep = "&quot;"; break;
+		case '\'': rep = "&#39;"; break;
+		default: break;
+		}
+		if (rep) {
+			l = strlen(rep);
+			if (o + l + 1 >= n) break;
+			memcpy(dst + o, rep, l);
+			o += l;
+		}
+		else {
+			if (o + 2 >= n) break;
+			dst[o++] = *src;
+		}
+	}
+	dst[o] = 0;
+}
+
+static void diag_scope_result(char *m, size_t n, int add, int rc, int isprof, const char *name)
+{
+	const char *what = isprof ? mlabel("profile", "بروفايل") : mlabel("channel", "قناة");
+	const char *res;
+
+	if (add) {
+		if (rc == 0) res = mlabel("added", "أُضيف");
+		else if (rc == 1) res = mlabel("already in scope", "موجود في النطاق");
+		else if (rc == -1) res = mlabel("no room: at most 4 channels and 4 profiles", "لا مكان: الحد 4 قنوات و4 بروفايلات");
+		else res = mlabel("empty, or longer than 63 characters", "فارغ، أو أطول من 63 حرفاً");
+	}
+	else res = (rc == 0) ? mlabel("removed", "أُزيل") : mlabel("not in scope", "غير موجود في النطاق");
+	snprintf(m, n, "%s %s: %s", what, name, res);
+}
+
+static void http_send_diag_scope(int sock, http_request *req)
+{
+	static const char refused[] = "cross-site request refused: open the diagnosis page yourself\n";
+	const char *sfs = isset_header(req, "Sec-Fetch-Site");
+	const char *v;
+	char op[16], kind[16], ch[48], prof[80], esc[512], msg[256], hdr[160];
+	struct tcp_buffer_data tcpbuf;
+	unsigned cu = 0, pu = 0, su = 0;
+	int add, rc = -9;
+
+	if (sfs && !strcmp(sfs, "cross-site")) {
+		snprintf(hdr, sizeof(hdr), "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: text/plain\r\nContent-Length: %u\r\n\r\n",
+				 (unsigned)(sizeof(refused) - 1));
+		send(sock, hdr, strlen(hdr), MSG_NOSIGNAL);
+		send(sock, refused, sizeof(refused) - 1, MSG_NOSIGNAL);
+		return;
+	}
+
+	op[0] = kind[0] = ch[0] = prof[0] = 0;
+	if ((v = isset_get(req, "op"))) snprintf(op, sizeof(op), "%s", v);
+	if ((v = isset_get(req, "kind"))) snprintf(kind, sizeof(kind), "%s", v);
+	if ((v = isset_get(req, "ch"))) snprintf(ch, sizeof(ch), "%s", v);
+	if ((v = isset_get(req, "prof"))) diag_urldecode(prof, v, sizeof(prof));
+	add = !strcmp(op, "add");
+
+	if (!strcmp(op, "clear")) {
+		diagscope_clear();
+		snprintf(msg, sizeof(msg), "%s", mlabel("detail is OFF: the scope is cleared", "التفاصيل متوقفة: تم مسح النطاق"));
+	}
+	else if (!strcmp(kind, "ch") && (add || !strcmp(op, "del"))) {
+		if (sscanf(ch, "%x:%x:%x", &cu, &pu, &su) != 3 || cu > 0xFFFF || su > 0xFFFF) {
+			snprintf(msg, sizeof(msg), "%s", mlabel("a channel is CAID:PROV:SID in hex, e.g. 1884:000000:1136",
+													 "القناة هي CAID:PROV:SID بالست عشري، مثل 1884:000000:1136"));
+		}
+		else {
+			rc = add ? diagscope_add_channel(cu, pu, (uint16_t)su) : diagscope_del_channel(cu, pu, (uint16_t)su);
+			diag_scope_result(msg, sizeof(msg), add, rc, 0, ch);
+		}
+	}
+	else if (!strcmp(kind, "prof") && (add || !strcmp(op, "del"))) {
+		rc = add ? diagscope_add_profile(prof) : diagscope_del_profile(prof);
+		diag_scope_result(msg, sizeof(msg), add, rc, 1, prof);
+	}
+	else snprintf(msg, sizeof(msg), "%s", mlabel("unknown request", "طلب غير معروف"));
+
+	diag_html_escape(esc, msg, sizeof(esc));
+	tcp_init(&tcpbuf);
+	http_replyok_write(req, &tcpbuf, sock);
+	tcp_writestr(&tcpbuf, sock, "<HTML><HEAD><meta http-equiv='refresh' content='3;url=/diag'><title>Detail scope</title></HEAD><BODY>");
+	tcp_writestr(&tcpbuf, sock, "<p>");
+	tcp_writestr(&tcpbuf, sock, esc);
+	tcp_writestr(&tcpbuf, sock, "</p><p><a href='/diag'>");
+	tcp_writestr(&tcpbuf, sock, mlabel("back to the diagnosis page", "العودة إلى صفحة التشخيص"));
+	tcp_writestr(&tcpbuf, sock, "</a></p></BODY></HTML>\n");
+	tcp_flush(&tcpbuf, sock);
+}
+
+/* One add/remove form for the scope: the kind goes in a hidden field. */
+static void diag_scope_form(struct tcp_buffer_data *tcpbuf, int sock, const char *kind,
+							char *what, const char *field, const char *hint)
+{
+	char buf[320];
+
+	snprintf(buf, sizeof(buf), "<form method=get action='/diag/scope' style='margin:4px 0'><input type=hidden name=kind value=%s> %s <input name=%s size=20 placeholder='%s'> <button type=submit name=op value=add>",
+			 kind, what, field, hint);
+	tcp_writestr(tcpbuf, sock, buf);
+	tcp_writestr(tcpbuf, sock, mlabel("add", "إضافة"));
+	tcp_writestr(tcpbuf, sock, "</button> <button type=submit name=op value=del>");
+	tcp_writestr(tcpbuf, sock, mlabel("remove", "إزالة"));
+	tcp_writestr(tcpbuf, sock, "</button></form>\n");
+}
+
+static void http_send_diag(int sock, http_request *req)
+{
+	char buf[2048], pname[48], label[256], rsn[48], refs[256], hint[160], lat[32];
+	struct tcp_buffer_data tcpbuf;
+	struct cwlog_entry rows[CWLOG_CAP];
+	struct chanhealth_row chans[CHANHEALTH_SLOTS];
+	struct diag_chan dc[CHANHEALTH_SLOTS];
+	int order[CHANHEALTH_SLOTS];
+	int peerid[DIAG_PEERS_MAX];
+	uint32_t pcount[DIAG_PEERS_MAX];
+	uint32_t phist[DIAG_PEERS_MAX][DIAG_REASONS];
+	int nrows, nchan, npeer = 0, dying = 0;
+	int i, j, k, p, c;
+	struct diag_scope scope_now;
+
+	nrows = cwlog_snapshot(rows, CWLOG_CAP);
+	nchan = chanhealth_snapshot(chans, CHANHEALTH_SLOTS);
+
+	/* 1. the channel evidence: totals from the table ... */
+	for (i = 0; i < nchan; i++) {
+		memset(&dc[i].ev, 0, sizeof(dc[i].ev));
+		dc[i].row = chans[i];
+		dc[i].ev.delivered = chans[i].delivered;
+		dc[i].ev.refused = chans[i].refused;
+		dc[i].ev.held = chans[i].held;
+		dc[i].ev.streak = chans[i].streak;
+	}
+
+	/* 2. ... and reasons and peers from the ring window. */
+	for (k = 0; k < nrows; k++) {
+		const struct cwlog_entry *r = &rows[k];
+
+		c = -1;
+		for (i = 0; i < nchan; i++)
+			if (chans[i].caid == (uint32_t)r->caid && chans[i].provid == r->provid
+				&& chans[i].sid == r->sid) { c = i; break; }
+		if (c < 0) continue;
+		if (r->verdict == CWLOG_DISPUTED) { dc[c].ev.disputed++; continue; }
+		if (r->verdict != CWLOG_REFUSED) continue;
+		if (r->reason >= DIAG_REASONS) continue;
+		dc[c].ev.reason[r->reason]++;
+
+		p = -1;
+		for (i = 0; i < npeer; i++)
+			if (peerid[i] == r->peerid) { p = i; break; }
+		if (p < 0 && npeer < DIAG_PEERS_MAX) {
+			p = npeer++;
+			peerid[p] = r->peerid;
+			pcount[p] = 0;
+			memset(phist[p], 0, sizeof(phist[p]));
+		}
+		if (p >= 0) {
+			pcount[p]++;
+			phist[p][r->reason]++;
+		}
+	}
+
+	for (i = 0; i < nchan; i++) {
+		dc[i].mask = diag_classify(&dc[i].ev);
+		if (dc[i].mask & (1u << DIAG_DYING)) dying++;
+	}
+	/* stable insertion sort: worst first */
+	for (i = 0; i < nchan; i++) order[i] = i;
+	for (i = 1; i < nchan; i++) {
+		int t = order[i];
+
+		j = i - 1;
+		while (j >= 0 && diag_before(&dc[t], &dc[order[j]])) {
+			order[j + 1] = order[j];
+			j--;
+		}
+		order[j + 1] = t;
+	}
+
+	{
+		const char *fmt = isset_get(req, "format");
+
+		if (fmt && !strcmp(fmt, "txt")) {
+			diag_write_txt(sock, dc, order, nchan);
+			return;
+		}
+	}
+
+	tcp_init(&tcpbuf);
+	http_replyok_write(req, &tcpbuf, sock);
+	http_html_write(req, &tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head, strlen(http_head));
+	sprintf(buf, html_title, cfg.http.title, mlabel("Diagnosis", "التشخيص"));
+	tcp_write(&tcpbuf, sock, buf, strlen(buf));
+	tcp_write(&tcpbuf, sock, http_link, strlen(http_link));
+	http_style_write(&tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head_, strlen(http_head_));
+	tcp_write(&tcpbuf, sock, http_body, strlen(http_body));
+	tcp_write_menu(&tcpbuf, sock, PAGE_DIAG);
+
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Diagnosis: channels, packages, peers", "التشخيص: القنوات والباقات والنظراء"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n");
+
+	sprintf(buf, "<p>%s <b>%s</b> &nbsp; %s <b>%d / %d</b> &nbsp; %s <b>%d / %d</b> &nbsp; %s <b>%d</b></p>\n",
+		mlabel("counting", "العدّ"), dcwstats_on ? "ON" : "OFF",
+		mlabel("channels", "القنوات"), nchan, CHANHEALTH_SLOTS,
+		mlabel("ring rows", "صفوف السجل"), nrows, CWLOG_CAP,
+		mlabel("dying now", "تفشل الآن"), dying);
+	tcp_writestr(&tcpbuf, sock, buf);
+
+	if (!dcwstats_on) {
+		tcp_writestr(&tcpbuf, sock, "<p><b>");
+		tcp_writestr(&tcpbuf, sock, mlabel(
+			"Counting is off, so this page is empty. Turn it on with `dcwstats on`.",
+			"العدّ متوقف، لذلك الصفحة فارغة. شغّله بالأمر `dcwstats on`."));
+		tcp_writestr(&tcpbuf, sock, "</b></p>\n");
+	}
+
+	/* ---- detail scope (R48, D111) ---- */
+	{
+		struct diag_scope sc;
+		char when[64];
+		time_t rt = chanhealth_reset_time();
+		int i;
+
+		diagscope_snapshot(&sc);
+		if (rt) strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", localtime(&rt));
+		else snprintf(when, sizeof(when), "%s", mlabel("start", "بدء التشغيل"));
+		snprintf(buf, sizeof(buf), "<p><b>%s</b> %s &nbsp; %s <b>%s</b></p>\n",
+			mlabel("Detail scope:", "نطاق التفاصيل:"),
+			diag_scope_empty(&sc) ? mlabel("OFF (no channel, no profile)", "متوقف (لا قناة ولا بروفايل)") : mlabel("ON", "مفعّل"),
+			mlabel("counters since", "العدّادات منذ"), when);
+		tcp_writestr(&tcpbuf, sock, buf);
+		for (i = 0; i < sc.nch; i++) {
+			snprintf(buf, sizeof(buf), "<br>%s <a href='/cwlog?ch=%04X:%06X:%04X'>%04X:%06X:%04X</a> <a href='/diag/scope?op=del&kind=ch&ch=%04X:%06X:%04X'>%s</a>\n",
+				mlabel("channel", "قناة"), (unsigned)sc.caid[i], (unsigned)sc.provid[i], (unsigned)sc.sid[i],
+				(unsigned)sc.caid[i], (unsigned)sc.provid[i], (unsigned)sc.sid[i],
+				(unsigned)sc.caid[i], (unsigned)sc.provid[i], (unsigned)sc.sid[i], mlabel("remove", "إزالة"));
+			tcp_writestr(&tcpbuf, sock, buf);
+		}
+		for (i = 0; i < sc.nprof; i++) {
+			snprintf(buf, sizeof(buf), "<br>%s %s <a href='/diag/scope?op=del&kind=prof&prof=%s'>%s</a>\n", mlabel("profile", "بروفايل"), sc.prof[i], sc.prof[i], mlabel("remove", "إزالة"));
+			tcp_writestr(&tcpbuf, sock, buf);
+		}
+
+		tcp_writestr(&tcpbuf, sock, "<p style='font-size:0.9em;'>");
+		tcp_writestr(&tcpbuf, sock, mlabel(
+			"Detail (answer time, no-answer) is kept only for this scope. Turn it on or off here, while the server runs. No restart.",
+			"التفاصيل (زمن الجواب، والطلبات بلا جواب) تُسجَّل لهذا النطاق فقط. فعّلها أو أوقفها من هنا أثناء التشغيل بلا ريستارت."));
+		tcp_writestr(&tcpbuf, sock, "</p>\n");
+		diag_scope_form(&tcpbuf, sock, "ch", mlabel("channel CAID:PROV:SID", "قناة CAID:PROV:SID"), "ch", "1884:000000:1136");
+		diag_scope_form(&tcpbuf, sock, "prof", mlabel("profile", "بروفايل"), "prof", "cardx");
+		tcp_writestr(&tcpbuf, sock, "<p><a href='/diag/scope?op=clear'>");
+		tcp_writestr(&tcpbuf, sock, mlabel("turn all detail OFF (clear the scope)", "إيقاف كل التفاصيل (مسح النطاق)"));
+		tcp_writestr(&tcpbuf, sock, "</a></p>\n");
+		tcp_writestr(&tcpbuf, sock, "<p><a href='/diag?format=txt'>");
+		tcp_writestr(&tcpbuf, sock, mlabel("export as text (for a support ticket)", "تصدير كنص (لتذكرة الدعم)"));
+		tcp_writestr(&tcpbuf, sock, "</a></p>\n");
+	}
+
+	/* ---- channels ---- */
+	tcp_writestr(&tcpbuf, sock, "<h3>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Channels, worst first", "القنوات، الأسوأ أولاً"));
+	tcp_writestr(&tcpbuf, sock, "</h3>\n");
+	tcp_writestr(&tcpbuf, sock, "<table class=option border=1px cellspacing=0><tr><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("channel", "القناة"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("delivered", "تسليم"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("refused", "رفض"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("held", "حجز"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("streak", "متتالٍ"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("finding", "الحكم"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("reason in ring", "السبب في السجل"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("what to consider (not applied)", "ما الذي يُنظر فيه (غير مُطبَّق)"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("refusals since reset, by reason", "الرفض منذ التصفير حسب السبب"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("no answer", "بلا جواب"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("card answer ms (avg / max)", "زمن البطاقة ms (متوسط / أبطأ)"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("setting to copy (not applied)", "إعداد للنسخ (غير مُطبَّق)"));
+	tcp_writestr(&tcpbuf, sock, "</th></tr>\n");
+	if (nchan == 0) {
+		tcp_writestr(&tcpbuf, sock, "<tr><td colspan=12>");
+		tcp_writestr(&tcpbuf, sock, mlabel("no channel yet: rows appear after the first delivery or refusal",
+			"لا قنوات بعد: تظهر الصفوف بعد أول تسليم أو رفض"));
+		tcp_writestr(&tcpbuf, sock, "</td></tr>\n");
+	}
+	diagscope_snapshot(&scope_now);
+	for (k = 0; k < nchan; k++) {
+		const struct diag_chan *d = &dc[order[k]];
+		enum diag_finding top = diag_top(d->mask);
+		int sev = diag_worst(d->mask);
+		char act[200];
+
+		label[0] = 0;
+		for (i = 0; i < DIAG_FINDINGS; i++)
+			if (d->mask & (1u << i)) {
+				if (label[0]) strncat(label, "، ", sizeof(label) - strlen(label) - 1);
+				strncat(label, diag_label((enum diag_finding)i), sizeof(label) - strlen(label) - 1);
+			}
+		snprintf(rsn, sizeof(rsn), "%s", diag_top_reason(&d->ev) ? cwlog_reason_name(diag_top_reason(&d->ev)) : "-");
+		diag_refs_text(&d->row, refs, sizeof(refs));
+		if (d->row.lat_n) snprintf(lat, sizeof(lat), "%lu / %lu",
+			(unsigned long)(d->row.lat_sum / d->row.lat_n), (unsigned long)d->row.lat_max);
+		else snprintf(lat, sizeof(lat), "%s", mlabel("not measured", "لم تُقَس"));
+		if (!diag_setting_hint(top, diag_top_reason(&d->ev), d->row.lat_n, d->row.lat_max, hint, sizeof(hint)))
+			snprintf(hint, sizeof(hint), "-");
+
+		{
+			int in = diag_scope_find_ch(&scope_now, d->row.caid, d->row.provid, d->row.sid) >= 0;
+
+			snprintf(act, sizeof(act), "<br><a href='/diag/scope?op=%s&kind=ch&ch=%04X:%06X:%04X'>%s</a>",
+					 in ? "del" : "add",
+					 (unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
+					 in ? mlabel("detail off", "إيقاف التفاصيل") : mlabel("detail on", "تفعيل التفاصيل"));
+		}
+		snprintf(buf, sizeof(buf), "<tr%s><td><a href='/cwlog?ch=%04X:%06X:%04X'>%04X:%06X:%04X</a>%s</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%lu</td><td>%s</td><td><code>%s</code></td></tr>\n",
+			sev >= 2 ? " style='background:#fdd'" : (sev == 1 ? " style='background:#ffd'" : ""),
+			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
+			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
+			act,
+			(unsigned long)d->row.delivered, (unsigned long)d->row.refused,
+			(unsigned long)d->row.held, (unsigned long)d->row.streak,
+			label, rsn, diag_advice(top), refs[0] ? refs : "-",
+			(unsigned long)d->row.noanswer, lat, hint);
+		tcp_writestr(&tcpbuf, sock, buf);
+	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n");
+
+	/* ---- packages (CAID) ---- */
+	{
+		unsigned pc_caid[CHANHEALTH_SLOTS];
+		uint32_t pc_del[CHANHEALTH_SLOTS], pc_ref[CHANHEALTH_SLOTS];
+		uint32_t pc_held[CHANHEALTH_SLOTS];
+		int pc_n = 0, pc_worst[CHANHEALTH_SLOTS];
+
+		for (i = 0; i < nchan; i++) {
+			for (p = 0; p < pc_n; p++) if (pc_caid[p] == (unsigned)dc[i].row.caid) break;
+			if (p == pc_n) {
+				pc_caid[p] = (unsigned)dc[i].row.caid;
+				pc_del[p] = pc_ref[p] = pc_held[p] = 0;
+				pc_worst[p] = 0;
+				pc_n++;
+			}
+			pc_del[p] += dc[i].row.delivered;
+			pc_ref[p] += dc[i].row.refused;
+			pc_held[p] += dc[i].row.held;
+			if (diag_worst(dc[i].mask) > pc_worst[p]) pc_worst[p] = diag_worst(dc[i].mask);
+		}
+		tcp_writestr(&tcpbuf, sock, "<h3>");
+		tcp_writestr(&tcpbuf, sock, mlabel("Packages (CAID)", "الباقات (CAID)"));
+		tcp_writestr(&tcpbuf, sock, "</h3>\n");
+		tcp_writestr(&tcpbuf, sock, "<table class=option border=1px cellspacing=0><tr><th>CAID</th><th>");
+		tcp_writestr(&tcpbuf, sock, mlabel("channels", "القنوات"));
+		tcp_writestr(&tcpbuf, sock, "</th><th>");
+		tcp_writestr(&tcpbuf, sock, mlabel("delivered", "تسليم"));
+		tcp_writestr(&tcpbuf, sock, "</th><th>");
+		tcp_writestr(&tcpbuf, sock, mlabel("refused", "رفض"));
+		tcp_writestr(&tcpbuf, sock, "</th><th>");
+		tcp_writestr(&tcpbuf, sock, mlabel("held", "حجز"));
+		tcp_writestr(&tcpbuf, sock, "</th><th>");
+		tcp_writestr(&tcpbuf, sock, mlabel("worst", "الأسوأ"));
+		tcp_writestr(&tcpbuf, sock, "</th></tr>\n");
+		for (p = 0; p < pc_n; p++) {
+			int nch = 0;
+
+			for (i = 0; i < nchan; i++) if (dc[i].row.caid == pc_caid[p]) nch++;
+			sprintf(buf, "<tr><td>%04X</td><td>%d</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%s</td></tr>\n",
+				pc_caid[p], nch, (unsigned long)pc_del[p], (unsigned long)pc_ref[p],
+				(unsigned long)pc_held[p],
+				diag_label(diag_package_top(dc, order, nchan, pc_caid[p])));
+			tcp_writestr(&tcpbuf, sock, buf);
+		}
+		tcp_writestr(&tcpbuf, sock, "</table>\n");
+	}
+
+	/* ---- peers (refusals in the ring window) ---- */
+	tcp_writestr(&tcpbuf, sock, "<h3>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Peers that refused (ring window)", "النظراء الذين رفضوا (نافذة السجل)"));
+	tcp_writestr(&tcpbuf, sock, "</h3>\n");
+	tcp_writestr(&tcpbuf, sock, "<table class=option border=1px cellspacing=0><tr><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("source", "المصدر"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("refused", "رفض"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("main reason", "السبب الغالب"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("note", "ملاحظة"));
+	tcp_writestr(&tcpbuf, sock, "</th></tr>\n");
+	{
+		int dom = diag_dominant(pcount, npeer);
+
+		for (p = 0; p < npeer; p++) {
+			int top = 0, r;
+
+			for (r = 1; r < DIAG_REASONS; r++)
+				if (r != CWLOG_R_HOLD && phist[p][r] > phist[p][top]) top = r;
+			diag_peer_name(peerid[p], pname, sizeof(pname));
+			snprintf(label, sizeof(label), "%s", top ? cwlog_reason_name(top) : "-");
+			sprintf(buf, "<tr><td>%s</td><td>%lu</td><td>%s</td><td>%s</td></tr>\n",
+				pname, (unsigned long)pcount[p], label,
+				p == dom ? mlabel("dominant: most refusals come from this source",
+								  "مهيمن: أغلب الرفض من هذا المصدر")
+						 : "");
+			tcp_writestr(&tcpbuf, sock, buf);
+		}
+	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n");
+
+	tcp_writestr(&tcpbuf, sock, "<p style='font-size:0.8em;'>");
+	tcp_writestr(&tcpbuf, sock, mlabel(
+		"Totals come from the channel table (since start or the last reset). Reasons and peers come from the ring (last 100 verdicts). Nothing on this page changes a setting: each suggestion is for you to decide and apply on the profile page.",
+		"الأعداد الكلية من جدول القنوات (منذ التشغيل أو آخر تصفير). الأسباب والنظراء من السجل (آخر 100 حكم). لا تغيّر هذه الصفحة أي إعداد: كل اقتراح للقرار والتطبيق في صفحة البروفايل بيدك."));
+	tcp_writestr(&tcpbuf, sock, "</p>\n</body></html>\n");
+	tcp_flush(&tcpbuf, sock);
+}
+#endif /* MCS_DCWSTATS */
 
 /* TASK R5 (D59): the machine readout. One JSON document behind the SAME
  * Basic auth as every page (the gate runs before this router, and the R3
@@ -7937,6 +8630,15 @@ void *gererClient(struct connect_data *param)
 #ifdef MCS_DCWSTATS
 				else if (strcmp(req.path,"/cwlog")==0) { /* TASK R11 (D65): the verdict page */
 					http_send_cwlog(sock,&req);
+				}
+				else if (strcmp(req.path,"/stats")==0) { /* TASK R46 (D109): the DCW counters page */
+					http_send_stats(sock,&req);
+				}
+				else if (strcmp(req.path,"/diag")==0) { /* TASK R47 (D110): the diagnosis page */
+					http_send_diag(sock,&req);
+				}
+				else if (strcmp(req.path,"/diag/scope")==0) { /* TASK R49 (D112): the scope from the page */
+					http_send_diag_scope(sock,&req);
 				}
 #endif
 				else if ( !memcmp(req.path,"/flag_",6) && !memcmp(req.path+8,".gif",4) ) {

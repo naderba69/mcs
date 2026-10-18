@@ -3,7 +3,7 @@
 # MultiCS r82a - Production Start Script
 # Version: R32 (2026-10-16)
 # Binary: bin/multics.x64 (the fixed delivery name; build: make -C make-x64 release-stats)
-# Profiles: 71 profiles, guarded live by `make -C tests prof`
+# Profiles: 72 profiles, guarded live by `make -C tests prof`
 # Status: Production Ready ✅
 # ============================================================
 
@@ -30,7 +30,7 @@ sleep 2
 # Start server
 echo "🚀 Starting MultiCS r82a (Production)..."
 echo "Binary: $BINARY"
-echo "Config: $CONFIG (71 profiles)"
+echo "Config: $CONFIG (72 profiles)"
 echo ""
 ./$BINARY -C "$CONFIG" -b
 

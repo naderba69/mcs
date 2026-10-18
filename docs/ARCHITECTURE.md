@@ -1646,6 +1646,8 @@ TASK 3.10 arms. Contract, since TASK 3.11:
 
 ## §30 — DCW stats on the home page (TASK 3.12)
 
+> **R46 (D109) — moved.** The counter table no longer sits on the home page. It has its own page, `/stats` (stats flavour only, same authenticated chain as `/cwlog`, menu entry "DCW Stats"). The home page and its refresh keep only the ON/OFF state and a link to `/stats`. The names, counts and html_esc rule are unchanged. The text below describes the table as it now appears on `/stats`.
+
 The home page section and the telnet command are one readout. Contract,
 since TASK 3.12:
 
@@ -1708,3 +1710,110 @@ Contract, since TASK 3.14:
   were dropped. Dropping the line logs `list cleared` once.
 - `dcwfilter.c` is still not compiled. The walk lives in `dcw.c`,
   which is the file OBJECTS already links.
+
+## §33 — the diagnosis page `/diag` (TASK R47, D110)
+
+Stats flavour only. Every line is under `#ifdef MCS_DCWSTATS`.
+
+Data flow, one source per verdict:
+
+- **Ring** (`src/cwlog.c`, `cwlog_note`): refusals and holds, with the peer
+  and the reason. Reasons 0–20 are in `src/cwlog.h`. The card's peer is
+  `CWLOG_PEER_CARD` (-2).
+- **Cache deliveries** (`cwlog_deliver`, `src/clustredcache.c`): a delivery that
+  waited for a cache answer. Deliveries are counted per channel, not as rows.
+- **Card deliveries** (`chan_note` in `src/setdcw.c`): the first delivery of a
+  card answer. Counted per channel.
+- **Memory re-asks** (`cs_note_resend`, `src/srv-newcamd.c`): a repeat of a key
+  already sent. Counted per channel, no ring row.
+- **Channel table** (`src/chanhealth.h`, `chanhealth_reset`): 24 channels, LRU,
+  `CHANHEALTH_STREAK` 5. `dcwstats reset` clears it. The ring is not cleared.
+
+Rules, pure C, testable without a socket (`src/diag.h`):
+
+- `diag_classify` gives one finding per channel. DYING at streak 5 or more.
+  Then a reason at 50% or more of verdicts. HEALTHY at 90% or more deliveries.
+  MIXED otherwise. LOW_SAMPLE below 5 verdicts, and LOW_SAMPLE is the only
+  finding then.
+- `diag_package_top` gives a package the worst of its channels.
+- `diag_advice` gives one line per finding. It says what to review. It changes
+  nothing.
+
+Page: `http_send_diag` in `src/httpserver.c`, served at `/diag` after `/stats`.
+It uses `diag_top_reason` for the "reason in the ring" column and
+`diag_peer_name` for peers, shared with `/cwlog`.
+
+Tests: `make-x64/test_diag.c` (45 checks, links `cwlog.c`),
+`make-x64/test_chanhealth.c` (36 checks), both in the `test` target.
+`tests/r47-dg.sh` (`make -C tests dg`) drives a real card (`ncserver`) through
+delivery and through `DCW MINTIME`, and reads `/diag` and `/cwlog`.
+
+Known limit: a rejected ECM entry is reused by hash, so a burst of identical
+requests does not reach the streak. Five distinct ECMs are needed.
+
+## 34. TASK R48 — the detail scope: heavy detail for one profile or channel, live (`diagscope.h`, `cwlog.c`, `setdcw.c`, `th-ecm.c`, `telnet.c`, `httpserver.c`) — DELIVERED 2026-10-18
+
+Decision: D111. Stats flavour only (`#ifdef MCS_DCWSTATS`).
+
+**Where the detail hooks sit.**
+
+| Feed | Call site | Gate |
+|---|---|---|
+| card answer time | `setdcw_delivered(ecm, ecmtime)` in `setdcw.c` | `diag_note_latency`: scope check |
+| no answer | `setdcw_noanswer(ecm)` from `ecm_faileddcw` in `th-ecm.c` | `diag_note_noanswer`: scope check |
+| counters, refusal reasons | `chan_note` (`setdcw.c`, `cwlog.c`, `srv-newcamd.c`) | always on, as in R47 |
+
+The scope check is one `volatile` flag (`cwlog_scope_on`) and, when it is set,
+a lookup under `cwlog_chan_mtx`. With the scope empty the request path does one
+flag read and returns.
+
+**The scope itself** (`src/diagscope.h`): 4 channels and 4 profile names.
+Pure functions, no lock, no allocation. The caller (`cwlog.c`) holds
+`cwlog_chan_mtx`. A profile name is compared after trailing blanks are trimmed,
+because a config section `[ name ]` stores the blank before the bracket.
+
+**Operator surface.**
+- `/diag`: the scope, a link per channel to `/cwlog?ch=CAID:PROV:SID`, four
+  detail columns, and the copyable setting line from `diag_setting_hint`
+  (`src/diag.h`, text only).
+- `/diag?format=txt`: plain text, channel ids and counts only, served as an
+  attachment `multics-diag.txt`.
+- `/cwlog?ch=CAID:PROV:SID`: the ring filtered to one channel, with "show all".
+- telnet `diagscope`, `diagscope add|del channel CAID:PROV:SID`,
+  `diagscope add|del profile NAME`, `diagscope clear`. Stats flavour only.
+
+**Thread safety.** `chanhealth` grows three fields (`noanswer`, latency
+sum/count/max) and one array (`refused_by[]`), all under `cwlog_chan_mtx`. The
+reason index is checked against `CWLOG_R_PATTERN` before it is stored.
+
+**Proof.** See the R48 entry in `CHANGELOG.md` and D111. Unit: `test_diagscope`
+(58 checks). Live: `tests/r48-scope.sh` through `make -C tests dg`, with the
+telnet client `tests/r48-tn.py`.
+
+**Known limits.** Latency is measured on the card path only. A request that
+the cache answers has no measured time. A late answer past `DCW TIMEOUT` is
+dropped, and its request is counted as no answer.
+
+
+## 35. TASK R49 — the detail scope from the web page (`httpserver.c`) — DELIVERED 2026-10-18
+
+Decision: D112. Stats flavour only (`#ifdef MCS_DCWSTATS`).
+
+- Route `/diag/scope` (GET). Query: `op=add|del|clear`, `kind=ch|prof`,
+  `ch=CAID:PROV:SID` (hex), `prof=NAME` (`+` and `%XX` decoded).
+- The same functions as the telnet command: `diagscope_add_channel`,
+  `diagscope_del_channel`, `diagscope_add_profile`, `diagscope_del_profile`,
+  `diagscope_clear`.
+- A request with `Sec-Fetch-Site: cross-site` is refused with 403, before any
+  change.
+- The result page echoes user text only after `diag_html_escape`.
+- `/diag` shows the forms (`diag_scope_form`), a "detail on/off" link in each
+  channel cell (`act`, computed from `scope_now`, one snapshot per page), and a
+  "remove" link per scope entry.
+
+**Proof.** `tests/r48-scope.sh` (through `make -C tests dg`) drives the page with
+curl: adds and removes, the cross-site refusal, the row link, clear, a bad
+channel, and telnet alongside.
+
+**Limit.** Browsers without `Sec-Fetch-Site` are not guarded against cross-site
+requests. The change they could make is limited to the detail scope.

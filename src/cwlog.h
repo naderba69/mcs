@@ -42,6 +42,16 @@
 #define CWLOG_R_LATEKEY     15  /* TASK R13: late-truth gate refusal        */
 #define CWLOG_R_TRUSTSTORE  16  /* TASK R14: untrusted peer may not store   */
 #define CWLOG_R_TRUSTRELAY  17  /* TASK R14: untrusted peer may not relay   */
+#define CWLOG_R_MINTIME     18  /* TASK R36: card answered faster than DCW MINTIME */
+#define CWLOG_R_LATECARD    19  /* TASK R44: card key came after DCW VALIDECMTIME  */
+/* R46 (D109): the card-path PATTERN refusal. The counters call it
+ * DCW_REJ_PATTERN = 10, but 10 is CWLOG_R_HOLD in this ring, so the card
+ * reject gets its own ring code. Never store it as 10: that row would read
+ * "held-for-corroboration". */
+#define CWLOG_R_PATTERN     20
+/* R47: the peer id of a card-path verdict (setdcw.c). -1 stays "no source",
+ * which the ring also writes for seeds; the card is named, not numbered. */
+#define CWLOG_PEER_CARD     (-2)
 
 struct cwlog_entry {
 	uint32_t tick;      /* GetTickCount() ms at the verdict      */
@@ -92,6 +102,11 @@ static const char *cwlog_reason_name(int reason)
 	case CWLOG_R_LATEKEY:     return "late-truth-gate";
 	case CWLOG_R_TRUSTSTORE:  return "trust-store-gate";
 	case CWLOG_R_TRUSTRELAY:  return "trust-relay-gate";
+#ifdef MCS_DCWSTATS	/* R47: only the stats ring writes these; stock stays byte-identical */
+	case CWLOG_R_MINTIME:     return "card-too-fast";
+	case CWLOG_R_LATECARD:    return "card-too-late";
+	case CWLOG_R_PATTERN:     return "pattern-fake";
+#endif
 	default:                return "unknown";
 	}
 }

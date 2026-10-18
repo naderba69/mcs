@@ -11,8 +11,10 @@
  */
 #include <string.h>
 #include <pthread.h>
+#include <time.h>
 
 #include "cwlog.h"
+#include "chanhealth.h"	/* TASK R15 (D70): per-channel rates, fed here */
 
 static struct cwlog_entry cwlog_ring[CWLOG_CAP];
 static int cwlog_head;                      /* next write slot           */
@@ -43,6 +45,10 @@ void cwlog_note(int verdict, int reason, int peerid,
 	cwlog_head = (cwlog_head + 1) % CWLOG_CAP;
 	if (cwlog_n < CWLOG_CAP) cwlog_n++;
 	pthread_mutex_unlock(&cwlog_mtx);
+	/* TASK R47 (D110): the per-channel counters see every channel verdict. */
+	if (verdict == CWLOG_DELIVERED || verdict == CWLOG_REFUSED ||
+	    verdict == CWLOG_HELD)
+		chan_note(verdict, reason, caid, provid, sid);
 }
 
 int cwlog_count(void)
@@ -84,4 +90,178 @@ void cwlog_reset(void)
 	cwlog_n = 0;
 	memset(cwlog_ring, 0, sizeof(cwlog_ring));
 	pthread_mutex_unlock(&cwlog_mtx);
+}
+
+/*
+ * TASK R47 (D110): the per-channel table (chanhealth.h) sits beside the
+ * ring behind its own mutex. Every DELIVERED / REFUSED / HELD verdict with
+ * a channel is counted here: cwlog_note() feeds it for the cache verdicts,
+ * and the card path calls chan_note() for its deliveries. Deliveries get
+ * no ring row of their own: a ring row per delivery would push the refusal
+ * verdicts out of a 100-row window in seconds.
+ */
+static struct chanhealth_tab cwlog_chan;
+static uint32_t cwlog_chan_clock;           /* LRU clock, not wall time  */
+static pthread_mutex_t cwlog_chan_mtx = PTHREAD_MUTEX_INITIALIZER;
+
+/*
+ * The alert line is defined in clustredcache.c, where debugf is visible.
+ * Weak, because test_cwlog links this file alone and has no debugf.
+ */
+extern void cwlog_chan_alert(const struct chanhealth_row *r)
+	__attribute__((weak));
+
+/*
+ * TASK R48 (D111): the detail scope. Guarded by cwlog_chan_mtx. The flag is
+ * read without the lock on the hot path, so an empty scope costs one read.
+ * The scope is config-free on purpose: it is set from telnet at run time and
+ * survives `dcwstats reset` (the counters reset, the scope does not).
+ */
+static struct diag_scope cwlog_scope;
+static volatile int cwlog_scope_on;        /* 1 when the scope is not empty */
+static time_t cwlog_chan_reset_at;         /* 0: never reset since start    */
+
+static void diagscope_flag(void)
+{
+	cwlog_scope_on = !diag_scope_empty(&cwlog_scope);
+}
+
+/*
+ * One verdict into the channel table. Prints the dying-of-refusals line
+ * through cwlog_chan_alert exactly once per episode (chanhealth.h). The
+ * refusal is also counted by its ring reason (always on: a plain counter).
+ */
+void chan_note(int verdict, int reason, uint32_t caid, uint32_t provid, uint16_t sid)
+{
+	struct chanhealth_row fired = {0};
+	int f;
+
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	f = chanhealth_note(&cwlog_chan, verdict, caid, provid, sid,
+			    ++cwlog_chan_clock);
+	if (verdict == CWLOG_REFUSED)
+		chanhealth_add_reason(&cwlog_chan, caid, provid, sid, reason,
+				      cwlog_chan_clock);
+	if (f)
+		fired = *chanhealth_lookup(&cwlog_chan, caid, provid, sid,
+					   cwlog_chan_clock);
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+	if (f && cwlog_chan_alert)
+		cwlog_chan_alert(&fired);
+}
+
+/* `telnet> dcwstats reset` clears the channel table with the counters, so
+ * the /diag totals start over together with them. The ring is a live window
+ * and is not cleared (its page says so). The detail scope is kept. */
+void chanhealth_reset(void)
+{
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	memset(&cwlog_chan, 0, sizeof(cwlog_chan));
+	cwlog_chan_reset_at = time(NULL);
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+}
+
+time_t chanhealth_reset_time(void)
+{
+	time_t t;
+
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	t = cwlog_chan_reset_at;
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+	return t;
+}
+
+/* The detail feeds. The card's answer time, and an ECM that ended with no
+ * answer. Each is a no-op unless the request is in the scope. */
+void diag_note_latency(uint32_t caid, uint32_t provid, uint16_t sid,
+		       const char *profile, uint32_t ms)
+{
+	if (!cwlog_scope_on) return;
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	if (diag_scope_match(&cwlog_scope, caid, provid, sid, profile))
+		chanhealth_add_latency(&cwlog_chan, caid, provid, sid, ms,
+				       ++cwlog_chan_clock);
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+}
+
+void diag_note_noanswer(uint32_t caid, uint32_t provid, uint16_t sid,
+			const char *profile)
+{
+	if (!cwlog_scope_on) return;
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	if (diag_scope_match(&cwlog_scope, caid, provid, sid, profile))
+		chanhealth_add_noanswer(&cwlog_chan, caid, provid, sid,
+					++cwlog_chan_clock);
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+}
+
+/* The scope edits, for telnet. Return values are those of diagscope.h. */
+int diagscope_add_channel(uint32_t caid, uint32_t provid, uint16_t sid)
+{
+	int r;
+
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	r = diag_scope_add_ch(&cwlog_scope, caid, provid, sid);
+	diagscope_flag();
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+	return r;
+}
+
+int diagscope_del_channel(uint32_t caid, uint32_t provid, uint16_t sid)
+{
+	int r;
+
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	r = diag_scope_del_ch(&cwlog_scope, caid, provid, sid);
+	diagscope_flag();
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+	return r;
+}
+
+int diagscope_add_profile(const char *name)
+{
+	int r;
+
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	r = diag_scope_add_prof(&cwlog_scope, name);
+	diagscope_flag();
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+	return r;
+}
+
+int diagscope_del_profile(const char *name)
+{
+	int r;
+
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	r = diag_scope_del_prof(&cwlog_scope, name);
+	diagscope_flag();
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+	return r;
+}
+
+void diagscope_clear(void)
+{
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	diag_scope_clear(&cwlog_scope);
+	diagscope_flag();
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+}
+
+void diagscope_snapshot(struct diag_scope *out)
+{
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	*out = cwlog_scope;
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+}
+
+/* Copy of the live channel rows (table order), bounded by max. */
+int chanhealth_snapshot(struct chanhealth_row *out, int max)
+{
+	int n;
+
+	pthread_mutex_lock(&cwlog_chan_mtx);
+	n = chanhealth_copy(&cwlog_chan, out, max);
+	pthread_mutex_unlock(&cwlog_chan_mtx);
+	return n;
 }

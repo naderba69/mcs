@@ -122,6 +122,9 @@ int peer_doublecheck(struct cacheserver_data *cache, struct cachepeer_data *xpee
 #include "cwconsensus.h"/* TASK R8 (D62): the per-request cw arbitrer */
 #ifdef MCS_DCWSTATS
 #include "cwlog.h"		/* TASK R11 (D65): the per-CW verdict ring */
+#ifdef MCS_DCWSTATS
+extern __thread int dcw_last_reject_reason;  /* R54: dcw.c, this thread's last reject */
+#endif
 #endif
 
 struct cachepeer_data *getpeerbyaddr(struct cacheserver_data *cache, uint32_t ip, uint16_t port)
@@ -702,6 +705,16 @@ int put_cache2ecm(uint8_t type, uint8_t *buf, struct cache_data *pcache, uint8_t
  * below reads as evidence, not bookkeeping. The stock flavour never
  * compiles any of this.
  */
+#include "chanhealth.h"	/* TASK R47 (D110): struct chanhealth_row for the alert */
+/* TASK R47 (D110): the dying-of-refusals line, once per episode. cwlog.c calls
+ * it through a weak symbol (test_cwlog has no debugf). */
+void cwlog_chan_alert(const struct chanhealth_row *r)
+{
+	debugf(DBG_ERROR, " !!! [CHANHEALTH] ch %04x:%06x:%04x DYING OF REFUSALS: %u refused in a row (delivered %u, refused %u, held %u)\n",
+		(unsigned)r->caid, (unsigned)r->provid, (unsigned)r->sid,
+		(unsigned)r->streak, (unsigned)r->delivered, (unsigned)r->refused,
+		(unsigned)r->held);
+}
 static void cwlog_refuse(int reason, int peerid, uint32_t caid, uint32_t provid,
 			 uint16_t sid, const uint8_t *cw)
 {
@@ -1663,6 +1676,9 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			debugf(getdbgflag(DBG_CACHE,0,0), " [CACHEEX GATE] LOCAL_ONLY: unsolicited push dropped ch %04x:%06x:%04x\n", req->caid, req->provid, req->sid);
 			return -1;
 		}
+#ifdef MCS_DCWSTATS
+		dcw_last_reject_reason = 0;  /* R54: a stale reason must not label this key */
+#endif
 		if ( !acceptDCW_profile_ca_sid(cw, pcs, req->caid, req->sid) ) {
 		/*
 		 * TASK 2.4 -- the blind spot this closes, found by running the live
@@ -1691,10 +1707,16 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		cm_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
 		        GetTickCount());
 #ifdef MCS_DCWSTATS
-		/* TASK R11 (D65): the specific test (checksum/null/repeat/
-		 * badlist) is counted inside dcw.c; the ring row carries the
-		 * channel and the peer, which dcw.c cannot see here. */
-		cwlog_refuse(CWLOG_R_PROFILE, peerid, req->caid, req->provid, req->sid, cw);
+		/* TASK R11 (D65): the ring row carries the channel and the peer, which
+		 * dcw.c cannot see here. R54: the row carries the test that failed
+		 * (checksum, null, repeat, badlist, pattern), the same mapping as
+		 * setdcw_profile_reason(); CWLOG_R_PROFILE only when no test named it. */
+		{
+			int why = dcw_last_reject_reason;
+			int lab = (why == DCW_REJ_PATTERN) ? CWLOG_R_PATTERN
+			        : (why ? why : CWLOG_R_PROFILE);
+			cwlog_refuse(lab, peerid, req->caid, req->provid, req->sid, cw);
+		}
 #endif
 		return -1;
 	}

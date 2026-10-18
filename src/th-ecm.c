@@ -1,4 +1,5 @@
 #include "biss.h"  /* BISS key management */
+#include "dcwtiming.h"  /* TASK R44: ECMLOOPING predicate */
 
 void clients_check_sendcw(ECM_DATA *ecm)
 {
@@ -38,6 +39,9 @@ void ecm_faileddcw( ECM_DATA *ecm )
 	ecm->dcwstatus = STAT_DCW_FAILED;
 	ecm->checktime = 0;
 	ecm->waitserver = 0;
+#ifdef MCS_DCWSTATS
+	setdcw_noanswer(ecm);	/* TASK R48 (D111): counted before the client hears */
+#endif
 	sid_newecm(ecm);
 	clients_check_sendcw(ecm); // send decode failed to clients
 	/*
@@ -188,6 +192,17 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 				struct server_data *newsrv = NULL;
 				if ( srvtab_arrange(cs, ecm, ecm->server_totalsent > 0 )==-1 ) { // No more servers to decode
 					//debugf(0," sendecm: no servers found to decode\n");
+					/* TASK R44 -- ENABLE ECMLOOPING. Every server asked has answered
+					 * without a key and none is left: ask the same servers again,
+					 * at most ECMLOOP_MAX rounds, while the server window is open. */
+					if ( ecmloop_may_retry(cs->option.ecmlooping, ecm->loops, ecm->server_totalsent, ecm->server_totalwait) ) {
+						ecm_resetservers(ecm);
+						ecm->loops++;
+						debugf(DBG_ERROR, " ... [ECMLOOPING] ch %04x:%06x:%04x round %d: every server answered without a key, sending the ECM again\n",
+							ecm->caid, ecm->provid, ecm->sid, ecm->loops);
+						ecm->checktime = ticks + 10;
+						return;
+					}
 					ecm->checktime = ecm->recvtime + cs->option.dcw.timeout*ecm->period;
 					return;
 				}

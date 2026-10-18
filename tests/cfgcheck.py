@@ -11,14 +11,20 @@
 # It reads the file only; it never starts anything.
 #
 #   python3 cfgcheck.py ../multics-r24-optimized.cfg
-import sys, re, collections
+import os, sys, re, collections
 
+# TASK R45: "DCW VALIDECMTIME" is LIVE since R44 (D107, config.c 2533 and 4492),
+# both at DEFAULT and per profile. It is not listed here any more. It stays
+# absent from the shipped file on purpose: 0 (off) is the opt-in default.
 DEAD_GLOBAL = {
     "DEFAULT FILTER", "DEFAULT FILTER TIME", "DEFAULT ECM CHECK",
-    "DEFAULT ECM CHECK LENGTH", "DEFAULT DCW VALIDECMTIME",
+    "DEFAULT ECM CHECK LENGTH",
+    # R53 (live-verified): top-level FILTER / FILTER TIME have no parser branch;
+    # the filter lives under CACHE (CACHE FILTER / CACHE FILTER TIME). A top-level
+    # ACCEPT line before any profile is logged "Skip ACCEPT, undefined profile".
+    "FILTER", "FILTER TIME", "ACCEPT NULL ONID",
 }
 DEAD_PROFILE = {
-    "DCW VALIDECMTIME",     # no parser branch anywhere (SERVER VALIDECMTIME is the real key)
     "CACHEEX PUSH",         # no parser branch
     "CACHEEX RELAY",        # no parser branch
     "FILTER", "FILTER TIME",# global keys; a per-profile line silently rewrites the global
@@ -72,14 +78,14 @@ def main(path):
     for k in DEAD_GLOBAL:
         if k in glob:
             bad("global dead key present: %s (no parser branch)" % k)
-    for k in ("FILTER", "FILTER TIME", "ACCEPT NULL ONID",
+    for k in ("CACHE FILTER", "CACHE FILTER TIME",
               "CAID FAMILY PROVIDERCHECK", "CAID FAMILY NOPROVCHK"):
         if k not in glob:
             bad("global key missing: %s" % k)
     if glob.get("CAID FAMILY HALFNULLED", [""])[0].replace(" ", "") != "09":
         bad("CAID FAMILY HALFNULLED must be exactly 09 (NDS)")
     if not fails:
-        ok("global section: no dead DEFAULT keys; FILTER/ONID/family policy explicit")
+        ok("global section: no dead keys; CACHE FILTER/family policy explicit")
 
     # ---- profiles ----
     if len(profs) != 72:
@@ -148,11 +154,58 @@ def main(path):
                 bad("%s: a repeated 8-byte key trips DCWFILTER PATTERN -- set it OFF" % name)
             if "DCW MINTIME" in kv:
                 bad("%s: fixed-key profile must not carry DCW MINTIME" % name)
+    # ---- TASK R45 (D108): per-speed timeouts + ECMLOOPING ----
+    fails_before_r45 = len(fails)
+    # The "بطيء" (slow) class is the 10 profiles that carry SERVER TIMEOUT 2000.
+    # Two rules keep the timeouts coherent:
+    #  (a) the whole-request timeout must exceed the server window whenever it is set,
+    #      otherwise the server window (and the ECMLOOPING round inside it) never runs;
+    #  (b) the slow class is locked to its count, so a silent slide back to 800 fails.
+    if glob.get("DEFAULT ENABLE ECMLOOPING", [""])[0].upper() != "YES":
+        bad("DEFAULT ENABLE ECMLOOPING must be YES (R45: retries only when all servers NOK)")
+    slow = 0
+    for p in profs:
+        kv = p["kv"]
+        st = kv.get("SERVER TIMEOUT", [""])[0]
+        dt = kv.get("DCW TIMEOUT", [""])[0]
+        if st.isdigit() and st == "2000":
+            slow += 1
+        if st.isdigit() and dt.isdigit() and int(dt) <= int(st):
+            bad("%s: DCW TIMEOUT %s must exceed SERVER TIMEOUT %s" % (p["name"], dt, st))
+    if slow != 10:
+        bad("slow class (SERVER TIMEOUT 2000) must be exactly 10 profiles, found %d" % slow)
+    if len(fails) == fails_before_r45:
+        ok("R45 timeouts: slow class=10, DCW TIMEOUT > SERVER TIMEOUT, ECMLOOPING on")
+
     for port, n in ports.items():
         if n > 1:
             bad("duplicate PORT %s in %d profiles" % (port, n))
     if len(ports) == len(profs):
         ok("72 profiles: unique ports, one family block each")
+
+    # ---- TASK R52: every key word is a parser word (typo net) ----
+    # The parser ignores an unknown key inside a profile without a
+    # message, so a misspelt line would be dead silently. Each word of
+    # every key must be a string literal the parser compares against
+    # (src/config.c). `SID LIST !` is the valid exclusion form (`!`).
+    cfg_c = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "..", "src", "config.c")
+    if os.path.exists(cfg_c):
+        lits = {w.upper() for w in re.findall(r'"([A-Za-z_0-9]+)"',
+                open(cfg_c, encoding="utf-8", errors="replace").read())}
+        all_keys = set(glob.keys())
+        for p in profs:
+            all_keys.update(p["kv"].keys())
+        typos = []
+        for k in sorted(all_keys):
+            miss = [w for w in k.split() if w != "!" and w not in lits]
+            if miss:
+                typos.append("%s (%s)" % (k, ", ".join(miss)))
+        if typos:
+            for t in typos:
+                bad("unknown key word, the parser would ignore it: " + t)
+        else:
+            ok("every key word is known to the parser (%d keys)" % len(all_keys))
 
     # ---- summary ----
     for f in fails:
@@ -160,8 +213,8 @@ def main(path):
     if fails:
         print("cfgcheck: %d failed, %d passed" % (len(fails), len(oks)))
         return 1
-    print("  [ ok ] " + oks[0])
-    print("  [ ok ] " + oks[1])
+    for msg in oks:
+        print("  [ ok ] " + msg)
     print("  [ ok ] dead keys: none (global or per-profile)")
     print("  [ ok ] family policy: VideoGuard CSA half+swap, iCam strict, fixed keys local")
     print("cfgcheck: %d checks ok" % (len(oks) + 2))

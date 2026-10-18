@@ -6,6 +6,409 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R64 — Package review: encryption systems, problems and settings template (2026-10-18)
+
+- New `tests/package_review.py` (advisory, always exit 0): for each of the 72 production profiles, the CA system the code assigns to its CAID (`casystem.h` rows), the CW format, whether the checksum gate is enforced (`dcw.c` `acceptDCW_impl`), duplicate CAID+provider pairs, and ECM CHECK LENGTH. Output: `docs/PACKAGE-REVIEW-R64.md`.
+- Result: checksum enforced in 68 profiles, off in 4 (three iCam, BISS1). 9 profiles enforce it on CAID/provider pairs that OSCam community configs exempt (`disablecrccws_only_for`), including NC+ 4K 1884. This is an external signal, not measured on our server. In the last `/diag` export channel 1884 showed no checksum refusals (its refusals were convicted-memory), so the claim is unconfirmed here.
+- 8 duplicate CAID+provider pairs listed (not changed).
+- New `docs/PACKAGE-PROFILES-R64-ar.md`: encryption-system map by family, problems ranked with evidence levels, a settings template per CW format, and the measurement plan for the 9 checksum-flagged profiles. The production file is not changed in this round.
+- Open: the 41 checksum refusals on 098D in `/diag` contradict the code (iCam exempt with CA MODERN ON). Not explained yet.
+
+## R63 — Honest failure log in dcw_on_failure (2026-10-18)
+
+- `src/dcw.c`: the two `BLACKSCREEN` lines ("triggering quick switch", "Emergency mode activated") are replaced by one line that states what the counter does: "CW failures X:Y: N in a row (counter only, no action taken)". No behaviour change: the counter and `dcw_needs_emergency` are untouched, and the removed block had no side effect other than printing. Already recorded in DECISIONS.md (no caller for the emergency path, punishment rejected).
+- The tracked stock binary changes hash (log text only): `multics-r82a-stock-x64` ecb3f2d0 -> 57da7ab4. The previous stock build also contained the removed strings.
+- Checks: `make -C make-x64 test` 25/25 (after `mkdir -p make-x64/x64`), `make -C tests dg` ok, `make -C tests prof` 5/5, `cfgcheck` production and candidate exit 0. The new line is not exercised on live card traffic in this round.
+- `tests/protection_audit.py`: new parser check. Every word of every audited key must appear as a quoted string in `src/config.c`; the audit prints "parser check: 20 keys, unknown words: none". The audit's code defaults were compared with `init_cardserver` and the parser: they match (no change needed). Only word-level presence is proven, not the mapping.
+- `docs/BLACKSCREEN.md` (R63 section): explains "Decode success". It is set in every server protocol just before the CW is sent (`lastecm.status=1`, before `cs_message_send`), so it means "the CW was sent", not "the receiver decrypted". No code change.
+- `tests/stability.mk` (`run_one`): refuses to test when the HTTP port already answers before start (a stale process would otherwise pass the checks). Verified with a decoy server on the port: exit 2 with a FAIL line. Clean run with `BIN=../bin/multics.x64`: 10 ok, 0 FAIL, exit 0.
+
+## R62 — Protection audit per profile and per engine (2026-10-18)
+
+- New `tests/protection_audit.py`: computes the effective value of every protection key for all 72 profiles (profile line, then DEFAULT, then the code default, the same order as the parser), checks each against its CA family, and with `--live` compares the values the running server shows on `/profile?id=N`.
+- Result: live engine tests 22/22 pass; unit `make test` 25/25; `test_cacheex_gates` 24/24. Live profile page: 864 values compared, 0 mismatches. Negative control (candidate file against production server): 69 mismatches, as expected.
+- Findings, not changed in this round: `ECM CHECK LENGTH: NO` in 21 profiles with no recorded reason (5 of them also carry an `ECM LENGTH` list that is never enforced); 8 protection keys are not shown on the profile page, so they are audited from the file only; `dcw_on_failure` logs "triggering quick switch" and "Emergency mode activated" but switches nothing, and `dcw_needs_emergency`, `server_health` scores, `performance-suite.h` and several optimisation decision functions have no caller in the production binary.
+- Report: `docs/PROTECTION-AUDIT-R62-ar.md` (full table of 72 profiles).
+
+## R61 — Production: channel 1814 timing applied (2026-10-18)
+
+- `multics-r24-optimized.cfg`, profile `[MEO PT - 1814]` only: `SERVER FIRST 2->3`, `SERVER INTERVAL 150->100`, `SERVER TIMEOUT 800->1500`, `SERVER VALIDECMTIME 800->1500`. `CACHE STATIC` stays `NO`.
+- Why: the live log measured valid replies at 1054 and 1209 ms after send. With 800 ms, the server-average gate (`SERVER VALIDECMTIME`, `loadbalance.c:231`) excluded the slow servers and the send window (`SERVER TIMEOUT`, `th-ecm.c:180`) closed before their replies.
+- NOT promoted: the candidate `multics-r56-fresh.cfg` sets `CACHE STATIC YES` on 69 of 72 profiles. That adds the cache wait (`CACHE TIMEOUT`, up to 250 ms) before every server send. The 1814 log shows that wait is the first cost on that channel. Promoting the candidate as-is would add latency to 69 channels, so it stays a candidate.
+- Verified: `cfgcheck` 6/6; `make -C tests prof` 5/5 on the production file; live binary on the production file serves `/profile?id=132` (MEO PT - 1814) with the new values; the file's only diff is the 4 lines above.
+- Not verified: the 1814 channel itself on the real card servers (no route from this sandbox). The black screen behind a "Decode success" line is still unexplained.
+
+## R58 — Channel 1814 after a live decode log (2026-10-18)
+
+- Live log for 1814:005211:13AE: three servers returned the same valid CW at 713 / 1054 / 1209 ms after their send. The first send was at 263 ms, which is the R57 cache wait (CACHE STATIC YES).
+- MEO PT 1814 candidate profile: CACHE STATIC NO, SERVER FIRST 3, SERVER INTERVAL 100, SERVER TIMEOUT 1500, SERVER VALIDECMTIME 1500.
+- Not verified against the live servers (no network access here). Details: docs/FRESH-CONFIG-R58-ar.md.
+
+## R57 — New features in every profile, measured where a value is needed (2026-10-18)
+
+**Candidate only: `multics-r56-fresh.cfg`. Production `multics-r24-optimized.cfg` is not replaced.**
+
+- CACHE STATIC: YES in 70 profiles (cache first; cost bounded by CACHE TIMEOUT 250 ms per uncached ECM). BISS and Tandberg stay NO (cache off there).
+- ENABLE ECMLOOPING, ECM CHECK LENGTH and DCW MINTIME written explicitly in profiles; values equal the code defaults, so no behaviour change. DCW MINTIME absent from fixed-key profiles (cfgcheck rule).
+- DCW VALIDECMTIME written as 0 (OFF) in every profile. No per-CAID reply time is measured, so no value is set.
+- ECM CHECK LENGTH NO kept in 21 profiles (not measured).
+- Correction to R56: SERVER VALIDECMTIME excludes a server from routing (loadbalance.c:231); SERVER TIMEOUT bounds sending only.
+- Verification: effective-value diff (tests/fresh_cfg_diff.py), cfgcheck 6/6, live boot log identical to production, live /profile page shows the new values.
+- Docs: docs/FRESH-CONFIG-R57-ar.md; R56 correction in docs/FRESH-CONFIG-R56-ar.md.
+
+## R55 — The cache path names the test that refused the key (2026-10-18)
+
+**Finding (from a /diag export).** Every refusal on the cache path was labelled
+`profile-filter`. That label was a constant, not the test that failed. `dcw.c` already
+records the real test (checksum, null, repeat, badlist, pattern), but the cache path
+neither cleared that value before the gate nor read it. So the page could not say which
+test refused a key. The analysis is in `docs/DIAG-EXPORT-R55-ar.md`.
+
+**Changed (stats builds only).** `src/clustredcache.c`: the reason is cleared before the
+structural gate, and the ring row carries the real test, using the same mapping as
+`setdcw_profile_reason()`. `profile-filter` remains only when no test named the refusal.
+No decision changed: a refused key is still refused, and an accepted key is still accepted.
+
+**Checks.** `make -C make-x64 test` 25/25. `make -C tests all` exit 0 with no `[FAIL]` line.
+The stock binary is byte-identical before and after (`ecb3f2d0…`), because the change is
+inside `#ifdef MCS_DCWSTATS`. The queue binary without counters is also unchanged.
+
+**Not verified.** No live test yet shows the new label on a cache-path refusal. The suite
+does not read that label. The next `/diag` export from the new binary is the check.
+
+**Not changed (operator decision).** Profile 1884 and the 098D profile. The shipped file has
+no active `N:` or `CACHE PEER` line, so the card column of an export cannot be read from it.
+
+---
+
+## R54 — The binaries are updated and checked (2026-10-18)
+
+**Built.** `make -C make-x64 release-queue` and `release-queue-stats` were rebuilt from `HEAD`.
+`dist/` and `bin/` now carry the new queue builds: `multics-r82a-queue-x64`
+`27e6a35e…`, `multics-r82a-queue-stats-x64` `37f6260d…`. A clean clone gives the same checksums.
+The stock and stats builds were already current (no `src/` change since R50), so they are unchanged.
+
+**Checked.** `make -C tests all` exits 0 with 499 `[ ok ]` checks and no `[FAIL]` line.
+`MANIFEST-md5` (576 entries) passes `md5sum -c`.
+
+**Docs.** `bin/README-R24-x64.md` now lists the current checksums. Its old values were wrong.
+
+**Not updated.** `multics-r82a-x64` has no build target in this repo. The arm, mipsel and sh4
+builds need cross toolchains that are not installed, so they stay as they were.
+
+---
+
+## R53 — The filter key was dead; corrected, and the check fixed (2026-10-18)
+
+**Live finding.** The top-level `FILTER: NO` and `FILTER TIME: 10` have no parser branch.
+The only `FILTER` handler sits under `CACHE`. A live boot showed `Filter = ON` on `/cache`
+with `FILTER: NO`, and `Filter = OFF` with `CACHE FILTER: OFF`. Profile-level `FILTER` keys
+are dead too. The R40 claim that these lines worked was wrong. The per-profile table is
+in `docs/PROFILES-R53-ar.md`.
+
+**Changed (no live behaviour change).** The dead lines became `CACHE FILTER: ON` and
+`CACHE FILTER TIME: 0`, which are the values that already ran (the code defaults). The
+dead top-level `ACCEPT NULL ONID` was removed (it is ignored before any profile).
+`tests/cfgcheck.py` now treats those keys as dead and requires `CACHE FILTER`.
+
+**Not changed (operator decision).** `CACHE FILTER TIME` 0 versus 10; `CACHE TIMEOUT`
+250 on all 72 profiles; `SERVER TIMEOUT` 800 on 62 profiles; `DCW MAXFAILED` 3 (documented
+floor); profile 1884 unchanged. The reference file's default `DCW VALIDECMTIME 1200` would
+refuse late keys, so it is not adopted.
+
+**Checks.** `cfgcheck` 6/6; `make -C tests prof` 5/5; a `-v` boot shows no `Skip` line.
+`MANIFEST-md5` refreshed for the two changed files.
+
+---
+
+## R52 — Line-by-line audit of the profiles, and the typo net (2026-10-18)
+
+**Audit.** Every profile line was checked against the parser and against the CA
+registry (`src/casystem.h`). Result: 107 key spellings, all known to the parser; 0
+family-rule mismatches out of 72 profiles; no duplicate key; no shared port. The full
+per-profile table is in `docs/AUDIT-R52-ar.md`.
+
+**New check.** `tests/cfgcheck.py` now fails on any key word the parser does not know.
+The parser ignores an unknown key inside a profile without a message, so a typo used to
+be silent. A typo run confirmed the check fails (exit 1).
+
+**Not changed.** No timing or behaviour value changed. Timing needs field data (`/diag`
+over 24 hours). `ECM LENGTH` lists are operator data, and a strict list refuses any
+other length. `ECM CHECK LENGTH: NO` on 21 profiles is an operator choice, and profile
+1884 is unchanged pending the operator's decision.
+
+---
+
+## R51 — Production check of the profiles file (2026-10-18)
+
+**Audit, no profile changed.** `multics-r24-optimized.cfg` (72 profiles, 2042 lines)
+passed every check: `cfgcheck` 5/5; `prof` 5/5 against both `bin/multics.x64` and the stock
+build (all 72 ports listen, no crash); a 12-second boot of the shipped file printed no
+parser warning. No key is duplicated inside any section, and no port is shared.
+
+**Not changed on purpose.** Profile `NC+ 4K - 1884` keeps `SERVER TIMEOUT 800`. The field
+failure of channel `1884:000000:1136` is a checksum refusal, not a late answer, so a
+longer window does not fix it. That decision stays with the operator.
+
+**Docs fixed.** `start-production.sh` said 71 profiles (the file has 72). `README-PRODUCTION.md`
+listed old checksums and sizes. They now match the shipped binaries and the file.
+
+## R50 — The binaries are rebuilt from the current source (2026-10-18)
+
+**What changed.** The tracked binaries were last built before R44. They are rebuilt
+with the project targets from the R49 source (commit `208d709`):
+
+- `make -C make-x64 release-stats`: `dist/multics-r82a-stats-x64`,
+  `bin/multics-r82a-stats-x64`, and `bin/multics.x64` (the fixed delivery name,
+  which is the stats build by design, R34/D85). `dcwstats` symbols: 2.
+- `make -C make-x64 release`: `dist/multics-r82a-stock-x64` and
+  `bin/multics-r82a-stock-x64`. `dcwstats` symbols: 0.
+
+**Checksums (stripped, the shipped files).** Stock `ecb3f2d021b6bbfb71260f10df1615f7`
+(793816 bytes). Stats `279b9b7a7ad7cb7b43899810fb6827c1`.
+
+**Reference for the stock flavour.** The value `d9de68dd6eaee36c1e27308b6c7d9d4e`
+(837840 bytes) used in earlier entries is the UNSTRIPPED `make-x64/x64/multics`. The
+stripped file has its own checksum above. A clean clone of `HEAD` gives the same
+stripped checksum, so the stock build is reproducible.
+
+**Proof.** The stats binary passed the live scope test on the shipped file
+(`tests/r48-scope.sh`, 25 checks, EXIT 0).
+
+---
+
+## R49 — The detail scope is controlled from the web page (2026-10-18)
+
+**Decisions:** D112
+
+**What changed.** The detail scope (R48) can now be switched on and off from `/diag`,
+without telnet. The page has an add/remove form for a channel and for a profile,
+a "clear" link that turns the detail OFF, a "detail on" / "detail off" link in each
+channel row, and a "remove" link in each entry of the scope list. The telnet
+command still works.
+
+- The route `/diag/scope` sits behind the same login as `/diag`, and answers with a
+  short result and goes back to `/diag` after three seconds.
+- A request marked `Sec-Fetch-Site: cross-site` is refused with 403. A page on
+  another site cannot change the scope through the operator's browser.
+- Profile names from the form accept `+` and `%XX`. Values echoed on the result
+  page are escaped.
+
+**Stock is untouched.** Every new line is under `#ifdef MCS_DCWSTATS`. The stock
+binary still matches `HEAD` (`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes).
+
+**Proof.**
+- `make -C tests dg`: EXIT 0. R47 card path, and R48/R49 live, 35 checks, including
+  the web form, the cross-site refusal, the row link, and telnet alongside.
+- `make -C make-x64 test`: EXIT 0.
+- `make -C tests all`: `SUITE_EXIT=0`, 498 ok, unchanged from R48.
+
+**Test changes.** `tests/r48-scope.sh` now drives the page with curl (and keeps the
+telnet checks). `tests/r47-dg.sh` patterns accept the new optional link in the
+channel cell.
+
+**Limits.** A browser without `Sec-Fetch-Site` is not guarded against cross-site
+requests; the change it could make is limited to the detail scope.
+
+---
+
+## R48 — The detail scope: heavy detail for one profile or channel, switched on while the server runs (2026-10-18)
+
+**Decisions:** D111
+
+**What changed.** The heavy detail (the card's answer time, and the requests
+that got no answer) now runs only for a profile or a channel that the operator
+names, and it switches on and off while the server runs. No restart and no
+config line. The telnet command `diagscope` manages the scope:
+
+- `diagscope` shows it; `diagscope add|del channel CAID:PROV:SID` (hex);
+  `diagscope add|del profile NAME`; `diagscope clear` turns the detail OFF.
+- At most 4 channels and 4 profile names. Empty means OFF: the request path
+  does one flag read and nothing else.
+- The counters and the refusal reasons stay on for every channel, as in R47.
+
+On `/diag`:
+
+- a detail scope section, and a link from each channel to `/cwlog?ch=CAID:PROV:SID`
+  (the ring filtered to that channel, with "show all");
+- four new columns: refusals since reset, no answer, card answer ms (average
+  and slowest), and the setting to copy;
+- a copyable setting line from the measured numbers (`diag_setting_hint`,
+  text only, never applied). The checksum and fake-key findings get no line.
+- `/diag?format=txt`: a plain-text export, channel ids and counts only.
+
+**Stock is untouched.** The stock binary from this commit matches the stock
+binary from `HEAD` (`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes). The
+`DIAGSCOPE` command exists only in the stats flavour.
+
+**Found and fixed while proving it.** A profile name from `[ cardx ]` keeps a
+blank before the bracket, so the card's own profile never matched a scope
+entry. Trailing blanks are now trimmed on both sides (`diag_name_eq`).
+
+**Proof.**
+- `make -C make-x64 test`: EXIT 0. New `test_diagscope` 58 checks (the pure
+  rules, the hints, the counters, and the wiring through `cwlog.c`).
+- `make -C tests dg`: EXIT 0. R47 card path 8 checks; R48 live
+  (`tests/r48-scope.sh`, telnet client `tests/r48-tn.py`): timing is switched on
+  for one profile while the server runs, the next card answer is timed (0
+  before, 1 after, average 94 ms), and a request past `DCW TIMEOUT` is counted
+  as no answer for a scoped channel.
+- `make -C tests all`: `SUITE_EXIT=0`, 498 ok, unchanged from R47.
+
+**Test changes.** `tests/r47-dg.sh` patterns follow the channel cell, which is
+now a link. The R48 scope script joins the `dg` target.
+
+**Limits.** Latency is measured on the card path only; a request answered from
+the cache has no time. The scope is in memory and a restart clears it. The
+persistent config line is optional and not built.
+
+---
+
+## R47 — One diagnosis page, `/diag`: see, name the fault, suggest the fix (2026-10-18)
+
+**Decisions:** D110
+
+**What changed.** A new page `/diag` (stats flavour only, behind the same
+authenticated chain as `/stats` and `/cwlog`). It shows, per channel, the
+deliveries, the refusals, the last reason and the streak, then names a verdict
+by a fixed rule and gives one line of advice. The page only reads: it never
+changes a setting.
+
+- Per-channel table (`chanhealth`, 24 channels, LRU). It was documented in R15
+  but never wired. R47 wires it.
+- Deliveries are now counted on the card path (`chan_note` in `setdcw.c`), on
+  the cache path (`cwlog_deliver`), and on the memory re-ask
+  (`cs_note_resend`). Before, a working card channel had no row at all.
+- The verdict ring (`/cwlog`) gained three reasons: 18 MINTIME
+  (`card-too-fast`), 19 LATECARD, 20 PATTERN from the card.
+- A card refusal was printed as `csp:65535`. It now prints as `card`
+  (`CWLOG_PEER_CARD`, -2).
+- `dcwstats reset` also clears the channel table. The ring is not cleared.
+- `/cwlog` and `/diag` share one peer naming function (`diag_peer_name`).
+
+**Stock is untouched.** Every new line is under `#ifdef MCS_DCWSTATS`. The stock
+binary from this commit matches the stock binary from `HEAD`
+(`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes).
+
+**Proof.**
+- `make -C make-x64 test`: 25/25 (includes new `test_diag` 45 checks and
+  `test_chanhealth` 36 checks; `test_cwlog` 57).
+- `make -C tests dg` (new, `tests/r47-dg.sh`): 8 checks. Case A: a card that
+  answers in time gives delivered 2 on `/diag`. Case B: `DCW MINTIME: 500` gives
+  `card-too-fast` with peer `card` on both `/cwlog` and `/diag`.
+- `make -C tests dw` 8/8, `make -C tests bd` 8/8, `make -C tests all`
+  498 ok, `SUITE_EXIT=0`.
+
+**Test changes.** `test_dcwstats.c` owns the new per-thread reject reason, the
+same way it owns the counters. `make-x64/Makefile` builds and runs
+`test_chanhealth` and `test_diag` in the `test` target.
+
+**Limits.** Six client requests on one card gave two refusals, not six.
+multics reuses a rejected ECM entry with the same hash, so the card is not
+asked again. The DYING streak (5) is covered by `test_diag`, not live.
+
+## R46 — DCW counters on their own page, `/stats` (2026-10-18)
+
+**Decisions:** D109
+
+**What changed.** The DCW counter table moved off the home page to `/stats`
+(stats flavour only). The home page and its refresh now show the ON/OFF state
+and a link. The `/stats` page has the same reason names, the same `%lu` counts
+and the same `html_esc` rule, plus a note that counters are server-wide and
+reset with `dcwstats reset`. The menu has a "DCW Stats" entry.
+
+**Stock is untouched.** Every new line is under `#ifdef MCS_DCWSTATS`. A stock
+build from this commit is byte-identical to a build from the previous commit
+(`cmp` equal, 793816 bytes).
+
+**Proof.**
+- `make -C tests dw`: 8 checks ok (the counter page matches telnet, the home
+  page renders with the link, the refresh fragment carries the link, OFF
+  readout, stock page renders with no table).
+- `make -C tests bd`: 8 checks ok. Its `bad-dcw-list` reads now come from `/stats`.
+- Live: `/` 200 with the link, `/stats` 200 with 11 rows, both 401 without auth.
+
+**Test changes.** The `dw` and `bd` proofs read the table from `/stats`. They
+no longer read it from the home page or its refresh fragment. This is the
+intended change, not a weakening: the same counters are still compared with telnet.
+
+**Not changed, noticed.** On every build, an unknown path such as `/nosuchpage`
+gets an empty reply rather than a 404. This predates R46 and is recorded only.
+
+## R45 — Timeouts by speed class, and ECMLOOPING on by default in the file (2026-10-18)
+
+**Decisions:** D108
+
+**What changed.** `multics-r24-optimized.cfg` gave all 72 profiles the same
+`SERVER TIMEOUT 800` and `SERVER VALIDECMTIME 800`, including the ten profiles
+labelled "بطيء" (slow). The measured effect: a slow card that answers in about
+1.5 s is dropped after its first ten good answers, because its average is above
+800 ms. The ten slow profiles now use `SERVER TIMEOUT 2000`,
+`SERVER VALIDECMTIME 2000` and `DCW TIMEOUT 4000`. `DEFAULT ENABLE ECMLOOPING: YES`
+is set in the global section. The other 62 profiles are unchanged.
+
+**Proof.** Scratch script `/tmp/cf45/slow.sh` (not committed): one card server
+that answers after 1500 ms, 14 distinct ECMs, one user each.
+
+    stock values  (800 / 800 / 3000, loop NO) : card asked 11, DCW 11, NOK 3
+    R45 values    (2000 / 2000 / 4000, loop YES): card asked 14, DCW 14, NOK 0
+
+`make -C tests prof` 5/5, `make -C tests qv` 4/4, `tests/cfgcheck.py` 5 checks
+(new: loop on, DCW TIMEOUT > SERVER TIMEOUT, slow class = exactly 10).
+
+**Cleanup.** The stale header line that said `DCW VALIDECMTIME` has no parser
+branch is removed. The key is live since R44 (config.c 2533 and 4492), and
+`cfgcheck.py` no longer lists it as dead.
+
+**Not solved here: cache first.** Measured with a cache peer (`/tmp/cf45`): a
+peer that holds the key still does not stop the server from being asked. The
+server is asked in the same `WAIT` as the peer, and the late answer carries a
+different key. `CACHE STATIC: YES` only adds the cache timeout (251 ms) to every
+miss and does not protect the server. Making the cache the first line needs a
+delivery gate in `th-ecm.c`, which is opt-in and waits for the owner's decision.
+Channel `1884:000000:1136` is also unchanged.
+
+## R44 — Two opt-in CA controls: a late key is refused, a keyless round is asked again (2026-10-17)
+
+**Decisions:** D107
+
+### Added (product code, both OFF by default)
+- **`DCW VALIDECMTIME: <ms>`** (per profile; 0 = off, range 0–5000). A control
+  word arriving more than `<ms>` after the ECM was first received is logged as
+  `[VALIDECMTIME]` and skipped. Decision in `src/dcwtiming.h`, applied in
+  `src/setdcw.c` before both acceptance calls.
+- **`ENABLE ECMLOOPING: YES`** (default NO). When every server asked has
+  answered without a key and none is left, the same ECM is asked again of the
+  same servers, at most 2 rounds, while the window is open. Logged as
+  `[ECMLOOPING]`. Implemented in `src/th-ecm.c`; `ecm_resetservers` in
+  `src/ecmdata.c`.
+- Both settings are in the status page (`httpserver.c`).
+
+### Fixed while proving it
+- After the last keyless reply, the ECM thread was not woken, so a round was
+  only seen when the whole DCW timeout had elapsed. The flag now makes the ECM
+  due at once and wakes the thread, only when ECMLOOPING is on.
+- A round could fire with nobody asked (no server connected yet). Now it needs
+  at least one send.
+
+### Tests
+- `tests/stability.mk`: new target `r44` (in `make -C tests all`), driven by
+  `tests/r44.sh`: six live cases with a real CCcam client and a real newcamd
+  card server. A late key is refused; the same late key is served with no
+  limit; a key inside the limit is served; with the loop off the stock single
+  round holds; with the loop on round 2 serves the key; with every reply
+  keyless the loop stops after 3 sends.
+- `tests/ncserver.c`: `NS_NOK_FIRST=N` makes the first N replies keyless (a bare
+  0x81 header, length 0). Before this, the rig could not produce a keyless reply.
+- `make-x64/test_dcwtiming.c`: 16 checks on the limit boundaries and the round
+  predicate; wired into `make -C make-x64 test`.
+
+### Not changed
+- Channel `1884:000000:1136` is not touched by this round. Its failure is a
+  configuration question (SKIPCWC and the checksum filter), still open.
+
+---
+
 ## R43 — The Next ECM Is Not a Retry: a good key was filed as fake (2026-10-17)
 
 **Decisions:** D106

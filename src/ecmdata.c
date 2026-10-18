@@ -1,4 +1,5 @@
 #include "common.h"
+#include "pipe.h"  /* TASK R44: pipe_cmd / PIPE_SRV_AVAILABLE to wake the ECM thread */
 
 #include <stdio.h>
 #include <string.h>
@@ -483,6 +484,21 @@ int ecm_addsrv(ECM_DATA *ecm, unsigned int srvid)
 	return 0;
 }
 
+/* TASK R44 -- ENABLE ECMLOOPING: forget the servers this ECM was sent to,
+ * so the next round may ask them again. Callers reach this only when every
+ * server asked has answered (server_totalwait == 0), so no request is still
+ * pending and nothing in flight is dropped. The table is still read by the
+ * MINTIME judge (tracked dispatches only) and by the cached-newcamd path
+ * (pending REQUEST entries only); a round-2 send is recorded again and judged
+ * the same way as round 1. */
+void ecm_resetservers(ECM_DATA *ecm)
+{
+	memset(ecm->server, 0, sizeof(ecm->server));
+	memset(ecm->srviplist, 0, sizeof(ecm->srviplist));
+	ecm->server_totalsent = 0;
+	ecm->server_totalwait = 0;
+}
+
 int ecm_setsrvflag(ECM_DATA *ecm, unsigned int srvid, int flag)
 {
 	int i;
@@ -493,6 +509,13 @@ int ecm_setsrvflag(ECM_DATA *ecm, unsigned int srvid, int flag)
 				ecm->server[i].statustime = GetTickCount();
 				ecm->server_totalsent = ecm_nbsentsrv(ecm);
 				ecm->server_totalwait = ecm_nbwaitsrv(ecm);
+				/* TASK R44 -- ENABLE ECMLOOPING: the last server has just answered
+				 * without a key. Look at this ECM now, not at the DCW timeout, so the
+				 * next round starts while the server window is still open. */
+				if (flag==ECM_SRV_REPLY_FAIL && ecm->cs && ecm->cs->option.ecmlooping && ecm->server_totalwait==0) {
+					ecm->checktime = GetTickCount()-1;      /* due now (the ECM thread checks checktime < ticks) */
+					pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE ); /* wake it: the reply's own wake-up came before this flag */
+				}
 				return 1;
 			}
 		} else break;

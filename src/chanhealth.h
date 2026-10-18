@@ -54,6 +54,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <time.h>
 
 #include "cwlog.h"	/* the verdict codes: DELIVERED / REFUSED / HELD --
 			 * the same vocabulary the verdict ring rows carry */
@@ -72,6 +73,13 @@ struct chanhealth_row {
 	uint32_t last;		/* tick of the last note (the LRU key)   */
 	int      alerted;	/* the line already fired for this episode */
 	int      used;
+	/* TASK R48 (D111): the detail. The first four are kept only for the
+	 * channels in the diagscope; refused_by is a plain counter, always on. */
+	uint32_t noanswer;	/* ECMs that ended with no answer at all  */
+	uint32_t lat_n;		/* card answers timed                    */
+	uint64_t lat_sum;	/* their total, ms                       */
+	uint32_t lat_max;	/* the slowest timed answer, ms          */
+	uint32_t refused_by[CWLOG_R_PATTERN + 1];	/* refusals per ring reason */
 };
 
 struct chanhealth_tab {
@@ -162,6 +170,40 @@ static int chanhealth_note(struct chanhealth_tab *t, int verdict,
 	return fired;
 }
 
+/* TASK R48 (D111): the detail, one call per event, on a row already claimed. */
+__attribute__((unused))
+static void chanhealth_add_noanswer(struct chanhealth_tab *t,
+				    uint32_t caid, uint32_t provid, uint16_t sid,
+				    uint32_t now)
+{
+	chanhealth_lookup(t, caid, provid, sid, now)->noanswer++;
+}
+
+__attribute__((unused))
+static void chanhealth_add_latency(struct chanhealth_tab *t,
+				   uint32_t caid, uint32_t provid, uint16_t sid,
+				   uint32_t ms, uint32_t now)
+{
+	struct chanhealth_row *r = chanhealth_lookup(t, caid, provid, sid, now);
+
+	r->lat_n++;
+	r->lat_sum += ms;
+	if (ms > r->lat_max) r->lat_max = ms;
+}
+
+/* Counts a refusal by its ring reason. Out-of-range reasons are dropped. */
+__attribute__((unused))
+static void chanhealth_add_reason(struct chanhealth_tab *t,
+				  uint32_t caid, uint32_t provid, uint16_t sid,
+				  int reason, uint32_t now)
+{
+	struct chanhealth_row *r;
+
+	if (reason < 0 || reason > CWLOG_R_PATTERN) return;
+	r = chanhealth_lookup(t, caid, provid, sid, now);
+	r->refused_by[reason]++;
+}
+
 /* Copy of the live rows (table order), bounded by max. */
 __attribute__((unused))
 static int chanhealth_copy(const struct chanhealth_tab *t,
@@ -175,12 +217,29 @@ static int chanhealth_copy(const struct chanhealth_tab *t,
 }
 
 /*
- * The live feed and readout, implemented in main.c next to the other
- * evidence wrappers (the table is a main.c global; the wrapper holds the
- * lock and owns the alert line). chan_note() returns 1 when the alert
- * fired on this call, like the pure layer above.
+ * The live feed and readout, implemented in cwlog.c beside the ring (the
+ * table is a cwlog.c global behind its own mutex). chan_note() is the one
+ * entry point; the dying-of-refusals line is printed by cwlog_chan_alert()
+ * in clustredcache.c. (R47 / D110.)
  */
-int chan_note(int verdict, uint32_t caid, uint32_t provid, uint16_t sid);
+void chan_note(int verdict, int reason, uint32_t caid, uint32_t provid, uint16_t sid);
 int chanhealth_snapshot(struct chanhealth_row *out, int max);
+void chanhealth_reset(void);
+
+/* TASK R48 (D111): the detail scope and the detail feeds (cwlog.c). The
+ * feeds are no-ops outside the scope; the scope edits return the codes of
+ * diag_scope_add_* / diag_scope_del_* in diagscope.h. */
+#include "diagscope.h"
+void diag_note_latency(uint32_t caid, uint32_t provid, uint16_t sid,
+		       const char *profile, uint32_t ms);
+void diag_note_noanswer(uint32_t caid, uint32_t provid, uint16_t sid,
+			const char *profile);
+int  diagscope_add_channel(uint32_t caid, uint32_t provid, uint16_t sid);
+int  diagscope_del_channel(uint32_t caid, uint32_t provid, uint16_t sid);
+int  diagscope_add_profile(const char *name);
+int  diagscope_del_profile(const char *name);
+void diagscope_clear(void);
+void diagscope_snapshot(struct diag_scope *out);
+time_t chanhealth_reset_time(void);   /* 0 when never reset */
 
 #endif /* MCS_CHANHEALTH_H */

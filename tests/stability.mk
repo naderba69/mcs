@@ -34,6 +34,7 @@ STAB_CFG   = .stability.cfg
 # continuations join it into a single shell line, so a comment swallows every
 # remaining command -- this broke twice, once making a variable silently empty
 # and once producing `/bin/sh: Syntax error: end of file unexpected`.
+# R60: stock stability runs the shipped stock binary (survives `release`, which wipes make-x64/x64).
 stability:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@command -v stdbuf >/dev/null || { echo "stdbuf required"; exit 1; }
@@ -46,6 +47,9 @@ stability:
 	\
 	run_one() { \
 	  bin="$$1"; tag="$$2"; ok=1; \
+	  if curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(STAB_HPORT)/ 2>/dev/null | grep -q 200; then \
+	    echo "  [FAIL] $$tag: port $(STAB_HPORT) already answers before start (stale process?) -- refusing to test it"; exit 1; \
+	  fi; \
 	  rm -f .stab.$$tag.log; \
 	  stdbuf -o0 -e0 "$$bin" -C $(STAB_CFG) -v > .stab.$$tag.log 2>&1 & \
 	  pid=$$!; \
@@ -110,7 +114,7 @@ stability:
 	}; \
 	\
 	rc=0; \
-	run_one ../make-x64/x64/multics stock || rc=1; \
+	run_one ../bin/multics-r82a-stock-x64 stock || rc=1; \
 	sleep 2; \
 	run_one $(BIN) configured || rc=1; \
 	rm -f $(STAB_CFG); \
@@ -3351,6 +3355,10 @@ dt: $(DT_PROBE) $(CACHEPEER)
 # ---------------------------------------------------------------------------
 # TASK 3.12 -- DCW stats on the home page.
 #
+# TASK R46 (D109): the counter table moved to /stats. The home page and its
+# refresh carry the ON/OFF state and a link; the proofs below read the table
+# from /stats.
+#
 # THE SECTION. The home page (/) already shows uptime and totals, and its
 # own refresh (/?action=div) replaces mainDiv. The counters live in that
 # block, so a refresh moves the numbers. Names are dcwstats_reason_name(),
@@ -3399,34 +3407,34 @@ dw: $(DT_PROBE) $(CACHEPEER)
 	stdbuf -o0 -e0 $(STATS_BIN) -C $(DW_CFG) -v > .dw-srv.log 2>&1 & srv=$$!; \
 	got=0; code=000; \
 	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-	  code=$$(curl -s -m 3 -u admin:admin -o .dw-page.html -w '%{http_code}' http://127.0.0.1:$(DW_HPORT)/); \
+	  code=$$(curl -s -m 3 -u admin:admin -o .dw-page.html -w '%{http_code}' http://127.0.0.1:$(DW_HPORT)/stats); \
 	  if [ "$$code" = "200" ] && grep -q "null/half-null</td><td>[1-9]" .dw-page.html; then got=1; break; fi; \
 	  sleep 1; \
 	done; \
 	if [ "$$got" = "1" ]; then \
-	  echo "  [ ok ] home page 200 and the rejected CW is on it"; \
+	  echo "  [ ok ] counter page 200 and the rejected CW is on it"; \
 	else echo "[FAIL] page never showed the rejection (http $$code)"; tail -6 .dw-srv.log; ok=0; fi; \
 	kill $$peer 2>/dev/null; sleep 1; kill -9 $$peer 2>/dev/null; sleep 1; \
-	code=$$(curl -s -m 3 -u admin:admin -o .dw-page.html -w '%{http_code}' http://127.0.0.1:$(DW_HPORT)/); \
+	code=$$(curl -s -m 3 -u admin:admin -o .dw-home.html -w '%{http_code}' http://127.0.0.1:$(DW_HPORT)/); \
+	curl -s -m 3 -u admin:admin -o .dw-page.html http://127.0.0.1:$(DW_HPORT)/stats || true; \
 	curl -s -m 3 --http0.9 -u admin:admin -o .dw-div.html 'http://127.0.0.1:$(DW_HPORT)/?action=div' || true; \
 	./$(DT_PROBE) 127.0.0.1 $(DW_TPORT) admin admin dcwstats > .dw-tel.txt 2>&1; \
-	if [ "$$code" != "200" ] || ! grep -q "</html>" .dw-page.html || ! grep -q "Uptime:" .dw-page.html || ! grep -q "</table>" .dw-page.html; then \
+	if [ "$$code" != "200" ] || ! grep -q "</html>" .dw-home.html || ! grep -q "Uptime:" .dw-home.html || ! grep -q "href='/stats'" .dw-home.html || ! grep -q "</table>" .dw-page.html; then \
 	  echo "[FAIL] the home page is not intact (http $$code)"; ok=0; \
-	else echo "  [ ok ] the home page still renders (200, uptime, table, </html>)"; fi; \
-	if grep -q "</table>" .dw-div.html && ! grep -q "<html" .dw-div.html; then \
-	  echo "  [ ok ] the refresh fragment carries the table and is not a second document"; \
+	else echo "  [ ok ] home page renders (200, uptime, link to /stats); the table is on /stats"; fi; \
+	if grep -q "href='/stats'" .dw-div.html && ! grep -q "<html" .dw-div.html; then \
+	  echo "  [ ok ] the refresh fragment carries the link and is not a second document"; \
 	else echo "[FAIL] action=div fragment"; ok=0; fi; \
 	miss=0; \
 	for name in accepted checksum null/half-null repeat-3-bytes bad-dcw-list; do \
 	  web=$$(grep -o "$${name}</td><td>[0-9][0-9]*" .dw-page.html | head -1 | sed 's/.*<td>//'); \
-	  div=$$(grep -o "$${name}</td><td>[0-9][0-9]*" .dw-div.html | head -1 | sed 's/.*<td>//'); \
 	  tel=$$(awk -v n="$$name" '$$1==n { print $$2; exit }' .dw-tel.txt); \
-	  if [ -z "$$web" ] || [ "$$web" != "$$tel" ] || [ "$$web" != "$$div" ]; then \
-	    echo "[FAIL] $$name page='$$web' div='$$div' telnet='$$tel'"; miss=1; \
+	  if [ -z "$$web" ] || [ "$$web" != "$$tel" ]; then \
+	    echo "[FAIL] $$name page='$$web' telnet='$$tel'"; miss=1; \
 	  fi; \
 	done; \
 	if [ "$$miss" = "0" ]; then \
-	  echo "  [ ok ] every counter on the page matches telnet and the refresh fragment"; \
+	  echo "  [ ok ] every counter on /stats matches telnet"; \
 	else ok=0; fi; \
 	if grep -q "null/half-null</td><td>0" .dw-page.html; then \
 	  echo "[FAIL] the matched count is zero -- the rejection was lost before the compare"; ok=0; \
@@ -3441,8 +3449,9 @@ dw: $(DT_PROBE) $(CACHEPEER)
 	  code=$$(curl -s -m 3 -u admin:admin -o .dw-off.html -w '%{http_code}' http://127.0.0.1:$(DW_HPORT)/); \
 	  [ "$$code" = "200" ] && break; sleep 1; \
 	done; \
+	curl -s -m 3 -u admin:admin -o .dw-off-stats.html http://127.0.0.1:$(DW_HPORT)/stats || true; \
 	./$(DT_PROBE) 127.0.0.1 $(DW_TPORT) admin admin dcwstats > .dw-off-tel.txt 2>&1 || true; \
-	if grep -q "DCW stats</b> OFF" .dw-off.html && grep -q "null/half-null</td><td>0" .dw-off.html && grep -q "dcwstats: OFF" .dw-off-tel.txt; then \
+	if grep -q "DCW stats</b> OFF" .dw-off.html && grep -q "null/half-null</td><td>0" .dw-off-stats.html && grep -q "dcwstats: OFF" .dw-off-tel.txt; then \
 	  echo "  [ ok ] no config line: page and telnet both say OFF and zero"; \
 	else echo "[FAIL] OFF readout"; ok=0; fi; \
 	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; sleep 1; \
@@ -3593,7 +3602,7 @@ bd: $(CACHEPEER) $(NCCLIENT)
 	n=$$(grep -c "DELIVERED A CONTROL WORD" .bd-cli.log); \
 	if [ "$$n" = "0" ]; then echo "  [ ok ] the listed key was not delivered"; \
 	else echo "[FAIL] the listed key was delivered $$n times"; ok=0; fi; \
-	curl -s -m 3 -u admin:admin -o .bd-page.html http://127.0.0.1:$(BD_HPORT)/; \
+	curl -s -m 3 -u admin:admin -o .bd-page.html http://127.0.0.1:$(BD_HPORT)/stats; \
 	hits=$$(grep -o 'bad-dcw-list</td><td>[0-9]*' .bd-page.html | grep -o '[0-9]*$$'); \
 	if [ -n "$$hits" ] && [ "$$hits" != "0" ]; then \
 	  echo "  [ ok ] bad-dcw-list counted $$hits"; \
@@ -3616,7 +3625,7 @@ bd: $(CACHEPEER) $(NCCLIENT)
 	sleep 1; \
 	NC_ECM_GAP_MS=200 ./$(NCCLIENT) 127.0.0.1 $(BD_NPORT) u1 p1 0102030405060708091011121314 0 1884 0064 > .bd-cli.log 2>&1; \
 	n=$$(grep -c "DELIVERED A CONTROL WORD" .bd-cli.log); \
-	curl -s -m 3 -u admin:admin -o .bd-page.html http://127.0.0.1:$(BD_HPORT)/; \
+	curl -s -m 3 -u admin:admin -o .bd-page.html http://127.0.0.1:$(BD_HPORT)/stats; \
 	hits2=$$(grep -o 'bad-dcw-list</td><td>[0-9]*' .bd-page.html | grep -o '[0-9]*$$'); \
 	if [ "$$n" = "2" ] && grep -q "dcw=$(BD_OTHER)" .bd-cli.log && [ "$$hits2" = "0" ]; then \
 	  echo "  [ ok ] a key that is not on the list was delivered, and bad-dcw-list stayed 0"; \
@@ -5441,3 +5450,27 @@ rt: .ccdcw.bin $(CACHEPEER)
 	if [ "$$ok" = "1" ]; then rm -f $(RT_CFG) .rt-srv.log .rt-peer.log .rt-a.log .rt-b.log .rt-c.log; \
 	else echo "[FAIL] logs kept under tests/.rt-*"; fi; \
 	[ "$$ok" = "1" ]
+
+# TASK R44 (D107) -- DCW VALIDECMTIME (a late key is refused) and ENABLE
+# ECMLOOPING (every server keyless -> ask the same servers again, bounded).
+# The live rig and its six cases are documented in r44.sh.
+.PHONY: r44
+r44: .ccdcw.bin $(NCSERVER)
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 -x '.ncserver.bin' 2>/dev/null; sleep 1; true
+	@rm -f .r44-results.txt; \
+	if sh r44.sh $(BIN) ./$(NCSERVER) ./.ccdcw.bin; then echo "  r44: all cases as designed"; \
+	else echo "[FAIL] r44: see tests/.r44-*.log"; exit 1; fi
+
+# TASK R47 (D110): /diag and /cwlog on the card path, end to end. A card
+# (ncserver) feeds MultiCS: delivered 2 on /diag, and the refusal under DCW MINTIME
+# is named "card" in /cwlog with reason card-too-fast. Script: r47-dg.sh.
+# TASK R48 (D111): the detail scope switched on live (telnet diagscope), no restart.
+# Script: r48-scope.sh (telnet client: r48-tn.py).
+.PHONY: dg
+dg: $(NCSERVER) $(NCCLIENT)
+	@make -s -C ../make-x64 release-stats > /dev/null || { echo "[FAIL] stats release build"; exit 1; }
+	@test -x $(STATS_BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 -x ".ncserver.bin" 2>/dev/null; sleep 1; true
+	@sh r47-dg.sh $(STATS_BIN) ./$(NCSERVER) ./$(NCCLIENT)
+	@sh r48-scope.sh $(STATS_BIN) ./$(NCSERVER) ./$(NCCLIENT)

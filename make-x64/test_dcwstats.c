@@ -28,6 +28,7 @@ void debugf(unsigned int flag, char *format, ...) { (void)flag; (void)format; }
 /* Storage for the counters, provided once for this translation unit. */
 int           dcwstats_on = 0;
 unsigned long dcwstats[11]; /* TASK R1: = DCW_REJ_COUNT; the macro is not visible this early. R28: pattern-fake joined, count is 11 */
+__thread int dcw_last_reject_reason = 0; /* TASK R47 (D110): dcw.c writes it on each reject; the test owns the storage like the counters above */
 
 /*
  * The TASK 1.10b filter gates are globals in dcw.c too, and this file pulls

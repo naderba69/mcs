@@ -666,12 +666,14 @@ struct cardserver_data
 #endif
 			int retry; // number of retries to decode ecm
 			int mintime; // R36 DCW MINTIME: reject server replies faster than this (ms, 0=off)
+			int validecmtime; // R44 DCW VALIDECMTIME: refuse a CW arriving later than this after the ECM (ms, 0=off)
 		} dcw;
 
 		uint8_t checkecm; // viaccess ecm
 		uint8_t checkecmlength; // length header
 
 		int maxfailedecm; // Max failed ecm per sid
+		uint8_t ecmlooping; // R44 ENABLE ECMLOOPING: resend an ECM to the same servers when all answered without a key (0=off)
 
 		int faccept0sid;
 		int faccept0provider;
