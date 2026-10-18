@@ -6,6 +6,30 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R50 — The binaries are rebuilt from the current source (2026-10-18)
+
+**What changed.** The tracked binaries were last built before R44. They are rebuilt
+with the project targets from the R49 source (commit `208d709`):
+
+- `make -C make-x64 release-stats`: `dist/multics-r82a-stats-x64`,
+  `bin/multics-r82a-stats-x64`, and `bin/multics.x64` (the fixed delivery name,
+  which is the stats build by design, R34/D85). `dcwstats` symbols: 2.
+- `make -C make-x64 release`: `dist/multics-r82a-stock-x64` and
+  `bin/multics-r82a-stock-x64`. `dcwstats` symbols: 0.
+
+**Checksums (stripped, the shipped files).** Stock `ecb3f2d021b6bbfb71260f10df1615f7`
+(793816 bytes). Stats `279b9b7a7ad7cb7b43899810fb6827c1`.
+
+**Reference for the stock flavour.** The value `d9de68dd6eaee36c1e27308b6c7d9d4e`
+(837840 bytes) used in earlier entries is the UNSTRIPPED `make-x64/x64/multics`. The
+stripped file has its own checksum above. A clean clone of `HEAD` gives the same
+stripped checksum, so the stock build is reproducible.
+
+**Proof.** The stats binary passed the live scope test on the shipped file
+(`tests/r48-scope.sh`, 25 checks, EXIT 0).
+
+---
+
 ## R49 — The detail scope is controlled from the web page (2026-10-18)
 
 **Decisions:** D112

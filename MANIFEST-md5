@@ -1,5 +1,5 @@
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-2322015ff2ead0df3b52c00c93c649d2  CHANGELOG.md
+0bc4c5cd7bfac812a8a958c909b19f25  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
@@ -14,14 +14,14 @@ dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 8c307c0301d9ae8aee1602b8f8c86743  bin/multics-r82a-queue-stats-x64
 8cbb056cb5d5b639529c4be49c33cb5e  bin/multics-r82a-queue-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-35e2344e315ab543612cc0b717015eb1  bin/multics-r82a-stats-x64
-7edabb3bbc239dfdbe954a53787e1ca1  bin/multics-r82a-stock-x64
+279b9b7a7ad7cb7b43899810fb6827c1  bin/multics-r82a-stats-x64
+ecb3f2d021b6bbfb71260f10df1615f7  bin/multics-r82a-stock-x64
 8ae2afeb6a89480c1e9a0d052bc4dbfe  bin/multics-r82a-x64
-35e2344e315ab543612cc0b717015eb1  bin/multics.x64
+279b9b7a7ad7cb7b43899810fb6827c1  bin/multics.x64
 8c307c0301d9ae8aee1602b8f8c86743  dist/multics-r82a-queue-stats-x64
 8cbb056cb5d5b639529c4be49c33cb5e  dist/multics-r82a-queue-x64
-35e2344e315ab543612cc0b717015eb1  dist/multics-r82a-stats-x64
-7edabb3bbc239dfdbe954a53787e1ca1  dist/multics-r82a-stock-x64
+279b9b7a7ad7cb7b43899810fb6827c1  dist/multics-r82a-stats-x64
+ecb3f2d021b6bbfb71260f10df1615f7  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 5e9abd6e39a6c94e7ec7485ef45390c7  docs/ARCHITECTURE.md
 7b9bd8f6cdecb55e1c35aa467a425a06  docs/BLACKSCREEN.md
