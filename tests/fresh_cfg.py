@@ -61,7 +61,21 @@ FEATURE_KNOBS = [
 CODE_DEFAULT = {"DCW MINTIME": "0", "DCW VALIDECMTIME": "0", "ECM CHECK LENGTH": "YES"}
 
 # Measured window overrides (CAID -> server timeout ms). Source: docs/FRESH-CONFIG-R56-ar.md.
-MEASURED_TIMEOUT = {"1814": 1200}
+# R58: CAID 1814 (MEO PT) measured on the live channel 1814:005211:13AE. Times are
+# from the ECM's arrival: the first server was sent at 263 ms (cache wait of R57),
+# and the three valid replies took 1209 / 1054 / 713 ms after their own send.
+# Fix: send at once (no cache wait), all three servers first, the minimum interval,
+# and a server window (routing exclusion) above the slowest measured reply.
+MEASURED_PROFILE = {
+    "1814": {
+        "SERVER FIRST": "3",          # was 2
+        "SERVER INTERVAL": "100",     # was 150 (100 = the minimum the parser allows)
+        "SERVER TIMEOUT": "1500",     # was 1200: sending window, above all sends
+        "SERVER VALIDECMTIME": "1500",# was 1200: slowest measured average 1209 -> 1500
+        "CACHE STATIC": "NO",         # was YES (R57): the cache wait delayed the first send by 250 ms
+    },
+}
+MEASURED_TIMEOUT = {}   # superseded by MEASURED_PROFILE (kept for the timing branch below)
 FIXED_CAIDS = {"2600", "2610", "1010"}   # BISS1, BISS2, Tandberg: fixed local keys
 STOCK_TIMEOUT_FROM = 800   # the R45 "fast" class value that moves to the file's default
 DEFAULT_TIMEOUT = 1000     # = DEFAULT SERVER TIMEOUT in the global section
@@ -123,7 +137,16 @@ def main():
         # CACHE TIMEOUT (250 ms), and it is paid on every ECM the cache does not hold.
         # Fixed-key profiles keep ENABLE CACHE: NO, so they stay NO here.
         static_yes_line = False
-        if caid not in FIXED_CAIDS:
+        if caid in MEASURED_PROFILE:
+            for key, val in MEASURED_PROFILE[caid].items():
+                assert key in kv, f"{name}: {key} must be explicit for a measured profile"
+                i, old = kv[key]
+                if old != val:
+                    indent = re.match(r"^(\s*)", lines[i]).group(1)
+                    lines[i] = f"{indent}{key}: {val}"
+                    changes.append((name, key, old, val, "measured R58: live 1814:005211:13AE"))
+                kv[key] = (i, val)
+        if caid not in FIXED_CAIDS and caid not in MEASURED_PROFILE:
             if "CACHE STATIC" in kv and kv["CACHE STATIC"][1].upper() == "NO":
                 i, old = kv["CACHE STATIC"]
                 indent = re.match(r"^(\s*)", lines[i]).group(1)

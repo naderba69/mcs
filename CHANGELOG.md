@@ -6,6 +6,12 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R58 — Channel 1814 after a live decode log (2026-10-18)
+
+- Live log for 1814:005211:13AE: three servers returned the same valid CW at 713 / 1054 / 1209 ms after their send. The first send was at 263 ms, which is the R57 cache wait (CACHE STATIC YES).
+- MEO PT 1814 candidate profile: CACHE STATIC NO, SERVER FIRST 3, SERVER INTERVAL 100, SERVER TIMEOUT 1500, SERVER VALIDECMTIME 1500.
+- Not verified against the live servers (no network access here). Details: docs/FRESH-CONFIG-R58-ar.md.
+
 ## R57 — New features in every profile, measured where a value is needed (2026-10-18)
 
 **Candidate only: `multics-r56-fresh.cfg`. Production `multics-r24-optimized.cfg` is not replaced.**
