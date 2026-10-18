@@ -1750,3 +1750,46 @@ delivery and through `DCW MINTIME`, and reads `/diag` and `/cwlog`.
 
 Known limit: a rejected ECM entry is reused by hash, so a burst of identical
 requests does not reach the streak. Five distinct ECMs are needed.
+
+## 34. TASK R48 — the detail scope: heavy detail for one profile or channel, live (`diagscope.h`, `cwlog.c`, `setdcw.c`, `th-ecm.c`, `telnet.c`, `httpserver.c`) — DELIVERED 2026-10-18
+
+Decision: D111. Stats flavour only (`#ifdef MCS_DCWSTATS`).
+
+**Where the detail hooks sit.**
+
+| Feed | Call site | Gate |
+|---|---|---|
+| card answer time | `setdcw_delivered(ecm, ecmtime)` in `setdcw.c` | `diag_note_latency`: scope check |
+| no answer | `setdcw_noanswer(ecm)` from `ecm_faileddcw` in `th-ecm.c` | `diag_note_noanswer`: scope check |
+| counters, refusal reasons | `chan_note` (`setdcw.c`, `cwlog.c`, `srv-newcamd.c`) | always on, as in R47 |
+
+The scope check is one `volatile` flag (`cwlog_scope_on`) and, when it is set,
+a lookup under `cwlog_chan_mtx`. With the scope empty the request path does one
+flag read and returns.
+
+**The scope itself** (`src/diagscope.h`): 4 channels and 4 profile names.
+Pure functions, no lock, no allocation. The caller (`cwlog.c`) holds
+`cwlog_chan_mtx`. A profile name is compared after trailing blanks are trimmed,
+because a config section `[ name ]` stores the blank before the bracket.
+
+**Operator surface.**
+- `/diag`: the scope, a link per channel to `/cwlog?ch=CAID:PROV:SID`, four
+  detail columns, and the copyable setting line from `diag_setting_hint`
+  (`src/diag.h`, text only).
+- `/diag?format=txt`: plain text, channel ids and counts only, served as an
+  attachment `multics-diag.txt`.
+- `/cwlog?ch=CAID:PROV:SID`: the ring filtered to one channel, with "show all".
+- telnet `diagscope`, `diagscope add|del channel CAID:PROV:SID`,
+  `diagscope add|del profile NAME`, `diagscope clear`. Stats flavour only.
+
+**Thread safety.** `chanhealth` grows three fields (`noanswer`, latency
+sum/count/max) and one array (`refused_by[]`), all under `cwlog_chan_mtx`. The
+reason index is checked against `CWLOG_R_PATTERN` before it is stored.
+
+**Proof.** See the R48 entry in `CHANGELOG.md` and D111. Unit: `test_diagscope`
+(58 checks). Live: `tests/r48-scope.sh` through `make -C tests dg`, with the
+telnet client `tests/r48-tn.py`.
+
+**Known limits.** Latency is measured on the card path only. A request that
+the cache answers has no measured time. A late answer past `DCW TIMEOUT` is
+dropped, and its request is counted as no answer.

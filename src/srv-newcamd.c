@@ -23,7 +23,7 @@ void cs_senddcw_cli(struct cs_client_data *cli);
 static void cs_note_resend(ECM_DATA *ecm)
 {
 	if (dcwstats_on && ecm->dcwstatus == STAT_DCW_SUCCESS)
-		chan_note(CWLOG_DELIVERED, ecm->caid, ecm->provid, ecm->sid);
+		chan_note(CWLOG_DELIVERED, 0, ecm->caid, ecm->provid, ecm->sid);
 }
 #else
 #define cs_note_resend(ecm) ((void)0)

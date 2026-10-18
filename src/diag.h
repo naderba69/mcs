@@ -18,6 +18,7 @@
 #define MCS_DIAG_H
 
 #include <stdint.h>
+#include <stdio.h>
 #include "cwlog.h"
 #include "chanhealth.h"
 
@@ -229,6 +230,45 @@ static const char *diag_advice(enum diag_finding f)
 		"أسباب متفرقة بلا سبب غالب. راجع السجل الخام في /cwlog."
 	};
 	return (f >= 0 && f < DIAG_FINDINGS) ? text[f] : "?";
+}
+
+/*
+ * TASK R48 (D111): one setting to CONSIDER, written out so the operator can
+ * copy it by hand. The server never applies it. A finding with no safe,
+ * documented key gets an empty string, and the page then offers nothing to
+ * copy. Only keys the project already documents are used:
+ *   DIAG_DYING   -> ECMLOOPING: YES      (the general section, D108)
+ *   DIAG_TIMING  -> card late:    DCW VALIDECMTIME: <slowest measured answer + 25%, up to 100 ms>
+ *                   card too fast: DCW MINTIME: <below the fastest answer>
+ *                   no measured answer yet: a hint to measure first
+ *   DIAG_CHECKSUM and the rest -> nothing. Turning the checksum off is never
+ *   offered from this page (see the advice text, and D110).
+ * Returns 1 when out holds a line.
+ */
+static int diag_setting_hint(enum diag_finding f, int top_reason,
+			     uint32_t lat_n, uint32_t lat_max, char *out, int len)
+{
+	uint32_t v;
+
+	out[0] = 0;
+	switch (f) {
+	case DIAG_DYING:
+		snprintf(out, len, "ECMLOOPING: YES");
+		break;
+	case DIAG_TIMING:
+		if (top_reason == CWLOG_R_MINTIME)
+			snprintf(out, len, "DCW MINTIME: (below the fastest card answer)");
+		else if (lat_n) {
+			v = (lat_max + lat_max / 4 + 99) / 100 * 100;
+			snprintf(out, len, "DCW VALIDECMTIME: %lu", (unsigned long)v);
+		}
+		else
+			snprintf(out, len, "(measure first: add the channel to diagscope)");
+		break;
+	default:
+		break;
+	}
+	return out[0] != 0;
 }
 
 #endif /* MCS_DIAG_H */

@@ -4285,3 +4285,89 @@ stock binary from `HEAD` and from this commit have the same md5
 - The committed `dist/` and `bin/` stats binaries are not updated here. They
   are restored to `HEAD`, per the rule that a binary is committed only on
   request.
+
+## D111 (R48) — The detail scope: heavy detail for one profile or one channel, switched on live
+
+**Context.** The diagnosis page (D110) counts cheaply, but the operator's next
+questions need more: how long the card takes to answer, how many requests got
+no answer at all, and which setting to copy. Those cost a time measurement and
+a count per request. Turned on for everything they cost on a busy server, and
+the operator asked for them only for the profile or channel that is failing.
+
+The operator also ruled out a config-only switch: "not in the settings only,
+because a change there needs a restart, and I do not want that." So the detail
+must switch on while the server runs.
+
+**Decision.** A detail scope, stats flavour only, under `#ifdef MCS_DCWSTATS`:
+
+1. **Scope, bounded.** At most 4 channels (`CAID:PROV:SID`) and 4 profile names
+   (up to 63 characters). Empty means OFF: the request path does nothing extra.
+   The rules are pure, in `src/diagscope.h`, and unit-tested in
+   `make-x64/test_diagscope.c`.
+2. **Switched live.** The telnet command `diagscope` shows the scope.
+   `diagscope add|del channel CAID:PROV:SID` and `diagscope add|del profile NAME`
+   change it, and `diagscope clear` turns it OFF. No restart, no config line.
+   A config line for persistence is optional and is not part of R48.
+3. **What the scope adds.** Inside the scope only: the card's answer time
+   (`diag_note_latency`, at delivery, `setdcw_delivered`), and a request that
+   ended with no answer (`diag_note_noanswer`, at `ecm_faileddcw`). Outside the
+   scope these feeds return at once. The per-channel counters and the refusal
+   reasons stay on for every channel, as before.
+4. **Named settings, copyable, never applied.** `diag_setting_hint` gives one
+   text line per finding: `ECMLOOPING: YES` for a dying channel; a
+   `DCW VALIDECMTIME` value (slowest measured answer plus 25%, at least 100 ms)
+   for a slow card; `DCW MINTIME` for a card that is too fast; "measure first"
+   when no answer was timed yet. A checksum or fake-key finding gets no line at
+   all: the page never offers to turn a check off.
+5. **Reading the detail.** `/diag` shows the scope, a link from each channel to
+   `/cwlog?ch=CAID:PROV:SID` (which filters the ring and offers "show all"), and
+   four new columns: refusals since reset, no answer, card answer ms (average
+   and slowest), and the setting to copy. `/diag?format=txt` exports the same
+   rows as plain text, with channel ids and counts only: no address, user,
+   password or peer name.
+
+**Rejected.**
+- *Switch the detail on from the config file only.* Needs a restart. Refused by
+  the operator.
+- *Time every request with the scope off.* Costs a clock read and a lock per
+  request for everyone. The scope exists so that the cost is paid only where it
+  is asked for.
+- *Apply the suggested setting automatically.* Refused by the operator's rule:
+  the tool names the fault and suggests the fix; it does not change a setting.
+- *Time the cache path too.* `pipe_cache2ecm_find_success` does not receive the
+  request, so the elapsed time cannot be measured there without changing the
+  delivery path. Not decided; the card path is measured, the cache path is not.
+
+**Stock is untouched.** The stock binary from this commit matches the stock
+binary from `HEAD` (`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes). The
+`DIAGSCOPE` command exists only in the stats flavour, so the stock binary has no
+trace of it.
+
+**Found while proving it (fixed in R48).**
+- A profile name from the config keeps a blank before the bracket: `[ cardx ]`
+  is stored as `cardx `. The scope compared the stored name with `strcmp` and
+  never matched the card's own profile. Both the stored and the looked-up name
+  are now trimmed of trailing blanks (`diag_name_eq`). The unit test covers it.
+- A newcamd client that re-asks the same ECM makes the server avoid that source
+  for the channel on the next request (`ROTATION`, the existing anti-black-screen
+  rule). The live test therefore sends one request before the scope check and
+  uses a second user for the request after it. The rule itself is unchanged.
+- A newcamd server refuses a second login of the same user within 60 s (stock
+  rule, `srv-newcamd.c`). The live test uses two users, not a wait.
+
+**Proof.**
+- `make -C make-x64 test`: 26/26 units, including `test_diagscope` 58 checks,
+  `test_diag` 45, `test_chanhealth` 36, `test_cwlog` 57.
+- `make -C tests dg`: R47 card path 8/8 (its patterns now follow the channel
+  link), and R48 live (`tests/r48-scope.sh`, telnet client `tests/r48-tn.py`):
+  case A turns timing on for one profile while the server runs, and the next
+  card answer is timed (`card_answers` 0 before, 1 after, `avg_ms` 94); case B
+  counts a request past `DCW TIMEOUT` as no answer for a scoped channel.
+- Stock binary: byte-identical to `HEAD`.
+
+**Limits.**
+- Timing is only for the card path. The cache path has no time yet (above).
+- The no-answer count is taken where a request is closed as failed. A late
+  answer that arrives after `DCW TIMEOUT` is dropped and counted as no answer.
+- The scope lives in memory. A restart clears it; the persistent config line is
+  optional and not built.

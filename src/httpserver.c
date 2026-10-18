@@ -7393,6 +7393,25 @@ static void http_send_cwlog(int sock, struct http_request *req)
 
 	on = dcwstats_on;
 	n = on ? cwlog_snapshot(rows, CWLOG_CAP) : 0;
+	/* TASK R48 (D111): /cwlog?ch=CAID:PROV:SID shows one channel's rows, so the
+	 * channel link on /diag lands on its evidence. */
+	{
+		const char *chv = isset_get(req, "ch");
+		unsigned cu, pu, su;
+
+		if (chv && sscanf(chv, "%x:%x:%x", &cu, &pu, &su) == 3) {
+			int k, m = 0;
+
+			for (k = 0; k < n; k++)
+				if (rows[k].caid == cu && rows[k].provid == pu && rows[k].sid == su)
+					rows[m++] = rows[k];
+			n = m;
+			sprintf(http_buf, "<p>%s %04X:%06X:%04X &nbsp; <a href='/cwlog'>%s</a></p>\n",
+				mlabel("showing channel", "تصفية: القناة"), cu, pu, su,
+				mlabel("show all", "عرض الكل"));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+	}
 
 	tcp_writestr(&tcpbuf, sock, "<h2>");
 	tcp_writestr(&tcpbuf, sock, mlabel("Cache CW verdicts", "أحكام كاش على مفاتيح CW"));
@@ -7559,9 +7578,68 @@ static enum diag_finding diag_package_top(const struct diag_chan *dc,
 	return DIAG_OK;
 }
 
+/* TASK R48 (D111): the refusals of one channel by ring reason, as text,
+ * "reason n, reason n". Only the reasons that were seen. */
+static void diag_refs_text(const struct chanhealth_row *row, char *out, size_t len)
+{
+	int r;
+	size_t used = 0;
+
+	out[0] = 0;
+	for (r = 0; r < DIAG_REASONS; r++) {
+		if (!row->refused_by[r] || used >= len - 1) continue;
+		used += snprintf(out + used, len - used, "%s%s %lu",
+				 used ? ", " : "", cwlog_reason_name(r), (unsigned long)row->refused_by[r]);
+	}
+}
+
+/* TASK R48 (D111): `/diag?format=txt`, the same numbers as plain text for a
+ * support ticket. Channel ids and counts only. No address, user, password or
+ * peer name is written: the peer names are left out on purpose. */
+static void diag_write_txt(int sock, const struct diag_chan *dc, const int *order, int nchan)
+{
+	char line[1024], refs[256], hint[160], since[64], lat[32];
+	struct tcp_buffer_data tcpbuf;
+	const struct diag_chan *d;
+	time_t rt = chanhealth_reset_time();
+	int k;
+
+	if (rt) strftime(since, sizeof(since), "%Y-%m-%d %H:%M:%S", localtime(&rt));
+	else snprintf(since, sizeof(since), "start");
+
+	tcp_init(&tcpbuf);
+	tcp_writestr(&tcpbuf, sock, "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n"
+		"Content-Disposition: attachment; filename=\"multics-diag.txt\"\r\nConnection: close\r\n\r\n");
+	snprintf(line, sizeof(line), "# MultiCS /diag export (R48, D111). Channel ids and counts only: no address, user, password or peer name.\n"
+		"# counting: %s   channels: %d / %d   counters since: %s\n"
+		"channel;delivered;refused;held;streak;no_answer;card_answers;avg_ms;max_ms;finding;refusals_by_reason;setting\n",
+		dcwstats_on ? "ON" : "OFF", nchan, CHANHEALTH_SLOTS, since);
+	tcp_writestr(&tcpbuf, sock, line);
+	for (k = 0; k < nchan; k++) {
+		enum diag_finding top;
+
+		d = &dc[order[k]];
+		top = diag_top(d->mask);
+		diag_refs_text(&d->row, refs, sizeof(refs));
+		if (d->row.lat_n) snprintf(lat, sizeof(lat), "%lu;%lu",
+			(unsigned long)(d->row.lat_sum / d->row.lat_n), (unsigned long)d->row.lat_max);
+		else snprintf(lat, sizeof(lat), "-;-");
+		if (!diag_setting_hint(top, diag_top_reason(&d->ev), d->row.lat_n, d->row.lat_max, hint, sizeof(hint)))
+			snprintf(hint, sizeof(hint), "-");
+		snprintf(line, sizeof(line), "%04X:%06X:%04X;%lu;%lu;%lu;%lu;%lu;%lu;%s;%s;%s;%s\n",
+			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
+			(unsigned long)d->row.delivered, (unsigned long)d->row.refused,
+			(unsigned long)d->row.held, (unsigned long)d->row.streak,
+			(unsigned long)d->row.noanswer, (unsigned long)d->row.lat_n,
+			lat, diag_label(top), refs[0] ? refs : "-", hint);
+		tcp_writestr(&tcpbuf, sock, line);
+	}
+	tcp_flush(&tcpbuf, sock);
+}
+
 static void http_send_diag(int sock, http_request *req)
 {
-	char buf[1024], pname[48], label[256], rsn[48];
+	char buf[2048], pname[48], label[256], rsn[48], refs[256], hint[160], lat[32];
 	struct tcp_buffer_data tcpbuf;
 	struct cwlog_entry rows[CWLOG_CAP];
 	struct chanhealth_row chans[CHANHEALTH_SLOTS];
@@ -7632,6 +7710,15 @@ static void http_send_diag(int sock, http_request *req)
 		order[j + 1] = t;
 	}
 
+	{
+		const char *fmt = isset_get(req, "format");
+
+		if (fmt && !strcmp(fmt, "txt")) {
+			diag_write_txt(sock, dc, order, nchan);
+			return;
+		}
+	}
+
 	tcp_init(&tcpbuf);
 	http_replyok_write(req, &tcpbuf, sock);
 	http_html_write(req, &tcpbuf, sock);
@@ -7663,6 +7750,40 @@ static void http_send_diag(int sock, http_request *req)
 		tcp_writestr(&tcpbuf, sock, "</b></p>\n");
 	}
 
+	/* ---- detail scope (R48, D111) ---- */
+	{
+		struct diag_scope sc;
+		char when[64];
+		time_t rt = chanhealth_reset_time();
+		int i;
+
+		diagscope_snapshot(&sc);
+		if (rt) strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", localtime(&rt));
+		else snprintf(when, sizeof(when), "%s", mlabel("start", "بدء التشغيل"));
+		snprintf(buf, sizeof(buf), "<p><b>%s</b> %s &nbsp; %s <b>%s</b></p>\n",
+			mlabel("Detail scope:", "نطاق التفاصيل:"),
+			diag_scope_empty(&sc) ? mlabel("OFF (no channel, no profile)", "متوقف (لا قناة ولا بروفايل)") : mlabel("ON", "مفعّل"),
+			mlabel("counters since", "العدّادات منذ"), when);
+		tcp_writestr(&tcpbuf, sock, buf);
+		for (i = 0; i < sc.nch; i++) {
+			snprintf(buf, sizeof(buf), "<br>%s <a href='/cwlog?ch=%04X:%06X:%04X'>%04X:%06X:%04X</a>\n",
+				mlabel("channel", "قناة"), (unsigned)sc.caid[i], (unsigned)sc.provid[i], (unsigned)sc.sid[i],
+				(unsigned)sc.caid[i], (unsigned)sc.provid[i], (unsigned)sc.sid[i]);
+			tcp_writestr(&tcpbuf, sock, buf);
+		}
+		for (i = 0; i < sc.nprof; i++) {
+			snprintf(buf, sizeof(buf), "<br>%s %s\n", mlabel("profile", "بروفايل"), sc.prof[i]);
+			tcp_writestr(&tcpbuf, sock, buf);
+		}
+		tcp_writestr(&tcpbuf, sock, "<p style='font-size:0.9em;'>");
+		tcp_writestr(&tcpbuf, sock, mlabel(
+			"Detail (answer time, no-answer) is kept only for this scope. Change it at run time from telnet: diagscope add channel CAID:PROV:SID, diagscope add profile NAME, diagscope del ..., diagscope clear. Up to 4 of each. No restart.",
+			"التفاصيل (زمن الجواب، والطلبات بلا جواب) تُسجَّل لهذا النطاق فقط. غيّره أثناء التشغيل من التيلنت: diagscope add channel CAID:PROV:SID ، أو diagscope add profile NAME ، أو diagscope del ... ، أو diagscope clear. حتى 4 من كل نوع، بلا إعادة تشغيل."));
+		tcp_writestr(&tcpbuf, sock, "</p>\n<p><a href='/diag?format=txt'>");
+		tcp_writestr(&tcpbuf, sock, mlabel("export as text (for a support ticket)", "تصدير كنص (لتذكرة الدعم)"));
+		tcp_writestr(&tcpbuf, sock, "</a></p>\n");
+	}
+
 	/* ---- channels ---- */
 	tcp_writestr(&tcpbuf, sock, "<h3>");
 	tcp_writestr(&tcpbuf, sock, mlabel("Channels, worst first", "القنوات، الأسوأ أولاً"));
@@ -7683,9 +7804,17 @@ static void http_send_diag(int sock, http_request *req)
 	tcp_writestr(&tcpbuf, sock, mlabel("reason in ring", "السبب في السجل"));
 	tcp_writestr(&tcpbuf, sock, "</th><th>");
 	tcp_writestr(&tcpbuf, sock, mlabel("what to consider (not applied)", "ما الذي يُنظر فيه (غير مُطبَّق)"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("refusals since reset, by reason", "الرفض منذ التصفير حسب السبب"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("no answer", "بلا جواب"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("card answer ms (avg / max)", "زمن البطاقة ms (متوسط / أبطأ)"));
+	tcp_writestr(&tcpbuf, sock, "</th><th>");
+	tcp_writestr(&tcpbuf, sock, mlabel("setting to copy (not applied)", "إعداد للنسخ (غير مُطبَّق)"));
 	tcp_writestr(&tcpbuf, sock, "</th></tr>\n");
 	if (nchan == 0) {
-		tcp_writestr(&tcpbuf, sock, "<tr><td colspan=8>");
+		tcp_writestr(&tcpbuf, sock, "<tr><td colspan=12>");
 		tcp_writestr(&tcpbuf, sock, mlabel("no channel yet: rows appear after the first delivery or refusal",
 			"لا قنوات بعد: تظهر الصفوف بعد أول تسليم أو رفض"));
 		tcp_writestr(&tcpbuf, sock, "</td></tr>\n");
@@ -7702,12 +7831,20 @@ static void http_send_diag(int sock, http_request *req)
 				strncat(label, diag_label((enum diag_finding)i), sizeof(label) - strlen(label) - 1);
 			}
 		snprintf(rsn, sizeof(rsn), "%s", diag_top_reason(&d->ev) ? cwlog_reason_name(diag_top_reason(&d->ev)) : "-");
-		sprintf(buf, "<tr%s><td>%04X:%06X:%04X</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",
+		diag_refs_text(&d->row, refs, sizeof(refs));
+		if (d->row.lat_n) snprintf(lat, sizeof(lat), "%lu / %lu",
+			(unsigned long)(d->row.lat_sum / d->row.lat_n), (unsigned long)d->row.lat_max);
+		else snprintf(lat, sizeof(lat), "%s", mlabel("not measured", "لم تُقَس"));
+		if (!diag_setting_hint(top, diag_top_reason(&d->ev), d->row.lat_n, d->row.lat_max, hint, sizeof(hint)))
+			snprintf(hint, sizeof(hint), "-");
+		snprintf(buf, sizeof(buf), "<tr%s><td><a href='/cwlog?ch=%04X:%06X:%04X'>%04X:%06X:%04X</a></td><td>%lu</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%lu</td><td>%s</td><td><code>%s</code></td></tr>\n",
 			sev >= 2 ? " style='background:#fdd'" : (sev == 1 ? " style='background:#ffd'" : ""),
+			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
 			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
 			(unsigned long)d->row.delivered, (unsigned long)d->row.refused,
 			(unsigned long)d->row.held, (unsigned long)d->row.streak,
-			label, rsn, diag_advice(top));
+			label, rsn, diag_advice(top), refs[0] ? refs : "-",
+			(unsigned long)d->row.noanswer, lat, hint);
 		tcp_writestr(&tcpbuf, sock, buf);
 	}
 	tcp_writestr(&tcpbuf, sock, "</table>\n");

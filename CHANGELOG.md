@@ -6,6 +6,58 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R48 — The detail scope: heavy detail for one profile or channel, switched on while the server runs (2026-10-18)
+
+**Decisions:** D111
+
+**What changed.** The heavy detail (the card's answer time, and the requests
+that got no answer) now runs only for a profile or a channel that the operator
+names, and it switches on and off while the server runs. No restart and no
+config line. The telnet command `diagscope` manages the scope:
+
+- `diagscope` shows it; `diagscope add|del channel CAID:PROV:SID` (hex);
+  `diagscope add|del profile NAME`; `diagscope clear` turns the detail OFF.
+- At most 4 channels and 4 profile names. Empty means OFF: the request path
+  does one flag read and nothing else.
+- The counters and the refusal reasons stay on for every channel, as in R47.
+
+On `/diag`:
+
+- a detail scope section, and a link from each channel to `/cwlog?ch=CAID:PROV:SID`
+  (the ring filtered to that channel, with "show all");
+- four new columns: refusals since reset, no answer, card answer ms (average
+  and slowest), and the setting to copy;
+- a copyable setting line from the measured numbers (`diag_setting_hint`,
+  text only, never applied). The checksum and fake-key findings get no line.
+- `/diag?format=txt`: a plain-text export, channel ids and counts only.
+
+**Stock is untouched.** The stock binary from this commit matches the stock
+binary from `HEAD` (`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes). The
+`DIAGSCOPE` command exists only in the stats flavour.
+
+**Found and fixed while proving it.** A profile name from `[ cardx ]` keeps a
+blank before the bracket, so the card's own profile never matched a scope
+entry. Trailing blanks are now trimmed on both sides (`diag_name_eq`).
+
+**Proof.**
+- `make -C make-x64 test`: EXIT 0. New `test_diagscope` 58 checks (the pure
+  rules, the hints, the counters, and the wiring through `cwlog.c`).
+- `make -C tests dg`: EXIT 0. R47 card path 8 checks; R48 live
+  (`tests/r48-scope.sh`, telnet client `tests/r48-tn.py`): timing is switched on
+  for one profile while the server runs, the next card answer is timed (0
+  before, 1 after, average 94 ms), and a request past `DCW TIMEOUT` is counted
+  as no answer for a scoped channel.
+- `make -C tests all`: `SUITE_EXIT=0`, 498 ok, unchanged from R47.
+
+**Test changes.** `tests/r47-dg.sh` patterns follow the channel cell, which is
+now a link. The R48 scope script joins the `dg` target.
+
+**Limits.** Latency is measured on the card path only; a request answered from
+the cache has no time. The scope is in memory and a restart clears it. The
+persistent config line is optional and not built.
+
+---
+
 ## R47 — One diagnosis page, `/diag`: see, name the fault, suggest the fix (2026-10-18)
 
 **Decisions:** D110

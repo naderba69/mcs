@@ -35,10 +35,23 @@ static void setdcw_card_refused(ECM_DATA *ecm, const uint8_t *cw, int reason)
 			   ecm->sid, cw, GetTickCount());
 }
 
-static void setdcw_delivered(ECM_DATA *ecm)
+static void setdcw_delivered(ECM_DATA *ecm, uint32_t ecmtime)
+{
+	if (dcwstats_on) {
+		chan_note(CWLOG_DELIVERED, 0, ecm->caid, ecm->provid, ecm->sid);
+		/* TASK R48 (D111): the answer time, kept only for the detail scope */
+		diag_note_latency(ecm->caid, ecm->provid, ecm->sid,
+				  ecm->cs ? ecm->cs->name : NULL, ecmtime);
+	}
+}
+
+/* TASK R48 (D111): an ECM that ends with no answer at all. Called from
+ * ecm_faileddcw, the one place a request is closed as failed. */
+static void setdcw_noanswer(ECM_DATA *ecm)
 {
 	if (dcwstats_on)
-		chan_note(CWLOG_DELIVERED, ecm->caid, ecm->provid, ecm->sid);
+		diag_note_noanswer(ecm->caid, ecm->provid, ecm->sid,
+				   ecm->cs ? ecm->cs->name : NULL);
 }
 #endif /* MCS_DCWSTATS */
 #include <stdlib.h>
@@ -401,7 +414,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	uint32_t ecmtime = GetTickCount()-ecm->recvtime;
 	if ( ecmtime > cs->option.dcw.timeout*ecm->period ) return;
 #ifdef MCS_DCWSTATS
-	setdcw_delivered(ecm);
+	setdcw_delivered(ecm, ecmtime);
 #endif
 	// Send DCW to clients
 	clients_check_sendcw(ecm);
@@ -860,7 +873,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	uint32_t ecmtime = GetTickCount()-ecm->recvtime;
 	if ( ecmtime > cs->option.dcw.timeout*ecm->period ) return;
 #ifdef MCS_DCWSTATS
-	setdcw_delivered(ecm);
+	setdcw_delivered(ecm, ecmtime);
 #endif
 	// Send DCW to clients
 	clients_check_sendcw(ecm);

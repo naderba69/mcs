@@ -39,6 +39,9 @@ void ecm_faileddcw( ECM_DATA *ecm )
 	ecm->dcwstatus = STAT_DCW_FAILED;
 	ecm->checktime = 0;
 	ecm->waitserver = 0;
+#ifdef MCS_DCWSTATS
+	setdcw_noanswer(ecm);	/* TASK R48 (D111): counted before the client hears */
+#endif
 	sid_newecm(ecm);
 	clients_check_sendcw(ecm); // send decode failed to clients
 	/*

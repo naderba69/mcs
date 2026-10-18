@@ -76,7 +76,7 @@ echo "== R47 dg: case A, a card that answers in time =="
 run_case a ""
 got=$(grep -c "THE SERVER DELIVERED" .dg-a-cli.log)
 if [ "$got" = "2" ]; then ok "the client received 2 control words"; else bad "client received $got of 2"; fi
-del=$(grep -o '1884:000000:0064</td><td>[0-9]*</td>' .dg-a-diag.html | sed 's/.*<td>//; s/<.*//' | head -1)
+del=$(grep -o '1884:000000:0064</a></td><td>[0-9]*</td>' .dg-a-diag.html | sed 's/.*<td>//; s/<.*//' | head -1)
 if [ "$del" = "2" ]; then ok "/diag counts 2 deliveries on 1884:000000:0064 (the card path)";
 else bad "/diag delivered for 1884:000000:0064 is '$del', want 2"; fi
 if grep -q "Diagnosis" .dg-a-diag.html; then ok "/diag renders"; else bad "/diag did not render"; fi
@@ -88,7 +88,7 @@ if grep -q "<td>card</td>" .dg-b-cwlog.html && grep -q "card-too-fast" .dg-b-cwl
     ok "/cwlog names the peer 'card' and the reason card-too-fast"
 else bad "/cwlog does not show the card refusal"; fi
 if grep -q "csp:65535" .dg-b-cwlog.html; then bad "/cwlog prints the card as csp:65535 (the old label)"; else ok "/cwlog has no csp:65535 label"; fi
-if grep -q "1884:000000:0064</td><td>0</td><td>[1-9]" .dg-b-diag.html && grep -q "card-too-fast" .dg-b-diag.html; then
+if grep -q "1884:000000:0064</a></td><td>0</td><td>[1-9]" .dg-b-diag.html && grep -q "card-too-fast" .dg-b-diag.html; then
     ok "/diag refused the channel and gives the same reason"
 else bad "/diag does not show the card refusal"; fi
 if grep -q "<td>card</td><td>[1-9]" .dg-b-diag.html; then ok "/diag's peer table names the card";

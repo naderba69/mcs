@@ -129,7 +129,7 @@ release-stats:
 # NULL and the first fprintf crashed. The test now mkdirs its directory and
 # guards its fixtures (xopen), so running it right after test_monjson is kept
 # as the standing regression for exactly that folklore.
-test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_chanhealth x64/test_diag x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_dcwtiming
+test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_chanhealth x64/test_diag x64/test_diagscope x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_dcwtiming
 	./x64/test_cachequeue
 	@echo
 	./x64/test_cwconsensus
@@ -145,6 +145,8 @@ test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwatte
 	./x64/test_chanhealth
 	@echo
 	./x64/test_diag
+	@echo
+	./x64/test_diagscope
 	@echo
 	./x64/test_loginthrottle
 	@echo
@@ -378,6 +380,10 @@ x64/test_chanhealth: test_chanhealth.c ../src/chanhealth.h ../src/cwlog.h
 x64/test_diag: test_diag.c ../src/diag.h ../src/chanhealth.h ../src/cwlog.h ../src/cwlog.c
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -DMCS_DCWSTATS -o $@ test_diag.c ../src/cwlog.c -lpthread
+# TASK R48 (D111): the detail scope, the setting hints, and the new counters.
+x64/test_diagscope: test_diagscope.c ../src/diagscope.h ../src/diag.h ../src/chanhealth.h ../src/cwlog.c
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -DMCS_DCWSTATS -o $@ test_diagscope.c ../src/cwlog.c -lpthread
 x64/test_monjson: test_monjson.c ../src/monjson.c ../src/monjson.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_monjson.c ../src/monjson.c -lpthread
