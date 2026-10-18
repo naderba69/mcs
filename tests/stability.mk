@@ -34,6 +34,7 @@ STAB_CFG   = .stability.cfg
 # continuations join it into a single shell line, so a comment swallows every
 # remaining command -- this broke twice, once making a variable silently empty
 # and once producing `/bin/sh: Syntax error: end of file unexpected`.
+# R60: stock stability runs the shipped stock binary (survives `release`, which wipes make-x64/x64).
 stability:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@command -v stdbuf >/dev/null || { echo "stdbuf required"; exit 1; }
@@ -110,7 +111,7 @@ stability:
 	}; \
 	\
 	rc=0; \
-	run_one ../make-x64/x64/multics stock || rc=1; \
+	run_one ../bin/multics-r82a-stock-x64 stock || rc=1; \
 	sleep 2; \
 	run_one $(BIN) configured || rc=1; \
 	rm -f $(STAB_CFG); \
