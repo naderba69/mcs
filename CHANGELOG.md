@@ -6,6 +6,13 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R62 — Protection audit per profile and per engine (2026-10-18)
+
+- New `tests/protection_audit.py`: computes the effective value of every protection key for all 72 profiles (profile line, then DEFAULT, then the code default, the same order as the parser), checks each against its CA family, and with `--live` compares the values the running server shows on `/profile?id=N`.
+- Result: live engine tests 22/22 pass; unit `make test` 25/25; `test_cacheex_gates` 24/24. Live profile page: 864 values compared, 0 mismatches. Negative control (candidate file against production server): 69 mismatches, as expected.
+- Findings, not changed in this round: `ECM CHECK LENGTH: NO` in 21 profiles with no recorded reason (5 of them also carry an `ECM LENGTH` list that is never enforced); 8 protection keys are not shown on the profile page, so they are audited from the file only; `dcw_on_failure` logs "triggering quick switch" and "Emergency mode activated" but switches nothing, and `dcw_needs_emergency`, `server_health` scores, `performance-suite.h` and several optimisation decision functions have no caller in the production binary.
+- Report: `docs/PROTECTION-AUDIT-R62-ar.md` (full table of 72 profiles).
+
 ## R61 — Production: channel 1814 timing applied (2026-10-18)
 
 - `multics-r24-optimized.cfg`, profile `[MEO PT - 1814]` only: `SERVER FIRST 2->3`, `SERVER INTERVAL 150->100`, `SERVER TIMEOUT 800->1500`, `SERVER VALIDECMTIME 800->1500`. `CACHE STATIC` stays `NO`.
