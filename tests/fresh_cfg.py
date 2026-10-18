@@ -46,8 +46,23 @@ INHERITABLE = [
 # profile (config.c; cfgcheck: "use CACHEEX MAXHOP_LG"), so writing the DEFAULT value
 # would change behaviour. MAXHOP_LG is left as the operator wrote it.
 
+# Rule 4 (R57): feature knobs written explicitly in every profile. The value is
+# the one the code already gives when the key is absent (init_cardserver() in
+# config.c memsets to 0 and then sets checkecmlength=1; ECMLOOPING inherits
+# DEFAULT YES). Writing them changes nothing; it makes each profile state them.
+# DCW VALIDECMTIME stays 0 (OFF): it refuses late keys, and no per-CAID reply
+# time is measured yet, so arming it would be a guess (docs/FRESH-CONFIG-R57-ar.md).
+FEATURE_KNOBS = [
+    ("ENABLE ECMLOOPING", "YES"),
+    ("DCW MINTIME", "0"),
+    ("DCW VALIDECMTIME", "0"),
+    ("ECM CHECK LENGTH", "YES"),   # profiles that say NO keep NO (not overwritten)
+]
+CODE_DEFAULT = {"DCW MINTIME": "0", "DCW VALIDECMTIME": "0", "ECM CHECK LENGTH": "YES"}
+
 # Measured window overrides (CAID -> server timeout ms). Source: docs/FRESH-CONFIG-R56-ar.md.
 MEASURED_TIMEOUT = {"1814": 1200}
+FIXED_CAIDS = {"2600", "2610", "1010"}   # BISS1, BISS2, Tandberg: fixed local keys
 STOCK_TIMEOUT_FROM = 800   # the R45 "fast" class value that moves to the file's default
 DEFAULT_TIMEOUT = 1000     # = DEFAULT SERVER TIMEOUT in the global section
 
@@ -103,6 +118,23 @@ def main():
                 last_key_idx = i
         caid = kv.get("CAID", (None, ""))[1]
 
+        # Rule 5 (R57): cache first. CACHE STATIC: YES makes the ECM wait for the
+        # cache before the server is asked (th-ecm.c:119-140). The wait is bounded by
+        # CACHE TIMEOUT (250 ms), and it is paid on every ECM the cache does not hold.
+        # Fixed-key profiles keep ENABLE CACHE: NO, so they stay NO here.
+        static_yes_line = False
+        if caid not in FIXED_CAIDS:
+            if "CACHE STATIC" in kv and kv["CACHE STATIC"][1].upper() == "NO":
+                i, old = kv["CACHE STATIC"]
+                indent = re.match(r"^(\s*)", lines[i]).group(1)
+                lines[i] = f"{indent}CACHE STATIC: YES"
+                changes.append((name, "CACHE STATIC", old, "YES", "cache first: armed (cost <= CACHE TIMEOUT)"))
+            elif "CACHE STATIC" not in kv:
+                # inherits DEFAULT NO: write YES as a new line (rule 1 must not add NO)
+                kv["CACHE STATIC"] = (None, "YES")   # placeholder: stops rule 1 writing NO
+                changes.append((name, "CACHE STATIC", "(inherited NO)", "YES", "cache first: armed (cost <= CACHE TIMEOUT)"))
+                static_yes_line = True
+
         # Rule 2: timing. Only lines that exist are rewritten.
         new_to = None
         if caid in MEASURED_TIMEOUT:
@@ -125,11 +157,20 @@ def main():
 
         # Rule 1: make inherited keys explicit (value taken from DEFAULT).
         add = []
+        if static_yes_line:
+            add.append("CACHE STATIC: YES")
         for key in INHERITABLE:
             if key in kv or key not in defaults:
                 continue
             add.append(f"{key}: {defaults[key]}")
             changes.append((name, key, "(inherited)", defaults[key], "explicit, same value"))
+        for key, val in FEATURE_KNOBS:
+            if key in kv:
+                continue          # never overwrite an operator's explicit choice
+            if key == "DCW MINTIME" and caid in FIXED_CAIDS:
+                continue          # cfgcheck: fixed-key profiles must not carry MINTIME
+            add.append(f"{key}: {val}")
+            changes.append((name, key, "(code default)", val, "explicit feature knob, same value"))
         if add:
             pos = last_key_idx + 1 if last_key_idx >= 0 else len(lines)
             lines[pos:pos] = add

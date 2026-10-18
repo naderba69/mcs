@@ -6,6 +6,18 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R57 — New features in every profile, measured where a value is needed (2026-10-18)
+
+**Candidate only: `multics-r56-fresh.cfg`. Production `multics-r24-optimized.cfg` is not replaced.**
+
+- CACHE STATIC: YES in 70 profiles (cache first; cost bounded by CACHE TIMEOUT 250 ms per uncached ECM). BISS and Tandberg stay NO (cache off there).
+- ENABLE ECMLOOPING, ECM CHECK LENGTH and DCW MINTIME written explicitly in profiles; values equal the code defaults, so no behaviour change. DCW MINTIME absent from fixed-key profiles (cfgcheck rule).
+- DCW VALIDECMTIME written as 0 (OFF) in every profile. No per-CAID reply time is measured, so no value is set.
+- ECM CHECK LENGTH NO kept in 21 profiles (not measured).
+- Correction to R56: SERVER VALIDECMTIME excludes a server from routing (loadbalance.c:231); SERVER TIMEOUT bounds sending only.
+- Verification: effective-value diff (tests/fresh_cfg_diff.py), cfgcheck 6/6, live boot log identical to production, live /profile page shows the new values.
+- Docs: docs/FRESH-CONFIG-R57-ar.md; R56 correction in docs/FRESH-CONFIG-R56-ar.md.
+
 ## R55 — The cache path names the test that refused the key (2026-10-18)
 
 **Finding (from a /diag export).** Every refusal on the cache path was labelled

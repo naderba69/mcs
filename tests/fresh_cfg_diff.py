@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """R56: effective-value diff of two profile files (DEFAULT inherited). Usage: fresh_cfg_diff.py OLD NEW"""
 import re,sys
+# Values the code gives when a key is absent (init_cardserver, config.c:406-456).
+CODE_DEFAULT = {"DCW MINTIME": "0", "DCW VALIDECMTIME": "0", "ECM CHECK LENGTH": "YES"}
+
 def load(path):
     lines=open(path,encoding='utf-8').read().split('\n')
     first=next(i for i,l in enumerate(lines) if l.strip().startswith('['))
@@ -20,7 +23,7 @@ def load(path):
             k,v=s.split(':',1); profs[cur][' '.join(k.upper().split())]=v.split('#')[0].strip()
     eff={}
     for n,kv in profs.items():
-        e=dict(d); e.update(kv); eff[n]=e
+        e=dict(d); e.update(CODE_DEFAULT); e.update(kv); eff[n]=e
     return eff
 a=load(sys.argv[1]); b=load(sys.argv[2])
 assert list(a)==list(b), 'profile list differs'
