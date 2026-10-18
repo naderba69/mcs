@@ -6,6 +6,31 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R55 — The cache path names the test that refused the key (2026-10-18)
+
+**Finding (from a /diag export).** Every refusal on the cache path was labelled
+`profile-filter`. That label was a constant, not the test that failed. `dcw.c` already
+records the real test (checksum, null, repeat, badlist, pattern), but the cache path
+neither cleared that value before the gate nor read it. So the page could not say which
+test refused a key. The analysis is in `docs/DIAG-EXPORT-R55-ar.md`.
+
+**Changed (stats builds only).** `src/clustredcache.c`: the reason is cleared before the
+structural gate, and the ring row carries the real test, using the same mapping as
+`setdcw_profile_reason()`. `profile-filter` remains only when no test named the refusal.
+No decision changed: a refused key is still refused, and an accepted key is still accepted.
+
+**Checks.** `make -C make-x64 test` 25/25. `make -C tests all` exit 0 with no `[FAIL]` line.
+The stock binary is byte-identical before and after (`ecb3f2d0…`), because the change is
+inside `#ifdef MCS_DCWSTATS`. The queue binary without counters is also unchanged.
+
+**Not verified.** No live test yet shows the new label on a cache-path refusal. The suite
+does not read that label. The next `/diag` export from the new binary is the check.
+
+**Not changed (operator decision).** Profile 1884 and the 098D profile. The shipped file has
+no active `N:` or `CACHE PEER` line, so the card column of an export cannot be read from it.
+
+---
+
 ## R54 — The binaries are updated and checked (2026-10-18)
 
 **Built.** `make -C make-x64 release-queue` and `release-queue-stats` were rebuilt from `HEAD`.
