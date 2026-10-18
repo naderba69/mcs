@@ -6,6 +6,29 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R53 — The filter key was dead; corrected, and the check fixed (2026-10-18)
+
+**Live finding.** The top-level `FILTER: NO` and `FILTER TIME: 10` have no parser branch.
+The only `FILTER` handler sits under `CACHE`. A live boot showed `Filter = ON` on `/cache`
+with `FILTER: NO`, and `Filter = OFF` with `CACHE FILTER: OFF`. Profile-level `FILTER` keys
+are dead too. The R40 claim that these lines worked was wrong. The per-profile table is
+in `docs/PROFILES-R53-ar.md`.
+
+**Changed (no live behaviour change).** The dead lines became `CACHE FILTER: ON` and
+`CACHE FILTER TIME: 0`, which are the values that already ran (the code defaults). The
+dead top-level `ACCEPT NULL ONID` was removed (it is ignored before any profile).
+`tests/cfgcheck.py` now treats those keys as dead and requires `CACHE FILTER`.
+
+**Not changed (operator decision).** `CACHE FILTER TIME` 0 versus 10; `CACHE TIMEOUT`
+250 on all 72 profiles; `SERVER TIMEOUT` 800 on 62 profiles; `DCW MAXFAILED` 3 (documented
+floor); profile 1884 unchanged. The reference file's default `DCW VALIDECMTIME 1200` would
+refuse late keys, so it is not adopted.
+
+**Checks.** `cfgcheck` 6/6; `make -C tests prof` 5/5; a `-v` boot shows no `Skip` line.
+`MANIFEST-md5` refreshed for the two changed files.
+
+---
+
 ## R52 — Line-by-line audit of the profiles, and the typo net (2026-10-18)
 
 **Audit.** Every profile line was checked against the parser and against the CA

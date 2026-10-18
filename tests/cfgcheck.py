@@ -19,6 +19,10 @@ import os, sys, re, collections
 DEAD_GLOBAL = {
     "DEFAULT FILTER", "DEFAULT FILTER TIME", "DEFAULT ECM CHECK",
     "DEFAULT ECM CHECK LENGTH",
+    # R53 (live-verified): top-level FILTER / FILTER TIME have no parser branch;
+    # the filter lives under CACHE (CACHE FILTER / CACHE FILTER TIME). A top-level
+    # ACCEPT line before any profile is logged "Skip ACCEPT, undefined profile".
+    "FILTER", "FILTER TIME", "ACCEPT NULL ONID",
 }
 DEAD_PROFILE = {
     "CACHEEX PUSH",         # no parser branch
@@ -74,14 +78,14 @@ def main(path):
     for k in DEAD_GLOBAL:
         if k in glob:
             bad("global dead key present: %s (no parser branch)" % k)
-    for k in ("FILTER", "FILTER TIME", "ACCEPT NULL ONID",
+    for k in ("CACHE FILTER", "CACHE FILTER TIME",
               "CAID FAMILY PROVIDERCHECK", "CAID FAMILY NOPROVCHK"):
         if k not in glob:
             bad("global key missing: %s" % k)
     if glob.get("CAID FAMILY HALFNULLED", [""])[0].replace(" ", "") != "09":
         bad("CAID FAMILY HALFNULLED must be exactly 09 (NDS)")
     if not fails:
-        ok("global section: no dead DEFAULT keys; FILTER/ONID/family policy explicit")
+        ok("global section: no dead keys; CACHE FILTER/family policy explicit")
 
     # ---- profiles ----
     if len(profs) != 72:
