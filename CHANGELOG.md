@@ -6,6 +6,23 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R54 — The binaries are updated and checked (2026-10-18)
+
+**Built.** `make -C make-x64 release-queue` and `release-queue-stats` were rebuilt from `HEAD`.
+`dist/` and `bin/` now carry the new queue builds: `multics-r82a-queue-x64`
+`27e6a35e…`, `multics-r82a-queue-stats-x64` `37f6260d…`. A clean clone gives the same checksums.
+The stock and stats builds were already current (no `src/` change since R50), so they are unchanged.
+
+**Checked.** `make -C tests all` exits 0 with 499 `[ ok ]` checks and no `[FAIL]` line.
+`MANIFEST-md5` (576 entries) passes `md5sum -c`.
+
+**Docs.** `bin/README-R24-x64.md` now lists the current checksums. Its old values were wrong.
+
+**Not updated.** `multics-r82a-x64` has no build target in this repo. The arm, mipsel and sh4
+builds need cross toolchains that are not installed, so they stay as they were.
+
+---
+
 ## R53 — The filter key was dead; corrected, and the check fixed (2026-10-18)
 
 **Live finding.** The top-level `FILTER: NO` and `FILTER TIME: 10` have no parser branch.
