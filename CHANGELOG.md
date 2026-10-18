@@ -12,6 +12,7 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 - The tracked stock binary changes hash (log text only): `multics-r82a-stock-x64` ecb3f2d0 -> 57da7ab4. The previous stock build also contained the removed strings.
 - Checks: `make -C make-x64 test` 25/25 (after `mkdir -p make-x64/x64`), `make -C tests dg` ok, `make -C tests prof` 5/5, `cfgcheck` production and candidate exit 0. The new line is not exercised on live card traffic in this round.
 - `tests/protection_audit.py`: new parser check. Every word of every audited key must appear as a quoted string in `src/config.c`; the audit prints "parser check: 20 keys, unknown words: none". The audit's code defaults were compared with `init_cardserver` and the parser: they match (no change needed). Only word-level presence is proven, not the mapping.
+- `docs/BLACKSCREEN.md` (R63 section): explains "Decode success". It is set in every server protocol just before the CW is sent (`lastecm.status=1`, before `cs_message_send`), so it means "the CW was sent", not "the receiver decrypted". No code change.
 - `tests/stability.mk` (`run_one`): refuses to test when the HTTP port already answers before start (a stale process would otherwise pass the checks). Verified with a decoy server on the port: exit 2 with a FAIL line. Clean run with `BIN=../bin/multics.x64`: 10 ok, 0 FAIL, exit 0.
 
 ## R62 — Protection audit per profile and per engine (2026-10-18)
