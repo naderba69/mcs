@@ -95,6 +95,10 @@ int isbadDCW(uint8_t *data)
 #endif
 MCS_DCWSTATS_WEAK int           dcwstats_on = 0;
 MCS_DCWSTATS_WEAK unsigned long dcwstats[DCW_REJ_COUNT] = {0};
+/* TASK R47 (D110): the reason of this thread's last acceptDCW_impl
+ * reject (0 = none). setdcw.c reads it to name a card refusal in the
+ * ring. Thread-local: each ECM thread reads only its own reject. */
+__thread int dcw_last_reject_reason = 0;
 #endif
 #endif
 
@@ -259,18 +263,21 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 	if ( checksum && !checksumDCW(data)) {
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_CHECKSUM);
+		dcw_last_reject_reason = DCW_REJ_CHECKSUM;
 #endif
 		return 0;
 	}
 	if ( isnullDCW(data) ) {
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_NULL);
+		dcw_last_reject_reason = DCW_REJ_NULL;
 #endif
 		return 0;
 	}
 	if ( repeat && isbadDCW(data) ) {
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_REPEAT);
+		dcw_last_reject_reason = DCW_REJ_REPEAT;
 #endif
 		return 0;
 	}
@@ -282,6 +289,7 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 	if ( dcw_on_badlist(data) ) {
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_BADLIST);
+		dcw_last_reject_reason = DCW_REJ_BADLIST;
 #endif
 		return 0;
 	}
@@ -300,6 +308,7 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 		if (pattern && dcw_pattern_fake(data)) {
 #ifdef MCS_DCWSTATS
 			DCWSTATS_REJECT(DCW_REJ_PATTERN);
+			dcw_last_reject_reason = DCW_REJ_PATTERN;
 #endif
 			return 0;
 		}

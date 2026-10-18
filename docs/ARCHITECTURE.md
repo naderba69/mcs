@@ -1710,3 +1710,43 @@ Contract, since TASK 3.14:
   were dropped. Dropping the line logs `list cleared` once.
 - `dcwfilter.c` is still not compiled. The walk lives in `dcw.c`,
   which is the file OBJECTS already links.
+
+## §33 — the diagnosis page `/diag` (TASK R47, D110)
+
+Stats flavour only. Every line is under `#ifdef MCS_DCWSTATS`.
+
+Data flow, one source per verdict:
+
+- **Ring** (`src/cwlog.c`, `cwlog_note`): refusals and holds, with the peer
+  and the reason. Reasons 0–20 are in `src/cwlog.h`. The card's peer is
+  `CWLOG_PEER_CARD` (-2).
+- **Cache deliveries** (`cwlog_deliver`, `src/clustredcache.c`): a delivery that
+  waited for a cache answer. Deliveries are counted per channel, not as rows.
+- **Card deliveries** (`chan_note` in `src/setdcw.c`): the first delivery of a
+  card answer. Counted per channel.
+- **Memory re-asks** (`cs_note_resend`, `src/srv-newcamd.c`): a repeat of a key
+  already sent. Counted per channel, no ring row.
+- **Channel table** (`src/chanhealth.h`, `chanhealth_reset`): 24 channels, LRU,
+  `CHANHEALTH_STREAK` 5. `dcwstats reset` clears it. The ring is not cleared.
+
+Rules, pure C, testable without a socket (`src/diag.h`):
+
+- `diag_classify` gives one finding per channel. DYING at streak 5 or more.
+  Then a reason at 50% or more of verdicts. HEALTHY at 90% or more deliveries.
+  MIXED otherwise. LOW_SAMPLE below 5 verdicts, and LOW_SAMPLE is the only
+  finding then.
+- `diag_package_top` gives a package the worst of its channels.
+- `diag_advice` gives one line per finding. It says what to review. It changes
+  nothing.
+
+Page: `http_send_diag` in `src/httpserver.c`, served at `/diag` after `/stats`.
+It uses `diag_top_reason` for the "reason in the ring" column and
+`diag_peer_name` for peers, shared with `/cwlog`.
+
+Tests: `make-x64/test_diag.c` (45 checks, links `cwlog.c`),
+`make-x64/test_chanhealth.c` (36 checks), both in the `test` target.
+`tests/r47-dg.sh` (`make -C tests dg`) drives a real card (`ncserver`) through
+delivery and through `DCW MINTIME`, and reads `/diag` and `/cwlog`.
+
+Known limit: a rejected ECM entry is reused by hash, so a burst of identical
+requests does not reach the streak. Five distinct ECMs are needed.

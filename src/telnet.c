@@ -1,4 +1,7 @@
 #include "common.h"
+#ifdef MCS_DCWSTATS
+#include "chanhealth.h"	/* TASK R47 (D110): dcwstats reset clears the channel table */
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -266,6 +269,7 @@ void *telnetprocess(int *param )
 				uppercase(str);
 				if ( !strcmp(str, "RESET") ) {
 					dcwstats_reset();
+					chanhealth_reset();	/* TASK R47 (D110): the /diag totals reset too */
 					writes(fd, "dcwstats: counters reset\r\n");
 				}
 				else writes(fd, "dcwstats: usage: dcwstats [reset]\r\n");

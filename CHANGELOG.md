@@ -6,6 +6,49 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R47 — One diagnosis page, `/diag`: see, name the fault, suggest the fix (2026-10-18)
+
+**Decisions:** D110
+
+**What changed.** A new page `/diag` (stats flavour only, behind the same
+authenticated chain as `/stats` and `/cwlog`). It shows, per channel, the
+deliveries, the refusals, the last reason and the streak, then names a verdict
+by a fixed rule and gives one line of advice. The page only reads: it never
+changes a setting.
+
+- Per-channel table (`chanhealth`, 24 channels, LRU). It was documented in R15
+  but never wired. R47 wires it.
+- Deliveries are now counted on the card path (`chan_note` in `setdcw.c`), on
+  the cache path (`cwlog_deliver`), and on the memory re-ask
+  (`cs_note_resend`). Before, a working card channel had no row at all.
+- The verdict ring (`/cwlog`) gained three reasons: 18 MINTIME
+  (`card-too-fast`), 19 LATECARD, 20 PATTERN from the card.
+- A card refusal was printed as `csp:65535`. It now prints as `card`
+  (`CWLOG_PEER_CARD`, -2).
+- `dcwstats reset` also clears the channel table. The ring is not cleared.
+- `/cwlog` and `/diag` share one peer naming function (`diag_peer_name`).
+
+**Stock is untouched.** Every new line is under `#ifdef MCS_DCWSTATS`. The stock
+binary from this commit matches the stock binary from `HEAD`
+(`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes).
+
+**Proof.**
+- `make -C make-x64 test`: 25/25 (includes new `test_diag` 45 checks and
+  `test_chanhealth` 36 checks; `test_cwlog` 57).
+- `make -C tests dg` (new, `tests/r47-dg.sh`): 8 checks. Case A: a card that
+  answers in time gives delivered 2 on `/diag`. Case B: `DCW MINTIME: 500` gives
+  `card-too-fast` with peer `card` on both `/cwlog` and `/diag`.
+- `make -C tests dw` 8/8, `make -C tests bd` 8/8, `make -C tests all`
+  498 ok, `SUITE_EXIT=0`.
+
+**Test changes.** `test_dcwstats.c` owns the new per-thread reject reason, the
+same way it owns the counters. `make-x64/Makefile` builds and runs
+`test_chanhealth` and `test_diag` in the `test` target.
+
+**Limits.** Six client requests on one card gave two refusals, not six.
+multics reuses a rejected ECM entry with the same hash, so the card is not
+asked again. The DYING streak (5) is covered by `test_diag`, not live.
+
 ## R46 — DCW counters on their own page, `/stats` (2026-10-18)
 
 **Decisions:** D109

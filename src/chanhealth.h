@@ -175,12 +175,13 @@ static int chanhealth_copy(const struct chanhealth_tab *t,
 }
 
 /*
- * The live feed and readout, implemented in main.c next to the other
- * evidence wrappers (the table is a main.c global; the wrapper holds the
- * lock and owns the alert line). chan_note() returns 1 when the alert
- * fired on this call, like the pure layer above.
+ * The live feed and readout, implemented in cwlog.c beside the ring (the
+ * table is a cwlog.c global behind its own mutex). chan_note() is the one
+ * entry point; the dying-of-refusals line is printed by cwlog_chan_alert()
+ * in clustredcache.c. (R47 / D110.)
  */
-int chan_note(int verdict, uint32_t caid, uint32_t provid, uint16_t sid);
+void chan_note(int verdict, uint32_t caid, uint32_t provid, uint16_t sid);
 int chanhealth_snapshot(struct chanhealth_row *out, int max);
+void chanhealth_reset(void);
 
 #endif /* MCS_CHANHEALTH_H */

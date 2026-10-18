@@ -702,6 +702,16 @@ int put_cache2ecm(uint8_t type, uint8_t *buf, struct cache_data *pcache, uint8_t
  * below reads as evidence, not bookkeeping. The stock flavour never
  * compiles any of this.
  */
+#include "chanhealth.h"	/* TASK R47 (D110): struct chanhealth_row for the alert */
+/* TASK R47 (D110): the dying-of-refusals line, once per episode. cwlog.c calls
+ * it through a weak symbol (test_cwlog has no debugf). */
+void cwlog_chan_alert(const struct chanhealth_row *r)
+{
+	debugf(DBG_ERROR, " !!! [CHANHEALTH] ch %04x:%06x:%04x DYING OF REFUSALS: %u refused in a row (delivered %u, refused %u, held %u)\n",
+		(unsigned)r->caid, (unsigned)r->provid, (unsigned)r->sid,
+		(unsigned)r->streak, (unsigned)r->delivered, (unsigned)r->refused,
+		(unsigned)r->held);
+}
 static void cwlog_refuse(int reason, int peerid, uint32_t caid, uint32_t provid,
 			 uint16_t sid, const uint8_t *cw)
 {

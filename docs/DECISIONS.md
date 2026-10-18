@@ -4211,3 +4211,77 @@ home page. They were restored to `HEAD` after the tests, per the rule that a
 binary is committed only on request. A stock build from `HEAD` does not match
 the committed `dist/multics-r82a-stock-x64` either, and that predates R46.
 
+
+## D110 (R47) — One diagnosis page: see, name the fault, suggest the fix
+
+**Context.** The operator had counters (`/stats`) and a verdict ring (`/cwlog`),
+but no single place that answered three questions: what is failing, on which
+channel or package, and what to change. Reading the two pages together was
+slow, and the pages disagreed in places:
+
+- A card refusal was shown with peer `csp:65535`, because the card has no peer
+  id and `-1` was printed as a number.
+- A delivery from the card was never recorded, so a channel that worked had no
+  row to show that it worked.
+- `docs/REPORT-R15-ar.md` described a per-channel health table
+  (`chanhealth`) and its `chan_note` and `chanhealth_snapshot` as wired. They
+  were not. `grep` found no caller before R47.
+
+**Decision.** A diagnosis page `/diag`, stats flavour only, under
+`#ifdef MCS_DCWSTATS`, with three parts that are read-only:
+
+1. **See.** A per-channel table (`chanhealth`, 24 channels, LRU) with
+   deliveries, refusals, the last reason and a streak. Deliveries come from the
+   cache path (`cwlog_deliver`), from the card path (`chan_note` in
+   `setdcw.c`), and from the memory re-ask (`cs_note_resend`).
+2. **Name.** A fixed rule in `src/diag.h`, with no randomness and no learned
+   weights:
+   - DYING when the streak is 5 or more (`CHANHEALTH_STREAK`).
+   - A reason when one reason takes 50% or more of the verdicts.
+   - HEALTHY when deliveries are 90% or more.
+   - MIXED otherwise.
+   - LOW_SAMPLE below 5 verdicts. No verdict is given on a thin sample.
+   - A package's verdict is the worst channel in it (`diag_package_top`).
+3. **Suggest.** One line per verdict, with the setting that a human may change.
+   The page never changes a setting.
+
+**No automatic fixes.** A suggestion is text on the page. The server does not
+change a value, a profile, or a channel by itself. That follows the project
+rule: a feature is opt-in, and a change is made by the operator.
+
+**Counters and the ring.** `dcwstats reset` clears the channel table with the
+counters. The ring (`/cwlog`) is not cleared. The page says so. Reason 18
+(MINTIME, `card-too-fast`), 19 (LATECARD) and 20 (PATTERN, from the card) are
+new ring reasons. Reason 10 stays HOLD, and the card's peer is `CWLOG_PEER_CARD`
+(-2), so it prints as `card`.
+
+**Stock is untouched.** Every new line is under `#ifdef MCS_DCWSTATS`. The
+stock binary from `HEAD` and from this commit have the same md5
+(`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes).
+
+**Proof.**
+- Unit: `make -C make-x64 test` 25/25. `test_diag` 45 checks, `test_chanhealth`
+  36 checks, `test_cwlog` 57 checks.
+- Regression: `make -C tests dg` (new, `tests/r47-dg.sh`) 8 checks. `dw` and
+  `bd` 8/8 each. `make -C tests all` 498 ok, `SUITE_EXIT=0`.
+- Live (ports 16850–16853 and 1686x): a card that answers in time gives
+  delivered 2 on `/diag` for `1884:000000:0064`. The same card under
+  `DCW MINTIME: 500` gives `card-too-fast` with peer `card` on `/cwlog`, and the
+  same reason and peer on `/diag`.
+
+**Limits, stated plainly.**
+- Burst test: 6 client requests gave 2 refusals, not 6. multics reuses a
+  rejected ECM entry with the same hash, so the card is not asked again. The
+  streak reaches 5 only with 5 different ECMs. That is covered by `test_diag`
+  but was not reproduced live.
+- The stale claim in `docs/REPORT-R15-ar.md` is corrected here. The module is
+  now wired, and the report's wording is historical.
+
+**Open, not decided here.**
+- The cache-first gate (R45) still waits for the operator's yes or no. It
+  changes the delivery path and it costs `CACHE TIMEOUT` on each cache miss.
+- Channel `1884:000000:1136` is unchanged. Its checksum refusals are shown on
+  `/diag`. The choice between the three options is still open.
+- The committed `dist/` and `bin/` stats binaries are not updated here. They
+  are restored to `HEAD`, per the rule that a binary is committed only on
+  request.

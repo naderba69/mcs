@@ -9,6 +9,25 @@
 
 void cs_disconnect_cli(struct cs_client_data *cli);
 void cs_senddcw_cli(struct cs_client_data *cli);
+#ifdef MCS_DCWSTATS
+/*
+ * TASK R47 (D110): a request answered from memory. A client that asks again
+ * for an ECM whose CW is already known gets it straight from this function,
+ * without passing a setdcw decision, so the channel table would miss it. The
+ * first delivery is counted at setdcw; this counts only the re-asks, which
+ * the caller reaches only when the CW is SUCCESS (the same test as
+ * cs_senddcw_cli). Counters only; the send itself is unchanged.
+ */
+#include "chanhealth.h"
+#include "dcwstats.h"
+static void cs_note_resend(ECM_DATA *ecm)
+{
+	if (dcwstats_on && ecm->dcwstatus == STAT_DCW_SUCCESS)
+		chan_note(CWLOG_DELIVERED, ecm->caid, ecm->provid, ecm->sid);
+}
+#else
+#define cs_note_resend(ecm) ((void)0)
+#endif
 
 
 struct cs_client_data *getnewcamdclientbyid(uint32_t id)
@@ -776,11 +795,11 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 										ecm->checktime = 1; // Wakeup Now
 										pipe_wakeup( prg.pipe.ecm[1] );
 									}
-									else cs_senddcw_cli(cli);
+									else { cs_note_resend(ecm); cs_senddcw_cli(cli); }
 								}
 								else
 #endif
-								cs_senddcw_cli(cli);
+								{ cs_note_resend(ecm); cs_senddcw_cli(cli); }
 							}
 #ifdef TESTCHANNEL
 							int testchannel = ( (ecm->caid==cfg.testchn.caid)&&(ecm->provid==cfg.testchn.provid)&&(!cfg.testchn.sid||(ecm->sid==cfg.testchn.sid)) );

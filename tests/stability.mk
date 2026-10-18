@@ -5457,3 +5457,13 @@ r44: .ccdcw.bin $(NCSERVER)
 	@rm -f .r44-results.txt; \
 	if sh r44.sh $(BIN) ./$(NCSERVER) ./.ccdcw.bin; then echo "  r44: all cases as designed"; \
 	else echo "[FAIL] r44: see tests/.r44-*.log"; exit 1; fi
+
+# TASK R47 (D110): /diag and /cwlog on the card path, end to end. A card
+# (ncserver) feeds MultiCS: delivered 2 on /diag, and the refusal under DCW MINTIME
+# is named "card" in /cwlog with reason card-too-fast. Script: r47-dg.sh.
+.PHONY: dg
+dg: $(NCSERVER) $(NCCLIENT)
+	@make -s -C ../make-x64 release-stats > /dev/null || { echo "[FAIL] stats release build"; exit 1; }
+	@test -x $(STATS_BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 -x ".ncserver.bin" 2>/dev/null; sleep 1; true
+	@sh r47-dg.sh $(STATS_BIN) ./$(NCSERVER) ./$(NCCLIENT)
