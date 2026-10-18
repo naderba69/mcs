@@ -6,6 +6,14 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R61 — Production: channel 1814 timing applied (2026-10-18)
+
+- `multics-r24-optimized.cfg`, profile `[MEO PT - 1814]` only: `SERVER FIRST 2->3`, `SERVER INTERVAL 150->100`, `SERVER TIMEOUT 800->1500`, `SERVER VALIDECMTIME 800->1500`. `CACHE STATIC` stays `NO`.
+- Why: the live log measured valid replies at 1054 and 1209 ms after send. With 800 ms, the server-average gate (`SERVER VALIDECMTIME`, `loadbalance.c:231`) excluded the slow servers and the send window (`SERVER TIMEOUT`, `th-ecm.c:180`) closed before their replies.
+- NOT promoted: the candidate `multics-r56-fresh.cfg` sets `CACHE STATIC YES` on 69 of 72 profiles. That adds the cache wait (`CACHE TIMEOUT`, up to 250 ms) before every server send. The 1814 log shows that wait is the first cost on that channel. Promoting the candidate as-is would add latency to 69 channels, so it stays a candidate.
+- Verified: `cfgcheck` 6/6; `make -C tests prof` 5/5 on the production file; live binary on the production file serves `/profile?id=132` (MEO PT - 1814) with the new values; the file's only diff is the 4 lines above.
+- Not verified: the 1814 channel itself on the real card servers (no route from this sandbox). The black screen behind a "Decode success" line is still unexplained.
+
 ## R58 — Channel 1814 after a live decode log (2026-10-18)
 
 - Live log for 1814:005211:13AE: three servers returned the same valid CW at 713 / 1054 / 1209 ms after their send. The first send was at 263 ms, which is the R57 cache wait (CACHE STATIC YES).

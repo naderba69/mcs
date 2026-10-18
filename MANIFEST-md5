@@ -1,5 +1,5 @@
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-b0ed2f6bc99c8aa2db2e2251bb0ad833  CHANGELOG.md
+cb318394b581c3756d6a0578886c1dfe  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
@@ -330,7 +330,7 @@ ee478157f48579b1cfde0fdfbcee5f75  make-x64/test_rotation.c
 266a1130913160ff4a5d4b324075ac20  make-x64/test_trust.c
 0e58c1b87132ab91e211b0acae5b2faf  make-x64/test_trustagg.c
 6a9b188611bd6f5e373df0313928fcb8  make-x64/test_trustlife.c
-8a20fb85822adcb81386ce10fb6cf584  multics-r24-optimized.cfg
+b633d29a5358ffcaa0d8a03f6a0b4879  multics-r24-optimized.cfg
 0b91199696099224a18e4a7d7a70b15d  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
 f23040a9339c8f5dfa3e6c946764050a  src/advanced-optimizations.c
