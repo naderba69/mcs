@@ -1,18 +1,22 @@
 #!/bin/sh
-# TASK R48 (D111): the detail scope, end to end, switched ON WHILE THE SERVER RUNS.
+# TASK R48 (D111) + R49 (D112): the detail scope, end to end, switched ON and OFF
+# WHILE THE SERVER RUNS, from the web page (/diag). The telnet command still
+# works and is checked too.
 #
 # Run by `make -C tests dg` (target dg in stability.mk). Arguments:
 #   $1  the stats binary      $2  the card fixture (ncserver)
 #   $3  the newcamd client    (ncclient)
 #
-# The scope is turned on and off with the telnet command `diagscope`, with no
-# restart and no config line. Facts checked, each on a real server run:
+# Facts checked, each on a real server run:
 #   A. outside the scope a channel is counted but not timed (card answers 0).
-#      `diagscope add profile cardx` turns the timing on for that profile, live.
-#      The next requests are timed (card answers >= 1), /diag and the TXT export
-#      show it, /cwlog?ch= filters to the channel, and the telnet list agrees.
+#      The web form adds the profile cardx, live. The next requests are timed
+#      (card answers >= 1). /diag shows it, with a detail on/off link per
+#      channel. The TXT export and /cwlog?ch= agree.
+#      A cross-site request (Sec-Fetch-Site: cross-site) is refused with 403 and
+#      changes nothing. The row link turns a channel on, the clear link turns the
+#      detail OFF, and the telnet command still works.
 #   B. a card that answers after DCW TIMEOUT: the request is counted as no
-#      answer, but only for a channel in the scope (added live by channel).
+#      answer, for a channel turned on from the web page.
 #
 # Ports 16880-16883. Exits 0 when every check passes, 1 otherwise.
 
@@ -31,7 +35,8 @@ nsp=""
 bad() { echo "[FAIL] $1"; fail=1; }
 ok()  { echo "  [ ok ] $1"; }
 
-tn() { python3 r48-tn.py "$TP" admin admin "$@"; }
+tn()  { python3 r48-tn.py "$TP" admin admin "$@"; }
+web() { curl -s -m 5 -u admin:admin "http://127.0.0.1:$HP$1"; }
 
 # TXT export: one line per channel, fields separated by ';'.
 # field 6 = no_answer, field 7 = card_answers, field 2 = delivered.
@@ -86,7 +91,7 @@ stop_srv() {
     sleep 1
 }
 
-echo "== R48 scope, case A: timing switched on for one profile, live =="
+echo "== R48/R49 scope, case A: the web page switches the detail on for one profile, live =="
 start_srv a "" 60
 
 out=$(tn 'diagscope')
@@ -101,20 +106,29 @@ if [ "$lat" = "0" ]; then ok "outside the scope the card answers are counted as 
 del=$(txt_field a 2)
 if [ "$del" = "1" ]; then ok "the delivery is still counted outside the scope (1)"; else bad "delivered outside the scope: '$del', want 1"; fi
 
-out=$(tn 'diagscope add profile cardx' 'diagscope')
-if echo "$out" | grep -q "profile cardx added"; then ok "the profile is added on the live server"; else bad "add profile failed: $out"; fi
+body=$(web "/diag/scope?op=add&kind=prof&prof=cardx")
+if echo "$body" | grep -q "profile cardx: added"; then ok "the web form adds the profile on the live server"; else bad "web add profile failed: $body"; fi
+out=$(tn 'diagscope')
 if echo "$out" | grep -q "detail is ON"; then ok "the detail reads ON right after the change"; else bad "detail is not ON after the change"; fi
-if echo "$out" | grep -q "profile cardx"; then ok "the telnet list names the profile"; else bad "the telnet list does not name the profile"; fi
+if echo "$out" | grep -q "profile cardx"; then ok "the telnet list agrees: the profile is in the scope"; else bad "the telnet list does not name the profile"; fi
 
 # NC_FILL=7 changes the ECM body, so this is a new request, not a cache hit.
 NC_FILL=7 "$NC" 127.0.0.1 "$CP" u2 p2 0102030405060708091011121314 0 1884 0064 > ".ds-a-cli2.log" 2>&1
 sleep 2
 lat=$(txt_field a 7)
 if [ -n "$lat" ] && [ "$lat" -ge 1 ] 2>/dev/null; then ok "after the change the card answers are timed ($lat)"; else bad "card answers after the change: '$lat', want >= 1"; fi
+
 curl -s -m 5 -u admin:admin -o ".ds-a-diag.html" "http://127.0.0.1:$HP/diag"
 if grep -qF "Detail scope:" ".ds-a-diag.html" && grep -qF "/cwlog?ch=$CH" ".ds-a-diag.html"; then
     ok "/diag shows the detail scope and links the channel to its /cwlog rows"
 else bad "/diag does not show the detail scope or the channel link"; fi
+if grep -qF "name=prof" ".ds-a-diag.html" && grep -qF "name=ch" ".ds-a-diag.html"; then
+    ok "/diag has the add/remove forms for a channel and a profile"
+else bad "/diag has no add/remove forms"; fi
+if grep -qF "/diag/scope?op=add&kind=ch&ch=$CH" ".ds-a-diag.html"; then
+    ok "each channel row has a 'detail on' link"
+else bad "no 'detail on' link on the channel row"; fi
+
 curl -s -m 5 -u admin:admin -o ".ds-a-cwch.html" -w '%{http_code}' "http://127.0.0.1:$HP/cwlog?ch=$CH" > ".ds-a-cwch.code"
 if [ "$(cat .ds-a-cwch.code)" = "200" ] && grep -qF "show all" ".ds-a-cwch.html"; then
     ok "/cwlog?ch= filters to the channel and offers 'show all'"
@@ -122,18 +136,35 @@ else bad "/cwlog?ch= did not filter as designed"; fi
 ct=$(curl -s -m 5 -u admin:admin -D - -o /dev/null "http://127.0.0.1:$HP/diag?format=txt" | tr -d '\r' | grep -i '^content-disposition:' )
 if echo "$ct" | grep -qi 'attachment; filename="multics-diag.txt"'; then ok "the TXT export is an attachment (multics-diag.txt)"; else bad "TXT export headers: '$ct'"; fi
 
-out=$(tn 'diagscope del profile cardx' 'diagscope add channel 1884:000000:0064' 'diagscope add channel 1884:000000:0064' 'diagscope add channel zz' 'diagscope clear' 'diagscope')
-if echo "$out" | grep -q "profile cardx removed"; then ok "the profile is removed live"; else bad "del profile failed"; fi
-if echo "$out" | grep -q "channel 1884:000000:0064 added"; then ok "the channel is added live"; else bad "add channel failed"; fi
-if echo "$out" | grep -q "already in scope"; then ok "adding the same channel twice says so"; else bad "duplicate add not reported"; fi
-if echo "$out" | grep -q "a channel is CAID:PROV:SID in hex"; then ok "a bad channel is refused with the format"; else bad "bad channel not refused"; fi
-if echo "$out" | grep -q "cleared, detail is OFF"; then ok "clear turns the detail OFF"; else bad "clear failed"; fi
+code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: cross-site' -u admin:admin "http://127.0.0.1:$HP/diag/scope?op=del&kind=prof&prof=cardx")
+if [ "$code" = "403" ]; then ok "a cross-site request to change the scope is refused (403)"; else bad "cross-site request gave $code, want 403"; fi
+out=$(tn 'diagscope')
+if echo "$out" | grep -q "profile cardx"; then ok "the refused request changed nothing"; else bad "the refused request removed the profile"; fi
+
+body=$(web "/diag/scope?op=add&kind=ch&ch=$CH")
+if echo "$body" | grep -q "channel $CH: added"; then ok "the row link turns a channel on"; else bad "row link did not add the channel: $body"; fi
+curl -s -m 5 -u admin:admin -o ".ds-a-diag2.html" "http://127.0.0.1:$HP/diag"
+if grep -qF "/diag/scope?op=del&kind=ch&ch=$CH" ".ds-a-diag2.html"; then
+    ok "the same row now offers 'detail off'"
+else bad "the row does not offer 'detail off' after the change"; fi
+body=$(web "/diag/scope?op=add&kind=ch&ch=zz")
+if echo "$body" | grep -q "CAID:PROV:SID in hex"; then ok "a bad channel from the web is refused with the format"; else bad "bad channel not refused: $body"; fi
+
+body=$(web "/diag/scope?op=clear")
+if echo "$body" | grep -q "detail is OFF"; then ok "the clear link turns the detail OFF"; else bad "clear link failed: $body"; fi
+out=$(tn 'diagscope')
+if echo "$out" | grep -q "detail is OFF"; then ok "the telnet list agrees: OFF"; else bad "telnet does not read OFF after the clear"; fi
+
+out=$(tn 'diagscope add channel 1884:000000:0064' 'diagscope add channel 1884:000000:0064' 'diagscope del channel 1884:000000:0064' 'diagscope clear')
+if echo "$out" | grep -q "channel 1884:000000:0064 added"; then ok "telnet still adds a channel"; else bad "telnet add channel failed: $out"; fi
+if echo "$out" | grep -q "already in scope"; then ok "telnet still says a duplicate"; else bad "telnet duplicate not reported"; fi
+if echo "$out" | grep -q "removed"; then ok "telnet still removes a channel"; else bad "telnet del channel failed"; fi
 stop_srv
 
-echo "== R48 scope, case B: a card past DCW TIMEOUT, scoped by channel =="
+echo "== R48/R49 scope, case B: a card past DCW TIMEOUT, turned on from the web page =="
 start_srv b "DCW TIMEOUT: 2000" "6000"
-out=$(tn 'diagscope add channel 1884:000000:0064')
-if echo "$out" | grep -q "channel 1884:000000:0064 added"; then ok "the channel is in the scope before the request"; else bad "channel not added: $out"; fi
+body=$(web "/diag/scope?op=add&kind=ch&ch=$CH")
+if echo "$body" | grep -q "channel $CH: added"; then ok "the channel is in the scope before the request (web)"; else bad "channel not added from the web: $body"; fi
 NC_ECMS=1 timeout 25 "$NC" 127.0.0.1 "$CP" u1 p1 0102030405060708091011121314 0 1884 0064 > ".ds-b-cli.log" 2>&1
 sleep 4
 na=$(txt_field b 6)
@@ -143,6 +174,6 @@ if grep -qF "no answer" ".ds-b-diag.html"; then ok "/diag has the no-answer colu
 stop_srv
 
 echo
-if [ "$fail" = "0" ]; then echo "scope: ok (R48 live detail scope, no restart)"; exit 0; fi
+if [ "$fail" = "0" ]; then echo "scope: ok (R48/R49 live detail scope, web and telnet, no restart)"; exit 0; fi
 echo "scope: FAILED"
 exit 1

@@ -4371,3 +4371,52 @@ trace of it.
   answer that arrives after `DCW TIMEOUT` is dropped and counted as no answer.
 - The scope lives in memory. A restart clears it; the persistent config line is
   optional and not built.
+
+
+## D112 (R49) — The detail scope is controlled from the web page
+
+**Context.** D111 switched the scope on and off from telnet. The operator asked for
+everything from the interface: a telnet command is not a place an operator works
+in during an incident.
+
+**Decision.** `/diag` carries the controls. Each action calls a route that does
+exactly what the telnet command does, with the same limits (4 channels, 4
+profiles):
+
+- a channel form and a profile form (add, remove), and a link that turns the
+  detail OFF for all (`op=clear`);
+- each channel row has one link: "detail on" when the channel is out of the
+  scope, "detail off" when it is in;
+- each entry of the scope list has a "remove" link.
+
+The route `/diag/scope` sits behind the same login as `/diag`. It answers with a
+short result page and goes back to `/diag` after three seconds. The result says
+what happened: added, already in scope, no room, removed, not in scope, or a bad
+channel.
+
+**Why GET.** The admin pages of this server use GET actions (`?action=`), and
+the body of a POST is not parsed into the request parameters here. The change
+of state is small: it switches on a measurement, and changes no setting.
+
+**Protection.** A request whose `Sec-Fetch-Site` header is `cross-site` gets a
+403 and changes nothing. A page on another site therefore cannot switch the
+scope through the operator's browser. Browsers that do not send this header are
+not covered; the change they could cause is still limited to the detail scope.
+
+**Telnet stays.** The telnet command is not removed. It works as before (checked
+in `tests/r48-scope.sh`).
+
+**Stock is untouched.** Every new line is under `#ifdef MCS_DCWSTATS`. The stock
+binary still matches `HEAD` (`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes).
+
+**Proof.**
+- `make -C tests dg`: EXIT 0. R47 card path, and R48 live with 35 checks: the web
+  form turns the profile on while the server runs, the next card answer is timed,
+  a cross-site request is refused, the row link turns a channel on and off,
+  telnet still works, and case B counts a no-answer for a channel turned on from
+  the page.
+- `make -C make-x64 test`: EXIT 0. Stock binary: byte-identical to `HEAD`.
+
+**Limits.**
+- A browser without `Sec-Fetch-Site` is not guarded (see above).
+- The scope is in memory. A restart clears it.

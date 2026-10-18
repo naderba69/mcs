@@ -7637,6 +7637,158 @@ static void diag_write_txt(int sock, const struct diag_chan *dc, const int *orde
 	tcp_flush(&tcpbuf, sock);
 }
 
+
+/* TASK R49 (D112): the detail scope from the web page.
+ * The same actions as the telnet `diagscope` command, behind the same login.
+ * A cross-site request is refused (Sec-Fetch-Site, sent by current browsers):
+ * a page on another site must not change the scope through the operator's
+ * browser. The scope only adds measurement; it changes no setting. */
+static int diag_hexdigit(char c)
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
+/* A query value: '+' is a blank, %XX is one byte. */
+static void diag_urldecode(char *dst, const char *src, size_t n)
+{
+	size_t o = 0;
+	int h, l;
+
+	while (*src && o + 1 < n) {
+		if (*src == '+') {
+			dst[o++] = ' ';
+			src++;
+		}
+		else if (*src == '%' && (h = diag_hexdigit(src[1])) >= 0 && (l = diag_hexdigit(src[2])) >= 0) {
+			dst[o++] = (char)(h * 16 + l);
+			src += 3;
+		}
+		else dst[o++] = *src++;
+	}
+	dst[o] = 0;
+}
+
+/* User text is echoed into HTML only after escaping. */
+static void diag_html_escape(char *dst, const char *src, size_t n)
+{
+	size_t o = 0;
+
+	for (; *src; src++) {
+		const char *rep = NULL;
+		size_t l;
+
+		switch (*src) {
+		case '<': rep = "&lt;"; break;
+		case '>': rep = "&gt;"; break;
+		case '&': rep = "&amp;"; break;
+		case '"': rep = "&quot;"; break;
+		case '\'': rep = "&#39;"; break;
+		default: break;
+		}
+		if (rep) {
+			l = strlen(rep);
+			if (o + l + 1 >= n) break;
+			memcpy(dst + o, rep, l);
+			o += l;
+		}
+		else {
+			if (o + 2 >= n) break;
+			dst[o++] = *src;
+		}
+	}
+	dst[o] = 0;
+}
+
+static void diag_scope_result(char *m, size_t n, int add, int rc, int isprof, const char *name)
+{
+	const char *what = isprof ? mlabel("profile", "بروفايل") : mlabel("channel", "قناة");
+	const char *res;
+
+	if (add) {
+		if (rc == 0) res = mlabel("added", "أُضيف");
+		else if (rc == 1) res = mlabel("already in scope", "موجود في النطاق");
+		else if (rc == -1) res = mlabel("no room: at most 4 channels and 4 profiles", "لا مكان: الحد 4 قنوات و4 بروفايلات");
+		else res = mlabel("empty, or longer than 63 characters", "فارغ، أو أطول من 63 حرفاً");
+	}
+	else res = (rc == 0) ? mlabel("removed", "أُزيل") : mlabel("not in scope", "غير موجود في النطاق");
+	snprintf(m, n, "%s %s: %s", what, name, res);
+}
+
+static void http_send_diag_scope(int sock, http_request *req)
+{
+	static const char refused[] = "cross-site request refused: open the diagnosis page yourself\n";
+	const char *sfs = isset_header(req, "Sec-Fetch-Site");
+	const char *v;
+	char op[16], kind[16], ch[48], prof[80], esc[512], msg[256], hdr[160];
+	struct tcp_buffer_data tcpbuf;
+	unsigned cu = 0, pu = 0, su = 0;
+	int add, rc = -9;
+
+	if (sfs && !strcmp(sfs, "cross-site")) {
+		snprintf(hdr, sizeof(hdr), "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: text/plain\r\nContent-Length: %u\r\n\r\n",
+				 (unsigned)(sizeof(refused) - 1));
+		send(sock, hdr, strlen(hdr), MSG_NOSIGNAL);
+		send(sock, refused, sizeof(refused) - 1, MSG_NOSIGNAL);
+		return;
+	}
+
+	op[0] = kind[0] = ch[0] = prof[0] = 0;
+	if ((v = isset_get(req, "op"))) snprintf(op, sizeof(op), "%s", v);
+	if ((v = isset_get(req, "kind"))) snprintf(kind, sizeof(kind), "%s", v);
+	if ((v = isset_get(req, "ch"))) snprintf(ch, sizeof(ch), "%s", v);
+	if ((v = isset_get(req, "prof"))) diag_urldecode(prof, v, sizeof(prof));
+	add = !strcmp(op, "add");
+
+	if (!strcmp(op, "clear")) {
+		diagscope_clear();
+		snprintf(msg, sizeof(msg), "%s", mlabel("detail is OFF: the scope is cleared", "التفاصيل متوقفة: تم مسح النطاق"));
+	}
+	else if (!strcmp(kind, "ch") && (add || !strcmp(op, "del"))) {
+		if (sscanf(ch, "%x:%x:%x", &cu, &pu, &su) != 3 || cu > 0xFFFF || su > 0xFFFF) {
+			snprintf(msg, sizeof(msg), "%s", mlabel("a channel is CAID:PROV:SID in hex, e.g. 1884:000000:1136",
+													 "القناة هي CAID:PROV:SID بالست عشري، مثل 1884:000000:1136"));
+		}
+		else {
+			rc = add ? diagscope_add_channel(cu, pu, (uint16_t)su) : diagscope_del_channel(cu, pu, (uint16_t)su);
+			diag_scope_result(msg, sizeof(msg), add, rc, 0, ch);
+		}
+	}
+	else if (!strcmp(kind, "prof") && (add || !strcmp(op, "del"))) {
+		rc = add ? diagscope_add_profile(prof) : diagscope_del_profile(prof);
+		diag_scope_result(msg, sizeof(msg), add, rc, 1, prof);
+	}
+	else snprintf(msg, sizeof(msg), "%s", mlabel("unknown request", "طلب غير معروف"));
+
+	diag_html_escape(esc, msg, sizeof(esc));
+	tcp_init(&tcpbuf);
+	http_replyok_write(req, &tcpbuf, sock);
+	tcp_writestr(&tcpbuf, sock, "<HTML><HEAD><meta http-equiv='refresh' content='3;url=/diag'><title>Detail scope</title></HEAD><BODY>");
+	tcp_writestr(&tcpbuf, sock, "<p>");
+	tcp_writestr(&tcpbuf, sock, esc);
+	tcp_writestr(&tcpbuf, sock, "</p><p><a href='/diag'>");
+	tcp_writestr(&tcpbuf, sock, mlabel("back to the diagnosis page", "العودة إلى صفحة التشخيص"));
+	tcp_writestr(&tcpbuf, sock, "</a></p></BODY></HTML>\n");
+	tcp_flush(&tcpbuf, sock);
+}
+
+/* One add/remove form for the scope: the kind goes in a hidden field. */
+static void diag_scope_form(struct tcp_buffer_data *tcpbuf, int sock, const char *kind,
+							char *what, const char *field, const char *hint)
+{
+	char buf[320];
+
+	snprintf(buf, sizeof(buf), "<form method=get action='/diag/scope' style='margin:4px 0'><input type=hidden name=kind value=%s> %s <input name=%s size=20 placeholder='%s'> <button type=submit name=op value=add>",
+			 kind, what, field, hint);
+	tcp_writestr(tcpbuf, sock, buf);
+	tcp_writestr(tcpbuf, sock, mlabel("add", "إضافة"));
+	tcp_writestr(tcpbuf, sock, "</button> <button type=submit name=op value=del>");
+	tcp_writestr(tcpbuf, sock, mlabel("remove", "إزالة"));
+	tcp_writestr(tcpbuf, sock, "</button></form>\n");
+}
+
 static void http_send_diag(int sock, http_request *req)
 {
 	char buf[2048], pname[48], label[256], rsn[48], refs[256], hint[160], lat[32];
@@ -7650,6 +7802,7 @@ static void http_send_diag(int sock, http_request *req)
 	uint32_t phist[DIAG_PEERS_MAX][DIAG_REASONS];
 	int nrows, nchan, npeer = 0, dying = 0;
 	int i, j, k, p, c;
+	struct diag_scope scope_now;
 
 	nrows = cwlog_snapshot(rows, CWLOG_CAP);
 	nchan = chanhealth_snapshot(chans, CHANHEALTH_SLOTS);
@@ -7766,20 +7919,28 @@ static void http_send_diag(int sock, http_request *req)
 			mlabel("counters since", "العدّادات منذ"), when);
 		tcp_writestr(&tcpbuf, sock, buf);
 		for (i = 0; i < sc.nch; i++) {
-			snprintf(buf, sizeof(buf), "<br>%s <a href='/cwlog?ch=%04X:%06X:%04X'>%04X:%06X:%04X</a>\n",
+			snprintf(buf, sizeof(buf), "<br>%s <a href='/cwlog?ch=%04X:%06X:%04X'>%04X:%06X:%04X</a> <a href='/diag/scope?op=del&kind=ch&ch=%04X:%06X:%04X'>%s</a>\n",
 				mlabel("channel", "قناة"), (unsigned)sc.caid[i], (unsigned)sc.provid[i], (unsigned)sc.sid[i],
-				(unsigned)sc.caid[i], (unsigned)sc.provid[i], (unsigned)sc.sid[i]);
+				(unsigned)sc.caid[i], (unsigned)sc.provid[i], (unsigned)sc.sid[i],
+				(unsigned)sc.caid[i], (unsigned)sc.provid[i], (unsigned)sc.sid[i], mlabel("remove", "إزالة"));
 			tcp_writestr(&tcpbuf, sock, buf);
 		}
 		for (i = 0; i < sc.nprof; i++) {
-			snprintf(buf, sizeof(buf), "<br>%s %s\n", mlabel("profile", "بروفايل"), sc.prof[i]);
+			snprintf(buf, sizeof(buf), "<br>%s %s <a href='/diag/scope?op=del&kind=prof&prof=%s'>%s</a>\n", mlabel("profile", "بروفايل"), sc.prof[i], sc.prof[i], mlabel("remove", "إزالة"));
 			tcp_writestr(&tcpbuf, sock, buf);
 		}
+
 		tcp_writestr(&tcpbuf, sock, "<p style='font-size:0.9em;'>");
 		tcp_writestr(&tcpbuf, sock, mlabel(
-			"Detail (answer time, no-answer) is kept only for this scope. Change it at run time from telnet: diagscope add channel CAID:PROV:SID, diagscope add profile NAME, diagscope del ..., diagscope clear. Up to 4 of each. No restart.",
-			"التفاصيل (زمن الجواب، والطلبات بلا جواب) تُسجَّل لهذا النطاق فقط. غيّره أثناء التشغيل من التيلنت: diagscope add channel CAID:PROV:SID ، أو diagscope add profile NAME ، أو diagscope del ... ، أو diagscope clear. حتى 4 من كل نوع، بلا إعادة تشغيل."));
-		tcp_writestr(&tcpbuf, sock, "</p>\n<p><a href='/diag?format=txt'>");
+			"Detail (answer time, no-answer) is kept only for this scope. Turn it on or off here, while the server runs. No restart.",
+			"التفاصيل (زمن الجواب، والطلبات بلا جواب) تُسجَّل لهذا النطاق فقط. فعّلها أو أوقفها من هنا أثناء التشغيل بلا ريستارت."));
+		tcp_writestr(&tcpbuf, sock, "</p>\n");
+		diag_scope_form(&tcpbuf, sock, "ch", mlabel("channel CAID:PROV:SID", "قناة CAID:PROV:SID"), "ch", "1884:000000:1136");
+		diag_scope_form(&tcpbuf, sock, "prof", mlabel("profile", "بروفايل"), "prof", "cardx");
+		tcp_writestr(&tcpbuf, sock, "<p><a href='/diag/scope?op=clear'>");
+		tcp_writestr(&tcpbuf, sock, mlabel("turn all detail OFF (clear the scope)", "إيقاف كل التفاصيل (مسح النطاق)"));
+		tcp_writestr(&tcpbuf, sock, "</a></p>\n");
+		tcp_writestr(&tcpbuf, sock, "<p><a href='/diag?format=txt'>");
 		tcp_writestr(&tcpbuf, sock, mlabel("export as text (for a support ticket)", "تصدير كنص (لتذكرة الدعم)"));
 		tcp_writestr(&tcpbuf, sock, "</a></p>\n");
 	}
@@ -7819,10 +7980,12 @@ static void http_send_diag(int sock, http_request *req)
 			"لا قنوات بعد: تظهر الصفوف بعد أول تسليم أو رفض"));
 		tcp_writestr(&tcpbuf, sock, "</td></tr>\n");
 	}
+	diagscope_snapshot(&scope_now);
 	for (k = 0; k < nchan; k++) {
 		const struct diag_chan *d = &dc[order[k]];
 		enum diag_finding top = diag_top(d->mask);
 		int sev = diag_worst(d->mask);
+		char act[200];
 
 		label[0] = 0;
 		for (i = 0; i < DIAG_FINDINGS; i++)
@@ -7837,10 +8000,20 @@ static void http_send_diag(int sock, http_request *req)
 		else snprintf(lat, sizeof(lat), "%s", mlabel("not measured", "لم تُقَس"));
 		if (!diag_setting_hint(top, diag_top_reason(&d->ev), d->row.lat_n, d->row.lat_max, hint, sizeof(hint)))
 			snprintf(hint, sizeof(hint), "-");
-		snprintf(buf, sizeof(buf), "<tr%s><td><a href='/cwlog?ch=%04X:%06X:%04X'>%04X:%06X:%04X</a></td><td>%lu</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%lu</td><td>%s</td><td><code>%s</code></td></tr>\n",
+
+		{
+			int in = diag_scope_find_ch(&scope_now, d->row.caid, d->row.provid, d->row.sid) >= 0;
+
+			snprintf(act, sizeof(act), "<br><a href='/diag/scope?op=%s&kind=ch&ch=%04X:%06X:%04X'>%s</a>",
+					 in ? "del" : "add",
+					 (unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
+					 in ? mlabel("detail off", "إيقاف التفاصيل") : mlabel("detail on", "تفعيل التفاصيل"));
+		}
+		snprintf(buf, sizeof(buf), "<tr%s><td><a href='/cwlog?ch=%04X:%06X:%04X'>%04X:%06X:%04X</a>%s</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%lu</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%lu</td><td>%s</td><td><code>%s</code></td></tr>\n",
 			sev >= 2 ? " style='background:#fdd'" : (sev == 1 ? " style='background:#ffd'" : ""),
 			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
 			(unsigned)d->row.caid, (unsigned)d->row.provid, (unsigned)d->row.sid,
+			act,
 			(unsigned long)d->row.delivered, (unsigned long)d->row.refused,
 			(unsigned long)d->row.held, (unsigned long)d->row.streak,
 			label, rsn, diag_advice(top), refs[0] ? refs : "-",
@@ -8463,6 +8636,9 @@ void *gererClient(struct connect_data *param)
 				}
 				else if (strcmp(req.path,"/diag")==0) { /* TASK R47 (D110): the diagnosis page */
 					http_send_diag(sock,&req);
+				}
+				else if (strcmp(req.path,"/diag/scope")==0) { /* TASK R49 (D112): the scope from the page */
+					http_send_diag_scope(sock,&req);
 				}
 #endif
 				else if ( !memcmp(req.path,"/flag_",6) && !memcmp(req.path+8,".gif",4) ) {

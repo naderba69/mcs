@@ -6,6 +6,41 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R49 — The detail scope is controlled from the web page (2026-10-18)
+
+**Decisions:** D112
+
+**What changed.** The detail scope (R48) can now be switched on and off from `/diag`,
+without telnet. The page has an add/remove form for a channel and for a profile,
+a "clear" link that turns the detail OFF, a "detail on" / "detail off" link in each
+channel row, and a "remove" link in each entry of the scope list. The telnet
+command still works.
+
+- The route `/diag/scope` sits behind the same login as `/diag`, and answers with a
+  short result and goes back to `/diag` after three seconds.
+- A request marked `Sec-Fetch-Site: cross-site` is refused with 403. A page on
+  another site cannot change the scope through the operator's browser.
+- Profile names from the form accept `+` and `%XX`. Values echoed on the result
+  page are escaped.
+
+**Stock is untouched.** Every new line is under `#ifdef MCS_DCWSTATS`. The stock
+binary still matches `HEAD` (`d9de68dd6eaee36c1e27308b6c7d9d4e`, 837840 bytes).
+
+**Proof.**
+- `make -C tests dg`: EXIT 0. R47 card path, and R48/R49 live, 35 checks, including
+  the web form, the cross-site refusal, the row link, and telnet alongside.
+- `make -C make-x64 test`: EXIT 0.
+- `make -C tests all`: `SUITE_EXIT=0`, 498 ok, unchanged from R48.
+
+**Test changes.** `tests/r48-scope.sh` now drives the page with curl (and keeps the
+telnet checks). `tests/r47-dg.sh` patterns accept the new optional link in the
+channel cell.
+
+**Limits.** A browser without `Sec-Fetch-Site` is not guarded against cross-site
+requests; the change it could make is limited to the detail scope.
+
+---
+
 ## R48 — The detail scope: heavy detail for one profile or channel, switched on while the server runs (2026-10-18)
 
 **Decisions:** D111

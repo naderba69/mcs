@@ -1793,3 +1793,27 @@ telnet client `tests/r48-tn.py`.
 **Known limits.** Latency is measured on the card path only. A request that
 the cache answers has no measured time. A late answer past `DCW TIMEOUT` is
 dropped, and its request is counted as no answer.
+
+
+## 35. TASK R49 — the detail scope from the web page (`httpserver.c`) — DELIVERED 2026-10-18
+
+Decision: D112. Stats flavour only (`#ifdef MCS_DCWSTATS`).
+
+- Route `/diag/scope` (GET). Query: `op=add|del|clear`, `kind=ch|prof`,
+  `ch=CAID:PROV:SID` (hex), `prof=NAME` (`+` and `%XX` decoded).
+- The same functions as the telnet command: `diagscope_add_channel`,
+  `diagscope_del_channel`, `diagscope_add_profile`, `diagscope_del_profile`,
+  `diagscope_clear`.
+- A request with `Sec-Fetch-Site: cross-site` is refused with 403, before any
+  change.
+- The result page echoes user text only after `diag_html_escape`.
+- `/diag` shows the forms (`diag_scope_form`), a "detail on/off" link in each
+  channel cell (`act`, computed from `scope_now`, one snapshot per page), and a
+  "remove" link per scope entry.
+
+**Proof.** `tests/r48-scope.sh` (through `make -C tests dg`) drives the page with
+curl: adds and removes, the cross-site refusal, the row link, clear, a bad
+channel, and telnet alongside.
+
+**Limit.** Browsers without `Sec-Fetch-Site` are not guarded against cross-site
+requests. The change they could make is limited to the detail scope.
