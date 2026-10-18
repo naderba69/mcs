@@ -6,6 +6,14 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R64 — Package review: encryption systems, problems and settings template (2026-10-18)
+
+- New `tests/package_review.py` (advisory, always exit 0): for each of the 72 production profiles, the CA system the code assigns to its CAID (`casystem.h` rows), the CW format, whether the checksum gate is enforced (`dcw.c` `acceptDCW_impl`), duplicate CAID+provider pairs, and ECM CHECK LENGTH. Output: `docs/PACKAGE-REVIEW-R64.md`.
+- Result: checksum enforced in 68 profiles, off in 4 (three iCam, BISS1). 9 profiles enforce it on CAID/provider pairs that OSCam community configs exempt (`disablecrccws_only_for`), including NC+ 4K 1884. This is an external signal, not measured on our server. In the last `/diag` export channel 1884 showed no checksum refusals (its refusals were convicted-memory), so the claim is unconfirmed here.
+- 8 duplicate CAID+provider pairs listed (not changed).
+- New `docs/PACKAGE-PROFILES-R64-ar.md`: encryption-system map by family, problems ranked with evidence levels, a settings template per CW format, and the measurement plan for the 9 checksum-flagged profiles. The production file is not changed in this round.
+- Open: the 41 checksum refusals on 098D in `/diag` contradict the code (iCam exempt with CA MODERN ON). Not explained yet.
+
 ## R63 — Honest failure log in dcw_on_failure (2026-10-18)
 
 - `src/dcw.c`: the two `BLACKSCREEN` lines ("triggering quick switch", "Emergency mode activated") are replaced by one line that states what the counter does: "CW failures X:Y: N in a row (counter only, no action taken)". No behaviour change: the counter and `dcw_needs_emergency` are untouched, and the removed block had no side effect other than printing. Already recorded in DECISIONS.md (no caller for the emergency path, punishment rejected).
