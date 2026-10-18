@@ -6,6 +6,12 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R63 — Honest failure log in dcw_on_failure (2026-10-18)
+
+- `src/dcw.c`: the two `BLACKSCREEN` lines ("triggering quick switch", "Emergency mode activated") are replaced by one line that states what the counter does: "CW failures X:Y: N in a row (counter only, no action taken)". No behaviour change: the counter and `dcw_needs_emergency` are untouched, and the removed block had no side effect other than printing. Already recorded in DECISIONS.md (no caller for the emergency path, punishment rejected).
+- The tracked stock binary changes hash (log text only): `multics-r82a-stock-x64` ecb3f2d0 -> 57da7ab4. The previous stock build also contained the removed strings.
+- Checks: `make -C make-x64 test` 25/25 (after `mkdir -p make-x64/x64`), `make -C tests dg` ok, `make -C tests prof` 5/5, `cfgcheck` production and candidate exit 0. The new line is not exercised on live card traffic in this round.
+
 ## R62 — Protection audit per profile and per engine (2026-10-18)
 
 - New `tests/protection_audit.py`: computes the effective value of every protection key for all 72 profiles (profile line, then DEFAULT, then the code default, the same order as the parser), checks each against its CA family, and with `--live` compares the values the running server shows on `/profile?id=N`.

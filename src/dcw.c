@@ -390,16 +390,11 @@ void dcw_on_failure(uint16_t caid, uint16_t sid, uint32_t provid)
 		t->total_failures++;
 		t->last_failure_time = time(NULL);
 		
-		/* Layer 1: Quick switch after 2 failures */
+		/* Counter only: no switch is performed here (see DECISIONS.md,
+		 * "dcw_on_failure ... only stamps log words"). The log says so. */
 		if (t->consecutive_failures >= 2) {
-			debugf(0, "BLACKSCREEN: Channel %04X:%04X - %d consecutive failures, triggering quick switch\n",
+			debugf(0, "CW failures %04X:%04X: %d in a row (counter only, no action taken)\n",
 				caid, sid, t->consecutive_failures);
-		}
-		
-		/* Layer 2: Emergency after 3 failures */
-		if (t->consecutive_failures >= 3) {
-			debugf(0, "BLACKSCREEN: Channel %04X:%04X - Emergency mode activated\n",
-				caid, sid);
 		}
 	}
 }
