@@ -1,9 +1,9 @@
 2bdc6b323158322ad2a7cc31887bab81  .gitignore
-0bc4c5cd7bfac812a8a958c909b19f25  CHANGELOG.md
+61fd41ea471f82c6fd0e1915948fdcca  CHANGELOG.md
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
 679488995e0f99520d1ad768b699f431  CONTRIBUTING.md
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
-131aa928899beb8b32343bdf78a5ca6c  README-PRODUCTION.md
+aec8113b39eef2289441ea60269f333d  README-PRODUCTION.md
 8042428fa0028acf749c1b95f76d8ede  README.md
 60e7ba6de9e6d79b916869342dddce86  RESOURCE-OPTIMIZATION-GUIDE.md
 f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
@@ -547,7 +547,7 @@ af09ddc7d479b76a2bd9a9bbc69aef24  src/twin.c
 4d88a20fe6f5f0fcaa92a9b21d191a31  src/udpfast.h
 8da4e1dcee1e463bb58b353ca3cf0a5f  src/zerohandoff.h
 3df6fdaba14614992ffcf0c168682c2b  src/zerolatency.h
-49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
+e25712c780f6528c7303598b4fd59238  start-production.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
 fb7603dc4a2884d782c864be92d4b629  tests/Makefile
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py

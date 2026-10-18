@@ -6,6 +6,20 @@ Format: reverse chronological, one mission per entry, with commit hash, decision
 
 ---
 
+## R51 — Production check of the profiles file (2026-10-18)
+
+**Audit, no profile changed.** `multics-r24-optimized.cfg` (72 profiles, 2042 lines)
+passed every check: `cfgcheck` 5/5; `prof` 5/5 against both `bin/multics.x64` and the stock
+build (all 72 ports listen, no crash); a 12-second boot of the shipped file printed no
+parser warning. No key is duplicated inside any section, and no port is shared.
+
+**Not changed on purpose.** Profile `NC+ 4K - 1884` keeps `SERVER TIMEOUT 800`. The field
+failure of channel `1884:000000:1136` is a checksum refusal, not a late answer, so a
+longer window does not fix it. That decision stays with the operator.
+
+**Docs fixed.** `start-production.sh` said 71 profiles (the file has 72). `README-PRODUCTION.md`
+listed old checksums and sizes. They now match the shipped binaries and the file.
+
 ## R50 — The binaries are rebuilt from the current source (2026-10-18)
 
 **What changed.** The tracked binaries were last built before R44. They are rebuilt
