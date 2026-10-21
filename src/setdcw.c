@@ -299,7 +299,11 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	}
 
 #ifdef CHECK_NEXTDCW
-	if (cs->option.dcw.check && !cs->option.dcw.halfnulled) {
+	/* CAID-specific validation: use relaxed check for problematic CAIDs */
+	if (caid_should_use_relaxed_validation(ecm->caid)) {
+		debugf(0, " [CAID OPT] %04X: using relaxed validation (skipping strict DCW check)\n", ecm->caid);
+	}
+	else if (cs->option.dcw.check && !cs->option.dcw.halfnulled) {
 		int check = checkfreeze_setdcw(ecm,dcw);
 		if (check==0) {
 			ecm->lastdecode.error++;
