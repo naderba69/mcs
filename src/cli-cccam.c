@@ -300,10 +300,16 @@ void cc_srv_recvmsg(struct server_data *srv)
 			dcw_on_success(ecm->caid, ecm->sid);
 			/* CAID-specific performance tracking: record success */
 			caid_integration_track_performance(ecm->caid, response_time, 1);
+			/* CAID optimizations: update stats for this CAID */
+			caid_update_stats(ecm->caid, response_time, 1);
 			/* Server health monitoring: record success */
 			server_health_record_success(srv->id, response_time);
 			/* CW prediction: record for future use */
 			cw_prediction_record(ecm->caid, ecm->provid, ecm->sid, dcw);
+			/* Prefetch: record successful ECM pattern */
+			prefetch_record(ecm->caid, ecm->provid, ecm->sid);
+			/* Predictive warming: record for cache warming */
+			predictive_warming_record(ecm->caid, ecm->provid, ecm->sid);
 			ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
 			}
 
@@ -363,14 +369,18 @@ void cc_srv_recvmsg(struct server_data *srv)
 						break;
 					}
 
-				debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
-				/* Black screen prevention: track CW failure */
-				dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
-				/* CAID-specific performance tracking: record failure */
-				caid_integration_track_performance(ecm->caid, GetTickCount()-srv->lastecmtime, 0);
-				/* Server health monitoring: record failure */
-				server_health_record_failure(srv->id);
-				/* Detailed error reporting */
+			debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
+			/* Black screen prevention: track CW failure */
+			dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
+			/* CAID-specific performance tracking: record failure */
+			caid_integration_track_performance(ecm->caid, GetTickCount()-srv->lastecmtime, 0);
+			/* CAID optimizations: update stats for this CAID */
+			caid_update_stats(ecm->caid, GetTickCount()-srv->lastecmtime, 0);
+			/* Server health monitoring: record failure */
+			server_health_record_failure(srv->id);
+			/* Auto recovery: trigger recovery on ECM failure */
+			auto_recovery_trigger(1);  /* type 1 = ECM failure */
+			/* Detailed error reporting */
 				{
 					struct error_report report;
 					error_report_create(&report, ERROR_ECM_REJECTED, srv->id, ecm->caid, ecm->provid, ecm->sid);
