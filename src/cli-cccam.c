@@ -669,6 +669,13 @@ int cc_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 {
 	unsigned char buf[CC_MAXMSGSIZE];
 
+	/* Server health check: skip servers with low health score */
+	uint8_t health_score = server_health_get_score(srv->id);
+	if (health_score < 30) {  /* Skip if health < 30% */
+		debugf(0, " [HEALTH] Server %d health score %d%% (too low), skipping ECM\n", srv->id, health_score);
+		return 0;
+	}
+
 	//if ( (srv->handle>0)&&(!srv->busy) ) {
 	//	if (!cc_getcardbyid(srv, srv->busycardid)) return 0;
 		//debugf( getdbgflag(DBG_SERVER, 0, srv->id), " -> ecm to CCcam server (%s:%d) ch %04x:%06x:%04x shareid %x\n", srv->host->name, srv->port,ecm->caid,ecm->provid,ecm->sid,srv->busycardid);
