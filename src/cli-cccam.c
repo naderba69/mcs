@@ -1,6 +1,11 @@
 struct cs_card_data *cc_getcardbyid( struct server_data *srv, uint32_t id );
 int cc_sendecm_srv(struct server_data *srv, ECM_DATA *ecm);
 
+/* Forward declarations for ECM helper functions from th-ecm.c */
+int ecm_is_whitelisted(ECM_DATA *ecm);
+uint32_t ecm_get_effective_timeout(ECM_DATA *ecm, struct cardserver_data *cs, uint32_t default_timeout);
+uint32_t ecm_get_effective_cache_time(ECM_DATA *ecm, uint32_t default_time);
+
 ///////////////////////////////////////////////////////////////////////////////
 // CLIENT CONNECT
 ///////////////////////////////////////////////////////////////////////////////
@@ -243,10 +248,18 @@ void cc_srv_recvmsg(struct server_data *srv)
 						break;
 					}
 
-					cs = ecm->cs;
-					card = cc_getcardbyid( srv, srv->busycardid );
-					// Check for DCW
-					if (!acceptDCW_profile_ca(dcw, cs, ecm->caid)) {
+				cs = ecm->cs;
+				card = cc_getcardbyid( srv, srv->busycardid );
+				/* EXTERNAL RESEARCH: ECM whitelist check */
+				if (ecm->ecmlen > 2 && !ecm_is_whitelisted(ecm)) {
+					debugf(getdbgflagpro(DBG_SERVER, 0, srv->id, cs->id), " [PROVIDER CONFIG] %04X:%06X - ECM length %d not whitelisted, rejecting\n", ecm->caid, ecm->provid, ecm->ecm[1]);
+					srv->ecmerrdcw++;
+					ecm_setsrvflag(srv->ecm.request, srv->id, ECM_SRV_REPLY_FAIL);
+					pthread_mutex_unlock(&prg.lockecm);
+					break;
+				}
+				// Check for DCW
+				if (!acceptDCW_profile_ca(dcw, cs, ecm->caid)) {
 						srv->ecmerrdcw ++;
 #ifdef SID_FILTER
 						if (cs && card) {
@@ -276,18 +289,23 @@ void cc_srv_recvmsg(struct server_data *srv)
 						card->ecmok++;
 					}
 
-				if (ecm->dcwstatus!=STAT_DCW_SUCCESS) {
-					static char msg[] = "Good dcw from CCcam server";
-					ecm->statusmsg = msg;
-					debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,cs->id), " <= cw from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
-					/* Black screen prevention: reset failure counter on success */
-					dcw_on_success(ecm->caid, ecm->sid);
-					/* Server health monitoring: record success */
-					server_health_record_success(srv->id, GetTickCount()-srv->lastecmtime);
-					/* CW prediction: record for future use */
-					cw_prediction_record(ecm->caid, ecm->provid, ecm->sid, dcw);
-					ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
-				}
+			if (ecm->dcwstatus!=STAT_DCW_SUCCESS) {
+			static char msg[] = "Good dcw from CCcam server";
+			ecm->statusmsg = msg;
+			uint32_t response_time = GetTickCount()-srv->lastecmtime;
+			/* Provider-specific CRC check bypass (from external research) */
+			int skip_crc = provider_should_disable_crc(ecm->caid, ecm->provid);
+			debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,cs->id), " <= cw from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)%s\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, response_time, skip_crc ? " [CRC-BYPASS]" : "");
+			/* Black screen prevention: reset failure counter on success */
+			dcw_on_success(ecm->caid, ecm->sid);
+			/* CAID-specific performance tracking: record success */
+			caid_integration_track_performance(ecm->caid, response_time, 1);
+			/* Server health monitoring: record success */
+			server_health_record_success(srv->id, response_time);
+			/* CW prediction: record for future use */
+			cw_prediction_record(ecm->caid, ecm->provid, ecm->sid, dcw);
+			ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
+			}
 
 					pthread_mutex_unlock(&prg.lockecm); //###
 					wakeup_sendecm(); // Wakeup ecm waiting for availabe servers
@@ -348,6 +366,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 				debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 				/* Black screen prevention: track CW failure */
 				dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
+				/* CAID-specific performance tracking: record failure */
+				caid_integration_track_performance(ecm->caid, GetTickCount()-srv->lastecmtime, 0);
 				/* Server health monitoring: record failure */
 				server_health_record_failure(srv->id);
 				/* Detailed error reporting */
@@ -358,8 +378,9 @@ void cc_srv_recvmsg(struct server_data *srv)
 				}
 				cs = ecm->cs;
 
-					if ( cs && (ecm->dcwstatus!=STAT_DCW_SUCCESS) && (srv->retry<cs->option.retry.cccam) ) {
-						if ((GetTickCount()-ecm->recvtime) < (cs->option.server.timeout*ecm->period)) {
+				if ( cs && (ecm->dcwstatus!=STAT_DCW_SUCCESS) && (srv->retry<cs->option.retry.cccam) ) {
+					uint32_t caid_timeout = caid_integration_get_server_timeout(ecm->caid);
+					if ((GetTickCount()-ecm->recvtime) < (caid_timeout*ecm->period)) {
 							srv->busy = 0;
 							if (cc_sendecm_srv(srv, ecm)) {
 								srv->lastecmtime = GetTickCount();

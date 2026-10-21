@@ -43,6 +43,8 @@
 #include "parser.h"
 #include "config.h"
 #include "httpserver.h"
+#include "caid-integration.h"  /* CAID-specific optimizations */
+#include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 
 #ifdef TELNET
 #include "telnet.h"
@@ -2614,7 +2616,17 @@ void mainprocess()
 	cccam_nodeid[7] = 0xff & fastrnd2();
 #endif
 
-
+	/* Initialize custom modules */
+	server_health_init();
+	biss_init();
+	cache_priority_init();
+	prefetch_init();
+	cw_prediction_init();
+	parallel_ecm_init();
+	auto_recovery_init();
+	predictive_warming_init();
+	caid_optimizations_init();
+	debugf(0, " [INIT] All custom modules initialized successfully\n");
 
 
 
@@ -2658,6 +2670,13 @@ void mainprocess()
 	}
 
 	init_ecmdata();
+
+	/* CAID-specific optimizations - initialize after config is loaded */
+	caid_integration_init();
+
+	/* Provider-level ECM configuration - from external research */
+	provider_config_init();
+	debugf(0, " [PROVIDER CONFIG] %d provider-specific ECM configurations loaded\n", provider_cfg_tab.count);
 
 // THREADS - detached
 	start_thread_dns();

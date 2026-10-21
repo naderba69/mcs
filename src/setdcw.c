@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "cafamily.h"	/* TASK R36 (D92) */
+#include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include <stdlib.h>
 
 inline void peer_hitprofile( struct cachepeer_data *peer, int csid )
@@ -282,7 +283,11 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	// filter non-nds halfnulled cw
 	if ( dcwcmp8(dcw,nullcw) || dcwcmp8(dcw+8,nullcw) ) {
 		if (!ca_halfnull_ok(ecm->caid)) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
-			return;
+			/* EXTERNAL RESEARCH: Check provider-specific disablecrccws_only_for */
+			if (!provider_should_disable_crc(ecm->caid, ecm->provid)) {
+				return;
+			}
+			debugf(0, " [PROVIDER CONFIG] %04X:%06X - CRC bypass enabled (halfnulled CW accepted)\n", ecm->caid, ecm->provid);
 		}
 		int swap = 0;
 #ifdef DCWSWAP

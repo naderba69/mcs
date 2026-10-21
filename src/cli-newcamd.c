@@ -299,11 +299,14 @@ void cs_srv_recvmsg(struct server_data *srv)
 							            ecm->caid, ecm->provid, ecm->sid);
 
 						ecm_setsrvflagdcw( ecm, srv->id, ECM_SRV_REPLY_GOOD,buf+3 );
-						debugf(getdbgflagpro(DBG_SERVER,0,srv->id,ecm->cs->id)," <= cw from server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
+						uint32_t response_time = GetTickCount()-srv->lastecmtime;
+						debugf(getdbgflagpro(DBG_SERVER,0,srv->id,ecm->cs->id)," <= cw from server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, response_time);
 
 						if (ecm->dcwstatus!=STAT_DCW_SUCCESS) {
 							static char msg[] = "Good dcw from Newcamd server";
 							ecm->statusmsg = msg;
+							/* CAID-specific performance tracking: record success */
+							caid_integration_track_performance(ecm->caid, response_time, 1);
 							// Store ECM Answer
 							ecm_setdcw( ecm, buf+3, DCW_SOURCE_SERVER, srv->id );
 						}
@@ -322,9 +325,10 @@ void cs_srv_recvmsg(struct server_data *srv)
 						pthread_mutex_unlock(&prg.lockecm); //###
 					}
 					else {
-						cs= ecm->cs;
-						if ( cs && (ecm->dcwstatus!=STAT_DCW_SUCCESS) && (srv->retry<cs->option.retry.newcamd) ) {
-							if ( (GetTickCount()-ecm->recvtime) < (cs->option.server.timeout*ecm->period) ) {
+					cs= ecm->cs;
+					if ( cs && (ecm->dcwstatus!=STAT_DCW_SUCCESS) && (srv->retry<cs->option.retry.newcamd) ) {
+						uint32_t caid_timeout = caid_integration_get_server_timeout(ecm->caid);
+						if ( (GetTickCount()-ecm->recvtime) < (caid_timeout*ecm->period) ) {
 								srv->busy = 0;
 								if (cs_sendecm_srv(cs, srv, ecm)>0) {
 									srv->retry++;
