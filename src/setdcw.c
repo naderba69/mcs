@@ -147,6 +147,16 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	if (!cs) return;
 
 	if ( dcwcmp8(dcw,nullcw) && dcwcmp8(dcw+8,nullcw) ) return;
+	
+	/* DCW validation: check for fake patterns and badlist */
+	if (dcw_pattern_fake(dcw)) {
+		debugf(0, " [DCW] Rejected fake pattern CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+		return;
+	}
+	if (dcw_on_badlist(dcw)) {
+		debugf(0, " [DCW] Rejected badlisted CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+		return;
+	}
 
 	/*
 	 * TASK 1.8 — structural soft signal, evaluated before acceptDCW() so that

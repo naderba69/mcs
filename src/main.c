@@ -2734,6 +2734,18 @@ void mainprocess()
 	while (!prg.restart) {
 		/* Auto recovery: check for servers that need recovery */
 		auto_recovery_check();
+		
+		/* Predictive warming: get popular channels for cache warming */
+		{
+			uint32_t warm_caid[10];
+			uint32_t warm_provid[10];
+			uint16_t warm_sid[10];
+			int warm_count = predictive_warming_get_popular(warm_caid, warm_provid, warm_sid, 10);
+			if (warm_count > 0) {
+				debugf(0, " [WARMING] Top %d popular channels tracked for cache warming\n", warm_count);
+			}
+		}
+		
 		sleep(5);
 	}
 

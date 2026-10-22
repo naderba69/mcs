@@ -380,6 +380,10 @@ void cc_srv_recvmsg(struct server_data *srv)
 			server_health_record_failure(srv->id);
 			/* Auto recovery: trigger recovery on ECM failure */
 			auto_recovery_trigger(1);  /* type 1 = ECM failure */
+			/* DCW emergency: check if channel needs emergency CW */
+			if (dcw_needs_emergency(ecm->caid, ecm->sid)) {
+				debugf(0, " [DCW] Emergency mode activated for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+			}
 			/* Detailed error reporting */
 				{
 					struct error_report report;
@@ -530,12 +534,15 @@ void cc_srv_recvmsg(struct server_data *srv)
 							cacheex.caid = (buf[4]<<8) | buf[5];
 							cacheex.provid = (buf[6]<<24) | (buf[7]<<16) | (buf[8]<<8) | buf[9];
 							cacheex.sid = (buf[14]<<8) | buf[15];
-							// Look for cardserver
-							cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
-							if ( !cs || !cs->option.fallowcacheex ) {
-								srv->cacheex.badcw++;
-								break;
-							}
+						// Look for cardserver
+						cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
+						if ( !cs || !cs->option.fallowcacheex ) {
+							srv->cacheex.badcw++;
+							/* DCW badlist: publish bad CW to prevent future use */
+							memcpy(cw, buf+44, 16);
+							dcw_badlist_publish(cw, 1);
+							break;
+						}
 							if ((buf[19+4]&0xFE)==0x80) cacheex.tag = buf[19+4]; else cacheex.tag = 0;
 							memcpy( cacheex.ecmd5, buf+24, 16);
 							if ( !checkECMD5(cacheex.ecmd5) ) srv->cacheex.csp++;

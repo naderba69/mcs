@@ -131,7 +131,8 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 	// BISS KEY CHECK - Try to use stored BISS key first
 	if (!ecm->cs || !ecm->cs->option.disable_softcam) {
 		uint8_t biss_key[8];
-		if (biss_get(ecm->caid, ecm->sid, ecm->provid, biss_key)) {
+		/* Quick check if BISS key exists before attempting to get it */
+		if (biss_has_key(ecm->caid, ecm->sid, ecm->provid) && biss_get(ecm->caid, ecm->sid, ecm->provid, biss_key)) {
 			// Found BISS key! Use it directly
 			uint8_t dcw[16];
 			memcpy(dcw, biss_key, 8);      // First 8 bytes
