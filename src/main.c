@@ -2732,6 +2732,8 @@ void mainprocess()
 	start_thread_http();
 
 	while (!prg.restart) {
+		/* Auto recovery: check for servers that need recovery */
+		auto_recovery_check();
 		sleep(5);
 	}
 

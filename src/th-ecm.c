@@ -161,6 +161,11 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		if (cs->option.fallowcache) {
 			if (!ecm->waitcache) { // Not done
 			if (cs->option.fallowcache) {
+				/* Predictive warming: check if warming is enabled */
+				if (predictive_warming_should_warm()) {
+					debugf(0, " [WARMING] Cache warming enabled for %04X:%06X:%04X\n",
+					       ecm->caid, ecm->provid, ecm->sid);
+				}
 				pipe_cache_find(ecm, cs);
 				ecm->waitcache = 1;
 				uint32_t cache_timeout = caid_integration_get_cache_timeout(ecm->caid);
