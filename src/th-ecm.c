@@ -1,4 +1,43 @@
 #include "biss.h"  /* BISS key management */
+#include "caid-optimizations.h"  /* CAID-specific optimizations */
+#include "ecm-provider-config.h"  /* Provider-level ECM configuration */
+
+/* ============================================================================
+ * HELPER: Get effective timeout for a specific ECM (CAID:Provider aware)
+ * Returns provider-specific timeout if configured, else default
+ * NOT static - used by cli-cccam.c which is included before th-ecm.c
+ * ============================================================================ */
+uint32_t ecm_get_effective_timeout(ECM_DATA *ecm, struct cardserver_data *cs, uint32_t default_timeout)
+{
+    uint32_t provider_timeout = provider_get_fallback_timeout(ecm->caid, ecm->provid);
+    if (provider_timeout > 0) {
+        return provider_timeout;
+    }
+    return default_timeout;
+}
+
+/* ============================================================================
+ * HELPER: Check if ECM length is whitelisted for this CAID:Provider
+ * NOT static - used by cli-cccam.c which is included before th-ecm.c
+ * ============================================================================ */
+int ecm_is_whitelisted(ECM_DATA *ecm)
+{
+    if (ecm->ecm[0] == 0) return 1;  // No ECM data, accept
+    return provider_ecm_whitelisted(ecm->caid, ecm->provid, ecm->ecm[1]);
+}
+
+/* ============================================================================
+ * HELPER: Get effective cache time for this CAID:Provider
+ * NOT static - used by cli-cccam.c which is included before th-ecm.c
+ * ============================================================================ */
+uint32_t ecm_get_effective_cache_time(ECM_DATA *ecm, uint32_t default_time)
+{
+    uint32_t provider_time = provider_get_cw_cache_time(ecm->caid, ecm->provid);
+    if (provider_time > 0) {
+        return provider_time;
+    }
+    return default_time;
+}
 
 void clients_check_sendcw(ECM_DATA *ecm)
 {
@@ -92,7 +131,8 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 	// BISS KEY CHECK - Try to use stored BISS key first
 	if (!ecm->cs || !ecm->cs->option.disable_softcam) {
 		uint8_t biss_key[8];
-		if (biss_get(ecm->caid, ecm->sid, ecm->provid, biss_key)) {
+		/* Quick check if BISS key exists before attempting to get it */
+		if (biss_has_key(ecm->caid, ecm->sid, ecm->provid) && biss_get(ecm->caid, ecm->sid, ecm->provid, biss_key)) {
 			// Found BISS key! Use it directly
 			uint8_t dcw[16];
 			memcpy(dcw, biss_key, 8);      // First 8 bytes
@@ -121,20 +161,27 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		}
 		if (cs->option.fallowcache) {
 			if (!ecm->waitcache) { // Not done
-				if (cs->option.fallowcache) {
-					pipe_cache_find(ecm, cs);
-					ecm->waitcache = 1;
-					ecm->checktime = ecm->recvtime + cs->option.cachetimeout; // wait for cache
+			if (cs->option.fallowcache) {
+				/* Predictive warming: check if warming is enabled */
+				if (predictive_warming_should_warm()) {
+					debugf(0, " [WARMING] Cache warming enabled for %04X:%06X:%04X\n",
+					       ecm->caid, ecm->provid, ecm->sid);
 				}
-				else ecm->dcwstatus = STAT_DCW_WAIT;
+				pipe_cache_find(ecm, cs);
+				ecm->waitcache = 1;
+				uint32_t cache_timeout = caid_integration_get_cache_timeout(ecm->caid);
+				ecm->checktime = ecm->recvtime + cache_timeout; // wait for cache (CAID-specific)
 			}
+			else ecm->dcwstatus = STAT_DCW_WAIT;
+		}
+		else {
+			uint32_t cache_timeout = caid_integration_get_cache_timeout(ecm->caid);
+			if ( ( (ecm->recvtime+cache_timeout)<=ticks ) ) ecm->dcwstatus = STAT_DCW_WAIT;
 			else {
-				if ( ( (ecm->recvtime+cs->option.cachetimeout)<=ticks ) ) ecm->dcwstatus = STAT_DCW_WAIT;
-				else {
-					//debugf(" Wait for cache\n");
-					ecm->checktime = ecm->recvtime+cs->option.cachetimeout;
-				}
+				//debugf(" Wait for cache\n");
+				ecm->checktime = ecm->recvtime+cache_timeout;
 			}
+		}
 		}
 		else ecm->dcwstatus = STAT_DCW_WAIT;
 	}
@@ -160,10 +207,10 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					ecm->cachestatus = ECM_CACHE_REP;
 				}
 			}
-			else ecm->checktime = ecm->recvtime + cs->option.dcw.timeout*ecm->period;
+			else ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period;
 		}
-		// Check for ECM TimeOut
-		else if ( (ticks-ecm->recvtime) >= cs->option.dcw.timeout*ecm->period ) {
+		// Check for ECM TimeOut (CAID:Provider-aware)
+		else if ( (ticks-ecm->recvtime) >= ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period ) {
 			ecm->statusmsg = "Decode failed, dcw timeout";
 			ecm_faileddcw( ecm );
 			// Send DCW to Cache if not sent
@@ -173,7 +220,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 			}
 		}
 		// Check for ECM sending
-		else if ( (ticks-ecm->recvtime) <= (cs->option.server.timeout*ecm->period) ) { // ~ cfg.cardserver.option.dcw.timeout*2/3 is the cardserver timeout
+		else if ( (ticks-ecm->recvtime) <= (ecm_get_effective_timeout(ecm, cs, cs->option.server.timeout)*ecm->period) ) { // CAID:Provider-aware timeout
 			// Check for cache request
 			if ( (ecm->cachestatus==ECM_CACHE_NONE) && cs->option.fallowcache && cs->option.cachesendreq ) {
 				pipe_cache_request(ecm,cs);
@@ -188,7 +235,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 				struct server_data *newsrv = NULL;
 				if ( srvtab_arrange(cs, ecm, ecm->server_totalsent > 0 )==-1 ) { // No more servers to decode
 					//debugf(0," sendecm: no servers found to decode\n");
-					ecm->checktime = ecm->recvtime + cs->option.dcw.timeout*ecm->period;
+					ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period;
 					return;
 				}
 				else if (psrvlist[0] && psrvlist[0]->srv) {
@@ -283,7 +330,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					if ( cs->option.server.first > (ecm->server_totalsent+1) ) ecm->checktime = ticks + 10;
 					else {
 						ecm->checktime = ticks + cs->option.server.interval;
-						if ( (ecm->checktime-ecm->recvtime) > (cs->option.server.timeout*ecm->period) ) ecm->checktime = ecm->recvtime + cs->option.dcw.timeout*ecm->period;
+						if ( (ecm->checktime-ecm->recvtime) > (ecm_get_effective_timeout(ecm, cs, cs->option.server.timeout)*ecm->period) ) ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period;
 					}
 				}
 				else {
@@ -293,7 +340,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 
 					// PROBLEM HERE ??????
 					ecm->waitserver = 1; // XXX
-					ecm->checktime = ecm->recvtime + cs->option.dcw.timeout*ecm->period; // till the end if there is no server
+					ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period; // CAID:Provider-aware timeout
 
 #ifdef BUSY_SERVER
 					if (!ecm->server_totalwait && !ecm->server_totalsent) {
@@ -305,10 +352,10 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					return;
 				}
 			}
-			else {
-				ecm->checktime = ecm->lastsendtime + cs->option.server.interval;
-				if ( (ecm->checktime-ecm->recvtime) > (cs->option.server.timeout*ecm->period) ) ecm->checktime = ecm->recvtime + cs->option.dcw.timeout*ecm->period;
-			}
+		else {
+			ecm->checktime = ecm->lastsendtime + cs->option.server.interval;
+			if ( (ecm->checktime-ecm->recvtime) > (ecm_get_effective_timeout(ecm, cs, cs->option.server.timeout)*ecm->period) ) ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period;
+		}
 		}
 		else if (!ecm->server_totalwait) {
 			ecm->statusmsg = "Decode failed, no server open this channel";
@@ -322,9 +369,9 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		else if ( cs->option.fallowcache && cs->option.cacheresendreq && (ecm->cachestatus==ECM_CACHE_REQ) ) {
 			pipe_cache_resendreq(ecm, cs);
 			ecm->cachestatus = ECM_CACHE_REQ2;
-			ecm->checktime = ecm->recvtime + cs->option.dcw.timeout*ecm->period;
+			ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period;
 		}
-		else ecm->checktime = ecm->recvtime + cs->option.dcw.timeout*ecm->period;
+		else ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period;
 	}
 }
 

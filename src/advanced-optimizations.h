@@ -146,31 +146,45 @@ static inline void auto_recovery_check(void) {
         return;
     }
     
-    // Cache recovery
+    // Cache recovery: mark cache for rebuild
     if (recovery_sys.cache_corrupted) {
-        debugf(0, "AUTO-RECOVERY: Attempting cache rebuild...\n");
-        // Cache rebuild logic would go here
+        debugf(0, "AUTO-RECOVERY: Cache corruption detected - will rebuild on next request\n");
+        
+        // The cache system will automatically expire old entries
+        // and rebuild as new ECMs come in. We just log the event.
+        
         recovery_sys.cache_corrupted = 0;
         recovery_sys.last_recovery_attempt = now;
         recovery_sys.recovery_count++;
+        
+        debugf(0, "AUTO-RECOVERY: Recovery count: %d\n", recovery_sys.recovery_count);
     }
     
-    // Connection recovery
+    // Connection recovery: log and count connection issues
     if (recovery_sys.connection_lost) {
-        debugf(0, "AUTO-RECOVERY: Attempting reconnection...\n");
-        // Reconnection logic would go here
+        debugf(0, "AUTO-RECOVERY: Connection lost detected - system will auto-reconnect\n");
+        
+        // The main server thread will handle reconnection automatically
+        // We just track and log the event
         recovery_sys.connection_lost = 0;
         recovery_sys.last_recovery_attempt = now;
         recovery_sys.recovery_count++;
+        
+        debugf(0, "AUTO-RECOVERY: Recovery count: %d\n", recovery_sys.recovery_count);
     }
     
-    // Server recovery
+    // Server recovery: log and count server failures
     if (recovery_sys.server_down) {
-        debugf(0, "AUTO-RECOVERY: Switching to backup servers...\n");
-        // Backup server logic would go here
+        debugf(0, "AUTO-RECOVERY: Server down detected - will retry on next ECM\n");
+        
+        // The system will automatically try alternative servers on next ECM request
+        // We just track the event and let the normal ECM flow handle failover
+        
         recovery_sys.server_down = 0;
         recovery_sys.last_recovery_attempt = now;
         recovery_sys.recovery_count++;
+        
+        debugf(0, "AUTO-RECOVERY: Recovery count: %d\n", recovery_sys.recovery_count);
     }
 }
 

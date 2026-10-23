@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "cafamily.h"	/* TASK R36 (D92) */
+#include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include <stdlib.h>
 
 inline void peer_hitprofile( struct cachepeer_data *peer, int csid )
@@ -146,6 +147,16 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	if (!cs) return;
 
 	if ( dcwcmp8(dcw,nullcw) && dcwcmp8(dcw+8,nullcw) ) return;
+	
+	/* DCW validation: check for fake patterns and badlist */
+	if (dcw_pattern_fake(dcw)) {
+		debugf(0, " [DCW] Rejected fake pattern CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+		return;
+	}
+	if (dcw_on_badlist(dcw)) {
+		debugf(0, " [DCW] Rejected badlisted CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+		return;
+	}
 
 	/*
 	 * TASK 1.8 — structural soft signal, evaluated before acceptDCW() so that
@@ -282,7 +293,11 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	// filter non-nds halfnulled cw
 	if ( dcwcmp8(dcw,nullcw) || dcwcmp8(dcw+8,nullcw) ) {
 		if (!ca_halfnull_ok(ecm->caid)) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
-			return;
+			/* EXTERNAL RESEARCH: Check provider-specific disablecrccws_only_for */
+			if (!provider_should_disable_crc(ecm->caid, ecm->provid)) {
+				return;
+			}
+			debugf(0, " [PROVIDER CONFIG] %04X:%06X - CRC bypass enabled (halfnulled CW accepted)\n", ecm->caid, ecm->provid);
 		}
 		int swap = 0;
 #ifdef DCWSWAP
@@ -294,7 +309,11 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	}
 
 #ifdef CHECK_NEXTDCW
-	if (cs->option.dcw.check && !cs->option.dcw.halfnulled) {
+	/* CAID-specific validation: use relaxed check for problematic CAIDs */
+	if (caid_should_use_relaxed_validation(ecm->caid)) {
+		debugf(0, " [CAID OPT] %04X: using relaxed validation (skipping strict DCW check)\n", ecm->caid);
+	}
+	else if (cs->option.dcw.check && !cs->option.dcw.halfnulled) {
 		int check = checkfreeze_setdcw(ecm,dcw);
 		if (check==0) {
 			ecm->lastdecode.error++;

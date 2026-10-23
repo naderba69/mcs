@@ -1,6 +1,7 @@
 
 #include "common.h"
 #include "cafamily.h"	/* TASK R36 (D92) */
+#include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include <stdlib.h>
 
 void stringtohtml(char *src, char *dest)
