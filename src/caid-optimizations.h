@@ -295,24 +295,26 @@ static inline void caid_optimizations_init(void) {
         s->black_screen_count = 0;
     }
     
-    // CAID 1884 - NC+ 4K (NAGRA - OPTIMIZED FOR SPEED)
+    // CAID 1884 - NC+ 4K (NAGRA - FIXED TIMEOUT)
+    // ISSUE: Servers respond in 2000-4000ms, old timeout was 800ms
+    // FIX: Increased server_timeout to 5000ms, dcw_validecmtime to 6000ms
     {
         struct caid_settings *s = &caid_opt_tab.settings[caid_opt_tab.count++];
         s->caid = 0x1884;
         s->type = CAID_TYPE_NAGRA;
-        s->dcw_mintime = 100;
-        s->dcw_validecmtime = 1000;
-        s->server_timeout = 800;
-        s->cache_timeout = 250;
-        s->dcw_maxfailed = 3;
-        s->dcw_retry = 2;
+        s->dcw_mintime = 0;  // Disable mintime - allow fast responses
+        s->dcw_validecmtime = 6000;  // Increased from 1000 to 6000ms
+        s->server_timeout = 5000;  // Increased from 800 to 5000ms
+        s->cache_timeout = 500;  // Increased from 250 to 500ms
+        s->dcw_maxfailed = 5;  // Increased from 3 to 5
+        s->dcw_retry = 3;  // Increased from 2 to 3
         s->enable_skipcwc = 1;
         s->enable_cycle_check = 1;
         s->halfnulled_reject = 1;
         s->ecm_check_length = 0;
         s->cache_priority = 80;
-        s->avg_response_time = 800;
-        s->success_rate = 90;
+        s->avg_response_time = 2500;  // Updated from 800 to 2500ms
+        s->success_rate = 85;  // Adjusted from 90 to 85
         s->black_screen_count = 0;
     }
     

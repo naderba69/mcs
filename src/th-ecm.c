@@ -61,6 +61,11 @@ void clients_check_sendcw(ECM_DATA *ecm)
 
 
 #include "loadbalance.c"
+
+/* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT */
+#include "supersmartfilter.h"
+#include "dcwstrict.h"
+
 #include "setdcw.c"
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -72,6 +72,10 @@
 #include "cwcycle.h"	/* TASK 2.5 cache key cycle/parity visibility (observe only) */
 #include "cwneg.h"	/* TASK 2.6 negative memory: a proven-bad key is never delivered twice */
 #include "cwattest.h"	/* TASK R30 (D81) receiver attestation: independent clients file a key */
+/* TASK BS (2026-10-26) -- Black Screen Prevention & Recovery Systems */
+#include "blackscreen-detector.h"	/* BS1: channel-level failure tracking & recovery triggers */
+#include "blackanalytics.h"		/* BS2: blackscreen pattern analysis (channels, peers) */
+#include "autorecov.h"		/* BS3: staged auto-recovery (alt CW → switch src → restart → emergency) */
 #include "cwcm.h"	/* TASK 2.7 complement-mirror detection on delivered keys */
 #include "cacheguard.h"	/* TASK 2.9 cache protocol guard, used by clustredcache.c (below) */
 #include "trustlife.h"	/* TASK 2.10 trust lifecycle: fade + persistence, used by th-cfg.c / clustredcache.c */
@@ -124,6 +128,9 @@ unsigned long cwreuse_proofs = 0;
  * tested, not here.
  */
 struct trust_table trust_tab;
+
+/* TASK BS (2026-10-26) -- Auto-Recovery global table */
+struct autorecov_table g_autorecov_table;
 
 /*
  * TASK 1.7 -- a lock for the trust table, and the reason it is a defect fix
@@ -1825,6 +1832,10 @@ char ecm_file[256];
 struct config_data cfg;
 struct program_data prg;
 
+/* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT global configs */
+struct ssf_config ssf_cfg;
+struct dcwstrict_config dcwstrict_cfg;
+
 uint32_t ecm_check_time = 0;
 
 
@@ -2299,6 +2310,14 @@ static void attest_purge(int srctype, int srcid, const uint8_t *cw,
 #include "server-health.h"
 #include "ecm-optimizations.h"
 #include "advanced-optimizations.h"
+#include "caid-optimizations.h"
+#include "biss.h"
+#include "diagnostics.h"
+#include "debug-ecm.h"
+#include "server-stats.h"
+#include "log-viewer.h"
+#include "cache-analytics.h"
+#include "auto-tuning.h"
 #ifdef CCCAM_CLI
 #include "cli-cccam.c"
 #endif
@@ -2626,10 +2645,13 @@ void mainprocess()
 	auto_recovery_init();
 	predictive_warming_init();
 	caid_optimizations_init();
+	diagnostics_init();
+	debug_ecm_init();
+	server_stats_init();
+	log_viewer_init();
+	cache_analytics_init();
+	auto_tuning_init();
 	debugf(0, " [INIT] All custom modules initialized successfully\n");
-
-
-
 
 
 
@@ -2671,12 +2693,30 @@ void mainprocess()
 
 	init_ecmdata();
 
-	/* CAID-specific optimizations - initialize after config is loaded */
-	caid_integration_init();
+	/* CAID-specific optimizations - already initialized above */
+	// caid_integration_init();  // DISABLED - calls caid_optimizations_init() again
+	debugf(0, " [CAID INTEGRATION] Using already initialized CAID settings\n");
 
 	/* Provider-level ECM configuration - from external research */
 	provider_config_init();
 	debugf(0, " [PROVIDER CONFIG] %d provider-specific ECM configurations loaded\n", provider_cfg_tab.count);
+
+	/* TASK BS (2026-10-26) -- Initialize Black Screen Prevention Systems */
+	bs_init();
+	blackanalytics_init();
+	autorecov_init(&g_autorecov_table, 1);  /* Auto-recovery enabled by default */
+	debugf(0, " [BLACKSCREEN] Detection, Analytics, and Auto-Recovery systems initialized\n");
+
+	/* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT */
+	supersmartfilter_init();
+	dcwstrict_init();
+	/* Enable DCW STRICT by default for better protection */
+	dcwstrict_cfg.enabled = 1;
+	dcwstrict_cfg.log_rejected = 1;
+	dcwstrict_cfg.trustscore = 1;
+	/* Set SSF to level 5 (balanced protection) */
+	ssf_cfg.filter_level = 5;
+	debugf(0, " [R200 v2.5] SuperSmartFilter (level=%d) + DCW STRICT initialized\n", ssf_cfg.filter_level);
 
 // THREADS - detached
 	start_thread_dns();
@@ -2731,6 +2771,9 @@ void mainprocess()
 
 	start_thread_http();
 
+	// Auto-tuning: track time for periodic analysis
+	time_t last_auto_tuning = time(NULL);
+
 	while (!prg.restart) {
 		/* Auto recovery: check for servers that need recovery */
 		auto_recovery_check();
@@ -2743,6 +2786,26 @@ void mainprocess()
 			int warm_count = predictive_warming_get_popular(warm_caid, warm_provid, warm_sid, 10);
 			if (warm_count > 0) {
 				debugf(0, " [WARMING] Top %d popular channels tracked for cache warming\n", warm_count);
+			}
+		}
+		
+		/* Auto-tuning: analyze performance every 5 minutes */
+		{
+			time_t now = time(NULL);
+			if (now - last_auto_tuning >= 300) {  // 300 seconds = 5 minutes
+				auto_tuning_analyze();
+				/* TASK BS (2026-10-26): Periodic blackscreen analysis */
+				blackanalytics_analyze_channels();
+				blackanalytics_analyze_peers();
+				{
+					uint16_t worst_caid, worst_sid;
+					int count = blackanalytics_get_worst_channel(&worst_caid, &worst_sid);
+					if (count > 5) {
+						debugf(0, " [BS-ANALYTICS] Channel %04X:%04X has %d blackscreens in window\n",
+						       worst_caid, worst_sid, count);
+					}
+				}
+				last_auto_tuning = now;
 			}
 		}
 		

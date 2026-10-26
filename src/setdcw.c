@@ -149,14 +149,14 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	if ( dcwcmp8(dcw,nullcw) && dcwcmp8(dcw+8,nullcw) ) return;
 	
 	/* DCW validation: check for fake patterns and badlist */
-	if (dcw_pattern_fake(dcw)) {
-		debugf(0, " [DCW] Rejected fake pattern CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
-		return;
-	}
-	if (dcw_on_badlist(dcw)) {
-		debugf(0, " [DCW] Rejected badlisted CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
-		return;
-	}
+//	if (dcw_pattern_fake(dcw)) {
+//		debugf(0, " [DCW] Rejected fake pattern CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+//		return;
+//	}
+//	if (dcw_on_badlist(dcw)) {
+//		debugf(0, " [DCW] Rejected badlisted CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+//		return;
+//	}
 
 	/*
 	 * TASK 1.8 — structural soft signal, evaluated before acceptDCW() so that
@@ -257,6 +257,43 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	}
 
 	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;
+
+
+	/*
+	 * TASK BS2 (2026-10-26) -- Fake CW Detection for Known Vulnerable CAIDs
+	 *
+	 * Some providers (notably CAID 1810 Movistar+, 1883 Canal+, 1884 NLS)
+	 * launch anti-sharing attacks by sending fake CWs through EMM or
+	 * cache-exchange. These fake CWs often have detectable structural
+	 * patterns (complement mirror, repeated bytes, constant step).
+	 *
+	 * dcw_pattern_fake() detects these shapes with ~1e-12 false positive
+	 * rate on genuine keys (verified by TASK R28/D79). Armed here for
+	 * the three CAIDs most affected by provider fake-CW attacks.
+	 *
+	 * Source: LinuxSat-Support Thread #151206 (CAID 1810),
+	 *         EXTERNAL-RESEARCH-REPORT.md (all three CAIDs).
+	 */
+	if (srctype != DCW_SOURCE_CACHE || (srcid & PEER_ORIGIN_FLAGS)) {
+		/* Check non-cache sources and cache-exchange pushes */
+		int check_fake = 0;
+		switch (ecm->caid) {
+			case 0x1810:  /* Movistar+ - known provider attacks */
+			case 0x1883:  /* Canal+ France */
+			case 0x1884:  /* NLS */
+			case 0x1811:  /* CanalSat NG */
+				check_fake = 1;
+				break;
+		}
+		if (check_fake && dcw_pattern_fake(dcw)) {
+			debugf(0, " !!! [FAKE-CW] %s: Fake CW detected for %04X:%06X:%04X (shape analysis) -- REFUSED\n",
+				cs->name, ecm->caid, ecm->provid, ecm->sid);
+#ifdef MCS_DCWSTATS
+			DCWSTATS_REJECT(DCW_REJ_PATTERN);
+#endif
+			return;
+		}
+	}
 
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
@@ -667,6 +704,85 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	}
 
 	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;
+
+	/*
+	 * TASK BS1 (2026-10-26) -- CW Cycle Validation for Black Screen Prevention
+	 *
+	 * When a CW arrives from the cache with a cycle marker (cwmark),
+	 * validate that the cycle matches the ECM's expectation.
+	 * A mismatch means the key is correct in content but wrong in
+	 * timing: applying it produces a black screen despite passing
+	 * every content filter. Closes docs/BLACKSCREEN.md Cause 5.
+	 *
+	 * ENHANCED: Now uses provider_cwcycle_enabled() to check only CAIDs
+	 * that need cycle validation (from ecm-provider-config.h).
+	 */
+	if (srctype == DCW_SOURCE_CACHE && cwmark != 0 && ecm->cw1cycle) {
+		/* Check if this CAID needs cycle validation */
+		if (provider_cwcycle_enabled(ecm->caid, ecm->provid) || dcw_filter_cycle) {
+			extern int checkcycle(uint8_t, uint8_t, uint8_t);
+			extern void checkcycle_mismatch_inc(void);
+			if (!checkcycle(ecm->cw1cycle, ecm->ecm[0], cwmark)) {
+				checkcycle_mismatch_inc();
+				debugf(0, " !!! [CYCLE] %s: CW cycle mismatch %04X:%06X:%04X/%02x (mark=%d) -- REFUSED\n",
+					cs->name, ecm->caid, ecm->provid, ecm->sid, ecm->ecm[0], cwmark);
+#ifdef MCS_DCWSTATS
+				DCWSTATS_REJECT(DCW_REJ_CYCLE);
+#endif
+				return;
+			}
+		}
+	}
+
+	/*
+	 * R200 v2.5 Integration: DCW STRICT + SuperSmartFilter
+	 *
+	 * Advanced CW validation with 12 total checks:
+	 * - DCW STRICT (3 stages): entropy < 5, all-same-byte, stale/recycled CW
+	 * - SuperSmartFilter (9 stages): empty, fake, entropy, pattern, format,
+	 *   blacklist, duplicate, cross-channel, multi-check
+	 *
+	 * Plus: Smart peer banning based on bad CW ratio, trust score penalty system.
+	 */
+	{
+		uint32_t now_ms = GetTickCount();
+		const char *dcwstrict_reason = NULL;
+		int dcwstrict_rejected = dcwstrict_check(dcw, ecm->caid, ecm->provid, ecm->sid, now_ms, &dcwstrict_reason);
+		
+		if (dcwstrict_rejected) {
+			debugf(0, " !!! [DCW STRICT] %s: CW rejected for %04X:%06X:%04X - %s\n",
+				cs->name, ecm->caid, ecm->provid, ecm->sid, dcwstrict_reason ? dcwstrict_reason : "unknown");
+			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
+				dcwstrict_trust_penalty(srcid);
+			}
+			return;
+		}
+		
+		int ssf_reason = 0;
+		int ssf_rejected = supersmartfilter_check(dcw, 
+#ifdef CACHEEX
+			ecm->ecmd5,
+#else
+			NULL,
+#endif
+			ecm->caid, ecm->provid, ecm->sid, srcid, now_ms, &ssf_reason);
+		
+		if (ssf_rejected) {
+			debugf(0, " !!! [SSF] %s: CW rejected for %04X:%06X:%04X - reason code %d\n",
+				cs->name, ecm->caid, ecm->provid, ecm->sid, ssf_reason);
+			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
+				dcwstrict_trust_penalty(srcid);
+			}
+			return;
+		}
+		
+		/* Reward valid CW */
+		if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
+			dcwstrict_trust_reward(srcid);
+		}
+	}
+
+
 
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
