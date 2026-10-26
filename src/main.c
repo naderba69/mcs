@@ -45,6 +45,7 @@
 #include "httpserver.h"
 #include "caid-integration.h"  /* CAID-specific optimizations */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
+#include "auto-tuning.h"  /* Auto-tuning system */
 
 #ifdef TELNET
 #include "telnet.h"
@@ -2717,6 +2718,10 @@ void mainprocess()
 	/* Set SSF to level 5 (balanced protection) */
 	ssf_cfg.filter_level = 5;
 	debugf(0, " [R200 v2.5] SuperSmartFilter (level=%d) + DCW STRICT initialized\n", ssf_cfg.filter_level);
+
+	/* Auto-Tuning System - Automatic profile optimization */
+	auto_tuning_init();
+	debugf(0, " [AUTO-TUNING] Automatic profile optimization system initialized\n");
 
 // THREADS - detached
 	start_thread_dns();

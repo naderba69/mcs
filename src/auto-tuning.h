@@ -1,19 +1,11 @@
-/* auto-tuning.h - Automatic Performance Tuning System
+/*
+ * Auto-Tuning System for MultiCS
+ * Version: 1.0
+ * Date: 2026-10-26
  * 
- * PURPOSE: Monitor performance and suggest optimizations
- * 
- * MODE: Suggestion + Approval (safe mode)
- * - System analyzes performance
- * - Suggests improvements
- * - User approves or rejects
- * - No automatic changes
- * 
- * FEATURES:
- * - Performance monitoring
- * - Bottleneck detection
- * - Smart suggestions
- * - Approval workflow
- * - Change history
+ * Automatically adjusts profile settings based on real-time performance metrics.
+ * Monitors cache hit rate, timeout rate, and decode success rate to optimize
+ * timeouts and cache settings dynamically.
  */
 
 #ifndef AUTO_TUNING_H
@@ -21,130 +13,232 @@
 
 #include <stdint.h>
 #include <time.h>
-#include <pthread.h>
 
-// Maximum suggestions
-#define AUTO_TUNING_MAX_SUGGESTIONS 50
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
 
-// Maximum history entries
-#define AUTO_TUNING_MAX_HISTORY 100
+#define AUTO_TUNING_ENABLED          1
+#define AUTO_TUNING_INTERVAL_MS      60000    // Check every 60 seconds
+#define AUTO_TUNING_MIN_SAMPLES      100      // Minimum samples before tuning
 
-// Suggestion types
-#define SUGGESTION_TYPE_TIMEOUT    1
-#define SUGGESTION_TYPE_CACHE      2
-#define SUGGESTION_TYPE_PREFETCH   3
-#define SUGGESTION_TYPE_SERVER     4
-#define SUGGESTION_TYPE_GENERAL    5
+// Thresholds for tuning decisions
+#define CACHE_HIT_RATE_GOOD          0.80     // 80% cache hit rate
+#define CACHE_HIT_RATE_BAD           0.50     // 50% cache hit rate
+#define TIMEOUT_RATE_HIGH            0.20     // 20% timeout rate
+#define DECODE_SUCCESS_RATE_GOOD     0.95     // 95% decode success rate
 
-// Suggestion status
-#define SUGGESTION_STATUS_PENDING   0
-#define SUGGESTION_STATUS_APPROVED  1
-#define SUGGESTION_STATUS_REJECTED  2
-#define SUGGESTION_STATUS_APPLIED   3
+// Adjustment limits
+#define TIMEOUT_ADJUST_STEP          50       // Adjust timeout by 50ms
+#define TIMEOUT_MIN                  300      // Minimum timeout
+#define TIMEOUT_MAX                  5000     // Maximum timeout
+#define CACHE_TIMEOUT_ADJUST_STEP    100      // Adjust cache timeout by 100ms
+#define CACHE_TIMEOUT_MIN            200      // Minimum cache timeout
+#define CACHE_TIMEOUT_MAX            10000    // Maximum cache timeout
 
-// Suggestion priority
-#define SUGGESTION_PRIORITY_LOW    1
-#define SUGGESTION_PRIORITY_MEDIUM 2
-#define SUGGESTION_PRIORITY_HIGH   3
-#define SUGGESTION_PRIORITY_CRITICAL 4
+// ============================================================================
+// DATA STRUCTURES
+// ============================================================================
 
-// Suggestion structure
-struct auto_tuning_suggestion {
-    uint32_t id;
-    time_t timestamp;
-    int type;
-    int priority;
-    int status;
+typedef struct {
+    uint32_t total_requests;
+    uint32_t cache_hits;
+    uint32_t cache_misses;
+    uint32_t timeouts;
+    uint32_t decode_success;
+    uint32_t decode_failed;
+    uint32_t black_screens;
+    time_t last_update;
+} profile_stats_t;
+
+typedef struct {
+    uint16_t caid;
+    uint32_t provid;
+    profile_stats_t stats;
     
-    char title[128];
-    char description[512];
-    char reason[256];
-    char expected_benefit[256];
+    // Current tuned values
+    uint16_t current_server_timeout;
+    uint16_t current_cache_timeout;
+    uint16_t current_valid_ecm_time;
     
-    // Configuration change
-    char config_key[64];
-    char current_value[64];
-    char suggested_value[64];
+    // Tuning history
+    uint8_t tuning_count;
+    time_t last_tune_time;
     
-    // Affected component
-    char component[64];  // "server", "caid", "global"
-    uint32_t component_id;  // server_id or caid
+    // Performance metrics
+    float cache_hit_rate;
+    float timeout_rate;
+    float decode_success_rate;
     
-    // Metrics
-    uint32_t current_metric;
-    uint32_t expected_metric;
-};
+    // Status
+    uint8_t needs_tuning;
+    uint8_t is_optimized;
+} auto_tuning_profile_t;
 
-// History entry
-struct auto_tuning_history {
-    uint32_t suggestion_id;
-    time_t timestamp;
-    int action;  // 0=rejected, 1=approved, 2=applied
-    char action_text[64];
-};
-
-// Auto-tuning table
-struct auto_tuning_table {
-    struct auto_tuning_suggestion suggestions[AUTO_TUNING_MAX_SUGGESTIONS];
-    int suggestion_count;
-    uint32_t next_id;
+typedef struct {
+    uint8_t enabled;
+    uint32_t interval_ms;
+    uint32_t min_samples;
     
-    struct auto_tuning_history history[AUTO_TUNING_MAX_HISTORY];
-    int history_count;
-    int history_index;
+    auto_tuning_profile_t *profiles;
+    uint32_t profile_count;
+    uint32_t max_profiles;
     
-    pthread_mutex_t lock;
-    
-    // Statistics
-    uint32_t total_suggestions;
-    uint32_t approved_count;
-    uint32_t rejected_count;
-    uint32_t applied_count;
-    
-    // Last analysis
-    time_t last_analysis_time;
-    int analysis_running;
-};
+    time_t last_check_time;
+    uint32_t total_tuning_operations;
+} auto_tuning_config_t;
 
-extern struct auto_tuning_table auto_tuning_tab;
+// ============================================================================
+// GLOBAL CONFIGURATION
+// ============================================================================
 
-// Initialize auto-tuning system
-void auto_tuning_init(void);
+extern auto_tuning_config_t auto_tuning_cfg;
 
-// Run performance analysis (call periodically)
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+/**
+ * Initialize the auto-tuning system
+ * @return 0 on success, -1 on error
+ */
+int auto_tuning_init(void);
+
+/**
+ * Cleanup auto-tuning resources
+ */
+void auto_tuning_cleanup(void);
+
+// ============================================================================
+// STATISTICS COLLECTION
+// ============================================================================
+
+/**
+ * Record a cache hit for a profile
+ * @param caid CAID of the profile
+ * @param provid Provider ID
+ */
+void auto_tuning_record_cache_hit(uint16_t caid, uint32_t provid);
+
+/**
+ * Record a cache miss for a profile
+ * @param caid CAID of the profile
+ * @param provid Provider ID
+ */
+void auto_tuning_record_cache_miss(uint16_t caid, uint32_t provid);
+
+/**
+ * Record a timeout for a profile
+ * @param caid CAID of the profile
+ * @param provid Provider ID
+ */
+void auto_tuning_record_timeout(uint16_t caid, uint32_t provid);
+
+/**
+ * Record a successful decode for a profile
+ * @param caid CAID of the profile
+ * @param provid Provider ID
+ */
+void auto_tuning_record_decode_success(uint16_t caid, uint32_t provid);
+
+/**
+ * Record a failed decode for a profile
+ * @param caid CAID of the profile
+ * @param provid Provider ID
+ */
+void auto_tuning_record_decode_failed(uint16_t caid, uint32_t provid);
+
+/**
+ * Record a black screen for a profile
+ * @param caid CAID of the profile
+ * @param provid Provider ID
+ */
+void auto_tuning_record_black_screen(uint16_t caid, uint32_t provid);
+
+// ============================================================================
+// TUNING OPERATIONS
+// ============================================================================
+
+/**
+ * Check if tuning is needed and perform tuning if necessary
+ * Should be called periodically (e.g., every AUTO_TUNING_INTERVAL_MS)
+ */
+void auto_tuning_check_and_tune(void);
+
+/**
+ * Force tuning for a specific profile
+ * @param caid CAID of the profile
+ * @param provid Provider ID
+ * @return 0 on success, -1 on error
+ */
+int auto_tuning_force_tune(uint16_t caid, uint32_t provid);
+
+/**
+ * Reset statistics for a profile
+ * @param caid CAID of the profile
+ * @param provid Provider ID
+ */
+void auto_tuning_reset_stats(uint16_t caid, uint32_t provid);
+
+/**
+ * Reset all statistics
+ */
+void auto_tuning_reset_all_stats(void);
+
+// ============================================================================
+// QUERY FUNCTIONS
+// ============================================================================
+
+/**
+ * Get current statistics for a profile
+ * @param caid CAID of the profile
+ * @param provid Provider ID
+ * @param stats Output statistics structure
+ * @return 0 on success, -1 if profile not found
+ */
+int auto_tuning_get_stats(uint16_t caid, uint32_t provid, profile_stats_t *stats);
+
+/**
+ * Get tuning profile for a CAID/Provider
+ * @param caid CAID of the profile
+ * @param provid Provider ID
+ * @return Pointer to profile or NULL if not found
+ */
+auto_tuning_profile_t* auto_tuning_get_profile(uint16_t caid, uint32_t provid);
+
+/**
+ * Check if auto-tuning is enabled
+ * @return 1 if enabled, 0 if disabled
+ */
+int auto_tuning_is_enabled(void);
+
+/**
+ * Enable or disable auto-tuning
+ * @param enabled 1 to enable, 0 to disable
+ */
+void auto_tuning_set_enabled(int enabled);
+
+// ============================================================================
+// REPORTING
+// ============================================================================
+
+/**
+ * Generate a tuning report
+ * @param buffer Output buffer
+ * @param buffer_size Size of buffer
+ * @return Number of bytes written
+ */
+int auto_tuning_generate_report(char *buffer, int buffer_size);
+
+/**
+ * Log tuning statistics
+ */
+void auto_tuning_log_stats(void);
+
+/**
+ * Analyze all profiles and perform tuning if needed
+ * This is a convenience wrapper around auto_tuning_check_and_tune()
+ */
 void auto_tuning_analyze(void);
 
-// Add suggestion
-int auto_tuning_add_suggestion(int type, int priority, const char *title,
-                              const char *description, const char *reason,
-                              const char *expected_benefit,
-                              const char *config_key, const char *current_value,
-                              const char *suggested_value,
-                              const char *component, uint32_t component_id);
-
-// Approve suggestion
-int auto_tuning_approve(uint32_t suggestion_id);
-
-// Reject suggestion
-int auto_tuning_reject(uint32_t suggestion_id);
-
-// Apply approved suggestion
-int auto_tuning_apply(uint32_t suggestion_id);
-
-// Get pending suggestions
-int auto_tuning_get_pending(struct auto_tuning_suggestion *suggestions, int max_count);
-
-// Get all suggestions
-int auto_tuning_get_all(struct auto_tuning_suggestion *suggestions, int max_count);
-
-// Get history
-int auto_tuning_get_history(struct auto_tuning_history *history, int max_count);
-
-// Clear all suggestions
-void auto_tuning_clear(void);
-
-// HTTP interface
-struct http_request;
-void http_send_auto_tuning(int sock, struct http_request *req);
-
-#endif /* AUTO_TUNING_H */
+#endif // AUTO_TUNING_H
