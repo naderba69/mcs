@@ -335,6 +335,27 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 			return;
 		}
 
+		/* CACHE SPEED SUITE: CacheEx Drop Diffs check
+		 * If this CW differs from a previously validated good CW for the same
+		 * channel, reject it immediately (the earlier CW was confirmed working). */
+		{
+			uint8_t ecm_hash[16] = {0};
+			/* Simple hash from ecm data */
+			if (ecm->ecm[0]) {
+				ecm_hash[0] = ecm->ecm[0];
+				ecm_hash[1] = (ecm->caid >> 8) & 0xFF;
+				ecm_hash[2] = ecm->caid & 0xFF;
+				ecm_hash[3] = (ecm->sid >> 8) & 0xFF;
+				ecm_hash[4] = ecm->sid & 0xFF;
+			}
+			if (!cacheex_dropdiffs_check(ecm->caid, ecm->provid, ecm->sid, dcw, ecm_hash)) {
+				debugf(0, " !!! [CACHE-DIFF] %04X:%06X:%04X from src %d -- CW differs from known-good -- REFUSED\n",
+					ecm->caid, ecm->provid, ecm->sid, srcid);
+				cwpostval_trust_bad((uint32_t)srcid);
+				return;
+			}
+		}
+
 		/* CW Post-Validation pipeline */
 		cwpostval_result_t pvr = cwpostval_validate(
 			dcw, ecm->caid, ecm->provid, (uint32_t)srcid,
@@ -359,6 +380,17 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 				ecm->caid, ecm->provid, ecm->sid,
 				pvr.plausibility_score, pvr.entropy, pvr.peer_trust,
 				pvr.reason);
+		}
+
+		/* CACHE SPEED: Store accepted CW as known-good for future drop-diffs check */
+		{
+			uint8_t ecm_hash[16] = {0};
+			ecm_hash[0] = ecm->ecm[0];
+			ecm_hash[1] = (ecm->caid >> 8) & 0xFF;
+			ecm_hash[2] = ecm->caid & 0xFF;
+			ecm_hash[3] = (ecm->sid >> 8) & 0xFF;
+			ecm_hash[4] = ecm->sid & 0xFF;
+			cacheex_dropdiffs_store_good(ecm->caid, ecm->provid, ecm->sid, dcw, ecm_hash, pvr.peer_trust);
 		}
 	}
 
