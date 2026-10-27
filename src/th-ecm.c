@@ -68,6 +68,7 @@ void clients_check_sendcw(ECM_DATA *ecm)
 #include "cw-postvalidate.h"
 #include "ecm-pattern-analysis.h"
 #include "implicit-bs-detect.h"
+#include "smart-server-select.h"
 #include "setdcw.c"
 
 ///////////////////////////////////////////////////////////////////////////////
