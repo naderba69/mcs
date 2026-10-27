@@ -46,6 +46,7 @@
 #include "caid-integration.h"  /* CAID-specific optimizations */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include "auto-tuning.h"  /* Auto-tuning system */
+#include "web-dashboard.h"  /* Web dashboard */
 
 #ifdef TELNET
 #include "telnet.h"
@@ -2722,6 +2723,11 @@ void mainprocess()
 	/* Auto-Tuning System - Automatic profile optimization */
 	auto_tuning_init();
 	debugf(0, " [AUTO-TUNING] Automatic profile optimization system initialized\n");
+
+	/* Web Dashboard - Real-time monitoring interface */
+	web_dashboard_init();
+	web_dashboard_start();
+	debugf(0, " [WEB-DASHBOARD] Real-time web monitoring interface started\n");
 
 // THREADS - detached
 	start_thread_dns();
