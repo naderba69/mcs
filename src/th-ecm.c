@@ -65,7 +65,7 @@ void clients_check_sendcw(ECM_DATA *ecm)
 /* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT */
 #include "supersmartfilter.h"
 #include "dcwstrict.h"
-
+#include "cw-postvalidate.h"
 #include "setdcw.c"
 
 ///////////////////////////////////////////////////////////////////////////////

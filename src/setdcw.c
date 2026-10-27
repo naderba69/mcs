@@ -295,6 +295,51 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 		}
 	}
 
+	/*
+	 * TASK CWPOSTVAL (2026-10-27) -- Post-Acceptance CW Validation Pipeline
+	 *
+	 * The "key question": can we detect a CW that passes all basic checks
+	 * (checksum, null, bad-list) but is still WRONG?
+	 *
+	 * Answer: YES — using 6 complementary techniques:
+	 * 1. Fake CW fingerprint database (auto-learns from detected fakes)
+	 * 2. CW Shannon entropy analysis (real CWs ≈3.5, fakes <1.5)
+	 * 3. Pattern detection (repeating bytes, duplicate halves)
+	 * 4. CW plausibility scoring (0-12 multi-factor)
+	 * 5. Peer trust scoring (reputation-based filtering)
+	 * 6. Pre-descramble structural validation
+	 *
+	 * Post-descramble TS validation (cwpostval_confirm_cw) would be called
+	 * after the descrambler processes packets — that hook is in the client
+	 * delivery path (srv-cccam.c etc.) where we can observe actual TS data.
+	 */
+	{
+		cwpostval_result_t pvr = cwpostval_validate(
+			dcw, ecm->caid, ecm->provid, (uint32_t)srcid,
+			checksumDCW(dcw),   /* passes_checksum */
+			!isnullDCW(dcw),    /* is_not_null */
+			!isbadDCW(dcw),     /* is_not_bad */
+			1                   /* in_cycle — assume yes at this stage */
+		);
+
+		if (!pvr.accepted) {
+			debugf(0, " !!! [CW-POSTVAL] %04X:%06X:%04X from src %d -- REFUSED: %s\n",
+				ecm->caid, ecm->provid, ecm->sid, srcid, pvr.reason);
+			cwpostval_trust_bad((uint32_t)srcid);
+#ifdef MCS_DCWSTATS
+			DCWSTATS_REJECT(DCW_REJ_PATTERN);
+#endif
+			return;
+		}
+
+		if (pvr.plausibility_score < 10) {
+			debugf(DBG_CW+DBG_DVBAPI, " [CW-POSTVAL] %04X:%06X:%04X -- LOW SCORE %d/12 (entropy=%.1f, trust=%d): %s\n",
+				ecm->caid, ecm->provid, ecm->sid,
+				pvr.plausibility_score, pvr.entropy, pvr.peer_trust,
+				pvr.reason);
+		}
+	}
+
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
 		if (ecm->ecm[0]==ecm->cw1cycle) cwpart = 1; else cwpart = 0;
@@ -388,6 +433,9 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	ecm->waitserver = 0;
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
+
+	/* CW-POSTVAL: Record successful CW for peer trust scoring */
+	cwpostval_trust_good((uint32_t)srcid);
 
 	// Check timeout
 	uint32_t ecmtime = GetTickCount()-ecm->recvtime;
@@ -882,6 +930,9 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	ecm->waitserver = 0;
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
+
+	/* CW-POSTVAL: Record successful CW for peer trust scoring */
+	cwpostval_trust_good((uint32_t)srcid);
 
 	/*
 	 * TASK 3.6: the waiter is answered -- release the cache entry's push arm
