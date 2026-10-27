@@ -2758,6 +2758,13 @@ void mainprocess()
 	debugf(0, "   [PROVIDER] Provider punishment detection active\n");
 	debugf(0, "   [QUARANTINE] Auto-quarantine: 30s per attack source\n");
 
+	/* Implicit Black Screen Detection - Detect wrong CWs from client behavior */
+	ibs_init();
+	debugf(0, " [IBS-DETECT] Implicit Black Screen Detection initialized\n");
+	debugf(0, "   [RAPID] Rapid re-request detection (<3s = wrong CW)\n");
+	debugf(0, "   [LEARN] CW cycle interval learning (per client/channel)\n");
+	debugf(0, "   [SOURCE] Automatic source blaming for wrong CWs\n");
+
 // THREADS - detached
 	start_thread_dns();
 	start_thread_srv();

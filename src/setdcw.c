@@ -465,6 +465,9 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	// Send DCW to clients
 	clients_check_sendcw(ecm);
 
+	/* IBS: Record CW delivery for black screen detection */
+	ibs_on_cw_sent(0, ecm->caid, ecm->provid, ecm->sid, (uint32_t)srcid, dcw, GetTickCount());
+
 	// Update Stat
 	cs->ecmok++;
 	cs->ecmoktime += ecmtime;
@@ -975,6 +978,9 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	if ( ecmtime > cs->option.dcw.timeout*ecm->period ) return;
 	// Send DCW to clients
 	clients_check_sendcw(ecm);
+
+	/* IBS: Record CW delivery for black screen detection */
+	ibs_on_cw_sent(0, ecm->caid, ecm->provid, ecm->sid, (uint32_t)srcid, dcw, GetTickCount());
 
 	/*
 	 * TASK 2.5 -- the cache hand-off, observed at the moment it happens (see
