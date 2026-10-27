@@ -2749,6 +2749,15 @@ void mainprocess()
 	debugf(0, "   [PEER-TRUST] Peer trust scoring system active (128 peers)\n");
 	debugf(0, "   [PLAUSIBILITY] CW plausibility scoring active (0-12 scale)\n");
 
+	/* ECM Pattern Analysis - Detect coordinated attacks */
+	ecmpat_init();
+	debugf(0, " [ECM-PATTERN] ECM Pattern Analysis system initialized\n");
+	debugf(0, "   [EMM-SHARED] EMM injection detection active (5s window)\n");
+	debugf(0, "   [BURST] Burst fake CW detection active (3+ in 10s)\n");
+	debugf(0, "   [POISON] Cache poisoning storm detection active\n");
+	debugf(0, "   [PROVIDER] Provider punishment detection active\n");
+	debugf(0, "   [QUARANTINE] Auto-quarantine: 30s per attack source\n");
+
 // THREADS - detached
 	start_thread_dns();
 	start_thread_srv();

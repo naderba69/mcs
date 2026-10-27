@@ -314,6 +314,28 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	 * delivery path (srv-cccam.c etc.) where we can observe actual TS data.
 	 */
 	{
+		/* ECM Pattern Analysis — detect coordinated attacks FIRST */
+		uint32_t now_ms = GetTickCount();
+		ecmpat_attack_type_t attack_type = ECMPAT_ATTACK_NONE;
+		int pat_result = ecmpat_analyze(
+			(uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid,
+			dcw, 1 /* is_success=true at this point, will update */,
+			0 /* not EMM */, ecm->ecm[0], now_ms, &attack_type);
+
+		if (pat_result == 2) {
+			/* Source is quarantined — block ALL CWs */
+			debugf(0, " !!! [ECM-PATTERN] Source %d QUARANTINED -- all CWs blocked\n", srcid);
+			cwpostval_trust_bad((uint32_t)srcid);
+			return;
+		}
+		if (pat_result == 1) {
+			debugf(0, " !!! [ECM-PATTERN] %04X:%06X:%04X from src %d -- ATTACK DETECTED: %s -- REFUSED\n",
+				ecm->caid, ecm->provid, ecm->sid, srcid, ecmpat_attack_name(attack_type));
+			cwpostval_trust_bad((uint32_t)srcid);
+			return;
+		}
+
+		/* CW Post-Validation pipeline */
 		cwpostval_result_t pvr = cwpostval_validate(
 			dcw, ecm->caid, ecm->provid, (uint32_t)srcid,
 			checksumDCW(dcw),   /* passes_checksum */

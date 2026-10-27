@@ -66,6 +66,7 @@ void clients_check_sendcw(ECM_DATA *ecm)
 #include "supersmartfilter.h"
 #include "dcwstrict.h"
 #include "cw-postvalidate.h"
+#include "ecm-pattern-analysis.h"
 #include "setdcw.c"
 
 ///////////////////////////////////////////////////////////////////////////////
