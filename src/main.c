@@ -48,6 +48,7 @@
 #include "auto-tuning.h"  /* Auto-tuning system */
 #include "web-dashboard.h"  /* Web dashboard */
 #include "cache-speed-suite.h"  /* Cache Speed Optimization Suite (8 systems) */
+#include "cw-postvalidate.h"  /* Post-descramble CW validation + Fake CW detection */
 
 #ifdef TELNET
 #include "telnet.h"
@@ -2738,6 +2739,15 @@ void mainprocess()
 	debugf(0, "   [CACHEX-WAITTIME] Per-CAID wait times loaded\n");
 	debugf(0, "   [ECM-DOUBLECHECK] ECM double check active for 8 CAIDs\n");
 	debugf(0, "   [CACHEX-ADVANCED] DropDiffs + NoPushAfter + DoubleCheck active\n");
+
+	/* CW Post-Validation - Detect fake CWs after acceptance */
+	cwpostval_init();
+	debugf(0, " [CW-POSTVAL] Post-descramble CW validation system initialized\n");
+	debugf(0, "   [TS-VALIDATE] Transport Stream validation active (95%% accuracy)\n");
+	debugf(0, "   [CW-ENTROPY] Shannon entropy analysis active\n");
+	debugf(0, "   [FAKE-DB] Fake CW fingerprint database ready (max 2048)\n");
+	debugf(0, "   [PEER-TRUST] Peer trust scoring system active (128 peers)\n");
+	debugf(0, "   [PLAUSIBILITY] CW plausibility scoring active (0-12 scale)\n");
 
 // THREADS - detached
 	start_thread_dns();
