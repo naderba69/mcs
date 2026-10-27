@@ -246,11 +246,20 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period;
 					return;
 				}
-				else if (psrvlist[0] && psrvlist[0]->srv) {
-					// SEND ECM
-					newsrv = psrvlist[0]->srv;
-					newsrv->busycard = psrvlist[0]->card; // dont save pointers!!!
-					newsrv->busycardid = psrvlist[0]->shareid;
+			else if (psrvlist[0] && psrvlist[0]->srv) {
+				// SEND ECM
+				newsrv = psrvlist[0]->srv;
+				newsrv->busycard = psrvlist[0]->card; // dont save pointers!!!
+				newsrv->busycardid = psrvlist[0]->shareid;
+
+				/* SMART-SERVER-SELECT: Check if selected server should be skipped
+				 * due to quarantine or very low trust score */
+				if (smartselect_should_skip((uint32_t)newsrv->id, ecm->caid, ecm->provid, ecm->sid, ticks)) {
+					debugf(0, " [SMART-SELECT] Server %d skipped (quarantined/low score) for %04X:%06X:%04X\n",
+						newsrv->id, ecm->caid, ecm->provid, ecm->sid);
+					/* Skip this server, try next iteration */
+					return;
+				}
 					//debugf(0," sendecm: selected server to decode (%s:%d)\n", newsrv->host->name, newsrv->port);
 					if (newsrv->type==TYPE_NEWCAMD) {
 						if (cs_sendecm_srv(cs, newsrv, ecm)>0) {

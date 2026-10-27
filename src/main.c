@@ -2346,6 +2346,10 @@ struct connect_cli_data {
 	uint32_t ip;
 };
 
+/* IBS + CW PostVal headers needed by all srv-*.c files for black screen detection */
+#include "implicit-bs-detect.h"
+#include "cw-postvalidate.h"
+
 #include "srv-newcamd.c"
 #ifdef MGCAMD_SRV
 #include "srv-mgcamd.c"
