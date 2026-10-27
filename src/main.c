@@ -47,6 +47,7 @@
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include "auto-tuning.h"  /* Auto-tuning system */
 #include "web-dashboard.h"  /* Web dashboard */
+#include "cache-speed-suite.h"  /* Cache Speed Optimization Suite (8 systems) */
 
 #ifdef TELNET
 #include "telnet.h"
@@ -2728,6 +2729,15 @@ void mainprocess()
 	web_dashboard_init();
 	web_dashboard_start();
 	debugf(0, " [WEB-DASHBOARD] Real-time web monitoring interface started\n");
+
+	/* Cache Speed Suite - 8 cache optimization systems */
+	cache_speed_suite_init();
+	debugf(0, " [CACHE-SPEED] Cache Speed Optimization Suite initialized (8 systems)\n");
+	debugf(0, "   [EMM-CACHE] EMM cache system active (rewrite=3, TTL=3600s)\n");
+	debugf(0, "   [CW-CACHE-SETTINGS] Per-CAID cache settings loaded\n");
+	debugf(0, "   [CACHEX-WAITTIME] Per-CAID wait times loaded\n");
+	debugf(0, "   [ECM-DOUBLECHECK] ECM double check active for 8 CAIDs\n");
+	debugf(0, "   [CACHEX-ADVANCED] DropDiffs + NoPushAfter + DoubleCheck active\n");
 
 // THREADS - detached
 	start_thread_dns();
