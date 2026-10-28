@@ -156,7 +156,7 @@ OBJECTS = $(OUTPUT)/sha1.o $(OUTPUT)/sha256.o $(OUTPUT)/des.o $(OUTPUT)/md5.o $(
 	$(OUTPUT)/ecmdata.o $(OUTPUT)/httpserver.o $(OUTPUT)/telnet.o $(OUTPUT)/main.o \
 	$(OUTPUT)/loginthrottle.o $(OUTPUT)/peerrep.o $(OUTPUT)/cwconsensus.o $(OUTPUT)/monjson.o $(OUTPUT)/biss.o \
 	$(OUTPUT)/server-health.o $(OUTPUT)/ecm-optimizations.o $(OUTPUT)/advanced-optimizations.o $(OUTPUT)/caid-optimizations.o $(OUTPUT)/ecm-provider-config.o \
-	$(OUTPUT)/diagnostics.o $(OUTPUT)/debug-ecm.o $(OUTPUT)/server-stats.o $(OUTPUT)/log-viewer.o $(OUTPUT)/safe-time.o $(OUTPUT)/user-trace.o $(OUTPUT)/cache-analytics.o $(OUTPUT)/auto-tuning.o $(OUTPUT)/web-dashboard.o
+	$(OUTPUT)/diagnostics.o $(OUTPUT)/debug-ecm.o $(OUTPUT)/server-stats.o $(OUTPUT)/log-viewer.o $(OUTPUT)/safe-time.o $(OUTPUT)/packed-time.o $(OUTPUT)/user-trace.o $(OUTPUT)/cache-analytics.o $(OUTPUT)/auto-tuning.o $(OUTPUT)/web-dashboard.o
 
 # TASK R6 (D60): the bounded cache queue compiles ONLY under CACHE_QUEUE
 # (pass CACHE_QUEUE=1 to make). The default build's OBJECTS line is

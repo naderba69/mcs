@@ -36,10 +36,19 @@ Packed ASan/UBSan builds at `-O1`, `-O2` and `-O3` now compile and run the
 share-limit regression with no diagnostics, including with
 `-Werror=stringop-overflow`. Tests cover an unaligned destination, small
 capacities, 99 entries plus sentinel, untouched bytes and provider overflow.
-A separate native-layout sanitizer build also passes this regression, but
-compiling the rest of `config.c` without `-fpack-struct` emits other packed
-member warnings (including mutex, AES and date members). Those warnings were
-not addressed by this change and that alternative build is not warning-free.
+A subsequent native-layout `-O1` sanitizer compile of `config.c` initially
+reported 19 packed-member warnings. Four date parsing sites in config and four
+in telnet now copy individual fields through a native-layout libc `struct tm`;
+valid and invalid formats are checked against native libc in packed and native
+builds. Four camd35/CS378x initialization sites now use local AES keys and CRC
+before copying into packed members; an alignment-checking stub tests those
+copies in both layouts. The native sanitizer compile of `config.c` now reports
+seven warnings, all involving initialization or destruction of the packed
+server mutex; the corresponding compile of `telnet.c` reports zero. Other
+translation units and other packed synchronization or crypto call sites have
+not been exhaustively checked. A mutex cannot safely be copied like ordinary
+data, so those remaining warnings were not masked: a lifecycle/layout design
+and architecture-specific verification are still required.
 
 These tests do not prove production behavior, video playback, or correctness on
 strict-alignment targets; no cross-platform production deployment was tested.

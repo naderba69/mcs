@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "common.h"
+#include "safe-time.h"
 #include "cwtime.h"   /* TASK 2.3: CWT_MAX_FLOOR, so the clamp and the module agree */
 
 #include <stddef.h>
@@ -195,8 +196,22 @@ void free_allhosts( struct config_data *cfg )
 	}
 }
 
-#if defined(CAMD35_SRV) || defined(CAMD35_CLI)
+#if defined(CAMD35_SRV) || defined(CAMD35_CLI) || defined(CS378X_SRV) || defined(CS378X_CLI)
 void camd35_init_data( char *user, char *pass, AES_KEY *encryptkey, AES_KEY *decryptkey, uint32_t *ucrc);
+
+/* Keys and CRC may be embedded in packed client/server structures. */
+static void camd35_init_packed_data(char *user, char *pass, void *encrypt_out,
+                                    void *decrypt_out, void *crc_out)
+{
+    AES_KEY encryptkey, decryptkey;
+    uint32_t ucrc;
+    memcpy(&encryptkey, encrypt_out, sizeof(encryptkey));
+    memcpy(&decryptkey, decrypt_out, sizeof(decryptkey));
+    camd35_init_data(user, pass, &encryptkey, &decryptkey, &ucrc);
+    memcpy(encrypt_out, &encryptkey, sizeof(encryptkey));
+    memcpy(decrypt_out, &decryptkey, sizeof(decryptkey));
+    memcpy(crc_out, &ucrc, sizeof(ucrc));
+}
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1811,7 +1826,7 @@ link_radegast_server:
 					}
 					if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 				}
-				{ uint32_t ucrc; camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &ucrc); cli->ucrc = ucrc; }
+				camd35_init_packed_data(cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
 				cfg_addcamd35client(camd35, cli);
 			}
 		}
@@ -1916,7 +1931,7 @@ link_radegast_server:
 					}
 					if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 				}
-				{ uint32_t ucrc; camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &ucrc); cli->ucrc = ucrc; }
+				camd35_init_packed_data(cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
 				//
 				cfg_addcamd35client( cs378x, cli);
 			}
@@ -1941,7 +1956,7 @@ link_radegast_server:
 				srv->handle = -1;
 				pthread_mutex_init( &srv->lock, NULL );
 				cfg_addserver(cfg, srv);
-				{ uint32_t ucrc; camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &ucrc); srv->ucrc = ucrc; }
+				camd35_init_packed_data(srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
 			}
 			else if (!strcmp(str,"KEEPALIVE")) {
 				parse_spaces();
@@ -1978,7 +1993,7 @@ link_camd35_server:
 			srv->handle = -1;
 			pthread_mutex_init( &srv->lock, NULL );
 			cfg_addserver(cfg, srv);
-			{ uint32_t ucrc; camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &ucrc); srv->ucrc = ucrc; }
+			camd35_init_packed_data(srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
 		}
 #endif
 
@@ -3192,8 +3207,8 @@ link_cccam_client:
 						if (!strcmp(str,"NAME")) cli->realname = info->value;
 #ifdef EXPIREDATE
 						else if ( !strcmp(str,"ENDDATE") || !strcmp(str,"EXPIRE") ) {
-							if ( (info->value[4]=='-')&&(info->value[7]=='-') ) strptime(  info->value, "%Y-%m-%d %H", &cli->enddate);
-							else if ( (info->value[2]=='-')&&(info->value[5]=='-') ) strptime(  info->value, "%d-%m-%Y %H", &cli->enddate);
+							if ( (info->value[4]=='-')&&(info->value[7]=='-') ) mcs_parse_packed_tm( &cli->enddate, info->value, "%Y-%m-%d %H");
+							else if ( (info->value[2]=='-')&&(info->value[5]=='-') ) mcs_parse_packed_tm( &cli->enddate, info->value, "%d-%m-%Y %H");
  						}
 #endif
 						else if (!strcmp(str,"HOST")) {
@@ -3471,8 +3486,8 @@ link_mgcamd_user:
 						if (!strcmp(str,"NAME")) cli->realname = info->value;
 #ifdef EXPIREDATE
 						else if ( !strcmp(str,"ENDDATE") || !strcmp(str,"EXPIRE") ) {
-							if (info->value[4]=='-') strptime(  info->value, "%Y-%m-%d %H", &cli->enddate);
-							else strptime(  info->value, "%d-%m-%Y:%H", &cli->enddate);
+							if (info->value[4]=='-') mcs_parse_packed_tm( &cli->enddate, info->value, "%Y-%m-%d %H");
+							else mcs_parse_packed_tm( &cli->enddate, info->value, "%d-%m-%Y:%H");
  						}
 #endif
 						else if (!strcmp(str,"HOST")) cli->host = add_host(cfg,info->value);
