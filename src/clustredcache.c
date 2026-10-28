@@ -616,44 +616,22 @@ static int cache_sendpipe_armable( ECM_DATA *ecm )
 
 
 /*
- * TASK BS1 (2026-10-26) -- CW Cycle Validation for Black Screen Prevention
- *
- * REACTIVATED: checkcycle() was commented out in stock r82a, leaving the
- * cache path wide open to cycle-mismatched keys. A CW that is correct
- * in content but belongs to the WRONG half of the even/odd cycle
- * produces a black screen despite passing acceptDCW().
- *
- * The cycle marker (cwmark) now travels with every key through the
- * pipe system (TASK 2.5), and the validation happens in
- * ecm_setdcwdata() at delivery time. This function provides the
- * verdict; the caller decides whether to log-and-deliver or to
- * refuse outright (controlled by dcw_filter_cycle).
- *
- * Returns: 1 = cycle OK (or unverifiable), 0 = cycle MISMATCH.
- */
-int checkcycle( uint8_t cw1cycle, uint8_t ecmtag, uint8_t cwcycle )
+int checkcycle( uint8_t cw1cycle, uint8_t ecmtag, uint8_t cwcycle ) 
 {
-	/* If no cycle info available, cannot judge — allow */
-	if (!cw1cycle) return 1;
-	if (cwcycle == NO_CYCLE) return 1;
-
-	if (cw1cycle==0x80) { // cw1 cycle on tag=0x80
-		if ( (ecmtag==0x80)&&(cwcycle==CW0CYCLE) ) return 0;
-		if ( (ecmtag==0x81)&&(cwcycle==CW1CYCLE) ) return 0;
-	}
-	else if (cw1cycle==0x81) { // cw1 cycle on tag=0x81
-		if ( (ecmtag==0x81)&&(cwcycle==CW0CYCLE) ) return 0;
-		if ( (ecmtag==0x80)&&(cwcycle==CW1CYCLE) ) return 0;
+	if (cfg.cache.filter) {
+		// Check Cycle
+		if (cw1cycle==0x80) { // cw1 cycle on tag=0x80
+			if ( (ecmtag==0x80)&&(cwcycle==0) ) return 0;
+			if ( (ecmtag==0x81)&&(cwcycle==1) ) return 0;
+		}
+		else if (cw1cycle==0x81) { // cw1 cycle on tag=0x81
+			if ( (ecmtag==0x81)&&(cwcycle==0) ) return 0;
+			if ( (ecmtag==0x80)&&(cwcycle==1) ) return 0;
+		}
 	}
 	return 1;
 }
-
-/*
- * TASK BS1 -- cycle mismatch counter for diagnostics.
- */
-static volatile unsigned long g_cycle_mismatches = 0;
-unsigned long checkcycle_mismatch_count(void) { return g_cycle_mismatches; }
-void checkcycle_mismatch_inc(void) { __sync_fetch_and_add(&g_cycle_mismatches, 1); }
+*/
 
 
 
@@ -3452,9 +3430,6 @@ void *cache_queue_thread(void *param)
 				debugf(getdbgflag(DBG_CACHE,0,0)," [CACHE QUEUE] enqueued %lu dropped %lu\n",
 					cq_enqueued(), cq_dropped());
 			lastreported = GetTickCount();
-
-			/* CACHE-AI: Periodic cleanup — unban expired peers, decay inactive trust */
-			ci_tick(ci_now_ms());
 		}
 		struct cq_entry e;
 		if (!cq_pop(&e)) { usleep(10000); continue; }

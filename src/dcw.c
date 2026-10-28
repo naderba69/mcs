@@ -37,7 +37,7 @@
 #ifndef MCS_DCWFILTER_NOGLOBALS
 int dcw_filter_checksum = 1;
 int dcw_filter_repeat   = 1;
-int dcw_filter_cycle    = 1; /* TASK BS (2026-10-26): cycle gate ARMED by default to prevent black screens */
+int dcw_filter_cycle    = 0; /* TASK R2: the cycle gate starts disarmed (D56) */
 int dcw_filter_pattern  = 0; /* TASK R28 (D79): the fake-shape gate starts disarmed */
 #endif
 

@@ -93,9 +93,6 @@ struct ecm_request {
 	} lastdecode; // maybe we have 3 different channels with same caid:provid:sid ???
 #endif
 
-	// Debug ECM tracking
-	int debug_request_id;  // Request ID from debug_ecm_record_request()
-
 	// SERVERS that received ecm request
 	struct {
 		uint32_t srvid; // Server ID 0=nothing

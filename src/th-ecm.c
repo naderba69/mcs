@@ -61,14 +61,6 @@ void clients_check_sendcw(ECM_DATA *ecm)
 
 
 #include "loadbalance.c"
-
-/* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT */
-#include "supersmartfilter.h"
-#include "dcwstrict.h"
-#include "cw-postvalidate.h"
-#include "ecm-pattern-analysis.h"
-#include "implicit-bs-detect.h"
-#include "smart-server-select.h"
 #include "setdcw.c"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -246,28 +238,11 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period;
 					return;
 				}
-			else if (psrvlist[0] && psrvlist[0]->srv) {
-				// SEND ECM
-				newsrv = psrvlist[0]->srv;
-				newsrv->busycard = psrvlist[0]->card; // dont save pointers!!!
-				newsrv->busycardid = psrvlist[0]->shareid;
-
-			/* SMART-SERVER-SELECT: Check if selected server should be skipped
-			 * due to quarantine or very low trust score */
-			if (smartselect_should_skip((uint32_t)newsrv->id, ecm->caid, ecm->provid, ecm->sid, ticks)) {
-				debugf(0, " [SMART-SELECT] Server %d skipped (quarantined/low score) for %04X:%06X:%04X\n",
-					newsrv->id, ecm->caid, ecm->provid, ecm->sid);
-				/* Skip this server, try next iteration */
-				return;
-			}
-
-			/* ECM DOUBLE CHECK — Verify CW from multiple sources (activated 2026-10-28)
-			 * For certain CAIDs, require CW confirmation from 2+ servers */
-			if (ecm_doublecheck_needed(ecm->caid)) {
-				ecm_doublecheck_start(ecm->hash, ecm->caid, ecm->provid, ecm->sid);
-				debugf(0, " [ECM-DBLCHK] Double check started for %04X:%06X:%04X hash=%08X\n",
-					ecm->caid, ecm->provid, ecm->sid, ecm->hash);
-			}
+				else if (psrvlist[0] && psrvlist[0]->srv) {
+					// SEND ECM
+					newsrv = psrvlist[0]->srv;
+					newsrv->busycard = psrvlist[0]->card; // dont save pointers!!!
+					newsrv->busycardid = psrvlist[0]->shareid;
 					//debugf(0," sendecm: selected server to decode (%s:%d)\n", newsrv->host->name, newsrv->port);
 					if (newsrv->type==TYPE_NEWCAMD) {
 						if (cs_sendecm_srv(cs, newsrv, ecm)>0) {

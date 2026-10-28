@@ -298,11 +298,6 @@ void cc_srv_recvmsg(struct server_data *srv)
 			debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,cs->id), " <= cw from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)%s\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, response_time, skip_crc ? " [CRC-BYPASS]" : "");
 			/* Black screen prevention: reset failure counter on success */
 			dcw_on_success(ecm->caid, ecm->sid);
-			/* TASK BS (2026-10-26): Black Screen Detector - record CW success */
-			bs_record_cw_success(ecm->caid, ecm->provid, ecm->sid,
-			                     GetTickCount(), response_time);
-			/* TASK BS (2026-10-26): Auto-Recovery - mark success */
-			autorecov_success(&g_autorecov_table, ecm->caid, ecm->provid, ecm->sid);
 			/* CAID-specific performance tracking: record success */
 			caid_integration_track_performance(ecm->caid, response_time, 1);
 			/* CAID optimizations: update stats for this CAID */
@@ -377,26 +372,6 @@ void cc_srv_recvmsg(struct server_data *srv)
 			debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 			/* Black screen prevention: track CW failure */
 			dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
-			/* TASK BS (2026-10-26): Black Screen Detector - record CW failure & get action */
-			{
-				int bs_action = bs_record_cw_failure(ecm->caid, ecm->provid, ecm->sid,
-				                                     GetTickCount());
-				if (bs_action == 1) {
-					debugf(0, " [BS] Quick switch triggered for %04X:%06X:%04X\n",
-					       ecm->caid, ecm->provid, ecm->sid);
-					/* TASK BS: Trigger auto-recovery stage 1 */
-					autorecov_trigger(&g_autorecov_table, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
-				} else if (bs_action == 2) {
-					debugf(0, " [BS] Broadcast to all servers for %04X:%06X:%04X\n",
-					       ecm->caid, ecm->provid, ecm->sid);
-					/* TASK BS: Trigger auto-recovery stage 2+ */
-					autorecov_trigger(&g_autorecov_table, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
-				}
-			}
-			/* TASK BS (2026-10-26): Black Analytics - log event */
-			blackanalytics_log_event(ecm->caid, ecm->provid, ecm->sid,
-			                         GetTickCount()-srv->lastecmtime,
-			                         srv->id, 0, 0);
 			/* CAID-specific performance tracking: record failure */
 			caid_integration_track_performance(ecm->caid, GetTickCount()-srv->lastecmtime, 0);
 			/* CAID optimizations: update stats for this CAID */
@@ -701,28 +676,35 @@ int cc_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 {
 	unsigned char buf[CC_MAXMSGSIZE];
 
+	/* Server health check: skip servers with low health score */
+	uint8_t health_score = server_health_get_score(srv->id);
+	if (health_score < 30) {  /* Skip if health < 30% */
+		debugf(0, " [HEALTH] Server %d health score %d%% (too low), skipping ECM\n", srv->id, health_score);
+		return 0;
+	}
+
 	//if ( (srv->handle>0)&&(!srv->busy) ) {
 	//	if (!cc_getcardbyid(srv, srv->busycardid)) return 0;
-		//mlogf(LOGINFO,getdbgflag(DBG_SERVER, 0, srv->id), " -> ecm to CCcam server (%s:%d) ch %04x:%06x:%04x shareid %x\n", srv->host->name, srv->port,ecm->caid,ecm->provid,ecm->sid,srv->busycardid);
-	buf[0] = ecm->caid>>8;
-	buf[1] = ecm->caid&0xff;
-	buf[2] = ecm->provid>>24;
-	buf[3] = ecm->provid>>16;
-	buf[4] = ecm->provid>>8;
-	buf[5] = ecm->provid&0xff;
-	// srv->busycardid is saved from srvtab_arrange()
-	buf[6] = srv->busycardid>>24;
-	buf[7] = srv->busycardid>>16;
-	buf[8] = srv->busycardid>>8;
-	buf[9] = srv->busycardid&0xff;
-	buf[10] = ecm->sid>>8;
-	buf[11] = ecm->sid&0xff;
-	buf[12] = ecm->ecmlen;
-	memcpy( &buf[13],&ecm->ecm[0], ecm->ecmlen);
-	srv->lastecmtime = GetTickCount();
-	srv->busy = 1;
-	////srv->ecm.msgid = ecm->id;
-	return cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_ECM_REQUEST, 13+ecm->ecmlen, buf );
+		//debugf( getdbgflag(DBG_SERVER, 0, srv->id), " -> ecm to CCcam server (%s:%d) ch %04x:%06x:%04x shareid %x\n", srv->host->name, srv->port,ecm->caid,ecm->provid,ecm->sid,srv->busycardid);
+		buf[0] = ecm->caid>>8;
+		buf[1] = ecm->caid&0xff;
+		buf[2] = ecm->provid>>24;
+		buf[3] = ecm->provid>>16;
+		buf[4] = ecm->provid>>8;
+		buf[5] = ecm->provid&0xff;
+		// srv->busycardid is saved from srvtab_arrange()
+		buf[6] = srv->busycardid>>24;
+		buf[7] = srv->busycardid>>16;
+		buf[8] = srv->busycardid>>8;
+		buf[9] = srv->busycardid&0xff;
+		buf[10] = ecm->sid>>8;
+		buf[11] = ecm->sid&0xff;
+		buf[12] = ecm->ecmlen;
+		memcpy( &buf[13],&ecm->ecm[0], ecm->ecmlen);
+		srv->lastecmtime = GetTickCount();
+		srv->busy = 1;
+		////srv->ecm.msgid = ecm->id;
+		return cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_ECM_REQUEST, 13+ecm->ecmlen, buf );
 	//}
 	//return 0;
 }

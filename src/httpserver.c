@@ -9,12 +9,6 @@
 #include "peer_origin.h"/* TASK R11 (D65): peer id masks on the page */
 #endif
 #include "biss.h"	/* BISS key management */
-#include "diagnostics.h"	/* Advanced diagnostics and analytics */
-#include "debug-ecm.h"	/* Detailed ECM tracking */
-#include "server-stats.h"	/* Server statistics */
-#include "log-viewer.h"	/* Live log viewer */
-#include "cache-analytics.h"	/* Cache analytics */
-#include "auto-tuning.h"	/* Auto-tuning suggestions */
 #include "common.h"
 
 #include <stdio.h>
@@ -819,12 +813,6 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	if (!cfg.http.show.norestart) {
 		if (selected==PAGE_RESTART) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/restart", mlabel("Restart","إعادة تشغيل")); tcp_writestr(tcpbuf, sock, buf);
-		sprintf( buf, class, "/diagnostics", mlabel("Diagnostics","التشخيص")); tcp_writestr(tcpbuf, sock, buf);
-		sprintf( buf, class, "/debug-ecm", mlabel("Debug ECM","تتبع ECM")); tcp_writestr(tcpbuf, sock, buf);
-		sprintf( buf, class, "/server-stats", mlabel("Server Stats","إحصائيات الخوادم")); tcp_writestr(tcpbuf, sock, buf);
-		sprintf( buf, class, "/log-viewer", mlabel("Log Viewer","عارض السجلات")); tcp_writestr(tcpbuf, sock, buf);
-		sprintf( buf, class, "/cache-analytics", mlabel("Cache Analytics","تحليل الكاش")); tcp_writestr(tcpbuf, sock, buf);
-		sprintf( buf, class, "/auto-tuning", mlabel("Auto-Tuning","الضبط التلقائي")); tcp_writestr(tcpbuf, sock, buf);
 	}
 
 	/* TASK R7 (D61): the language toggle and logout close the bar */
@@ -7896,24 +7884,6 @@ void *gererClient(struct connect_data *param)
 				else if (strcmp(req.path,"/restart")==0) {
 					if (!cfg.http.show.norestart) http_send_restart(sock,&req);
 				}
-				else if (strcmp(req.path,"/diagnostics")==0) {
-					http_send_diagnostics(sock,&req);
-				}
-				else if (strcmp(req.path,"/debug-ecm")==0) {
-					http_send_debug_ecm(sock,&req);
-				}
-				else if (strcmp(req.path,"/server-stats")==0) {
-					http_send_server_stats(sock,&req);
-				}
-				else if (strcmp(req.path,"/log-viewer")==0) {
-					http_send_log_viewer(sock,&req);
-				}
-				else if (strcmp(req.path,"/cache-analytics")==0) {
-					http_send_cache_analytics(sock,&req);
-				}
-				else if (strcmp(req.path,"/auto-tuning")==0) {
-					http_send_auto_tuning(sock,&req);
-				}
 				else if ( !memcmp(req.path,"/editor",7) )  {
 					if (!cfg.http.show.noeditor) {
 						int index=0;
@@ -8033,7 +8003,7 @@ void *gererClient(struct connect_data *param)
 /* ==========================================================================
  * BISS Key Management Page
  * ========================================================================== */
-void http_send_biss(int sock, struct http_request *req)
+void http_send_biss(int sock, http_request *req)
 {
 	struct tcp_buffer_data tcpbuf;
 	char *str_action = isset_get(req, "action");

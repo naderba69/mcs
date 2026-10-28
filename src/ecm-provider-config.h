@@ -914,16 +914,6 @@ static inline int provider_cwcycle_enabled(uint16_t caid, uint32_t provid) {
     return c ? c->cwcycle_enabled : 0;
 }
 
-static inline uint16_t provider_get_cwcycle_maxlist(uint16_t caid, uint32_t provid) {
-    struct provider_ecm_config *c = provider_get_config(caid, provid);
-    return (c && c->cwcycle_maxlist > 0) ? c->cwcycle_maxlist : 1000;  /* Default: 1000 */
-}
-
-static inline int provider_get_cwcycle_usecwcfromce(uint16_t caid, uint32_t provid) {
-    struct provider_ecm_config *c = provider_get_config(caid, provid);
-    return c ? c->cwcycle_usecwcfromce : 0;
-}
-
 static inline int provider_icam_enabled(uint16_t caid, uint32_t provid) {
     struct provider_ecm_config *c = provider_get_config(caid, provid);
     return c ? c->icam_enabled : 0;

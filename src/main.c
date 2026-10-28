@@ -45,10 +45,6 @@
 #include "httpserver.h"
 #include "caid-integration.h"  /* CAID-specific optimizations */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
-#include "auto-tuning.h"  /* Auto-tuning system */
-#include "web-dashboard.h"  /* Web dashboard */
-#include "cache-speed-suite.h"  /* Cache Speed Optimization Suite (8 systems) */
-#include "cw-postvalidate.h"  /* Post-descramble CW validation + Fake CW detection */
 
 #ifdef TELNET
 #include "telnet.h"
@@ -76,10 +72,6 @@
 #include "cwcycle.h"	/* TASK 2.5 cache key cycle/parity visibility (observe only) */
 #include "cwneg.h"	/* TASK 2.6 negative memory: a proven-bad key is never delivered twice */
 #include "cwattest.h"	/* TASK R30 (D81) receiver attestation: independent clients file a key */
-/* TASK BS (2026-10-26) -- Black Screen Prevention & Recovery Systems */
-#include "blackscreen-detector.h"	/* BS1: channel-level failure tracking & recovery triggers */
-#include "blackanalytics.h"		/* BS2: blackscreen pattern analysis (channels, peers) */
-#include "autorecov.h"		/* BS3: staged auto-recovery (alt CW → switch src → restart → emergency) */
 #include "cwcm.h"	/* TASK 2.7 complement-mirror detection on delivered keys */
 #include "cacheguard.h"	/* TASK 2.9 cache protocol guard, used by clustredcache.c (below) */
 #include "trustlife.h"	/* TASK 2.10 trust lifecycle: fade + persistence, used by th-cfg.c / clustredcache.c */
@@ -132,9 +124,6 @@ unsigned long cwreuse_proofs = 0;
  * tested, not here.
  */
 struct trust_table trust_tab;
-
-/* TASK BS (2026-10-26) -- Auto-Recovery global table */
-struct autorecov_table g_autorecov_table;
 
 /*
  * TASK 1.7 -- a lock for the trust table, and the reason it is a defect fix
@@ -1836,10 +1825,6 @@ char ecm_file[256];
 struct config_data cfg;
 struct program_data prg;
 
-/* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT global configs */
-struct ssf_config ssf_cfg;
-struct dcwstrict_config dcwstrict_cfg;
-
 uint32_t ecm_check_time = 0;
 
 
@@ -2314,14 +2299,6 @@ static void attest_purge(int srctype, int srcid, const uint8_t *cw,
 #include "server-health.h"
 #include "ecm-optimizations.h"
 #include "advanced-optimizations.h"
-#include "caid-optimizations.h"
-#include "biss.h"
-#include "diagnostics.h"
-#include "debug-ecm.h"
-#include "server-stats.h"
-#include "log-viewer.h"
-#include "cache-analytics.h"
-#include "auto-tuning.h"
 #ifdef CCCAM_CLI
 #include "cli-cccam.c"
 #endif
@@ -2345,10 +2322,6 @@ struct connect_cli_data {
 	int sock;
 	uint32_t ip;
 };
-
-/* IBS + CW PostVal headers needed by all srv-*.c files for black screen detection */
-#include "implicit-bs-detect.h"
-#include "cw-postvalidate.h"
 
 #include "srv-newcamd.c"
 #ifdef MGCAMD_SRV
@@ -2653,13 +2626,10 @@ void mainprocess()
 	auto_recovery_init();
 	predictive_warming_init();
 	caid_optimizations_init();
-	diagnostics_init();
-	debug_ecm_init();
-	server_stats_init();
-	log_viewer_init();
-	cache_analytics_init();
-	auto_tuning_init();
 	debugf(0, " [INIT] All custom modules initialized successfully\n");
+
+
+
 
 
 
@@ -2701,83 +2671,12 @@ void mainprocess()
 
 	init_ecmdata();
 
-	/* CAID-specific optimizations - already initialized above */
-	// caid_integration_init();  // DISABLED - calls caid_optimizations_init() again
-	debugf(0, " [CAID INTEGRATION] Using already initialized CAID settings\n");
+	/* CAID-specific optimizations - initialize after config is loaded */
+	caid_integration_init();
 
 	/* Provider-level ECM configuration - from external research */
 	provider_config_init();
 	debugf(0, " [PROVIDER CONFIG] %d provider-specific ECM configurations loaded\n", provider_cfg_tab.count);
-
-	/* TASK BS (2026-10-26) -- Initialize Black Screen Prevention Systems */
-	bs_init();
-	blackanalytics_init();
-	autorecov_init(&g_autorecov_table, 1);  /* Auto-recovery enabled by default */
-	debugf(0, " [BLACKSCREEN] Detection, Analytics, and Auto-Recovery systems initialized\n");
-
-	/* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT */
-	supersmartfilter_init();
-	dcwstrict_init();
-	/* Enable DCW STRICT by default for better protection */
-	dcwstrict_cfg.enabled = 1;
-	dcwstrict_cfg.log_rejected = 1;
-	dcwstrict_cfg.trustscore = 1;
-	/* Set SSF to level 5 (balanced protection) */
-	ssf_cfg.filter_level = 5;
-	debugf(0, " [R200 v2.5] SuperSmartFilter (level=%d) + DCW STRICT initialized\n", ssf_cfg.filter_level);
-
-	/* Auto-Tuning System - Automatic profile optimization */
-	auto_tuning_init();
-	debugf(0, " [AUTO-TUNING] Automatic profile optimization system initialized\n");
-
-	/* Web Dashboard - Real-time monitoring interface */
-	web_dashboard_init();
-	web_dashboard_start();
-	debugf(0, " [WEB-DASHBOARD] Real-time web monitoring interface started\n");
-
-	/* Cache Speed Suite - 8 cache optimization systems */
-	cache_speed_suite_init();
-	debugf(0, " [CACHE-SPEED] Cache Speed Optimization Suite initialized (8 systems)\n");
-	debugf(0, "   [EMM-CACHE] EMM cache system active (rewrite=3, TTL=3600s)\n");
-	debugf(0, "   [CW-CACHE-SETTINGS] Per-CAID cache settings loaded\n");
-	debugf(0, "   [CACHEX-WAITTIME] Per-CAID wait times loaded\n");
-	debugf(0, "   [ECM-DOUBLECHECK] ECM double check active for 8 CAIDs\n");
-	debugf(0, "   [CACHEX-ADVANCED] DropDiffs + NoPushAfter + DoubleCheck active\n");
-
-	/* CW Post-Validation - Detect fake CWs after acceptance */
-	cwpostval_init();
-	debugf(0, " [CW-POSTVAL] Post-descramble CW validation system initialized\n");
-	debugf(0, "   [TS-VALIDATE] Transport Stream validation active (95%% accuracy)\n");
-	debugf(0, "   [CW-ENTROPY] Shannon entropy analysis active\n");
-	debugf(0, "   [FAKE-DB] Fake CW fingerprint database ready (max 2048)\n");
-	debugf(0, "   [PEER-TRUST] Peer trust scoring system active (128 peers)\n");
-	debugf(0, "   [PLAUSIBILITY] CW plausibility scoring active (0-12 scale)\n");
-
-	/* ECM Pattern Analysis - Detect coordinated attacks */
-	ecmpat_init();
-	debugf(0, " [ECM-PATTERN] ECM Pattern Analysis system initialized\n");
-	debugf(0, "   [EMM-SHARED] EMM injection detection active (5s window)\n");
-	debugf(0, "   [BURST] Burst fake CW detection active (3+ in 10s)\n");
-	debugf(0, "   [POISON] Cache poisoning storm detection active\n");
-	debugf(0, "   [PROVIDER] Provider punishment detection active\n");
-	debugf(0, "   [QUARANTINE] Auto-quarantine: 30s per attack source\n");
-
-	/* Implicit Black Screen Detection - Detect wrong CWs from client behavior */
-	ibs_init();
-	debugf(0, " [IBS-DETECT] Implicit Black Screen Detection initialized\n");
-	debugf(0, "   [RAPID] Rapid re-request detection (<3s = wrong CW)\n");
-	debugf(0, "   [LEARN] CW cycle interval learning (per client/channel)\n");
-	debugf(0, "   [SOURCE] Automatic source blaming for wrong CWs\n");
-
-	/* Cache Intelligence — 7-level smart cache optimization */
-	debugf(0, " [CACHE-AI] Cache Intelligence System initialized (7 levels)\n");
-	debugf(0, "   [L1] Trust Scoring: Per-peer trust (0-100)\n");
-	debugf(0, "   [L2] Tiered Priority: A-Elite/B-Average/C-Unreliable\n");
-	debugf(0, "   [L3] Quick Validation: Fast CW check on arrival\n");
-	debugf(0, "   [L4] Channel Learning: Best peers per channel\n");
-	debugf(0, "   [L5] Reward & Penalty: Auto-adjust trust\n");
-	debugf(0, "   [L6] Smart Prediction: Predict good CW source\n");
-	debugf(0, "   [L7] Predictive Cache: Pre-fetch CW before needed\n");
 
 // THREADS - detached
 	start_thread_dns();
@@ -2832,9 +2731,6 @@ void mainprocess()
 
 	start_thread_http();
 
-	// Auto-tuning: track time for periodic analysis
-	time_t last_auto_tuning = time(NULL);
-
 	while (!prg.restart) {
 		/* Auto recovery: check for servers that need recovery */
 		auto_recovery_check();
@@ -2847,26 +2743,6 @@ void mainprocess()
 			int warm_count = predictive_warming_get_popular(warm_caid, warm_provid, warm_sid, 10);
 			if (warm_count > 0) {
 				debugf(0, " [WARMING] Top %d popular channels tracked for cache warming\n", warm_count);
-			}
-		}
-		
-		/* Auto-tuning: analyze performance every 5 minutes */
-		{
-			time_t now = time(NULL);
-			if (now - last_auto_tuning >= 300) {  // 300 seconds = 5 minutes
-				auto_tuning_analyze();
-				/* TASK BS (2026-10-26): Periodic blackscreen analysis */
-				blackanalytics_analyze_channels();
-				blackanalytics_analyze_peers();
-				{
-					uint16_t worst_caid, worst_sid;
-					int count = blackanalytics_get_worst_channel(&worst_caid, &worst_sid);
-					if (count > 5) {
-						debugf(0, " [BS-ANALYTICS] Channel %04X:%04X has %d blackscreens in window\n",
-						       worst_caid, worst_sid, count);
-					}
-				}
-				last_auto_tuning = now;
 			}
 		}
 		
