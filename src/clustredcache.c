@@ -121,7 +121,6 @@ int peer_doublecheck(struct cacheserver_data *cache, struct cachepeer_data *xpee
 #include "dcwstats.h"		/* TASK R1: CEXLOCAL/CEXFAKE/CEXCONF counters */
 #include "peerrep.h"		/* TASK R4 (D58): the persistent peer-reputation ladder */
 #include "cwconsensus.h"/* TASK R8 (D62): the per-request cw arbitrer */
-#include "cache-intelligence.h" /* CACHE-AI: 7-level smart cache optimization */
 #ifdef MCS_DCWSTATS
 #include "cwlog.h"		/* TASK R11 (D65): the per-CW verdict ring */
 #endif

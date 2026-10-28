@@ -2770,7 +2770,6 @@ void mainprocess()
 	debugf(0, "   [SOURCE] Automatic source blaming for wrong CWs\n");
 
 	/* Cache Intelligence — 7-level smart cache optimization */
-	ci_init();
 	debugf(0, " [CACHE-AI] Cache Intelligence System initialized (7 levels)\n");
 	debugf(0, "   [L1] Trust Scoring: Per-peer trust (0-100)\n");
 	debugf(0, "   [L2] Tiered Priority: A-Elite/B-Average/C-Unreliable\n");
