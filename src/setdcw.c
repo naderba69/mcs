@@ -344,6 +344,10 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	 * after the descrambler processes packets — that hook is in the client
 	 * delivery path (srv-cccam.c etc.) where we can observe actual TS data.
 	 */
+	/* ECM Pattern Analysis — DISABLED 2026-10-28 for testing
+	 * Reason: May reject valid ECMs/CWs due to overly sensitive attack detection
+	 * TODO: Re-enable with adjusted thresholds after testing */
+/*
 	{
 		/* ECM Pattern Analysis — detect coordinated attacks FIRST */
 		uint32_t now_ms = GetTickCount();
@@ -366,6 +370,8 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 			cwpostval_trust_bad((uint32_t)srcid);
 			return;
 		}
+	}
+*/
 
 		/* CACHE-AI: Quick CW Validation (Level 3) — DISABLED 2026-10-28 for testing
 		 * Reason: CI_ENTROPY_MAX_FAKE=1.5 may reject valid CWs with low entropy
@@ -424,7 +430,10 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 		}
 */
 
-		/* CW Post-Validation pipeline */
+		/* CW Post-Validation pipeline — DISABLED 2026-10-28 for testing
+		 * Reason: May reject valid CWs due to strict entropy/plausibility checks
+		 * TODO: Re-enable with adjusted thresholds after testing */
+/*
 		cwpostval_result_t pvr = cwpostval_validate(
 			dcw, ecm->caid, ecm->provid, (uint32_t)srcid,
 			checksumDCW(dcw),   /* passes_checksum */
@@ -442,6 +451,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 #endif
 			return;
 		}
+*/
 
 		if (pvr.plausibility_score < 10) {
 			debugf(DBG_CW+DBG_DVBAPI, " [CW-POSTVAL] %04X:%06X:%04X -- LOW SCORE %d/12 (entropy=%.1f, trust=%d): %s\n",
@@ -920,16 +930,10 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		}
 	}
 
-	/*
-	 * R200 v2.5 Integration: DCW STRICT + SuperSmartFilter
-	 *
-	 * Advanced CW validation with 12 total checks:
-	 * - DCW STRICT (3 stages): entropy < 5, all-same-byte, stale/recycled CW
-	 * - SuperSmartFilter (9 stages): empty, fake, entropy, pattern, format,
-	 *   blacklist, duplicate, cross-channel, multi-check
-	 *
-	 * Plus: Smart peer banning based on bad CW ratio, trust score penalty system.
-	 */
+	/* R200 v2.5 Integration: DCW STRICT + SuperSmartFilter — DISABLED 2026-10-28 for testing
+	 * Reason: May reject valid CWs due to strict entropy/stale checks
+	 * TODO: Re-enable with adjusted thresholds after testing */
+#if 0
 	{
 		uint32_t now_ms = GetTickCount();
 		const char *dcwstrict_reason = NULL;
@@ -967,6 +971,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 			dcwstrict_trust_reward(srcid);
 		}
 	}
+#endif
 
 
 
