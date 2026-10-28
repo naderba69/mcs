@@ -2671,13 +2671,6 @@ void mainprocess()
 
 	init_ecmdata();
 
-	/* CAID-specific optimizations - initialize after config is loaded */
-	caid_integration_init();
-
-	/* Provider-level ECM configuration - from external research */
-	provider_config_init();
-	debugf(0, " [PROVIDER CONFIG] %d provider-specific ECM configurations loaded\n", provider_cfg_tab.count);
-
 // THREADS - detached
 	start_thread_dns();
 	start_thread_srv();
