@@ -262,13 +262,16 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					return;
 				}
 
-				/* CACHE-AI: Check if peer should be skipped (Level 2+5)
-				 * Skip banned/low-trust peers, use tier-based timeout */
+				/* CACHE-AI: Check if peer should be skipped (Level 2+5) — DISABLED 2026-10-28 for testing
+				 * Reason: May skip valid servers due to initial low trust scores
+				 * TODO: Re-enable after trust system is properly calibrated */
+/*
 				if (ci_should_skip_peer((uint32_t)newsrv->id, ecm->caid, ecm->provid, ecm->sid)) {
 					debugf(0, " [CACHE-AI] Server %d skipped (low trust/banned) for %04X:%06X:%04X\n",
 						newsrv->id, ecm->caid, ecm->provid, ecm->sid);
 					return;
 				}
+*/
 
 				/* ECM DOUBLE CHECK — Verify CW from multiple sources (activated 2026-10-28)
 				 * For certain CAIDs, require CW confirmation from 2+ servers */
