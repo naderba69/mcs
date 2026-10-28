@@ -200,7 +200,7 @@ void debugf(uint32_t flag, char *format, ...)
 	} else index=0;
 	
 	va_list args;
-	va_start (args, fstr);
+	va_start (args, format);
 	/* TASK 3.3 -- was vsprintf: the formatted line overflowed
 	 * debugline[1024] on long names and long evidence strings. */
 	vsnprintf( debugline+index, (int)sizeof(debugline)-index, fstr, args);

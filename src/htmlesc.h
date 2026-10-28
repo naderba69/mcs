@@ -1,3 +1,4 @@
+#include <string.h>
 #ifndef MCS_HTMLESC_H
 #define MCS_HTMLESC_H
 

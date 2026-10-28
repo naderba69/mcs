@@ -1,3 +1,4 @@
+#include "safe-time.h"
 /* log-viewer.c - Live Log Viewer Implementation
  * 
  * PURPOSE: Display live logs in web interface
@@ -199,11 +200,7 @@ int log_viewer_export(const char *filename)
         
         char time_str[32];
         time_t timestamp = entry->timestamp;
-        struct tm tm;
-        if (localtime_r(&timestamp, &tm))
-            strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm);
-        else
-            snprintf(time_str, sizeof(time_str), "-");
+        mcs_format_local_time(time_str, sizeof(time_str), timestamp, "%Y-%m-%d %H:%M:%S");
         
         const char *level_str = "UNKNOWN";
         switch (entry->level) {
@@ -403,11 +400,7 @@ void http_send_log_viewer(int sock, struct http_request *req)
         // Format time
         char time_str[32];
         time_t timestamp = entry->timestamp;
-        struct tm tm;
-        if (localtime_r(&timestamp, &tm))
-            strftime(time_str, sizeof(time_str), "%H:%M:%S", &tm);
-        else
-            snprintf(time_str, sizeof(time_str), "-");
+        mcs_format_local_time(time_str, sizeof(time_str), timestamp, "%H:%M:%S");
         
         // Level class and text
         const char *level_class = "log-debug";

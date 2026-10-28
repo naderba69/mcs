@@ -1,9 +1,11 @@
+#include "safe-time.h"
 /* debug-ecm.c - Detailed ECM Tracking Implementation
  * 
  * PURPOSE: Track every ECM request with full details
  */
 
 #include "common.h"
+#include "debug.h"
 #include "debug-ecm.h"
 #include "httpserver.h"
 #include <string.h>
@@ -359,8 +361,8 @@ void http_send_debug_ecm(int sock, struct http_request *req)
         
         // Format time
         char time_str[32];
-        struct tm *tm = localtime(&entry->timestamp);
-        strftime(time_str, sizeof(time_str), "%H:%M:%S", tm);
+        time_t timestamp = entry->timestamp;
+        mcs_format_local_time(time_str, sizeof(time_str), timestamp, "%H:%M:%S");
         
         // Status class
         const char *status_class = "status-pending";

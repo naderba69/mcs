@@ -4,6 +4,7 @@
  */
 
 #include "common.h"
+#include "debug.h"
 #include "diagnostics.h"
 #include "httpserver.h"
 #include "server-health.h"

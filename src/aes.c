@@ -680,6 +680,7 @@ int AES_set_encrypt_key(const unsigned char *userKey, const int bits,
 			AES_KEY *key) {
 
 	uint32_t *rk;
+	uint32_t schedule[4 * (AES_MAXNR + 1)];
    	int i = 0;
 	uint32_t temp;
 
@@ -688,7 +689,7 @@ int AES_set_encrypt_key(const unsigned char *userKey, const int bits,
 	if (bits != 128 && bits != 192 && bits != 256)
 		return -2;
 
-	rk = key->rd_key;
+	rk = schedule;
 
 	if (bits==128)
 		key->rounds = 10;
@@ -714,6 +715,7 @@ int AES_set_encrypt_key(const unsigned char *userKey, const int bits,
 			rk[6] = rk[2] ^ rk[5];
 			rk[7] = rk[3] ^ rk[6];
 			if (++i == 10) {
+				memcpy(key->rd_key, schedule, 4 * (key->rounds + 1) * sizeof(uint32_t));
 				return 0;
 			}
 			rk += 4;
@@ -734,6 +736,7 @@ int AES_set_encrypt_key(const unsigned char *userKey, const int bits,
 			rk[ 8] = rk[ 2] ^ rk[ 7];
 			rk[ 9] = rk[ 3] ^ rk[ 8];
 			if (++i == 8) {
+				memcpy(key->rd_key, schedule, 4 * (key->rounds + 1) * sizeof(uint32_t));
 				return 0;
 			}
 			rk[10] = rk[ 4] ^ rk[ 9];
@@ -756,6 +759,7 @@ int AES_set_encrypt_key(const unsigned char *userKey, const int bits,
 			rk[10] = rk[ 2] ^ rk[ 9];
 			rk[11] = rk[ 3] ^ rk[10];
 			if (++i == 7) {
+				memcpy(key->rd_key, schedule, 4 * (key->rounds + 1) * sizeof(uint32_t));
 				return 0;
 			}
 			temp = rk[11];
@@ -781,6 +785,7 @@ int AES_set_decrypt_key(const unsigned char *userKey, const int bits,
 			 AES_KEY *key) {
 
         uint32_t *rk;
+	uint32_t schedule[4 * (AES_MAXNR + 1)];
 	int i, j, status;
 	uint32_t temp;
 
@@ -789,7 +794,8 @@ int AES_set_decrypt_key(const unsigned char *userKey, const int bits,
 	if (status < 0)
 		return status;
 
-	rk = key->rd_key;
+	memcpy(schedule, key->rd_key, 4 * (key->rounds + 1) * sizeof(uint32_t));
+	rk = schedule;
 
 	/* invert the order of the round keys: */
 	for (i = 0, j = 4*(key->rounds); i < j; i += 4, j -= 4) {
@@ -822,6 +828,7 @@ int AES_set_decrypt_key(const unsigned char *userKey, const int bits,
 			Td2[Te4[(rk[3] >>  8) & 0xff] & 0xff] ^
 			Td3[Te4[(rk[3]      ) & 0xff] & 0xff];
 	}
+	memcpy(key->rd_key, schedule, 4 * (key->rounds + 1) * sizeof(uint32_t));
 	return 0;
 }
 
@@ -833,13 +840,15 @@ void AES_encrypt(const unsigned char *in, unsigned char *out,
 		 const AES_KEY *key) {
 
 	const uint32_t *rk;
+	uint32_t schedule[4 * (AES_MAXNR + 1)];
 	uint32_t s0, s1, s2, s3, t0, t1, t2, t3;
 #ifndef FULL_UNROLL
 	int r;
 #endif /* ?FULL_UNROLL */
 
 	assert(in && out && key);
-	rk = key->rd_key;
+	memcpy(schedule, key->rd_key, 4 * (key->rounds + 1) * sizeof(uint32_t));
+	rk = schedule;
 
 	/*
 	 * map byte array block to cipher state
@@ -1024,13 +1033,15 @@ void AES_decrypt(const unsigned char *in, unsigned char *out,
 		 const AES_KEY *key) {
 
 	const uint32_t *rk;
+	uint32_t schedule[4 * (AES_MAXNR + 1)];
 	uint32_t s0, s1, s2, s3, t0, t1, t2, t3;
 #ifndef FULL_UNROLL
 	int r;
 #endif /* ?FULL_UNROLL */
 
 	assert(in && out && key);
-	rk = key->rd_key;
+	memcpy(schedule, key->rd_key, 4 * (key->rounds + 1) * sizeof(uint32_t));
+	rk = schedule;
 
 	/*
 	 * map byte array block to cipher state

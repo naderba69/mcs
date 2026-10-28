@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include "des.h"
@@ -194,7 +195,7 @@ inline void doIp_1(byte data[])
 }
 
 
-inline void makeK(byte *left, byte *right, byte *K)
+static inline void makeK(byte *left, byte *right, byte *K)
 {
   byte i, j;
   byte bit, val;
@@ -261,7 +262,7 @@ inline void leftRotKeys(byte left[], byte right[])
   leftRot(right);
 }
 
-inline void desCore(byte data[], byte K[], byte result[])
+static inline void desCore(byte data[], byte K[], byte result[])
 {
   byte i, j;
   byte bit, val;
@@ -288,7 +289,7 @@ inline void desCore(byte data[], byte K[], byte result[])
   }
 }
 
-inline void permut32(byte data[])
+static inline void permut32(byte data[])
 {
   byte i, j;
   byte bit;
@@ -323,7 +324,7 @@ inline void swap(byte left[], byte right[])
   memcpy(left, x, 4);
 }
 
-inline void desRound(byte left[], byte right[], byte data[], byte mode, byte k8)
+static inline void desRound(byte left[], byte right[], byte data[], byte mode, byte k8)
 {
   byte i;
   byte K[8];
@@ -372,7 +373,7 @@ inline void des(byte key[], byte mode, byte data[])
   byte right[8];
   byte *p = left;
 
-  short DESShift = (mode & DES_RIGHT) ? 0x8103 : 0xc081;
+  uint16_t DESShift = (mode & DES_RIGHT) ? 0x8103 : 0xc081;
 
 /*
   for(i=3; i>0; i--)

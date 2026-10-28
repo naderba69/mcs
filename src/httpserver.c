@@ -1,3 +1,4 @@
+#include "safe-time.h"
 #include "htmlesc.h"	/* TASK 3.2 -- client names are data, not markup */
 #ifdef MCS_DCWSTATS
 #include "dcwstats.h"	/* TASK 3.12: home-page readout, same names as telnet */
@@ -211,6 +212,8 @@ typedef struct http_request
 	char setcookie[240];
 
 } http_request;
+void http_send_biss(int sock, http_request *req);
+void http_send_auto_tuning(int sock, http_request *req);
 
 /*
  * TASK 3.1 -- bounded. The wire decides how long a header value or a request
@@ -7538,7 +7541,11 @@ static void http_send_json(int sock, struct http_request *req)
 		}
 #endif
 		in.cwlog_on = cwlogon;
+#ifdef MCS_DCWSTATS
 		in.cwlog_cap = cwlogon ? cwlog_capacity() : 0;
+#else
+		in.cwlog_cap = 0;
+#endif
 		in.nlogs = nlog;
 		in.logs = cwlrows;
 	}
@@ -7903,11 +7910,9 @@ static void http_send_user_trace(int sock, http_request *req)
     for (i = 0; i < snap->count; ++i) {
         struct user_trace_event *e = &snap->events[i];
         char safe[768], timestr[32];
-        struct tm tm;
         time_t timestamp = e->timestamp;
         html_esc(safe, sizeof(safe), e->detail);
-        if (localtime_r(&timestamp, &tm)) strftime(timestr, sizeof(timestr), "%H:%M:%S", &tm);
-        else snprintf(timestr, sizeof(timestr), "-");
+        mcs_format_local_time(timestr, sizeof(timestr), timestamp, "%H:%M:%S");
         snprintf(out, sizeof(out), "<tr><td>%s</td><td>%llu</td><td>%s</td><td>%s</td><td>%d / %d</td><td>%u</td><td>%s</td></tr>", timestr, (unsigned long long)e->attempt, trace_type_name(e->type), e->shared ? "ECM مشترك" : "العميل", e->source_type, e->source_id, e->elapsed_ms, safe);
         tcp_writestr(&tcpbuf, sock, out);
     }

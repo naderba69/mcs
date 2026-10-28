@@ -1,4 +1,5 @@
 #include "common.h"
+#include "debug.h"
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,3 +1,6 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "common.h"
 #include "cwtime.h"   /* TASK 2.3: CWT_MAX_FLOOR, so the clamp and the module agree */
 
@@ -489,9 +492,14 @@ void parse_option_shares( struct sharelimit_data sharelimits[100] )
 		parse_spaces();
 		if (*iparser==':') { // PROVIDER ID
 			iparser++;
+			int overflow_warned = 0;
 			while (parse_hex(str)>0) {
-				provid[nbprovid] = hex2int(str);
-				nbprovid++;
+				if (nbprovid < (int)(sizeof(provid) / sizeof(provid[0])))
+					provid[nbprovid++] = hex2int(str);
+				else if (!overflow_warned) {
+					debugf(getdbgflag(DBG_CONFIG,0,0), " config(,%d): too many providers in share limit, extra entries dropped\n", iparser-currentline);
+					overflow_warned = 1;
+				}
 				parse_spaces();
 				if (*iparser=='&') iparser++; else break;
 			}
@@ -889,6 +897,19 @@ static int parse_sidlist(uint16_t *list)
 		if (*iparser==',') iparser++;
 	}
 	return count;
+}
+
+
+/* The profile is packed; parse into an aligned temporary before copying
+ * the resulting SID array back without forming an unaligned uint16_t *. */
+static int parse_packed_sidlist(void *destination)
+{
+    uint16_t list[SKIPCWC_SID_MAX];
+    int count;
+    memcpy(list, destination, sizeof(list));
+    count = parse_sidlist(list);
+    memcpy(destination, list, sizeof(list));
+    return count;
 }
 
 int read_config(struct config_data *cfg)
@@ -1775,7 +1796,7 @@ link_radegast_server:
 					}
 					if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 				}
-				camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
+				{ uint32_t ucrc; camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &ucrc); cli->ucrc = ucrc; }
 				cfg_addcamd35client(camd35, cli);
 			}
 		}
@@ -1880,7 +1901,7 @@ link_radegast_server:
 					}
 					if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 				}
-				camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
+				{ uint32_t ucrc; camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &ucrc); cli->ucrc = ucrc; }
 				//
 				cfg_addcamd35client( cs378x, cli);
 			}
@@ -1905,7 +1926,7 @@ link_radegast_server:
 				srv->handle = -1;
 				pthread_mutex_init( &srv->lock, NULL );
 				cfg_addserver(cfg, srv);
-				camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
+				{ uint32_t ucrc; camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &ucrc); srv->ucrc = ucrc; }
 			}
 			else if (!strcmp(str,"KEEPALIVE")) {
 				parse_spaces();
@@ -1942,7 +1963,7 @@ link_camd35_server:
 			srv->handle = -1;
 			pthread_mutex_init( &srv->lock, NULL );
 			cfg_addserver(cfg, srv);
-			camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
+			{ uint32_t ucrc; camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &ucrc); srv->ucrc = ucrc; }
 		}
 #endif
 
@@ -4267,7 +4288,7 @@ link_mgcamd_user:
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
 				continue;
 			} else iparser++;
-			cardserver->option.skipcwc_only_total = parse_sidlist(cardserver->option.skipcwc_only);
+			cardserver->option.skipcwc_only_total = parse_packed_sidlist(cardserver->option.skipcwc_only);
 		}
 		else if (!strcmp(str,"SKIPCWC_EXCLUDE_SIDS_ACTIVE")) {
 			if (!cardserver) {
@@ -4291,7 +4312,7 @@ link_mgcamd_user:
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
 				continue;
 			} else iparser++;
-			cardserver->option.skipcwc_excl_total = parse_sidlist(cardserver->option.skipcwc_excl);
+			cardserver->option.skipcwc_excl_total = parse_packed_sidlist(cardserver->option.skipcwc_excl);
 		}
 		else if (!strcmp(str,"ECM")) {
 			if (!cardserver) {
@@ -4483,7 +4504,7 @@ link_mgcamd_user:
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
 					continue;
 				} else iparser++;
-				cardserver->option.skipcwc_only_total = parse_sidlist(cardserver->option.skipcwc_only);
+				cardserver->option.skipcwc_only_total = parse_packed_sidlist(cardserver->option.skipcwc_only);
 			}
 			else if (!strcmp(str,"SKIPCWC_EXCLUDE_SIDS_ACTIVE")) {
 				parse_spaces();
@@ -4499,7 +4520,7 @@ link_mgcamd_user:
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
 					continue;
 				} else iparser++;
-				cardserver->option.skipcwc_excl_total = parse_sidlist(cardserver->option.skipcwc_excl);
+				cardserver->option.skipcwc_excl_total = parse_packed_sidlist(cardserver->option.skipcwc_excl);
 			}
 
 			else if (!strcmp(str,"HALFNULLED")) {
@@ -7242,12 +7263,16 @@ int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs,
 		 * fake screens for black ones. With the key off (the
 		 * default) this block is inert and the decision is stock.
 		 */
-		if ( skipcwc_applies(cs->option.skipcwc,
-				cs->option.skipcwc_only_active, cs->option.skipcwc_only, cs->option.skipcwc_only_total,
-				cs->option.skipcwc_excl_active, cs->option.skipcwc_excl, cs->option.skipcwc_excl_total,
-				sid)
-		     && ca_cw_checksum_expected(caid) )
-			c = DCWFILTER_ON;
+		if (cs->option.skipcwc && ca_cw_checksum_expected(caid)) {
+			uint16_t only[SKIPCWC_SID_MAX], excl[SKIPCWC_SID_MAX];
+			memcpy(only, cs->option.skipcwc_only, sizeof(only));
+			memcpy(excl, cs->option.skipcwc_excl, sizeof(excl));
+			if (skipcwc_applies(cs->option.skipcwc,
+					cs->option.skipcwc_only_active, only, cs->option.skipcwc_only_total,
+					cs->option.skipcwc_excl_active, excl, cs->option.skipcwc_excl_total,
+					sid))
+				c = DCWFILTER_ON;
+		}
 	}
 	/* TASK R28 (D79): pattern INHERIT with the global gate OFF (the
 	 * default) keeps this decision identical to pre-R28. */

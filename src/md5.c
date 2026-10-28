@@ -205,6 +205,7 @@ static void __md5_Init (struct MD5Context *context)
 static void __md5_Update ( struct MD5Context *context, const unsigned char *input, unsigned int inputLen)
 {
 	unsigned int i, index, partLen;
+	uint32_t state[4];
 
 	/* Compute number of bytes mod 64 */
 	index = (unsigned int)((context->count[0] >> 3) & 0x3F);
@@ -221,10 +222,12 @@ static void __md5_Update ( struct MD5Context *context, const unsigned char *inpu
 	if (inputLen >= partLen) {
 		memcpy((void *)&context->buffer[index], (const void *)input,
 		    partLen);
-		__md5_Transform (context->state, context->buffer);
+		memcpy(state, context->state, sizeof(state));
+		__md5_Transform (state, context->buffer);
 
-		for (i = partLen; i + 63 < inputLen; i += 64)
-			__md5_Transform (context->state, &input[i]);
+		for (i = partLen; inputLen - i >= 64; i += 64)
+			__md5_Transform (state, &input[i]);
+		memcpy(context->state, state, sizeof(state));
 
 		index = 0;
 	}

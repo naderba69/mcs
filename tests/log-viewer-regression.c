@@ -1,4 +1,4 @@
-/* Run with: cc -std=gnu99 -pthread -Isrc tests/log-viewer-regression.c src/log-viewer.c -o /tmp/log-viewer-regression && /tmp/log-viewer-regression */
+/* Run with: cc -std=gnu99 -pthread -Isrc tests/log-viewer-regression.c src/log-viewer.c src/safe-time.c -o /tmp/log-viewer-regression && /tmp/log-viewer-regression */
 #include <assert.h>
 #include <stdarg.h>
 #include <stdint.h>

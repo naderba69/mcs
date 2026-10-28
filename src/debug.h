@@ -1,3 +1,10 @@
+#ifndef MCS_DEBUG_H
+#define MCS_DEBUG_H
+#include <stdint.h>
+#ifndef WIN32
+#include <netinet/in.h>
+#endif
+
 #define DBG_ALL         0x00
 #define DBG_CCCAM       0x01
 #define DBG_CACHE       0x02
@@ -50,3 +57,5 @@ void fdebug(char *str);
 void fdebugf(char *format, ...);
 
 
+
+#endif /* MCS_DEBUG_H */

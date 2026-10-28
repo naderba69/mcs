@@ -4,10 +4,12 @@
  */
 
 #include "common.h"
+#include "debug.h"
 #include "cache-analytics.h"
 #include "httpserver.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 
 // TCP buffer structure (from httpbuffer.c)

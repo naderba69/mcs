@@ -1,6 +1,7 @@
 /* ecm-optimizations.c — ECM Optimizations Implementation */
 
 #include "common.h"
+#include "debug.h"
 #include "ecm-optimizations.h"
 
 /* Global tables */

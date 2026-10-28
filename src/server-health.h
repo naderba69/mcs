@@ -1,3 +1,4 @@
+#include <string.h>
 /* server-health.h — Smart Server Health Monitoring System
  *
  * PURPOSE: Monitor server performance and rank them dynamically
