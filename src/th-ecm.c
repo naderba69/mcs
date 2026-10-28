@@ -68,6 +68,7 @@ void clients_check_sendcw(ECM_DATA *ecm)
 #include "cw-postvalidate.h"
 #include "ecm-pattern-analysis.h"
 #include "implicit-bs-detect.h"
+#include "cache-intelligence.h"
 #include "smart-server-select.h"
 #include "setdcw.c"
 
@@ -258,6 +259,14 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					debugf(0, " [SMART-SELECT] Server %d skipped (quarantined/low score) for %04X:%06X:%04X\n",
 						newsrv->id, ecm->caid, ecm->provid, ecm->sid);
 					/* Skip this server, try next iteration */
+					return;
+				}
+
+				/* CACHE-AI: Check if peer should be skipped (Level 2+5)
+				 * Skip banned/low-trust peers, use tier-based timeout */
+				if (ci_should_skip_peer((uint32_t)newsrv->id, ecm->caid, ecm->provid, ecm->sid)) {
+					debugf(0, " [CACHE-AI] Server %d skipped (low trust/banned) for %04X:%06X:%04X\n",
+						newsrv->id, ecm->caid, ecm->provid, ecm->sid);
 					return;
 				}
 

@@ -121,6 +121,7 @@ int peer_doublecheck(struct cacheserver_data *cache, struct cachepeer_data *xpee
 #include "dcwstats.h"		/* TASK R1: CEXLOCAL/CEXFAKE/CEXCONF counters */
 #include "peerrep.h"		/* TASK R4 (D58): the persistent peer-reputation ladder */
 #include "cwconsensus.h"/* TASK R8 (D62): the per-request cw arbitrer */
+#include "cache-intelligence.h" /* CACHE-AI: 7-level smart cache optimization */
 #ifdef MCS_DCWSTATS
 #include "cwlog.h"		/* TASK R11 (D65): the per-CW verdict ring */
 #endif
@@ -3452,6 +3453,9 @@ void *cache_queue_thread(void *param)
 				debugf(getdbgflag(DBG_CACHE,0,0)," [CACHE QUEUE] enqueued %lu dropped %lu\n",
 					cq_enqueued(), cq_dropped());
 			lastreported = GetTickCount();
+
+			/* CACHE-AI: Periodic cleanup — unban expired peers, decay inactive trust */
+			ci_tick(ci_now_ms());
 		}
 		struct cq_entry e;
 		if (!cq_pop(&e)) { usleep(10000); continue; }

@@ -354,6 +354,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 			/* Source is quarantined — block ALL CWs */
 			debugf(0, " !!! [ECM-PATTERN] Source %d QUARANTINED -- all CWs blocked\n", srcid);
 			cwpostval_trust_bad((uint32_t)srcid);
+			ci_record_failure((uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid, CI_CW_KNOWN_FAKE);
 			return;
 		}
 		if (pat_result == 1) {
@@ -361,6 +362,37 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 				ecm->caid, ecm->provid, ecm->sid, srcid, ecmpat_attack_name(attack_type));
 			cwpostval_trust_bad((uint32_t)srcid);
 			return;
+		}
+
+		/* CACHE-AI: Quick CW Validation (Level 3)
+		 * Fast check for null, repeating bytes, low entropy, known fakes */
+		{
+			ci_cw_status_t cw_status = ci_validate_cw(dcw, ecm->caid, ecm->provid, ecm->sid);
+			if (cw_status != CI_CW_VALID) {
+				debugf(0, " !!! [CACHE-AI] %04X:%06X:%04X from src %d -- CW %s -- REFUSED\n",
+					ecm->caid, ecm->provid, ecm->sid, srcid, ci_cw_status_name(cw_status));
+				ci_record_failure((uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid, cw_status);
+				/* Add to known-fake database if it's a pattern */
+				if (cw_status == CI_CW_KNOWN_FAKE || cw_status == CI_CW_REPEAT ||
+					cw_status == CI_CW_LOW_ENTROPY) {
+					ci_add_fake_cw(dcw, ecm->caid, ecm->provid);
+				}
+				return;
+			}
+		}
+
+		/* CACHE-AI: Check predictive cache first (Level 7) */
+		if (ecm->ecm[0]) {
+			uint8_t predicted_cw[16];
+			uint32_t predict_peer = 0;
+			if (ci_predict_fetch(ecm->caid, ecm->provid, ecm->sid,
+				ecm->ecm[0], predicted_cw, &predict_peer)) {
+				/* Found pre-fetched CW! Use it immediately */
+				debugf(0, " [CACHE-AI] PREDICTIVE HIT! %04X:%06X:%04X from pre-fetched CW (peer %d)\n",
+					ecm->caid, ecm->provid, ecm->sid, predict_peer);
+				memcpy(dcw, predicted_cw, 16);
+				/* Continue with this CW through validation pipeline */
+			}
 		}
 
 		/* CACHE SPEED SUITE: CacheEx Drop Diffs check
@@ -420,6 +452,9 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 			ecm_hash[4] = ecm->sid & 0xFF;
 			cacheex_dropdiffs_store_good(ecm->caid, ecm->provid, ecm->sid, dcw, ecm_hash, pvr.peer_trust);
 		}
+
+		/* CACHE-AI: Detect CW cycle pattern (Level 6) */
+		ci_detect_cycle(ecm->caid, ecm->provid, ecm->sid, ecm->ecm[0], ci_now_ms());
 	}
 
 	int cwpart = 2;
@@ -518,6 +553,16 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 
 	/* CW-POSTVAL: Record successful CW for peer trust scoring */
 	cwpostval_trust_good((uint32_t)srcid);
+
+	/* CACHE-AI: Record success — update peer trust and channel learning (Level 1+4+5) */
+	ci_record_success((uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid, ecmtime);
+
+	/* CACHE-AI: Store CW for predictive cache (Level 7) */
+	{
+		uint8_t next_tag = ci_predict_next_tag(ecm->caid, ecm->ecm[0]);
+		ci_predict_store(ecm->caid, ecm->provid, ecm->sid,
+			next_tag, dcw, (uint32_t)srcid, 10000); /* Valid for 10s */
+	}
 
 	// Check timeout
 	uint32_t ecmtime = GetTickCount()-ecm->recvtime;

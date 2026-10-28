@@ -2769,6 +2769,17 @@ void mainprocess()
 	debugf(0, "   [LEARN] CW cycle interval learning (per client/channel)\n");
 	debugf(0, "   [SOURCE] Automatic source blaming for wrong CWs\n");
 
+	/* Cache Intelligence — 7-level smart cache optimization */
+	ci_init();
+	debugf(0, " [CACHE-AI] Cache Intelligence System initialized (7 levels)\n");
+	debugf(0, "   [L1] Trust Scoring: Per-peer trust (0-100)\n");
+	debugf(0, "   [L2] Tiered Priority: A-Elite/B-Average/C-Unreliable\n");
+	debugf(0, "   [L3] Quick Validation: Fast CW check on arrival\n");
+	debugf(0, "   [L4] Channel Learning: Best peers per channel\n");
+	debugf(0, "   [L5] Reward & Penalty: Auto-adjust trust\n");
+	debugf(0, "   [L6] Smart Prediction: Predict good CW source\n");
+	debugf(0, "   [L7] Predictive Cache: Pre-fetch CW before needed\n");
+
 // THREADS - detached
 	start_thread_dns();
 	start_thread_srv();
