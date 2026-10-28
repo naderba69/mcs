@@ -183,7 +183,7 @@ typedef struct
 	char value[512];
 } http_get;
 
-typedef struct 
+typedef struct http_request
 {
 	int sock;
 	uint32_t ip;

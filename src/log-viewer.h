@@ -77,6 +77,7 @@ int log_viewer_export(const char *filename);
 
 // HTTP interface
 struct http_request;
+char *isset_get(struct http_request *req, char *name);
 void http_send_log_viewer(int sock, struct http_request *req);
 
 #endif /* LOG_VIEWER_H */

@@ -5,9 +5,11 @@
 
 #include "common.h"
 #include "log-viewer.h"
-#include "httpserver.h"
-#include "htmlesc.h"
+#include <netinet/in.h>
+#include "debug.h"
 #include <string.h>
+#include <stdlib.h>
+#include "htmlesc.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <time.h>
@@ -22,6 +24,7 @@ struct tcp_buffer_data
 };
 
 extern void tcp_init(struct tcp_buffer_data *buf);
+extern void tcp_flush(struct tcp_buffer_data *buf, int sock);
 extern void tcp_writestr(struct tcp_buffer_data *buf, int sock, const char *data);
 
 // Global log viewer table
@@ -195,8 +198,12 @@ int log_viewer_export(const char *filename)
         struct log_entry *entry = &log_viewer_tab.entries[i];
         
         char time_str[32];
-        struct tm *tm = localtime(&entry->timestamp);
-        strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm);
+        time_t timestamp = entry->timestamp;
+        struct tm tm;
+        if (localtime_r(&timestamp, &tm))
+            strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm);
+        else
+            snprintf(time_str, sizeof(time_str), "-");
         
         const char *level_str = "UNKNOWN";
         switch (entry->level) {
@@ -219,6 +226,29 @@ int log_viewer_export(const char *filename)
 // ============================================================================
 // HTTP INTERFACE
 // ============================================================================
+
+/* HTTP query values are not decoded by explode_get. Decode only this page's
+ * search value so unrelated routes retain their existing behaviour. */
+static void decode_search(char *out, size_t size, const char *in)
+{
+    size_t i = 0;
+    while (*in && i + 1 < size) {
+        if (*in == '+') { out[i++] = ' '; in++; }
+        else if (*in == '%' && in[1] && in[2]) {
+            int a = in[1], b = in[2];
+            a = (a >= '0' && a <= '9') ? a - '0' :
+                (a >= 'a' && a <= 'f') ? a - 'a' + 10 :
+                (a >= 'A' && a <= 'F') ? a - 'A' + 10 : -1;
+            b = (b >= '0' && b <= '9') ? b - '0' :
+                (b >= 'a' && b <= 'f') ? b - 'a' + 10 :
+                (b >= 'A' && b <= 'F') ? b - 'A' + 10 : -1;
+            if (a >= 0 && b >= 0 && (a || b)) {
+                out[i++] = (char)((a << 4) | b); in += 3;
+            } else out[i++] = *in++;
+        } else out[i++] = *in++;
+    }
+    out[i] = '\0';
+}
 
 void http_send_log_viewer(int sock, struct http_request *req)
 {
@@ -281,6 +311,7 @@ void http_send_log_viewer(int sock, struct http_request *req)
     tcp_writestr(&tcpbuf, sock, buf);
     
     // Statistics
+    pthread_mutex_lock(&log_viewer_tab.lock);
     snprintf(buf, sizeof(buf),
         "<div class='stats'>\n"
         "<div class='stat-card'><div class='stat-value'>%u</div><div class='stat-label'>إجمالي السجلات</div></div>\n"
@@ -295,6 +326,7 @@ void http_send_log_viewer(int sock, struct http_request *req)
         log_viewer_tab.info_count,
         log_viewer_tab.debug_count
     );
+    pthread_mutex_unlock(&log_viewer_tab.lock);
     tcp_writestr(&tcpbuf, sock, buf);
     
     // Controls
@@ -329,7 +361,10 @@ void http_send_log_viewer(int sock, struct http_request *req)
     
     // Get filter parameters
     char *level_str = isset_get(req, "level");
-    char *search = isset_get(req, "search");
+    const char *encoded_search = isset_get(req, "search");
+    char search_buf[512];
+    decode_search(search_buf, sizeof(search_buf), encoded_search ? encoded_search : "");
+    const char *search = search_buf;
     
     int min_level = LOG_LEVEL_DEBUG;
     if (level_str) {
@@ -341,7 +376,8 @@ void http_send_log_viewer(int sock, struct http_request *req)
     if (!entries) {
         snprintf(buf, sizeof(buf), "<div class='log-entry log-error'>❌ Memory allocation failed</div>");
         tcp_writestr(&tcpbuf, sock, buf);
-        free(buf);
+        tcp_writestr(&tcpbuf, sock, "</div></body></html>");
+        tcp_flush(&tcpbuf, sock);
         return;
     }
     
@@ -366,8 +402,12 @@ void http_send_log_viewer(int sock, struct http_request *req)
         
         // Format time
         char time_str[32];
-        struct tm *tm = localtime(&entry->timestamp);
-        strftime(time_str, sizeof(time_str), "%H:%M:%S", tm);
+        time_t timestamp = entry->timestamp;
+        struct tm tm;
+        if (localtime_r(&timestamp, &tm))
+            strftime(time_str, sizeof(time_str), "%H:%M:%S", &tm);
+        else
+            snprintf(time_str, sizeof(time_str), "-");
         
         // Level class and text
         const char *level_class = "log-debug";
@@ -422,17 +462,19 @@ void http_send_log_viewer(int sock, struct http_request *req)
             "</html>\n"
         );
     } else {
+        char safe_search[3072];
+        html_esc(safe_search, sizeof(safe_search), search);
         snprintf(buf, sizeof(buf),
             "</div>\n"
             "<p style='color:#569cd6;text-align:center;'>🔍 نتائج البحث عن: <b>%s</b> (%d نتيجة)</p>\n"
             "</div>\n"
             "</body>\n"
             "</html>\n",
-            search, count
+            safe_search, count
         );
     }
     tcp_writestr(&tcpbuf, sock, buf);
     
-    // Free allocated memory
+    tcp_flush(&tcpbuf, sock);
     free(entries);
 }
