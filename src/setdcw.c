@@ -148,33 +148,50 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 
 	if ( dcwcmp8(dcw,nullcw) && dcwcmp8(dcw+8,nullcw) ) return;
 
+	/* ADVANCED LOG: CW received */
+	debugf(0, "━━━ [CW-RECV] %04X:%06X:%04X from %s (id=%d) ━━━\n",
+		ecm->caid, ecm->provid, ecm->sid,
+		(srctype==DCW_SOURCE_CACHE)?"CACHE":"SERVER", srcid);
+	debugf(0, "    CW: %02X %02X %02X %02X %02X %02X %02X %02X | %02X %02X %02X %02X %02X %02X %02X %02X\n",
+		dcw[0], dcw[1], dcw[2], dcw[3], dcw[4], dcw[5], dcw[6], dcw[7],
+		dcw[8], dcw[9], dcw[10], dcw[11], dcw[12], dcw[13], dcw[14], dcw[15]);
+
 	/* SUPER SMART FILTER — Multi-layer CW validation (activated 2026-10-28)
 	 * Filters malformed/fake CWs before processing */
 	if (!ssf_check_format(ecm->ecm, ecm->ecmlen)) {
-		debugf(0, " [SSF] ECM format check failed for %04X:%06X:%04X from src %d\n",
-			ecm->caid, ecm->provid, ecm->sid, srcid);
+		debugf(0, "    ❌ [SSF-REJECT] ECM format check FAILED for %04X:%06X:%04X\n",
+			ecm->caid, ecm->provid, ecm->sid);
 		return;
 	}
+	debugf(0, "    ✅ [SSF] format OK\n");
+	
 	if (!ssf_check_entropy(ecm->ecm, ecm->ecmlen)) {
-		debugf(0, " [SSF] ECM entropy check failed for %04X:%06X:%04X from src %d\n",
-			ecm->caid, ecm->provid, ecm->sid, srcid);
+		debugf(0, "    ❌ [SSF-REJECT] ECM entropy check FAILED for %04X:%06X:%04X\n",
+			ecm->caid, ecm->provid, ecm->sid);
 		return;
 	}
+	debugf(0, "    ✅ [SSF] entropy OK\n");
+	
 	if (!ssf_check_blacklist(ecm->caid, ecm->provid, ecm->sid)) {
-		debugf(0, " [SSF] Channel blacklisted %04X:%06X:%04X\n",
+		debugf(0, "    ❌ [SSF-REJECT] Channel BLACKLISTED %04X:%06X:%04X\n",
 			ecm->caid, ecm->provid, ecm->sid);
 		return;
 	}
+	debugf(0, "    ✅ [SSF] not blacklisted\n");
+	
 	if (!ssf_check_duplicate(ecm->ecm, ecm->ecmlen, ecm->caid, ecm->provid, ecm->sid)) {
-		debugf(0, " [SSF] Duplicate ECM detected for %04X:%06X:%04X\n",
+		debugf(0, "    ❌ [SSF-REJECT] DUPLICATE ECM detected for %04X:%06X:%04X\n",
 			ecm->caid, ecm->provid, ecm->sid);
 		return;
 	}
+	debugf(0, "    ✅ [SSF] not duplicate\n");
+	
 	if (!ssf_check_fake(ecm->ecm, ecm->ecmlen, ecm->caid)) {
-		debugf(0, " [SSF] Fake ECM pattern detected for %04X:%06X:%04X from src %d\n",
-			ecm->caid, ecm->provid, ecm->sid, srcid);
+		debugf(0, "    ❌ [SSF-REJECT] FAKE ECM pattern detected for %04X:%06X:%04X\n",
+			ecm->caid, ecm->provid, ecm->sid);
 		return;
 	}
+	debugf(0, "    ✅ [SSF] not fake\n");
 
 	/* DCW validation: check for fake patterns and badlist */
 //	if (dcw_pattern_fake(dcw)) {
@@ -352,24 +369,25 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 
 		if (pat_result == 2) {
 			/* Source is quarantined — block ALL CWs */
-			debugf(0, " !!! [ECM-PATTERN] Source %d QUARANTINED -- all CWs blocked\n", srcid);
+			debugf(0, "    ❌ [ECM-PATTERN-REJECT] Source %d QUARANTINED -- all CWs blocked\n", srcid);
 			cwpostval_trust_bad((uint32_t)srcid);
 			ci_record_failure((uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid, CI_CW_KNOWN_FAKE);
 			return;
 		}
 		if (pat_result == 1) {
-			debugf(0, " !!! [ECM-PATTERN] %04X:%06X:%04X from src %d -- ATTACK DETECTED: %s -- REFUSED\n",
+			debugf(0, "    ❌ [ECM-PATTERN-REJECT] %04X:%06X:%04X from src %d -- ATTACK: %s\n",
 				ecm->caid, ecm->provid, ecm->sid, srcid, ecmpat_attack_name(attack_type));
 			cwpostval_trust_bad((uint32_t)srcid);
 			return;
 		}
+		debugf(0, "    ✅ [ECM-PATTERN] no attack detected\n");
 
 		/* CACHE-AI: Quick CW Validation (Level 3)
 		 * Fast check for null, repeating bytes, low entropy, known fakes */
 		{
 			ci_cw_status_t cw_status = ci_validate_cw(dcw, ecm->caid, ecm->provid, ecm->sid);
 			if (cw_status != CI_CW_VALID) {
-				debugf(0, " !!! [CACHE-AI] %04X:%06X:%04X from src %d -- CW %s -- REFUSED\n",
+				debugf(0, "    ❌ [CACHE-AI-REJECT] %04X:%06X:%04X from src %d -- %s\n",
 					ecm->caid, ecm->provid, ecm->sid, srcid, ci_cw_status_name(cw_status));
 				ci_record_failure((uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid, cw_status);
 				/* Add to known-fake database if it's a pattern */
@@ -379,6 +397,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 				}
 				return;
 			}
+			debugf(0, "    ✅ [CACHE-AI] CW validation OK\n");
 		}
 
 		/* CACHE-AI: Check predictive cache first (Level 7) */
@@ -408,12 +427,13 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 				ecm_hash[3] = (ecm->sid >> 8) & 0xFF;
 				ecm_hash[4] = ecm->sid & 0xFF;
 			}
-			if (!cacheex_dropdiffs_check(ecm->caid, ecm->provid, ecm->sid, dcw, ecm_hash)) {
-				debugf(0, " !!! [CACHE-DIFF] %04X:%06X:%04X from src %d -- CW differs from known-good -- REFUSED\n",
-					ecm->caid, ecm->provid, ecm->sid, srcid);
-				cwpostval_trust_bad((uint32_t)srcid);
-				return;
-			}
+		if (!cacheex_dropdiffs_check(ecm->caid, ecm->provid, ecm->sid, dcw, ecm_hash)) {
+			debugf(0, "    ❌ [CACHE-DIFF-REJECT] %04X:%06X:%04X from src %d -- CW differs from known-good\n",
+				ecm->caid, ecm->provid, ecm->sid, srcid);
+			cwpostval_trust_bad((uint32_t)srcid);
+			return;
+		}
+		debugf(0, "    ✅ [CACHE-DIFF] matches known-good\n");
 		}
 
 		/* CW Post-Validation pipeline */
@@ -426,7 +446,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 		);
 
 		if (!pvr.accepted) {
-			debugf(0, " !!! [CW-POSTVAL] %04X:%06X:%04X from src %d -- REFUSED: %s\n",
+			debugf(0, "    ❌ [CW-POSTVAL-REJECT] %04X:%06X:%04X from src %d -- %s\n",
 				ecm->caid, ecm->provid, ecm->sid, srcid, pvr.reason);
 			cwpostval_trust_bad((uint32_t)srcid);
 #ifdef MCS_DCWSTATS
@@ -434,6 +454,8 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 #endif
 			return;
 		}
+		debugf(0, "    ✅ [CW-POSTVAL] OK (score=%d/12, entropy=%.1f)\n", 
+			pvr.plausibility_score, pvr.entropy, pvr.peer_trust);
 
 		if (pvr.plausibility_score < 10) {
 			debugf(DBG_CW+DBG_DVBAPI, " [CW-POSTVAL] %04X:%06X:%04X -- LOW SCORE %d/12 (entropy=%.1f, trust=%d): %s\n",
@@ -550,6 +572,12 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	ecm->waitserver = 0;
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
+
+	/* ADVANCED LOG: CW accepted! */
+	debugf(0, "    ✅ [CW-ACCEPTED] %04X:%06X:%04X from %s (id=%d) -- ALL CHECKS PASSED\n",
+		ecm->caid, ecm->provid, ecm->sid,
+		(srctype==DCW_SOURCE_CACHE)?"CACHE":"SERVER", srcid);
+	debugf(0, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
 	/* CW-POSTVAL: Record successful CW for peer trust scoring */
 	cwpostval_trust_good((uint32_t)srcid);
@@ -928,13 +956,14 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		int dcwstrict_rejected = dcwstrict_check(dcw, ecm->caid, ecm->provid, ecm->sid, now_ms, &dcwstrict_reason);
 		
 		if (dcwstrict_rejected) {
-			debugf(0, " !!! [DCW STRICT] %s: CW rejected for %04X:%06X:%04X - %s\n",
-				cs->name, ecm->caid, ecm->provid, ecm->sid, dcwstrict_reason ? dcwstrict_reason : "unknown");
+			debugf(0, "    ❌ [DCW-STRICT-REJECT] %04X:%06X:%04X -- %s\n",
+				ecm->caid, ecm->provid, ecm->sid, dcwstrict_reason ? dcwstrict_reason : "unknown");
 			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
 				dcwstrict_trust_penalty(srcid);
 			}
 			return;
 		}
+		debugf(0, "    ✅ [DCW-STRICT] OK\n");
 		
 		int ssf_reason = 0;
 		int ssf_rejected = supersmartfilter_check(dcw, 
@@ -946,13 +975,14 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 			ecm->caid, ecm->provid, ecm->sid, srcid, now_ms, &ssf_reason);
 		
 		if (ssf_rejected) {
-			debugf(0, " !!! [SSF] %s: CW rejected for %04X:%06X:%04X - reason code %d\n",
-				cs->name, ecm->caid, ecm->provid, ecm->sid, ssf_reason);
+			debugf(0, "    ❌ [SSF-v2-REJECT] %04X:%06X:%04X -- reason code %d\n",
+				ecm->caid, ecm->provid, ecm->sid, ssf_reason);
 			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
 				dcwstrict_trust_penalty(srcid);
 			}
 			return;
 		}
+		debugf(0, "    ✅ [SSF-v2] OK\n");
 		
 		/* Reward valid CW */
 		if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
