@@ -147,7 +147,35 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	if (!cs) return;
 
 	if ( dcwcmp8(dcw,nullcw) && dcwcmp8(dcw+8,nullcw) ) return;
-	
+
+	/* SUPER SMART FILTER — Multi-layer CW validation (activated 2026-10-28)
+	 * Filters malformed/fake CWs before processing */
+	if (!ssf_check_format(ecm->ecm, ecm->ecmlen)) {
+		debugf(0, " [SSF] ECM format check failed for %04X:%06X:%04X from src %d\n",
+			ecm->caid, ecm->provid, ecm->sid, srcid);
+		return;
+	}
+	if (!ssf_check_entropy(ecm->ecm, ecm->ecmlen)) {
+		debugf(0, " [SSF] ECM entropy check failed for %04X:%06X:%04X from src %d\n",
+			ecm->caid, ecm->provid, ecm->sid, srcid);
+		return;
+	}
+	if (!ssf_check_blacklist(ecm->caid, ecm->provid, ecm->sid)) {
+		debugf(0, " [SSF] Channel blacklisted %04X:%06X:%04X\n",
+			ecm->caid, ecm->provid, ecm->sid);
+		return;
+	}
+	if (!ssf_check_duplicate(ecm->ecm, ecm->ecmlen, ecm->caid, ecm->provid, ecm->sid)) {
+		debugf(0, " [SSF] Duplicate ECM detected for %04X:%06X:%04X\n",
+			ecm->caid, ecm->provid, ecm->sid);
+		return;
+	}
+	if (!ssf_check_fake(ecm->ecm, ecm->ecmlen, ecm->caid)) {
+		debugf(0, " [SSF] Fake ECM pattern detected for %04X:%06X:%04X from src %d\n",
+			ecm->caid, ecm->provid, ecm->sid, srcid);
+		return;
+	}
+
 	/* DCW validation: check for fake patterns and badlist */
 //	if (dcw_pattern_fake(dcw)) {
 //		debugf(0, " [DCW] Rejected fake pattern CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);

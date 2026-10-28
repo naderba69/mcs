@@ -260,6 +260,14 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					/* Skip this server, try next iteration */
 					return;
 				}
+
+				/* ECM DOUBLE CHECK — Verify CW from multiple sources (activated 2026-10-28)
+				 * For certain CAIDs, require CW confirmation from 2+ servers */
+				if (ecm_doublecheck_needed(ecm->caid)) {
+					ecm_doublecheck_start(ecm->hash, ecm->caid, ecm->provid, ecm->sid);
+					debugf(0, " [ECM-DBLCHK] Double check started for %04X:%06X:%04X hash=%08X\n",
+						ecm->caid, ecm->provid, ecm->sid, ecm->hash);
+				}
 					//debugf(0," sendecm: selected server to decode (%s:%d)\n", newsrv->host->name, newsrv->port);
 					if (newsrv->type==TYPE_NEWCAMD) {
 						if (cs_sendecm_srv(cs, newsrv, ecm)>0) {
