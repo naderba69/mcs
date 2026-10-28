@@ -1,4 +1,5 @@
 #include "common.h"
+#include "log-viewer.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -205,6 +206,9 @@ void debugf(uint32_t flag, char *format, ...)
 	vsnprintf( debugline+index, (int)sizeof(debugline)-index, fstr, args);
 	va_end( args );
 	debugline[sizeof(debugline)-1] = 0;
+
+	// Log Viewer: Add to log viewer (INFO level by default)
+	log_viewer_add(LOG_LEVEL_INFO, "debug", "%s", debugline);
 
 	debug(debugline);
 }
