@@ -4,6 +4,7 @@
 #include "common.h"
 #include "cwtime.h"   /* TASK 2.3: CWT_MAX_FLOOR, so the clamp and the module agree */
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -478,11 +479,22 @@ struct global_user_data
 };
 
 
-void parse_option_shares( struct sharelimit_data sharelimits[100] )
+/* Destinations are arrays inside packed structures. Build entries locally and
+ * copy bytes back, rather than dereferencing a potentially unaligned pointer.
+ * The size argument also makes the sentinel reservation explicit. */
+void parse_option_shares(void *destination, size_t destination_size)
 {
+	struct sharelimit_data entries[100];
+	size_t capacity = destination_size / sizeof(entries[0]);
+	const uint16_t terminator = 0xFFFF;
 	char str[512];
 	int i;
-	int count = 0;
+	size_t count = 0;
+	if (!destination || capacity == 0) return;
+	if (capacity > sizeof(entries) / sizeof(entries[0]))
+		capacity = sizeof(entries) / sizeof(entries[0]);
+	/* Retain padding and untouched sentinel fields in non-packed builds. */
+	memcpy(entries, destination, capacity * sizeof(entries[0]));
 	while ( parse_hex(str)>0 ) {
 		uint16_t caid;
 		uint32_t provid[16];
@@ -510,20 +522,23 @@ void parse_option_shares( struct sharelimit_data sharelimits[100] )
 			}
 		} else break; // ERROR
 		for (i=0; i<nbprovid; i++) {
-			sharelimits[count].caid = caid;
-			sharelimits[count].provid = provid[i];
-			sharelimits[count].uphops = uphops;
+			if (count >= capacity - 1) break;
+			entries[count].caid = caid;
+			entries[count].provid = provid[i];
+			entries[count].uphops = uphops;
 			count++;
-			if (count>=99) {
+			if (count >= capacity - 1) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(,%d): too many share limits...\n",iparser-currentline);
 				break;
 			}
 		}
-		if (count>=99) break;
+		if (count >= capacity - 1) break;
 		parse_spaces();
 		if (*iparser==',') iparser++;
 	}
-	sharelimits[count].caid = 0xFFFF;
+	if (count) memcpy(destination, entries, count * sizeof(entries[0]));
+	memcpy((unsigned char *)destination + count * sizeof(entries[0]) +
+	       offsetof(struct sharelimit_data, caid), &terminator, sizeof(terminator));
 }
 
 void parse_server_data( struct server_data *tsrv )
@@ -606,7 +621,7 @@ void parse_server_data( struct server_data *tsrv )
 					sids->sid = 0;
 					sids->chid = 0;
 				}
-				else if (!strcmp(str,"shares")) parse_option_shares( tsrv->sharelimits );
+				else if (!strcmp(str,"shares")) parse_option_shares( &tsrv->sharelimits, sizeof(tsrv->sharelimits) );
 				else if (!strcmp(str,"priority")) {
 					if (parse_int(str)) tsrv->priority = atoi(str);
 				}
@@ -1785,7 +1800,7 @@ link_radegast_server:
 							}
 						}
 
-						else if (!strcmp(str,"shares")) parse_option_shares( cli->sharelimits );
+						else if (!strcmp(str,"shares")) parse_option_shares( &cli->sharelimits, sizeof(cli->sharelimits) );
 #ifdef CACHEEX
 						else if (!strcmp(str,"cacheex_mode")) {
 							if (parse_hex(str)) cli->cacheex_mode = hex2int(str);
@@ -1890,7 +1905,7 @@ link_radegast_server:
 							}
 						}
 
-						else if (!strcmp(str,"shares")) parse_option_shares( cli->sharelimits );
+						else if (!strcmp(str,"shares")) parse_option_shares( &cli->sharelimits, sizeof(cli->sharelimits) );
 #ifdef CACHEEX
 						else if (!strcmp(str,"cacheex_mode")) {
 							if (parse_hex(str)) cli->cacheex_mode = hex2int(str);
@@ -3146,7 +3161,7 @@ link_cccam_client:
 							}
 						}
 
-						else if (!strcmp(str,"shares")) parse_option_shares( cli->sharelimits );
+						else if (!strcmp(str,"shares")) parse_option_shares( &cli->sharelimits, sizeof(cli->sharelimits) );
 #ifdef CHECK_NEXTDCW
 						else if (!strcmp(str,"dcwcheck")) cli->dcwcheck = parse_boolean();
 #endif
@@ -3433,7 +3448,7 @@ link_mgcamd_user:
 #ifdef CHECK_NEXTDCW
 						else if (!strcmp(str,"dcwcheck")) cli->dcwcheck = parse_boolean();
 #endif
-						else if (!strcmp(str,"shares")) parse_option_shares( cli->sharelimits );
+						else if (!strcmp(str,"shares")) parse_option_shares( &cli->sharelimits, sizeof(cli->sharelimits) );
 						else {
 							struct client_info_data *info = malloc( sizeof(struct client_info_data) );
 							strcpy(info->name, str);
@@ -3724,7 +3739,7 @@ link_mgcamd_user:
 						else if (!strcmp(str,"sendrep")) {
 							if (parse_boolean()) peer->flags |= FLAG_CACHE_SENDREP; else peer->flags &= ~FLAG_CACHE_SENDREP;
 						}
-						else if (!strcmp(str,"shares")) parse_option_shares( peer->sharelimits );
+						else if (!strcmp(str,"shares")) parse_option_shares( &peer->sharelimits, sizeof(peer->sharelimits) );
 						parse_spaces();
 						if (*iparser==';') iparser++; else break;
 					}

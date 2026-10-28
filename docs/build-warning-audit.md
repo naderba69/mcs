@@ -25,11 +25,21 @@ for crypto, the packed profile SID gate, time formatter, share-limit parser and
 trace core; packed trace core with warnings as errors; log-viewer regression;
 isolated CCcam failure and synthetic Newcamd success; and `make -C make-x64
 test`. The make-x64 test wrapper itself uses legacy warning-suppression flags
-and is not evidence of a warning-free build. Building `config.c` separately
-under sanitizer instrumentation emitted six `parse_option_shares` object-size
-warnings: the declarations in `config.h` are 100-element arrays, but those
-warnings need separate compiler/platform investigation. They do not occur in
-the forced x64 release build.
+and is not evidence of a warning-free build.
+
+The six earlier `parse_option_shares` object-size warnings were investigated:
+each of the six destinations is a 100-entry array inside a packed parent. The
+parser now accepts the actual byte capacity, reserves a slot for the sentinel,
+and updates the destination via byte copies from an aligned local array. The
+caller passes the actual `sizeof` the destination array; no layout is changed.
+Packed ASan/UBSan builds at `-O1`, `-O2` and `-O3` now compile and run the
+share-limit regression with no diagnostics, including with
+`-Werror=stringop-overflow`. Tests cover an unaligned destination, small
+capacities, 99 entries plus sentinel, untouched bytes and provider overflow.
+A separate native-layout sanitizer build also passes this regression, but
+compiling the rest of `config.c` without `-fpack-struct` emits other packed
+member warnings (including mutex, AES and date members). Those warnings were
+not addressed by this change and that alternative build is not warning-free.
 
 These tests do not prove production behavior, video playback, or correctness on
 strict-alignment targets; no cross-platform production deployment was tested.
