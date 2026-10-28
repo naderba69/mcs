@@ -7,7 +7,9 @@
 static pthread_mutex_t trace_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct user_trace_target target;
 static struct user_trace_event events[USER_TRACE_CAPACITY];
-static uint64_t generation, next_attempt, next_sequence, overwritten;
+struct shared_link { uint64_t attempt, instance; uint32_t hash; };
+static struct shared_link links[USER_TRACE_MAX_LINKS];
+static uint64_t generation, next_attempt, next_sequence, overwritten, dropped_links, dropped_events;
 static size_t next_index, count;
 static int active;
 
@@ -20,6 +22,17 @@ static uint64_t increment_nonzero(uint64_t *value)
 
 static void append_locked(struct user_trace_event *event)
 {
+    size_t i;
+    /* Drop the association as soon as its start record is no longer visible.
+     * Later events must not appear to belong to an unknown request. */
+    if (count == USER_TRACE_CAPACITY && events[next_index].type == USER_TRACE_RECEIVED) {
+        for (i = 0; i < USER_TRACE_MAX_LINKS; ++i) {
+            if (links[i].attempt && links[i].attempt == events[next_index].attempt) {
+                memset(&links[i], 0, sizeof(links[i]));
+                ++dropped_links;
+            }
+        }
+    }
     event->session = generation;
     event->sequence = increment_nonzero(&next_sequence);
     events[next_index] = *event;
@@ -35,7 +48,8 @@ uint64_t user_trace_start(const struct user_trace_target *new_target)
     pthread_mutex_lock(&trace_lock);
     target = *new_target;
     result = increment_nonzero(&generation);
-    next_attempt = next_sequence = overwritten = 0;
+    next_attempt = next_sequence = overwritten = dropped_links = dropped_events = 0;
+    memset(links, 0, sizeof(links));
     next_index = count = 0;
     active = 1;
     pthread_mutex_unlock(&trace_lock);
@@ -93,6 +107,12 @@ int user_trace_add(uint64_t session, uint64_t attempt,
                 break;
             }
         }
+        if (found && count == USER_TRACE_CAPACITY &&
+            events[next_index].type == USER_TRACE_RECEIVED &&
+            events[next_index].attempt == attempt) {
+            ++dropped_events;
+            found = 0;
+        }
         if (found) {
             event.attempt = attempt;
             event.timestamp = time(NULL);
@@ -112,6 +132,99 @@ int user_trace_add(uint64_t session, uint64_t attempt,
     return found;
 }
 
+int user_trace_bind_shared(uint64_t session, uint64_t attempt, uint32_t hash,
+                           uint64_t instance)
+{
+    size_t i, free_slot = USER_TRACE_MAX_LINKS;
+    int found = 0, result = 0;
+    if (!session || !attempt || !instance) return 0;
+    pthread_mutex_lock(&trace_lock);
+    if (!active || session != generation) goto done;
+    for (i = 0; i < count; ++i) {
+        size_t index = (next_index + USER_TRACE_CAPACITY - count + i) % USER_TRACE_CAPACITY;
+        if (events[index].type == USER_TRACE_RECEIVED &&
+            events[index].attempt == attempt && events[index].ecm_hash == hash) {
+            found = 1;
+            break;
+        }
+    }
+    if (!found) goto done;
+    for (i = 0; i < USER_TRACE_MAX_LINKS; ++i) {
+        if (links[i].attempt == attempt) {
+            result = links[i].instance == instance && links[i].hash == hash;
+            goto done;
+        }
+        if (!links[i].attempt && free_slot == USER_TRACE_MAX_LINKS) free_slot = i;
+    }
+    if (free_slot == USER_TRACE_MAX_LINKS) {
+        ++dropped_links;
+        goto done;
+    }
+    links[free_slot].attempt = attempt;
+    links[free_slot].instance = instance;
+    links[free_slot].hash = hash;
+    result = 1;
+done:
+    pthread_mutex_unlock(&trace_lock);
+    return result;
+}
+
+size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type type,
+                               int source_type, int source_id,
+                               uint32_t elapsed_ms, const char *detail)
+{
+    size_t i, recorded = 0;
+    if (!instance || (type != USER_TRACE_SENT && type != USER_TRACE_REJECTED &&
+                      type != USER_TRACE_FAILED)) return 0;
+    pthread_mutex_lock(&trace_lock);
+    if (active) {
+        for (i = 0; i < USER_TRACE_MAX_LINKS; ++i) {
+            struct user_trace_event event = {0};
+            if (!links[i].attempt || links[i].instance != instance) continue;
+            if (count == USER_TRACE_CAPACITY &&
+                events[next_index].type == USER_TRACE_RECEIVED &&
+                events[next_index].attempt == links[i].attempt) {
+                memset(&links[i], 0, sizeof(links[i]));
+                ++dropped_links;
+                ++dropped_events;
+                continue;
+            }
+            event.attempt = links[i].attempt;
+            event.ecm_hash = links[i].hash;
+            event.shared = 1;
+            event.timestamp = time(NULL);
+            event.type = type;
+            event.source_type = source_type;
+            event.source_id = source_id;
+            event.elapsed_ms = elapsed_ms;
+            if (detail) {
+                strncpy(event.detail, detail, sizeof(event.detail) - 1);
+                event.detail[sizeof(event.detail) - 1] = '\0';
+            }
+            append_locked(&event);
+            ++recorded;
+        }
+    }
+    pthread_mutex_unlock(&trace_lock);
+    return recorded;
+}
+
+void user_trace_unbind_shared(uint64_t session, uint64_t attempt)
+{
+    size_t i;
+    if (!session || !attempt) return;
+    pthread_mutex_lock(&trace_lock);
+    if (session == generation) {
+        for (i = 0; i < USER_TRACE_MAX_LINKS; ++i) {
+            if (links[i].attempt == attempt) {
+                memset(&links[i], 0, sizeof(links[i]));
+                break;
+            }
+        }
+    }
+    pthread_mutex_unlock(&trace_lock);
+}
+
 void user_trace_get_snapshot(struct user_trace_snapshot *out)
 {
     size_t i;
@@ -121,6 +234,8 @@ void user_trace_get_snapshot(struct user_trace_snapshot *out)
     out->session = generation;
     out->active = active;
     out->overwritten = overwritten;
+    out->dropped_links = dropped_links;
+    out->dropped_events = dropped_events;
     out->count = count;
     for (i = 0; i < count; ++i) {
         size_t index = (next_index + USER_TRACE_CAPACITY - count + i)

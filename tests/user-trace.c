@@ -47,6 +47,58 @@ int main(void)
     user_trace_stop(first);
     user_trace_get_snapshot(&snapshot);
     assert(snapshot.active && snapshot.session == second && !snapshot.count);
+    /* Two attempts may join the same live shared ECM, while identical hashes
+     * on another ECM instance must not receive its events. */
+    {
+        uint64_t a = user_trace_begin(7, 0x1884, 0, 0x1136, 99, &session);
+        uint64_t b = user_trace_begin(7, 0x1884, 0, 0x1136, 99, &session);
+        uint64_t c = user_trace_begin(7, 0x1884, 0, 0x1136, 99, &session);
+        assert(user_trace_bind_shared(second, a, 99, 100));
+        assert(user_trace_bind_shared(second, a, 99, 100)); /* idempotent */
+        assert(!user_trace_bind_shared(second, a, 99, 101));
+        assert(user_trace_bind_shared(second, b, 99, 100));
+        assert(user_trace_bind_shared(second, c, 99, 101));
+        assert(!user_trace_shared_event(100, USER_TRACE_DELIVERED, 0, 0, 1, "bad"));
+        assert(user_trace_shared_event(100, USER_TRACE_SENT, 2, 8, 10, "sent") == 2);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 5);
+        assert(snapshot.events[3].shared && snapshot.events[3].attempt == a);
+        assert(snapshot.events[4].shared && snapshot.events[4].attempt == b);
+        user_trace_unbind_shared(second, a);
+        assert(user_trace_shared_event(100, USER_TRACE_REJECTED, 2, 8, 15, "rejected") == 1);
+        assert(!user_trace_shared_event(102, USER_TRACE_REJECTED, 2, 8, 15, "wrong instance"));
+        user_trace_unbind_shared(second, b);
+        assert(!user_trace_shared_event(100, USER_TRACE_FAILED, 0, 0, 1, "old"));
+    }
+    second = user_trace_start(&target);
+    {
+        uint64_t attempts[USER_TRACE_MAX_LINKS + 1];
+        for (i = 0; i < USER_TRACE_MAX_LINKS + 1; ++i) {
+            attempts[i] = user_trace_begin(7, 0x1884, 0, 0x1136, (uint32_t)i, &session);
+            assert(attempts[i]);
+            if (i < USER_TRACE_MAX_LINKS)
+                assert(user_trace_bind_shared(second, attempts[i], (uint32_t)i, 500 + i));
+            else
+                assert(!user_trace_bind_shared(second, attempts[i], (uint32_t)i, 500 + i));
+        }
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.dropped_links == 1);
+        user_trace_unbind_shared(second, attempts[0]);
+        assert(user_trace_bind_shared(second, attempts[USER_TRACE_MAX_LINKS],
+                                      USER_TRACE_MAX_LINKS, 564));
+    }
+    second = user_trace_start(&target);
+    {
+        uint64_t old = user_trace_begin(7, 0x1884, 0, 0x1136, 100, &session);
+        assert(user_trace_bind_shared(second, old, 100, 900));
+        for (i = 0; i < USER_TRACE_CAPACITY - 1; ++i)
+            assert(user_trace_begin(7, 0x1884, 0, 0x1136, (uint32_t)i, &session));
+        assert(!user_trace_shared_event(900, USER_TRACE_SENT, 2, 1, 10, "evicted"));
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.dropped_links == 1 && snapshot.dropped_events == 1);
+        assert(snapshot.events[0].attempt == old);
+    }
+    second = user_trace_start(&target);
     for (i = 0; i < 4; i++) assert(!pthread_create(&threads[i], NULL, worker, NULL));
     for (i = 0; i < 4; i++) assert(!pthread_join(threads[i], NULL));
     user_trace_get_snapshot(&snapshot);

@@ -8,6 +8,7 @@
 #include <time.h>
 
 #define USER_TRACE_CAPACITY 256
+#define USER_TRACE_MAX_LINKS 64
 
 enum user_trace_event_type {
     USER_TRACE_RECEIVED = 1,
@@ -35,6 +36,7 @@ struct user_trace_event {
     time_t timestamp;
     enum user_trace_event_type type;
     uint32_t ecm_hash; /* Diagnostic fingerprint, not a unique request ID. */
+    int shared; /* Event is about a shared ECM, not exclusively this client. */
     int source_type;
     int source_id;
     uint32_t elapsed_ms;
@@ -45,6 +47,8 @@ struct user_trace_snapshot {
     struct user_trace_target target;
     uint64_t session;
     uint64_t overwritten;
+    uint64_t dropped_links; /* Full link table or start event evicted. */
+    uint64_t dropped_events; /* Event could not retain its start record. */
     int active;
     size_t count;
     struct user_trace_event events[USER_TRACE_CAPACITY];
@@ -61,6 +65,17 @@ int user_trace_add(uint64_t session, uint64_t attempt,
                    enum user_trace_event_type type, uint32_t hash,
                    int source_type, int source_id, uint32_t elapsed_ms,
                    const char *detail);
+/* instance must be a nonzero, process-unique ECM lifetime ID, not an ECM
+ * pointer, hash, or timestamp. Callers must close links at the end of a
+ * request. A bind never backfills events that happened before the bind. */
+int user_trace_bind_shared(uint64_t session, uint64_t attempt, uint32_t hash,
+                           uint64_t instance);
+/* Only send, reject, or fail events are valid at shared ECM scope. Returns
+ * the number of linked attempts recorded. Never represents client delivery. */
+size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type type,
+                               int source_type, int source_id,
+                               uint32_t elapsed_ms, const char *detail);
+void user_trace_unbind_shared(uint64_t session, uint64_t attempt);
 void user_trace_get_snapshot(struct user_trace_snapshot *out);
 
 #endif
