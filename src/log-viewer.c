@@ -141,6 +141,8 @@ int log_viewer_filter_level(struct log_entry *entries, int max_count, int min_le
 
 int log_viewer_search(struct log_entry *entries, int max_count, const char *query)
 {
+    if (!query || !entries || max_count <= 0) return 0;
+    
     pthread_mutex_lock(&log_viewer_tab.lock);
     
     int count = 0;
@@ -151,7 +153,11 @@ int log_viewer_search(struct log_entry *entries, int max_count, const char *quer
         int index = (start - i + LOG_VIEWER_MAX_ENTRIES) % LOG_VIEWER_MAX_ENTRIES;
         struct log_entry *entry = &log_viewer_tab.entries[index];
         
-        if (strstr(entry->message, query) || strstr(entry->source, query)) {
+        // Null checks to prevent crash
+        if (!entry->message[0] && !entry->source[0]) continue;
+        
+        if ((entry->message[0] && strstr(entry->message, query)) ||
+            (entry->source[0] && strstr(entry->source, query))) {
             memcpy(&entries[count], entry, sizeof(struct log_entry));
             count++;
         }
@@ -330,8 +336,15 @@ void http_send_log_viewer(int sock, struct http_request *req)
         min_level = atoi(level_str);
     }
     
-    // Get logs
-    struct log_entry entries[100];
+    // Get logs - use heap allocation to avoid stack overflow
+    struct log_entry *entries = malloc(100 * sizeof(struct log_entry));
+    if (!entries) {
+        snprintf(buf, sizeof(buf), "<div class='log-entry log-error'>❌ Memory allocation failed</div>");
+        tcp_writestr(&tcpbuf, sock, buf);
+        free(buf);
+        return;
+    }
+    
     int count;
     
     if (search && strlen(search) > 0) {
@@ -419,4 +432,7 @@ void http_send_log_viewer(int sock, struct http_request *req)
         );
     }
     tcp_writestr(&tcpbuf, sock, buf);
+    
+    // Free allocated memory
+    free(entries);
 }

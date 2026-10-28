@@ -2730,10 +2730,11 @@ void mainprocess()
 	auto_tuning_init();
 	debugf(0, " [AUTO-TUNING] Automatic profile optimization system initialized\n");
 
-	/* Web Dashboard - Real-time monitoring interface */
-	web_dashboard_init();
-	web_dashboard_start();
-	debugf(0, " [WEB-DASHBOARD] Real-time web monitoring interface started\n");
+	/* Web Dashboard - DISABLED: conflicts with httpserver.c on port 8080
+	 * Use httpserver.c web interface instead (port 8080)
+	 * Access: http://<ip>:8080/log-viewer for live logs */
+	// web_dashboard_init();
+	// web_dashboard_start();
 
 	/* Cache Speed Suite - 8 cache optimization systems */
 	cache_speed_suite_init();

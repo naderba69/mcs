@@ -7906,6 +7906,7 @@ void *gererClient(struct connect_data *param)
 					http_send_server_stats(sock,&req);
 				}
 				else if (strcmp(req.path,"/log-viewer")==0) {
+					debugf(0, " [HTTP] /log-viewer requested\n");
 					http_send_log_viewer(sock,&req);
 				}
 				else if (strcmp(req.path,"/cache-analytics")==0) {
