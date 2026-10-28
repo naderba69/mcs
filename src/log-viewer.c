@@ -6,6 +6,7 @@
 #include "common.h"
 #include "log-viewer.h"
 #include "httpserver.h"
+#include "htmlesc.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -374,6 +375,12 @@ void http_send_log_viewer(int sock, struct http_request *req)
         else if (entry->level == LOG_LEVEL_WARNING) level_text_class = "log-level-warning";
         else if (entry->level == LOG_LEVEL_INFO) level_text_class = "log-level-info";
         
+        // HTML escape the message to prevent XSS and rendering issues
+        char safe_msg[1024];
+        char safe_src[128];
+        html_esc(safe_msg, sizeof(safe_msg), entry->message);
+        html_esc(safe_src, sizeof(safe_src), entry->source[0] ? entry->source : "-");
+        
         // Log entry
         snprintf(buf, sizeof(buf),
             "<div class='log-entry %s'>\n"
@@ -386,19 +393,30 @@ void http_send_log_viewer(int sock, struct http_request *req)
             time_str,
             level_text_class,
             level_text,
-            entry->source[0] ? entry->source : "-",
-            entry->message
+            safe_src,
+            safe_msg
         );
         tcp_writestr(&tcpbuf, sock, buf);
     }
     
-    // End page
-    snprintf(buf, sizeof(buf),
-        "</div>\n"
-        "<script>setTimeout(function(){ location.reload(); }, 5000);</script>\n"
-        "</div>\n"
-        "</body>\n"
-        "</html>\n"
-    );
+    // End page — only auto-refresh if NOT searching
+    if (!search || strlen(search) == 0) {
+        snprintf(buf, sizeof(buf),
+            "</div>\n"
+            "<script>setTimeout(function(){ location.reload(); }, 5000);</script>\n"
+            "</div>\n"
+            "</body>\n"
+            "</html>\n"
+        );
+    } else {
+        snprintf(buf, sizeof(buf),
+            "</div>\n"
+            "<p style='color:#569cd6;text-align:center;'>🔍 نتائج البحث عن: <b>%s</b> (%d نتيجة)</p>\n"
+            "</div>\n"
+            "</body>\n"
+            "</html>\n",
+            search, count
+        );
+    }
     tcp_writestr(&tcpbuf, sock, buf);
 }
