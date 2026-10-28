@@ -9,6 +9,9 @@ child process and keeps temporary credentials and files out of the repo.
 import base64
 import contextlib
 import os
+import re
+import urllib.error
+import urllib.parse
 from pathlib import Path
 import socket
 import subprocess
@@ -56,7 +59,7 @@ def run():
         config = temp / "isolated.cfg"
         config.write_text(
             f"HTTP PORT: {http}\nHTTP USER: test\nHTTP PASS: isolated\n"
-            f"TELNET PORT: 0\nCCCAM PORT: {cccam}\nF: traceuser tracepass\n\n"
+            f"TELNET PORT: 0\nCCCAM PORT: {cccam}\nF: traceuser tracepass\nF: otheruser otherpass\n\n"
             f"[ isolated ]\nCAID: 1884\nPROVIDERS: 0\nPORT: {newcamd}\n"
             "DCW TIMEOUT: 1200\nUSER: traceuser tracepass\n", encoding="utf-8")
         with (temp / "server.log").open("wb") as log:
@@ -64,6 +67,27 @@ def run():
                                       cwd=temp, stdout=log, stderr=subprocess.STDOUT)
             try:
                 wait_for_port(cccam, server)
+                trace_url = f"http://127.0.0.1:{http}/user-trace"
+                credentials = base64.b64encode(b"test:isolated").decode("ascii")
+                auth = {"Authorization": "Basic " + credentials}
+                def trace_request(data=None):
+                    req = urllib.request.Request(trace_url, data=data, headers=auth)
+                    with urllib.request.urlopen(req, timeout=5) as result:
+                        return result.read().decode("utf-8")
+                page = trace_request()
+                csrf_match = re.search("name='csrf' value='([a-f0-9]{64})'", page)
+                client_match = re.search("<option value='(\d+)'[^>]*>traceuser", page)
+                assert csrf_match and client_match, "trace form missing"
+                csrf, client_id = csrf_match.group(1), client_match.group(1)
+                fields = {"csrf": csrf, "action": "start", "client": client_id,
+                          "caid": "1884", "provid": "000000", "sid": "1136"}
+                bad = dict(fields, csrf="bad")
+                try:
+                    trace_request(urllib.parse.urlencode(bad).encode())
+                    raise AssertionError("invalid CSRF token was accepted")
+                except urllib.error.HTTPError as exc:
+                    assert exc.code == 400
+                trace_request(urllib.parse.urlencode(fields).encode())
                 client_result = subprocess.run(
                     [str(client), "127.0.0.1", str(cccam), "traceuser", "tracepass",
                      "1884", "1136", "0x80", "0x81"],
@@ -73,7 +97,30 @@ def run():
                     raise AssertionError("CCcam client could not log in: " + output)
                 if "ECM1 tag=80 NOK" not in output or "ECM2 tag=81 NOK" not in output:
                     raise AssertionError("expected two NOK responses without upstream: " + output)
-                credentials = base64.b64encode(b"test:isolated").decode("ascii")
+                page = trace_request()
+                assert page.count("استلام ECM") >= 2, "missing received ECM events"
+                assert "DCW timeout" in page, "missing timeout reason"
+                assert "decode failed; detailed reason unavailable" in page, "missing client result"
+                assert "ECM مشترك" in page, "shared events not marked"
+                before = page.count("استلام ECM")
+                other = subprocess.run(
+                    [str(client), "127.0.0.1", str(cccam), "otheruser", "otherpass",
+                     "1884", "1136", "0x80"], capture_output=True, text=True,
+                    timeout=25, check=True)
+                assert "cccam login" in other.stdout and "[FAIL]" not in other.stdout
+                assert trace_request().count("استلام ECM") == before, "other client leaked into trace"
+                trace_request(urllib.parse.urlencode({"csrf": csrf, "action": "stop"}).encode())
+                assert "الحالة: متوقفة" in trace_request(), "trace did not stop"
+                trace_request(urllib.parse.urlencode(fields).encode())
+                # A reload invalidates client IDs and must stop the session.
+                config.write_text(config.read_text(encoding="utf-8"), encoding="utf-8")
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    if "الحالة: متوقفة" in trace_request():
+                        break
+                    time.sleep(0.2)
+                else:
+                    raise AssertionError("config reload did not stop trace")
                 request = urllib.request.Request(
                     f"http://127.0.0.1:{http}/log-viewer?level=3&search=1884%3A000000%3A1136",
                     headers={"Authorization": "Basic " + credentials})
@@ -81,9 +128,15 @@ def run():
                     page = response.read().decode("utf-8")
                 if "</html>" not in page or "1884:000000:1136" not in page:
                     raise AssertionError("log viewer returned an incomplete response")
+                # An unterminated maximal header must be rejected, not overflow.
+                with socket.create_connection(("127.0.0.1", http), timeout=5) as raw:
+                    prefix = b"GET / HTTP/1.1\r\nX-Long: "
+                    raw.sendall(prefix + b"a" * (2047 - len(prefix)))
+                    raw.shutdown(socket.SHUT_WR)
+                    raw.recv(64)
                 if server.poll() is not None:
                     raise AssertionError("server exited during the scenario")
-                print("PASS: isolated CCcam login, two NOK responses, log search, server alive")
+                print("PASS: CCcam trace, client isolation, CSRF, stop/reload, log search, server alive")
             finally:
                 if server.poll() is None:
                     server.terminate()

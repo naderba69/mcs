@@ -707,9 +707,11 @@ void cc_senddcw_cli(struct cc_client_data *cli)
 
 		cc_crypt_cw( cli->nodeid, cli->ecm.cardid , buf);
 		if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_REQUEST, 16, buf) ) {
+			if (ecm->trace_instance) user_trace_client_result(cli->id, ecm->trace_instance, cli->ecm.hash, USER_TRACE_SEND_FAILED, ecm->dcwsrctype, ecm->dcwsrcid, ticks-cli->ecm.recvtime, "CW send failed");
 			cc_disconnect_cli( cli );
 			return;
 		}
+		if (ecm->trace_instance) user_trace_client_result(cli->id, ecm->trace_instance, cli->ecm.hash, USER_TRACE_DELIVERED, ecm->dcwsrctype, ecm->dcwsrcid, ticks-cli->ecm.recvtime, "CW response sent; picture not verified");
 		cc_encrypt(&cli->sendblock, buf, 16); // additional crypto step
 		debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,ecm->cs->id)," => cw to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->ecm.recvtime);
 	}
@@ -721,9 +723,11 @@ void cc_senddcw_cli(struct cc_client_data *cli)
 		cli->lastecm.dcwsrcid = 0;
 		cli->lastecm.status=0;
 		if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL) ) {
+			if (ecm->trace_instance) user_trace_client_result(cli->id, ecm->trace_instance, cli->ecm.hash, USER_TRACE_SEND_FAILED, 0, 0, ticks-cli->ecm.recvtime, "failure response send failed");
 			cc_disconnect_cli( cli );
 			return;
 		}
+		if (ecm->trace_instance) user_trace_client_result(cli->id, ecm->trace_instance, cli->ecm.hash, USER_TRACE_FAILED, 0, 0, ticks-cli->ecm.recvtime, "decode failed; detailed reason unavailable");
 		debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,ecm->cs->id)," |> decode failed to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->ecm.recvtime);
 	}
 	cli->ecm.busy=0;
@@ -826,12 +830,21 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			uint32_t provid = ecm_getprovid( data, len-17, caid );
 			if (provid==0) provid = buf[6]<<24 | buf[7]<<16 | buf[8]<<8 | buf[9];
 
+			uint64_t trace_session = 0, trace_attempt = 0;
+			uint32_t trace_hash = 0;
+			if (user_trace_matches(cli->id, caid, provid, sid)) {
+				trace_hash = hashCode(data + 3, len - 20);
+				trace_attempt = user_trace_begin(cli->id, caid, provid, sid,
+				                                 trace_hash, &trace_session);
+			}
+
 			// Check for Profile
 			struct cardserver_data *cs=getcsbyid( cardid );
 			if (!cs) {
 				// check for cs by caid:prov
 				cs = getcsbycaidprov(caid,provid);
 				if (!cs) {
+					if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "profile not found");
 					cli->ecmdenied++;
 					if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL) ) {
 						debugf(getdbgflag(DBG_ERROR,0,0)," Error encountred when sending failedcw to client '%s'\n", cli->user);
@@ -844,6 +857,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			}
 			// Check for Share
 			if (!cs->option.fsharecccam) {
+				if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "profile not shared with CCcam");
 				cli->ecmdenied++;
 				if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL) ) {
 					debugf(getdbgflag(DBG_ERROR,0,0)," Error encountred when sending failedcw to client '%s'\n", cli->user);
@@ -857,6 +871,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			uint8_t cw1cycle;
 			char *error = cs_accept_ecm(cs,caid,provid,sid,ecm_getchid(data,len-17,caid), len-17, data, &cw1cycle);
 			if (error) {
+				if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, error);
 				cs->ecmdenied++;
 				cli->ecmdenied++;
 				if (!cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL)) {
@@ -892,9 +907,18 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			}
 			int isnew =  ( ecm==NULL );
 			if (ecm) {
+				if (trace_attempt) {
+					if (!ecm->trace_instance) ecm->trace_instance = user_trace_next_instance();
+					if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
+						user_trace_add(trace_session, trace_attempt, USER_TRACE_JOINED, trace_hash, 0, 0, 0, "joined existing ECM; earlier events unavailable");
+				}
 				ecm->lastrecvtime = ticks;
 				if (ecm->dcwstatus==STAT_DCW_FAILED) {
 					if (ecm->period > cs->option.dcw.retry) {
+						if (trace_attempt) {
+							user_trace_add(trace_session, trace_attempt, USER_TRACE_FAILED, trace_hash, 0, 0, 0, "existing ECM already failed");
+							user_trace_unbind_shared(trace_session, trace_attempt);
+						}
 						if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL) ) {
 							cc_disconnect_cli( cli );
 							return;
@@ -953,6 +977,11 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				cs->ecmaccepted++;
 				// Setup ECM Request for Server(s)
 				ecm = store_ecmdata(cs, data, len-17, sid, caid, provid);
+				if (trace_attempt) {
+					ecm->trace_instance = user_trace_next_instance();
+					if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
+						user_trace_add(trace_session, trace_attempt, USER_TRACE_NEW, trace_hash, 0, 0, 0, "new ECM accepted");
+				}
 				cc_store_ecmclient(ecm, cli);
 				debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,cs->id)," <- ecm from CCcam client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,caid,provid,sid, ecm->hash);
 				cli->ecm.busy=1;

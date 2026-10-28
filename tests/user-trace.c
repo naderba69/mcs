@@ -72,6 +72,33 @@ int main(void)
     }
     second = user_trace_start(&target);
     {
+        uint64_t a = user_trace_begin(7, 0x1884, 0, 0x1136, 5, &session);
+        uint64_t id = user_trace_next_instance();
+        assert(id && user_trace_next_instance() != id);
+        assert(user_trace_bind_shared(second, a, 5, id));
+        assert(!user_trace_client_result(8, id, 5, USER_TRACE_FAILED, 0, 0, 1, "wrong user"));
+        assert(!user_trace_client_result(7, id + 999, 5, USER_TRACE_FAILED, 0, 0, 1, "wrong instance"));
+        assert(!user_trace_client_result(7, id, 6, USER_TRACE_FAILED, 0, 0, 1, "wrong hash"));
+        assert(user_trace_client_result(7, id, 5, USER_TRACE_FAILED, 0, 0, 1, "failed"));
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.events[snapshot.count - 1].attempt == a);
+        assert(snapshot.events[snapshot.count - 1].type == USER_TRACE_FAILED);
+        assert(!user_trace_client_result(7, id, 5, USER_TRACE_FAILED, 0, 0, 1, "duplicate"));
+    }
+    second = user_trace_start(&target);
+    {
+        uint64_t a = user_trace_begin(7, 0x1884, 0, 0x1136, 5, &session);
+        uint64_t b = user_trace_begin(7, 0x1884, 0, 0x1136, 5, &session);
+        uint64_t id = user_trace_next_instance();
+        assert(user_trace_bind_shared(second, a, 5, id));
+        assert(user_trace_bind_shared(second, b, 5, id));
+        assert(!user_trace_client_result(7, id, 5, USER_TRACE_DELIVERED, 2, 1, 5, "ambiguous"));
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.dropped_links == 2 && snapshot.dropped_events == 1);
+        assert(!user_trace_shared_event(id, USER_TRACE_SENT, 2, 1, 1, "stale"));
+    }
+    second = user_trace_start(&target);
+    {
         uint64_t attempts[USER_TRACE_MAX_LINKS + 1];
         for (i = 0; i < USER_TRACE_MAX_LINKS + 1; ++i) {
             attempts[i] = user_trace_begin(7, 0x1884, 0, 0x1136, (uint32_t)i, &session);

@@ -55,8 +55,15 @@ struct user_trace_snapshot {
 };
 
 /* A start replaces the previous session and invalidates its tokens. */
+/* Protect the CCcam client list while the HTTP selector snapshots it and
+ * while configuration is reloaded. Never hold this lock during socket I/O. */
+void user_trace_config_lock(void);
+void user_trace_config_unlock(void);
+void user_trace_stop_active(void);
 uint64_t user_trace_start(const struct user_trace_target *target);
 void user_trace_stop(uint64_t session);
+int user_trace_matches(uint32_t client_id, uint16_t caid, uint32_t provider, uint16_t sid);
+uint64_t user_trace_next_instance(void);
 /* Returns zero if the request is outside the active target. */
 uint64_t user_trace_begin(uint32_t client_id, uint16_t caid, uint32_t provider,
                           uint16_t sid, uint32_t hash, uint64_t *session);
@@ -76,6 +83,11 @@ size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type typ
                                int source_type, int source_id,
                                uint32_t elapsed_ms, const char *detail);
 void user_trace_unbind_shared(uint64_t session, uint64_t attempt);
+/* Completion refers to the current attempt for this single selected client.
+ * Returns 0 if there is no unambiguous live binding. */
+int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
+                             enum user_trace_event_type type, int source_type,
+                             int source_id, uint32_t elapsed_ms, const char *detail);
 void user_trace_get_snapshot(struct user_trace_snapshot *out);
 
 #endif

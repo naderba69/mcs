@@ -161,6 +161,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	if (!ssf_check_format(ecm->ecm, ecm->ecmlen)) {
 		debugf(0, "    ❌ [SSF-REJECT] ECM format check FAILED for %04X:%06X:%04X\n",
 			ecm->caid, ecm->provid, ecm->sid);
+		if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, srctype, srcid, 0, "ECM format rejected by SSF");
 		return;
 	}
 	debugf(0, "    ✅ [SSF] format OK\n");
@@ -168,6 +169,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	if (!ssf_check_entropy(ecm->ecm, ecm->ecmlen)) {
 		debugf(0, "    ❌ [SSF-REJECT] ECM entropy check FAILED for %04X:%06X:%04X\n",
 			ecm->caid, ecm->provid, ecm->sid);
+		if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, srctype, srcid, 0, "ECM entropy rejected by SSF");
 		return;
 	}
 	debugf(0, "    ✅ [SSF] entropy OK\n");
@@ -175,6 +177,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	if (!ssf_check_blacklist(ecm->caid, ecm->provid, ecm->sid)) {
 		debugf(0, "    ❌ [SSF-REJECT] Channel BLACKLISTED %04X:%06X:%04X\n",
 			ecm->caid, ecm->provid, ecm->sid);
+		if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, srctype, srcid, 0, "channel blacklisted by SSF");
 		return;
 	}
 	debugf(0, "    ✅ [SSF] not blacklisted\n");
@@ -182,6 +185,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	if (!ssf_check_duplicate(ecm->ecm, ecm->ecmlen, ecm->caid, ecm->provid, ecm->sid)) {
 		debugf(0, "    ❌ [SSF-REJECT] DUPLICATE ECM detected for %04X:%06X:%04X\n",
 			ecm->caid, ecm->provid, ecm->sid);
+		if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, srctype, srcid, 0, "duplicate ECM rejected by SSF");
 		return;
 	}
 	debugf(0, "    ✅ [SSF] not duplicate\n");
@@ -189,6 +193,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	if (!ssf_check_fake(ecm->ecm, ecm->ecmlen, ecm->caid)) {
 		debugf(0, "    ❌ [SSF-REJECT] FAKE ECM pattern detected for %04X:%06X:%04X\n",
 			ecm->caid, ecm->provid, ecm->sid);
+		if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, srctype, srcid, 0, "ECM pattern rejected by SSF");
 		return;
 	}
 	debugf(0, "    ✅ [SSF] not fake\n");

@@ -59,6 +59,7 @@ struct ecm_request {
 	int ecmlen;
 	uint8_t ecm[MAX_ECM_SIZE];
 	uint32_t hash;
+	uint64_t trace_instance; /* Assigned lazily while lockecm is held. */
 #ifdef CACHEEX
 	unsigned char ecmd5[16]; //MD5_DIGEST_LENGTH];
 #endif

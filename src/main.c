@@ -43,6 +43,7 @@
 #include "parser.h"
 #include "config.h"
 #include "httpserver.h"
+#include "user-trace.h"
 #include "caid-integration.h"  /* CAID-specific optimizations */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include "auto-tuning.h"  /* Auto-tuning system */

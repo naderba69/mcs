@@ -83,6 +83,7 @@ void wakeup_sendecm() // not needed in mono-thread
 
 void ecm_faileddcw( ECM_DATA *ecm )
 {
+	if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, 0, "ECM failed; reason may be unavailable");
 	ecm->dcwstatus = STAT_DCW_FAILED;
 	ecm->checktime = 0;
 	ecm->waitserver = 0;
@@ -209,6 +210,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		if ( (cs->option.server.max>0) && (ecm->server_totalsent>=cs->option.server.max) ) {
 			if (!ecm->server_totalwait) {
 				ecm->statusmsg = "Decode failed, max servers is reached and no more servers to wait";
+				if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, ticks - ecm->recvtime, "maximum servers reached");
 				ecm_faileddcw( ecm );
 				// Send DCW to Cache if not sent
 				if ( cs->option.fallowcache && cs->option.cachesendrep && (ecm->cachestatus!=ECM_CACHE_REP) ) {
@@ -221,6 +223,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		// Check for ECM TimeOut (CAID:Provider-aware)
 		else if ( (ticks-ecm->recvtime) >= ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period ) {
 			ecm->statusmsg = "Decode failed, dcw timeout";
+			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, ticks - ecm->recvtime, "DCW timeout");
 			ecm_faileddcw( ecm );
 			// Send DCW to Cache if not sent
 			if ( cs->option.fallowcache && cs->option.cachesendrep && (ecm->cachestatus!=ECM_CACHE_REP) ) {
@@ -289,6 +292,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
+							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, newsrv->type, newsrv->id, ticks - ecm->recvtime, "ECM sent to server");
 							ecm_addsrvip(ecm, newsrv->host->ip);
 						}
 					}
@@ -306,6 +310,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
+							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, newsrv->type, newsrv->id, ticks - ecm->recvtime, "ECM sent to server");
 							ecm_addsrvip(ecm, newsrv->host->ip);
 						}
 					}
@@ -323,6 +328,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
+							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, newsrv->type, newsrv->id, ticks - ecm->recvtime, "ECM sent to server");
 							ecm_addsrvip(ecm, newsrv->host->ip);
 						}
 					}
@@ -339,6 +345,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
+							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, newsrv->type, newsrv->id, ticks - ecm->recvtime, "ECM sent to server");
 							ecm_addsrvip(ecm, newsrv->host->ip);
 						}
 					}
@@ -356,6 +363,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
+							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, newsrv->type, newsrv->id, ticks - ecm->recvtime, "ECM sent to server");
 							ecm_addsrvip(ecm, newsrv->host->ip);
 						}
 					}
