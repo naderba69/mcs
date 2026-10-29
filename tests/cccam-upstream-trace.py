@@ -3,7 +3,7 @@
 
 Only owns and stops the processes it starts; no real card or receiver involved.
 """
-import base64, importlib.util, os, re, shutil, subprocess, sys, tempfile, time, urllib.parse, urllib.request
+import base64, importlib.util, os, re, select, shutil, socket, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -21,11 +21,11 @@ with tempfile.TemporaryDirectory(prefix='mcs-upstream-cccam-') as folder:
     subprocess.run([compiler, '-O2', '-std=gnu89', '-o', str(cc), str(ROOT/'tests/ccdcw.c')], check=True)
     subprocess.run([compiler, '-O2', '-std=gnu89', '-w', '-o', str(nc), str(ROOT/'tests/ncserver.c'), str(ROOT/'src/des.c'), str(ROOT/'src/msg-newcamd.c'), str(ROOT/'src/md5.c')], check=True)
     ports = set()
-    while len(ports) < 7: ports.add(fixture.free_port())
-    front_http, back_http, front_cc, back_cc, front_nc, back_nc, card = ports
+    while len(ports) < 8: ports.add(fixture.free_port())
+    front_http, back_http, front_cc, back_cc, front_nc, back_nc, card, proxy_port = ports
     backend = tmp/'backend.cfg'; front = tmp/'front.cfg'
     backend.write_text(f'HTTP PORT: {back_http}\nHTTP USER: test\nHTTP PASS: isolated\nTELNET PORT: 0\nCCCAM PORT: {back_cc}\nCCCAM NODEID: 1122334455667788\nF: upstream pass 1 0\nN: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n\n[backend]\nCAID: {caid}\nPROVIDERS: 0\nPORT: {back_nc}\nDCW TIMEOUT: 3000\nSERVER TIMEOUT: 2500\nDCW HALFNULLED: YES\nDCW SWAP: YES\n' + ('DCWFILTER CHECKSUM: OFF\nENABLE SKIPCWC: NO\n' if mode == 'bad' else ''))
-    front.write_text(f'HTTP PORT: {front_http}\nHTTP USER: test\nHTTP PASS: isolated\nTELNET PORT: 0\nCCCAM PORT: {front_cc}\nCCCAM NODEID: 1020304050607080\nF: traceuser tracepass\nC: 127.0.0.1 {back_cc} upstream pass\n\n[front]\nCAID: {caid}\nPROVIDERS: 0\nPORT: {front_nc}\nDCW TIMEOUT: 6000\nSERVER TIMEOUT: 5000\nDCW HALFNULLED: YES\nDCW SWAP: YES\nUSER: traceuser tracepass\n')
+    front.write_text(f'HTTP PORT: {front_http}\nHTTP USER: test\nHTTP PASS: isolated\nTELNET PORT: 0\nCCCAM PORT: {front_cc}\nCCCAM NODEID: 1020304050607080\nF: traceuser tracepass\nC: 127.0.0.1 {proxy_port} upstream pass\n\n[front]\nCAID: {caid}\nPROVIDERS: 0\nPORT: {front_nc}\nDCW TIMEOUT: 6000\nSERVER TIMEOUT: 5000\nDCW HALFNULLED: YES\nDCW SWAP: YES\nUSER: traceuser tracepass\n')
     # Build a separate malicious fixture; no production source is modified.
     # It advertises a normal card and sends fewer than 16 CW bytes.
     backend_binary = BINARY
@@ -41,6 +41,41 @@ with tempfile.TemporaryDirectory(prefix='mcs-upstream-cccam-') as folder:
         build = subprocess.run(['make', '-C', str(source), '-B', 'target=x64', 'link'], capture_output=True, text=True, timeout=120)
         assert build.returncode == 0, build.stderr[-3000:]
         backend_binary = source/'x64/multics'
+    # Observe the frontend side of the original TCP connection independently
+    # of the trace text and tolerate later reconnects on new connections.
+    proxy = socket.socket()
+    proxy.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    proxy.bind(('127.0.0.1', proxy_port)); proxy.listen(8); proxy.settimeout(.2)
+    proxy_stop = threading.Event(); first_closed = threading.Event()
+    proxy_errors = []
+    def bridge(client, first):
+        peer = None
+        try:
+            peer = socket.create_connection(('127.0.0.1', back_cc), timeout=5)
+            peer.settimeout(None)
+            while not proxy_stop.is_set():
+                ready, _, _ = select.select([client, peer], [], [], .2)
+                for src in ready:
+                    try: data = src.recv(65536)
+                    except ConnectionResetError: data = b''
+                    if not data:
+                        if first and src is client: first_closed.set()
+                        return
+                    (peer if src is client else client).sendall(data)
+        except OSError as error:
+            if not proxy_stop.is_set(): proxy_errors.append(str(error))
+        finally:
+            client.close()
+            if peer: peer.close()
+    def accept_proxy():
+        count = 0
+        while not proxy_stop.is_set():
+            try: client, _ = proxy.accept()
+            except socket.timeout: continue
+            except OSError: break
+            count += 1
+            threading.Thread(target=bridge, args=(client, count == 1), daemon=True).start()
+    proxy_thread = threading.Thread(target=accept_proxy, daemon=True)
     children = []; logs = []
     def launch(args, name, env=None):
         log = (tmp / name).open('w+'); logs.append(log)
@@ -57,6 +92,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-upstream-cccam-') as folder:
         time.sleep(.3)
         back = launch([str(backend_binary), '-v', '-C', str(backend)], 'backend.log')
         fixture.wait_until(lambda: fixture.connected(back_cc), children)
+        proxy_thread.start()
         frontend = launch([str(BINARY), '-v', '-C', str(front)], 'front.log')
         fixture.wait_until(lambda: fixture.connected(front_cc), children)
         auth = 'Basic '+base64.b64encode(b'test:isolated').decode()
@@ -67,6 +103,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-upstream-cccam-') as folder:
         page=get(front_http); token=re.search("name='csrf' value='([a-f0-9]{64})'",page); user=re.search("<option value='(\\d+)'[^>]*>traceuser",page)
         assert token and user
         get(front_http, data=urllib.parse.urlencode({'csrf':token.group(1),'action':'start','client':user.group(1),'caid':caid,'provid':'000000','sid':sid}).encode())
+        assert not first_closed.is_set(), 'original upstream connection closed before request'
         result = subprocess.run([str(cc), '127.0.0.1', str(front_cc), 'traceuser','tracepass',caid,sid,'0x80'], capture_output=True,text=True,timeout=25,check=True)
         page=get(front_http)
         expect = 'DCW' if mode in ('good', 'half') else 'NOK'
@@ -90,6 +127,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-upstream-cccam-') as folder:
         elif mode == 'short':
             assert 'CCcam malformed CW response: fewer than 16 bytes; source disconnected' in page, page
             assert '<summary>إظهار CW</summary>' not in page, page
+            assert first_closed.wait(3), ('proxy did not observe frontend TCP close', proxy_errors)
             assert frontend.poll() is None
         else:
             assert 'CCcam CW response; shape not classified; source response' in page, page
@@ -102,5 +140,6 @@ with tempfile.TemporaryDirectory(prefix='mcs-upstream-cccam-') as folder:
             log.flush(); log.seek(0); print('\n--- '+str(log.name)+' ---\n'+log.read()[-8000:], file=sys.stderr)
         raise
     finally:
+        proxy_stop.set(); proxy.close()
         for p in reversed(children): fixture.stop(p)
         for log in logs: log.close()
