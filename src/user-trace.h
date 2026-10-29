@@ -1,5 +1,5 @@
 /* Bounded, opt-in diagnostic session for a single CCcam client and channel.
- * No ECM or CW bytes are stored here. Not yet connected to the HTTP server. */
+ * No ECM or CW bytes are stored here. */
 #ifndef MCS_USER_TRACE_H
 #define MCS_USER_TRACE_H
 
@@ -19,7 +19,8 @@ enum user_trace_event_type {
     USER_TRACE_REJECTED,
     USER_TRACE_FAILED,
     USER_TRACE_DELIVERED,
-    USER_TRACE_SEND_FAILED
+    USER_TRACE_SEND_FAILED,
+    USER_TRACE_SOURCE_REPLY
 };
 
 struct user_trace_target {
@@ -77,7 +78,7 @@ int user_trace_add(uint64_t session, uint64_t attempt,
  * request. A bind never backfills events that happened before the bind. */
 int user_trace_bind_shared(uint64_t session, uint64_t attempt, uint32_t hash,
                            uint64_t instance);
-/* Only send, reject, or fail events are valid at shared ECM scope. Returns
+/* Only send, source reply, reject, or fail events are valid at shared ECM scope. Returns
  * the number of linked attempts recorded. Never represents client delivery. */
 size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type type,
                                int source_type, int source_id,

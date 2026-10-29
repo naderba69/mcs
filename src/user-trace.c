@@ -206,7 +206,7 @@ size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type typ
 {
     size_t i, recorded = 0;
     if (!instance || (type != USER_TRACE_SENT && type != USER_TRACE_REJECTED &&
-                      type != USER_TRACE_FAILED)) return 0;
+                      type != USER_TRACE_FAILED && type != USER_TRACE_SOURCE_REPLY)) return 0;
     pthread_mutex_lock(&trace_lock);
     if (active) {
         for (i = 0; i < USER_TRACE_MAX_LINKS; ++i) {

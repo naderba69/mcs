@@ -400,6 +400,8 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		}
 		}
 		else if (!ecm->server_totalwait) {
+			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED,
+			    0, 0, ticks - ecm->recvtime, "server dispatch window expired; no pending server");
 			ecm->statusmsg = "Decode failed, no server open this channel";
 			ecm_faileddcw( ecm );
 			// Send DCW to Cache if not sent

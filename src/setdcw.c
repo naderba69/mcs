@@ -1034,6 +1034,8 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		int f = cache_check_cw( ecm->recvtime, ecm->ecm[0], ecm->caid, ecm->hash, ecm->sid, dcw, cwpart);
 		pthread_mutex_unlock( &prg.lockcache );
 		if (!f) {
+			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED,
+			    0, 0, GetTickCount()-ecm->recvtime, "CW rejected by cache repeat check");
 			pthread_mutex_unlock(&prg.lockecm);
 			return;
 		}
@@ -1050,6 +1052,8 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		if (cs)	if (cs->option.dcw.swap) swap = 1;
 #endif
 		if ( !dcwcheck_nds( ecm, dcw, swap) ) {
+			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED,
+			    0, 0, GetTickCount()-ecm->recvtime, "CW rejected: half does not match ECM cycle and swap disabled");
 			pthread_mutex_unlock(&prg.lockecm);
 			return;
 		}

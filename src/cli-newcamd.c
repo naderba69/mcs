@@ -266,9 +266,20 @@ void cs_srv_recvmsg(struct server_data *srv)
 						break;
 					}
 
+					if (ecm->trace_instance) {
+						const char *detail;
+						if (buf[2] != 0x10) detail = "Newcamd negative response; retry may follow";
+						else if (ishalfnulledcw(buf + 3)) detail = "Newcamd CW response; zero half present; validity not determined";
+						else detail = "Newcamd CW response; validity not determined";
+						user_trace_shared_event(ecm->trace_instance, USER_TRACE_SOURCE_REPLY,
+						                        TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime, detail);
+					}
 					if (buf[2]==0x10) {
 						// Check for DCW
-						if (!acceptDCW_profile_ca(buf+3, ecm->cs, ecm->caid)) {
+						if (!acceptDCW_profile_ca_sid(buf+3, ecm->cs, ecm->caid, ecm->sid)) {
+							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED,
+							    TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime,
+							    "Newcamd CW rejected by initial validation; exact rule unavailable");
 							srv->ecmerrdcw ++;
 							pthread_mutex_unlock(&prg.lockecm); //###
 							break;

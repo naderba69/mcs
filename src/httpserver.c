@@ -7782,6 +7782,7 @@ static const char *trace_type_name(enum user_trace_event_type type)
     case USER_TRACE_JOINED: return "انضم إلى ECM موجود";
     case USER_TRACE_NEW: return "ECM جديد";
     case USER_TRACE_SENT: return "إرسال لمصدر";
+    case USER_TRACE_SOURCE_REPLY: return "رد المصدر";
     case USER_TRACE_REJECTED: return "رفض استجابة";
     case USER_TRACE_FAILED: return "فشل";
     case USER_TRACE_DELIVERED: return "أرسلت استجابة CW";

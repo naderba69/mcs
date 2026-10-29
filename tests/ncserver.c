@@ -325,6 +325,13 @@ int main(int argc, char **argv)
 				 * two targets would then be testing each other by accident.
 				 */
 				make_cw(cw, sid);
+				/* Optional isolated 09xx half-CW and rejection fixtures. */
+				if (getenv("NS_HALF_CW")) {
+					if ((buf[0] == 0x81) != (getenv("NS_OPPOSITE_HALF") != NULL)) memset(cw, 0, 8);
+					else memset(cw + 8, 0, 8);
+				}
+				if (getenv("NS_BAD_CHECKSUM"))
+					cw[buf[0] == 0x81 ? 11 : 3] ^= 1;
 
 				t0 = ms_now();
 				if (d > 0) usleep((useconds_t)d * 1000);
@@ -335,7 +342,7 @@ int main(int argc, char **argv)
 				out[1] = 0;
 				out[2] = 0x10;
 				memcpy(out + 3, cw, 16);
-				if (!cs_message_send(fd, &cd, out, 19, sessionkey)) {
+				if (!cs_message_send(fd, &cd, out, getenv("NS_NEGATIVE") ? 3 : 19, sessionkey)) {
 					printf("NCSERVER: send failed\n");
 					close(fd);
 					break;

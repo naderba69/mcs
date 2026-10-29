@@ -64,6 +64,11 @@ int main(void)
         assert(snapshot.count == 5);
         assert(snapshot.events[3].shared && snapshot.events[3].attempt == a);
         assert(snapshot.events[4].shared && snapshot.events[4].attempt == b);
+        assert(user_trace_shared_event(100, USER_TRACE_SOURCE_REPLY, 1, 8, 12, "source reply") == 2);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.events[snapshot.count - 1].type == USER_TRACE_SOURCE_REPLY);
+        assert(snapshot.events[snapshot.count - 1].attempt == b);
+        assert(!user_trace_shared_event(102, USER_TRACE_SOURCE_REPLY, 1, 8, 12, "wrong instance"));
         user_trace_unbind_shared(second, a);
         assert(user_trace_shared_event(100, USER_TRACE_REJECTED, 2, 8, 15, "rejected") == 1);
         assert(!user_trace_shared_event(102, USER_TRACE_REJECTED, 2, 8, 15, "wrong instance"));

@@ -59,6 +59,12 @@ def stop(child):
 def main():
     if not BINARY.is_file():
         raise RuntimeError("binary not found: " + str(BINARY))
+    mode = os.environ.get("MCS_TEST_RESPONSE", "full")
+    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf")
+    caid = "1884" if mode == "full" else "09BD"
+    sid = "1136" if mode == "full" else "014A"
+    tag = os.environ.get("MCS_TEST_TAG", "0x80")
+    assert tag in ("0x80", "0x81")
     with tempfile.TemporaryDirectory(prefix="mcs-trace-success-") as folder:
         tmp = Path(folder)
         cc, nc = tmp / "ccdcw", tmp / "ncserver"
@@ -76,11 +82,22 @@ def main():
         cfg.write_text(f"HTTP PORT: {http}\nHTTP USER: test\nHTTP PASS: isolated\n"
                        f"TELNET PORT: 0\nCCCAM PORT: {cccam}\nF: traceuser tracepass\n"
                        f"N: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n\n"
-                       f"[ isolated ]\nCAID: 1884\nPROVIDERS: 0\nPORT: {newcamd}\n"
-                       "DCW TIMEOUT: 6000\nUSER: traceuser tracepass\n", encoding="utf-8")
+                       f"[ isolated ]\nCAID: {caid}\nPROVIDERS: 0\nPORT: {newcamd}\n"
+                       "DCW TIMEOUT: 3000\nDCW HALFNULLED: YES\n"
+                       + ("DCW SWAP: NO\n" if mode == "wronghalf" else "DCW SWAP: YES\n")
+                       +
+                       "ENABLE SKIPCWC: YES\nDCWFILTER PATTERN: OFF\n"
+                       + (f"DCWFILTER CHECKSUM: OFF\nDCW SKIPCWC_EXCLUDE_SIDS_ACTIVE: YES\nDCW SKIPCWC_EXCLUDE_SIDLIST: {sid}\n" if mode == "excluded" else "")
+                       + "USER: traceuser tracepass\n", encoding="utf-8")
         with (tmp / "peer.log").open("w+") as peerlog, (tmp / "server.log").open("w+") as serverlog:
             env = dict(os.environ, NS_DELAYS="60")
-            peer = subprocess.Popen([str(nc), str(card), "0102030405060708091011121314", "1884", "000000"],
+            for name in ("NS_HALF_CW", "NS_BAD_CHECKSUM", "NS_NEGATIVE", "NS_OPPOSITE_HALF"):
+                env.pop(name, None)
+            if mode != "full": env["NS_HALF_CW"] = "1"
+            if mode in ("bad", "excluded"): env["NS_BAD_CHECKSUM"] = "1"
+            if mode == "negative": env["NS_NEGATIVE"] = "1"
+            if mode in ("swap", "wronghalf"): env["NS_OPPOSITE_HALF"] = "1"
+            peer = subprocess.Popen([str(nc), str(card), "0102030405060708091011121314", caid, "000000"],
                                     cwd=tmp, env=env, stdout=peerlog, stderr=subprocess.STDOUT)
             server = None
             try:
@@ -105,18 +122,25 @@ def main():
                 client = re.search("<option value='(\\d+)'[^>]*>traceuser", page)
                 assert token and client, "trace form not found"
                 form = {"csrf": token.group(1), "action": "start", "client": client.group(1),
-                        "caid": "1884", "provid": "000000", "sid": "1136"}
+                        "caid": caid, "provid": "000000", "sid": sid}
                 request(urllib.parse.urlencode(form).encode())
                 result = subprocess.run([str(cc), "127.0.0.1", str(cccam), "traceuser", "tracepass",
-                                         "1884", "1136", "0x80"], capture_output=True,
+                                         caid, sid, tag], capture_output=True,
                                         text=True, timeout=25, check=True)
-                assert "ECM1 tag=80 DCW" in result.stdout, result.stdout
+                expected = "DCW" if mode in ("full", "half", "excluded", "swap") else "NOK"
+                assert "ECM1 tag=" + tag[2:].upper() + " " + expected in result.stdout, result.stdout
                 page = request()
                 assert "استلام ECM" in page and "ECM sent to server" in page
-                assert "CW response sent; picture not verified" in page
+                if mode == "full": assert "Newcamd CW response; validity not determined" in page
+                if mode in ("half", "bad", "excluded", "swap", "wronghalf"): assert "Newcamd CW response; zero half present; validity not determined" in page
+                if mode == "bad": assert "Newcamd CW rejected by initial validation" in page
+                if mode == "negative": assert "Newcamd negative response; retry may follow" in page
+                if mode == "wronghalf": assert "CW rejected: half does not match ECM cycle and swap disabled" in page
+                if expected == "DCW": assert "CW response sent; picture not verified" in page
+                else: assert "decode failed; detailed reason unavailable" in page
                 assert "ECM مشترك" in page
                 assert server.poll() is None
-                print("PASS: CCcam request, upstream dispatch and CW response traced")
+                print("PASS: CCcam/Newcamd trace mode=" + mode)
             finally:
                 if server is not None:
                     stop(server)
