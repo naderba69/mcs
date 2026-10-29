@@ -161,6 +161,28 @@ static void make_cw(uint8_t cw[16], uint16_t sid)
 		cw[q * 4 + 3] = (uint8_t)(cw[q * 4] + cw[q * 4 + 1] + cw[q * 4 + 2]);
 }
 
+/* Explicit test-only CW sequence; last entry repeats. */
+static int scripted_cw(uint8_t cw[16], unsigned long reply)
+{
+    const char *s = getenv("NS_CW_SEQUENCE"), *start;
+    unsigned long entry = 0; int i;
+    if (!s || !*s) return 0;
+    for (;;) {
+        start = s;
+        while (*s && *s != ',') s++;
+        if ((size_t)(s - start) != 32) return -1;
+        if (entry == reply || !*s) {
+            for (i = 0; i < 16; i++) {
+                char hex[3] = { start[2*i], start[2*i+1], 0 };
+                if (!isxdigit((unsigned char)hex[0]) || !isxdigit((unsigned char)hex[1])) return -1;
+                cw[i] = (uint8_t)strtoul(hex, NULL, 16);
+            }
+            return 1;
+        }
+        entry++; s++;
+    }
+}
+
 /* ---- the delay script ------------------------------------------------------ */
 
 static int delays[256];
@@ -325,6 +347,10 @@ int main(int argc, char **argv)
 				 * two targets would then be testing each other by accident.
 				 */
 				make_cw(cw, sid);
+				if (scripted_cw(cw, replies) < 0) {
+					fprintf(stderr, "NCSERVER: invalid NS_CW_SEQUENCE entry\n");
+					close(fd); return 2;
+				}
 				/* Optional isolated 09xx half-CW and rejection fixtures. */
 				if (getenv("NS_HALF_CW")) {
 					if ((buf[0] == 0x81) != (getenv("NS_OPPOSITE_HALF") != NULL)) memset(cw, 0, 8);

@@ -61,9 +61,11 @@ def main():
     if not BINARY.is_file():
         raise RuntimeError("binary not found: " + str(BINARY))
     mode = os.environ.get("MCS_TEST_RESPONSE", "full")
-    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache")
+    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "zero", "repeatbytes", "pattern", "badlist")
     caid = "1884" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache") else "09BD"
     sid = "1136" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache") else "014A"
+    invalid_modes = ("zero", "repeatbytes", "pattern", "badlist")
+    if mode in invalid_modes: caid, sid = "1884", "1136"
     tag = os.environ.get("MCS_TEST_TAG", "0x80")
     assert tag in ("0x80", "0x81")
     with tempfile.TemporaryDirectory(prefix="mcs-trace-success-") as folder:
@@ -82,12 +84,15 @@ def main():
         cfg = tmp / "isolated.cfg"
         cfg.write_text(f"HTTP PORT: {http}\nHTTP USER: test\nHTTP PASS: isolated\n"
                        f"TELNET PORT: 0\nCCCAM PORT: {cccam}\nF: traceuser tracepass\n"
-                       f"N: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n\n"
-                       f"[ isolated ]\nCAID: {caid}\nPROVIDERS: 0\nPORT: {newcamd}\n"
+                       f"N: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n"
+                       + ("BAD-DCW: 01 02 03 06 04 05 06 0F 07 08 09 18 0A 0B 0C 21\n" if mode == "badlist" else "")
+                       + f"\n[ isolated ]\nCAID: {caid}\nPROVIDERS: 0\nPORT: {newcamd}\n"
                        + ("DCW TIMEOUT: 1000\n" if mode == "late" else "DCW TIMEOUT: 3000\n") + "DCW HALFNULLED: YES\n"
                        + ("DCW SWAP: NO\n" if mode == "wronghalf" else "DCW SWAP: YES\n")
                        +
-                       "ENABLE SKIPCWC: YES\nDCWFILTER PATTERN: OFF\n"
+                       "ENABLE SKIPCWC: YES\n"
+                       + ("DCWFILTER PATTERN: ON\n" if mode == "pattern" else "DCWFILTER PATTERN: OFF\n")
+                       + ("DCWFILTER REPEAT: ON\n" if mode == "repeatbytes" else "")
                        + (f"DCWFILTER CHECKSUM: OFF\nDCW SKIPCWC_EXCLUDE_SIDS_ACTIVE: YES\nDCW SKIPCWC_EXCLUDE_SIDLIST: {sid}\n" if mode == "excluded" else "")
                        + ("RETRY NEWCAMD: 1\n" if mode == "retry" else "")
                        + ("DCW MINTIME: 800\n" if mode.startswith("mintime-") else "")
@@ -96,7 +101,12 @@ def main():
             env = dict(os.environ, NS_DELAYS="1200" if mode == "mintime-slow" else "60")
             for name in ("NS_HALF_CW", "NS_BAD_CHECKSUM", "NS_NEGATIVE", "NS_OPPOSITE_HALF", "NS_NEGATIVE_FIRST"):
                 env.pop(name, None)
-            if mode not in ("full", "late", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache"): env["NS_HALF_CW"] = "1"
+            env.pop("NS_CW_SEQUENCE", None)
+            if mode == "zero": env["NS_CW_SEQUENCE"] = "00" * 16
+            if mode == "repeatbytes": env["NS_CW_SEQUENCE"] = "0505050F0405060F070809180A0B0C21"
+            if mode == "pattern": env["NS_CW_SEQUENCE"] = "010203060405060F010203060405060F"
+            if mode == "badlist": env["NS_CW_SEQUENCE"] = "010203060405060F070809180A0B0C21"
+            if mode not in ("full", "late", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache") + invalid_modes: env["NS_HALF_CW"] = "1"
             if mode in ("bad", "excluded"): env["NS_BAD_CHECKSUM"] = "1"
             if mode == "negative": env["NS_NEGATIVE"] = "1"
             if mode == "retry": env["NS_NEGATIVE_FIRST"] = "1"
@@ -152,6 +162,10 @@ def main():
                     assert "رُفضت CW بحد DCW MINTIME عند المعالجة" in page
                 if mode in ("mintime-slow", "mintime-local", "mintime-cache"): assert "CW rejected by DCW MINTIME;" not in page
                 if mode == "bad": assert "Newcamd CW rejected: checksum validation failed" in page
+                reasons = {"zero": "null-word validation failed", "repeatbytes": "repeated-byte validation failed", "pattern": "enabled pattern validation", "badlist": "operator BAD-DCW list"}
+                if mode in invalid_modes:
+                    assert "Newcamd CW rejected: " + reasons[mode] in page
+                    assert "CW response sent; picture not verified" not in page
                 if mode in ("negative", "retry"): assert "Newcamd negative response; retry may follow" in page
                 if mode == "retry": assert "Newcamd retry send reported success" in page
                 if mode == "non09half":
@@ -189,7 +203,7 @@ def main():
                     assert page.count(encoded) >= 2
                 if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache"):
                     assert page.count("<summary>إظهار CW</summary>") >= 2
-                elif mode in ("bad", "wronghalf", "late", "non09half", "recycled", "mintime-fast"):
+                elif mode in ("bad", "wronghalf", "late", "non09half", "recycled", "mintime-fast") + invalid_modes:
                     assert page.count("<summary>إظهار CW</summary>") == 1
                 else:
                     assert "<summary>إظهار CW</summary>" not in page
