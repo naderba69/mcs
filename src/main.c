@@ -2719,13 +2719,13 @@ void mainprocess()
 	/* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT */
 	supersmartfilter_init();
 	dcwstrict_init();
-	/* Enable DCW STRICT by default for better protection */
-	dcwstrict_cfg.enabled = 1;
-	dcwstrict_cfg.log_rejected = 1;
-	dcwstrict_cfg.trustscore = 1;
-	/* Set SSF to level 5 (balanced protection) */
-	ssf_cfg.filter_level = 5;
-	debugf(0, " [R200 v2.5] SuperSmartFilter (level=%d) + DCW STRICT initialized\n", ssf_cfg.filter_level);
+	/* These heuristics are not reliable proof of a bad CW: the same valid
+	 * key can legitimately answer several ECMs or services. Until their
+	 * rejection rules are redesigned and explicitly configurable, keep both
+	 * off; the established DCW filters remain in the delivery path. */
+	dcwstrict_cfg.enabled = 0;
+	ssf_cfg.filter_level = 0;
+	debugf(0, " [R200 v2.5] Heuristic CW rejection disabled; standard DCW filters remain active\n");
 
 	/* Auto-Tuning System - Automatic profile optimization */
 	auto_tuning_init();
