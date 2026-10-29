@@ -7798,6 +7798,7 @@ static const char *trace_detail_ar(const char *detail)
     if (!strncmp(detail, "CCcam NOK1 response;", 20)) return "رد مصدر CCcam بـNOK1؛ قد تُعاد المحاولة";
     if (!strncmp(detail, "CCcam NOK2 response;", 20)) return "رد مصدر CCcam بـNOK2؛ قد تُعاد المحاولة";
     if (!strcmp(detail, "CCcam CW passed initial validation; further gates remain")) return "اجتازت CW تحقق CCcam الأولي؛ لا تزال فحوص أخرى";
+    if (!strcmp(detail, "CCcam malformed CW response: fewer than 16 bytes; source disconnected")) return "رُفض رد CCcam قصير وأُغلق اتصال المصدر";
     if (!strcmp(detail, "CCcam CW rejected: checksum validation failed")) return "رُفضت CW من CCcam: فشل تحقق checksum";
     if (!strcmp(detail, "CCcam CW rejected: null-word validation failed")) return "رُفضت CW من CCcam: لم تجتز قاعدة الأجزاء الصفرية";
     if (!strcmp(detail, "CCcam CW rejected: repeated-byte validation failed")) return "رُفضت CW من CCcam: لم تجتز قاعدة البايتات المتكررة";

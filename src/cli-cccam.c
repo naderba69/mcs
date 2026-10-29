@@ -221,6 +221,24 @@ void cc_srv_recvmsg(struct server_data *srv)
 						break;
 					}
 #endif
+					/* A positive CCcam reply needs a 16-byte CW. A shorter
+					 * frame cannot complete the additional crypto step, so
+					 * drop the connection rather than reading uninitialised
+					 * bytes or trying to continue with a desynchronised cipher. */
+					if (len < 20) {
+						pthread_mutex_lock(&prg.lockecm);
+						ecm = srv->ecm.request;
+						if (ecm && ecm->hash == srv->ecm.hash &&
+						    user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance))
+							user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, TYPE_CCCAM, srv->id,
+							    GetTickCount()-ecm->recvtime,
+							    "CCcam malformed CW response: fewer than 16 bytes; source disconnected");
+						debugf(getdbgflag(DBG_SERVER,0,srv->id), " [!] short CCcam CW response; disconnecting source\n");
+						disconnect_srv(srv);
+						pthread_mutex_unlock(&prg.lockecm);
+						wakeup_sendecm();
+						break;
+					}
 					uint8_t dcw[16];
 					cc_crypt_cw( cfg.cccam.nodeid, srv->busycardid, &buf[4]);
 					memcpy(dcw, &buf[4], 16);
