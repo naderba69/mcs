@@ -351,6 +351,41 @@ int user_trace_client_cw(uint32_t client_id, uint64_t instance, uint32_t hash,
                          source_type, source_id, elapsed_ms, detail, cw);
 }
 
+void user_trace_cache_observation(uint16_t caid, uint32_t provider, uint16_t sid,
+                                  uint32_t hash, int peerid, const char *detail,
+                                  const uint8_t cw[16])
+{
+    struct user_trace_event event = {0};
+    size_t i;
+    int match = 0;
+    pthread_mutex_lock(&trace_lock);
+    if (active && !target.all_channels) {
+        /* CSP replies may omit provider. Do not imply provider identity. */
+        match = target.caid == caid && target.sid == sid;
+    } else if (active) {
+        /* In all-channel mode, show only channels already observed for the
+         * selected client, not unrelated server-wide cache traffic. */
+        for (i = 0; i < count; ++i) {
+            size_t index = (next_index + USER_TRACE_CAPACITY - count + i) % USER_TRACE_CAPACITY;
+            if (events[index].type == USER_TRACE_RECEIVED &&
+                events[index].caid == caid && events[index].sid == sid) {
+                match = 1; break;
+            }
+        }
+    }
+    if (match) {
+        event.timestamp = time(NULL);
+        event.type = USER_TRACE_CACHE;
+        event.shared = 2; /* channel observation, NOT an ECM/client link */
+        event.caid = caid; event.provider = provider; event.sid = sid;
+        event.ecm_hash = hash; event.source_id = peerid;
+        if (detail) { strncpy(event.detail, detail, sizeof(event.detail)-1); }
+        if (cw) { event.has_cw = 1; memcpy(event.cw, cw, 16); }
+        append_locked(&event);
+    }
+    pthread_mutex_unlock(&trace_lock);
+}
+
 void user_trace_get_snapshot(struct user_trace_snapshot *out)
 {
     size_t i;

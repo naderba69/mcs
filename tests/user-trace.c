@@ -162,6 +162,30 @@ int main(void)
         assert(snapshot.events[0].attempt == old);
     }
     second = user_trace_start(&target);
+    {
+        const uint8_t cw[16] = {1,2,3,6,4,5,6,15,7,8,9,24,10,11,12,33};
+        user_trace_cache_observation(0x1884, 0, 0x1136, 0x1234, 7, "held", cw);
+        user_trace_cache_observation(0x1884, 0, 0x1137, 0x1234, 7, "other channel", cw);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 1 && snapshot.events[0].attempt == 0);
+        assert(snapshot.events[0].shared == 2 && snapshot.events[0].ecm_hash == 0x1234);
+        assert(snapshot.events[0].has_cw && !memcmp(snapshot.events[0].cw, cw, 16));
+        user_trace_stop(second);
+        user_trace_cache_observation(0x1884, 0, 0x1136, 0x1234, 7, "stopped", cw);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 1);
+        target.all_channels = 1;
+        second = user_trace_start(&target);
+        user_trace_cache_observation(0x1884, 0, 0x1136, 0x1234, 7, "no client request", cw);
+        user_trace_get_snapshot(&snapshot); assert(snapshot.count == 0);
+        assert(user_trace_begin(7, 0x1884, 0, 0x1136, 42, &session));
+        user_trace_cache_observation(0x1884, 0, 0x1136, 0x1234, 7, "observed channel", cw);
+        user_trace_cache_observation(0x1884, 0, 0x1137, 0x1234, 7, "unobserved channel", cw);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 2 && snapshot.events[1].shared == 2);
+        target.all_channels = 0;
+    }
+    second = user_trace_start(&target);
     for (i = 0; i < 4; i++) assert(!pthread_create(&threads[i], NULL, worker, NULL));
     for (i = 0; i < 4; i++) assert(!pthread_join(threads[i], NULL));
     user_trace_get_snapshot(&snapshot);

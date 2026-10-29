@@ -7816,6 +7816,19 @@ static const char *trace_detail_ar(const char *detail)
     if (!strcmp(detail, "Newcamd CW rejected: operator BAD-DCW list")) return "رُفضت: موجودة في قائمة BAD-DCW";
     if (!strcmp(detail, "Newcamd CW rejected: enabled pattern validation")) return "رُفضت: لم تجتز فلتر النمط المفعّل";
     if (!strcmp(detail, "Newcamd CW passed initial validation; further gates remain")) return "اجتازت التحقق الأولي؛ لا تزال فحوص أخرى لاحقة";
+    if (!strcmp(detail, "cache rejected: negative memory gate")) return "الكاش رفض CW بسبب الذاكرة السلبية";
+    if (!strcmp(detail, "cache rejected: attestation gate")) return "الكاش رفض CW بسبب بوابة attestation";
+    if (!strcmp(detail, "cache held: threshold not reached")) return "الكاش ينتظر بلوغ حد التأكيدات";
+    if (!strcmp(detail, "cache held: CacheEX confirmation threshold")) return "CacheEX ينتظر تأكيدات إضافية";
+    if (!strcmp(detail, "cache rejected: half-null not allowed for CAID family")) return "الكاش رفض نصف CW الصفري لعائلة CAID";
+    if (!strcmp(detail, "cache CW entered validation; decision pending")) return "وصلت CW لمسار التحقق في الكاش؛ القرار لم يصدر";
+    if (!strcmp(detail, "cache held: consensus awaiting corroboration")) return "الكاش احتجز CW انتظاراً لتأكيد consensus";
+    if (!strcmp(detail, "cache rejected: consensus weighted decision")) return "الكاش رفض CW بقرار consensus";
+    if (!strcmp(detail, "cache not forwarded: filter did not establish cycle")) return "الفلتر لم يثبت دورة CW فلم يمررها في هذا المسار";
+    if (!strcmp(detail, "cache forwarded CW to ECM pipe; delivery not confirmed")) return "حاول الكاش تمرير CW إلى مسار ECM؛ لا يثبت تسليمها";
+    if (!strcmp(detail, "cache lookup: no existing entry; peer response may still arrive")) return "لم يوجد سجل كاش عند البحث؛ قد يصل رد النظير لاحقاً";
+    if (!strcmp(detail, "cache rejected: profile CW validation; specific check unknown")) return "رفض الكاش CW في فحص البروفايل؛ الفحص المحدد غير معروف";
+    if (!strcmp(detail, "cache rejected: CacheEX local-only gate")) return "رفض الكاش CW بسبب CacheEX local-only";
     if (!strcmp(detail, "cache lookup invoked; pipe delivery and result not confirmed")) return "طُلب بحث الكاش؛ وصول الطلب والنتيجة غير مؤكدين";
     if (!strcmp(detail, "cache peer request invoked; pipe delivery not confirmed")) return "طُلب إرسال بحث إلى نظراء الكاش؛ وصول الطلب غير مؤكد";
     if (!strcmp(detail, "cache peer retry invoked; pipe delivery not confirmed")) return "طُلبت إعادة البحث لدى نظراء الكاش؛ وصول الطلب غير مؤكد";
@@ -7894,7 +7907,7 @@ static void http_send_user_trace(int sock, http_request *req)
     tcp_writestr(&tcpbuf, sock, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\n");
     if (req->setcookie[0]) { tcp_writestr(&tcpbuf, sock, "Set-Cookie: "); tcp_writestr(&tcpbuf, sock, req->setcookie); tcp_writestr(&tcpbuf, sock, "\r\n"); }
     tcp_writestr(&tcpbuf, sock, "\r\n");
-    tcp_writestr(&tcpbuf, sock, "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><title>متابعة عميل</title><style>body{background:#151b22;color:#ddd;font:16px sans-serif;margin:2em}input,select,button{padding:.5em;margin:.3em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #555;padding:.5em;text-align:right}code{direction:ltr;display:inline-block}</style></head><body><h1>متابعة CCcam</h1><p>جلسة واحدة مشتركة للمشرفين؛ البدء يستبدل الجلسة السابقة، وإعادة تحميل الإعدادات توقفها. تبدأ المتابعة للطلبات الجديدة فقط. اختيار العميل يملأ آخر قناة مسجلة إن توفرت، وقد لا تكون القناة الحالية؛ يمكن تعديلها يدوياً. بعض أسباب الرفض غير مسجلة في هذه النسخة. الأحداث المشتركة تخص ECM وقد يشارك فيه عملاء آخرون؛ إرسال CW لا يثبت ظهور الصورة.</p>");
+    tcp_writestr(&tcpbuf, sock, "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><title>متابعة عميل</title><style>body{background:#151b22;color:#ddd;font:16px sans-serif;margin:2em}input,select,button{padding:.5em;margin:.3em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #555;padding:.5em;text-align:right}code{direction:ltr;display:inline-block}</style></head><body><h1>متابعة CCcam</h1><p>جلسة واحدة مشتركة للمشرفين؛ البدء يستبدل الجلسة السابقة، وإعادة تحميل الإعدادات توقفها. تبدأ المتابعة للطلبات الجديدة فقط. اختيار العميل يملأ آخر قناة مسجلة إن توفرت، وقد لا تكون القناة الحالية؛ يمكن تعديلها يدوياً. بعض أسباب الرفض غير مسجلة في هذه النسخة. أحداث الكاش على مستوى القناة فقط، وقد تخص طلبات عملاء آخرين؛ تطابق CAID وSID لا يثبت تطابق الطلب أو Provider، و000000 قد تعني أن المصدر لم يرسله. الأحداث المشتركة تخص ECM وقد يشارك فيه عملاء آخرون؛ إرسال CW لا يثبت ظهور الصورة.</p>");
     snprintf(out, sizeof(out), "<form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='start'><label>العميل <select name='client' required onchange='traceChoose(this)'><option value='' disabled%s>اختر عميلاً</option>", trace_csrf, snap->active ? "" : " selected");
     tcp_writestr(&tcpbuf, sock, out);
     {
@@ -7941,12 +7954,14 @@ static void http_send_user_trace(int sock, http_request *req)
     }
     snprintf(out, sizeof(out), "</select></label><label>نطاق المراقبة <select name='mode' onchange='traceMode(this)'><option value='single'%s>قناة واحدة</option><option value='all'%s>كل قنوات العميل</option></select></label><label>CAID <input name='caid' maxlength='4' value='%04X'></label><label>Provider <input name='provid' maxlength='6' value='%06X'></label><label>SID <input name='sid' maxlength='4' value='%04X'></label><button type='submit'>بدء متابعة جديدة</button></form><form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='stop'><button type='submit'>إيقاف</button></form>", snap->target.all_channels ? "" : " selected", snap->target.all_channels ? " selected" : "", snap->active ? snap->target.caid : 0, snap->active ? snap->target.provider : 0, snap->active ? snap->target.sid : 0, trace_csrf);
     tcp_writestr(&tcpbuf, sock, out);
-    snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p><table><tr><th>الوقت</th><th>المحاولة</th><th>القناة</th><th>الحدث</th><th>النطاق</th><th>المصدر (نوع / ID داخلي)</th><th>المدة ms</th><th>التفاصيل</th><th>CW</th></tr>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
+    snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p><table><tr><th>الوقت</th><th>المحاولة</th><th>القناة</th><th>بصمة ECM غير فريدة</th><th>الحدث</th><th>النطاق</th><th>المصدر (نوع / ID داخلي)</th><th>المدة ms</th><th>التفاصيل</th><th>CW</th></tr>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
     tcp_writestr(&tcpbuf, sock, out);
     for (i = 0; i < snap->count; ++i) {
         struct user_trace_event *e = &snap->events[i];
-        char safe[768], timestr[32], cw_html[160] = "—";
+        char safe[768], timestr[32], attempt[32], elapsed[32], cw_html[160] = "—";
         time_t timestamp = e->timestamp;
+        if (e->shared == 2) { strcpy(attempt, "—"); strcpy(elapsed, "—"); }
+        else { snprintf(attempt, sizeof(attempt), "%llu", (unsigned long long)e->attempt); snprintf(elapsed, sizeof(elapsed), "%u", e->elapsed_ms); }
         html_esc(safe, sizeof(safe), e->detail);
         mcs_format_local_time(timestr, sizeof(timestr), timestamp, "%H:%M:%S");
         if (e->has_cw) {
@@ -7954,7 +7969,7 @@ static void http_send_user_trace(int sock, http_request *req)
             for (j = 0; j < 16; ++j) snprintf(hex + j * 2, 3, "%02X", e->cw[j]);
             snprintf(cw_html, sizeof(cw_html), "<details data-event='%llu'><summary>إظهار CW</summary><code>%s</code></details>", (unsigned long long)e->sequence, hex);
         }
-        snprintf(out, sizeof(out), "<tr><td>%s</td><td>%llu</td><td><code>%04X:%06X:%04X</code></td><td>%s</td><td>%s</td><td>%d / %d</td><td>%u</td><td>%s%s%s</td><td>%s</td></tr>", timestr, (unsigned long long)e->attempt, e->caid, e->provider, e->sid, trace_type_name(e->type), e->shared ? "ECM مشترك" : "العميل", e->source_type, e->source_id, e->elapsed_ms, trace_detail_ar(e->detail), *trace_detail_ar(e->detail) ? " — " : "", safe, cw_html);
+        snprintf(out, sizeof(out), "<tr><td>%s</td><td>%s</td><td><code>%04X:%06X:%04X</code></td><td><code>%08X</code></td><td>%s</td><td>%s</td><td>%d / %d</td><td>%s</td><td>%s%s%s</td><td>%s</td></tr>", timestr, attempt, e->caid, e->provider, e->sid, e->ecm_hash, trace_type_name(e->type), e->shared == 2 ? "قناة فقط، ليس ربط عميل" : (e->shared ? "ECM مشترك" : "العميل"), e->source_type, e->source_id, elapsed, trace_detail_ar(e->detail), *trace_detail_ar(e->detail) ? " — " : "", safe, cw_html);
         tcp_writestr(&tcpbuf, sock, out);
     }
     tcp_writestr(&tcpbuf, sock, "</table></section><p><a href='/user-trace'>تحديث يدوي</a> | <a href='/'>الرئيسية</a></p><script>function traceMode(s){for(const n of ['caid','provid','sid'])document.querySelector('[name='+n+']').disabled=s.value==='all';}traceMode(document.querySelector('[name=mode]'));function traceChoose(s){const o=s.options[s.selectedIndex];const c=o.dataset.caid,p=o.dataset.provid,i=o.dataset.sid;document.querySelector('[name=caid]').value=c&&c!='0000'?c:'';document.querySelector('[name=provid]').value=p||'000000';document.querySelector('[name=sid]').value=i&&i!='0000'?i:'';}setInterval(async function(){try{const r=await fetch('/user-trace',{cache:'no-store'});if(!r.ok)return;const doc=new DOMParser().parseFromString(await r.text(),'text/html');const n=doc.getElementById('trace-data');if(n){const open=Array.from(document.querySelectorAll('#trace-data details[open]')).map(x=>x.dataset.event);const box=document.getElementById('trace-data');box.innerHTML=n.innerHTML;box.querySelectorAll('details').forEach(x=>{if(open.includes(x.dataset.event))x.open=true;});}}catch(e){}},5000);</script></body></html>");

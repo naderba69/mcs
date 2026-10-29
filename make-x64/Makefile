@@ -491,3 +491,7 @@ x64/test_sha256: test_sha256.c ../src/advanced-optimizations.h ../src/aes.c ../s
 	$(CC) $(CFLAGS) -O1 -w -o $@ test_sha256.c ../src/aes.c ../src/sha256.c -lpthread -lm
 
 .PHONY: link test distclean release release-stats print-cflags memcheck
+
+# These two standalone dashboard modules use C99 loop declarations. Keep the
+# rest of the legacy tree in gnu89; preserve GNU89 inline semantics in both.
+x64/auto-tuning.o x64/web-dashboard.o: CFLAGS += -std=gnu99 -fgnu89-inline

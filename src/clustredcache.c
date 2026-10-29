@@ -1,5 +1,6 @@
 
 #include "common.h"
+#include "user-trace.h"
 #include "cafamily.h"	/* TASK R36 (D92) */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include <stdlib.h>
@@ -750,6 +751,7 @@ static void cwlog_deliver(int peerid, uint32_t caid, uint32_t provid,
 void pipe_cache2ecm_find_failed(struct cache_data *pcache)
 {
 	uint8_t buf[48];
+	user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid, pcache->hash, 0, "cache lookup: no existing entry; peer response may still arrive", NULL);
 	int len = put_cache2ecm(PIPE_CACHE_FIND_FAILED, buf, pcache, NULL, 0, 0);
 	pipe_send( prg.pipe.ecm[1], buf, len);
 }
@@ -778,6 +780,7 @@ void pipe_cache2ecm_find_success(struct cache_data *pcache, uint8_t *cw, int pee
 		if ( dcwcmp16(cwd->cw, cw) ) { cwmark = cwd->cwcycle; break; }
 		cwd = cwd->next;
 	}
+	user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid, pcache->hash, peerid, "cache forwarded CW to ECM pipe; delivery not confirmed", cw);
 	int len = put_cache2ecm(PIPE_CACHE_FIND_SUCCESS, buf, pcache, cw, peerid, cwmark);
 	pipe_send( prg.pipe.ecm[1], buf, len);
 }
@@ -1663,6 +1666,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	int cex_exchange;
 	int cex_gate_fake, cex_gate_check;
 	int piped = 0;   /* TASK R11 (D65): did THIS call pipe to a waiter? */
+	user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache CW entered validation; decision pending", cw);
 	{
 		struct cache_data *pend = cache_fetch(req);
 		struct cardserver_data *pcs = (pend && pend->ecm) ? pend->ecm->cs : NULL;
@@ -1680,6 +1684,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		 * stored, nothing is served later, and the key cannot pre-poison
 		 * a future request. */
 		if ( cex_localonly_drop(gate_local, cex_exchange, has_waiter) ) {
+			user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: CacheEX local-only gate", cw);
 #ifdef MCS_DCWSTATS
 			DCWSTATS_REJECT(DCW_REJ_CEXLOCAL);
 			cwlog_refuse(DCW_REJ_CEXLOCAL, peerid, req->caid, req->provid, req->sid, cw);
@@ -1688,6 +1693,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			return -1;
 		}
 		if ( !acceptDCW_profile_ca_sid(cw, pcs, req->caid, req->sid) ) {
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: profile CW validation; specific check unknown", cw);
 		/*
 		 * TASK 2.4 -- the blind spot this closes, found by running the live
 		 * target and watching nothing arrive.
@@ -1757,6 +1763,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 * channel"; every score and every disable remains the proof's job.
 	 */
 	if ( cwn_gate(cw, req->caid, req->provid, req->sid, GetTickCount()) ) {
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: negative memory gate", cw);
 #ifdef MCS_DCWSTATS
 		cwlog_refuse(CWLOG_R_CONVICTED, peerid, req->caid, req->provid, req->sid, cw);
 #endif
@@ -1772,6 +1779,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 * proof. No-op unless CACHE ATTEST is armed.
 	 */
 	if ( attest_gate(cw, req->caid, req->provid, req->sid, GetTickCount()) ) {
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: attestation gate", cw);
 #ifdef MCS_DCWSTATS
 		cwlog_refuse(CWLOG_R_CONVICTED, peerid, req->caid, req->provid, req->sid, cw);
 #endif
@@ -1846,6 +1854,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 * cases.
 	 */
 	if ( !cache_threshold_reached(cwdata->nbpeers, cfg.cache.threshold) ) {
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache held: threshold not reached", cw);
 #ifdef MCS_DCWSTATS
 		/* TASK R11 (D65): the stock skip, now visible per key. Never
 		 * fires at the default threshold of 1. */
@@ -1862,6 +1871,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 * a held key is not an error event, it is an unconfirmed one. */
 	if ( cex_check_below_floor(cex_gate_check, cfg.cache.threshold,
 	                           cex_exchange, cwdata->nbpeers) ) {
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache held: CacheEX confirmation threshold", cw);
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_CEXCONF);
 		cwlog_refuse(DCW_REJ_CEXCONF, peerid, req->caid, req->provid, req->sid, cw);
@@ -1906,6 +1916,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			                         cw, peerid, cw_weight, GetTickCount(),
 			                         cwin, &cwl);
 			if ( cv==CWC_HOLD ) {
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache held: consensus awaiting corroboration", cw);
 #ifdef MCS_DCWSTATS
 				cwlog_hold(peerid, req->caid, req->provid, req->sid, cw);
 #endif
@@ -1915,6 +1926,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 				return DCW_ERROR | DCW_SKIP;
 			}
 			if ( cv==CWC_REFUSE ) {
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: consensus weighted decision", cw);
 #ifdef MCS_DCWSTATS
 				DCWSTATS_REJECT(DCW_REJ_CONSENSUS);
 				cwlog_refuse(DCW_REJ_CONSENSUS, peerid, req->caid, req->provid, req->sid, cw);
@@ -1972,7 +1984,10 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			cwdata->status |= cache_fetch_goodcw(pcache, cw, &cwcycle);
 			cwdata->cwcycle = cwcycle;
 			cwdata->peerid = peerid;
-			if (!(cwdata->status&DCW_CYCLE)) return cwdata->status; //XXX
+			if (!(cwdata->status&DCW_CYCLE)) {
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache not forwarded: filter did not establish cycle", cw);
+				return cwdata->status;
+			}
 		}
 		else {
 			// update new dcw
@@ -2041,6 +2056,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	else {
 		// half nulled cw: exit if non-nds
 		if ( !ca_halfnull_ok(req->caid) ) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: half-null not allowed for CAID family", cw);
 			cwdata->status |= DCW_ERROR;
 			return cwdata->status;
 		}

@@ -107,6 +107,11 @@ int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t has
 int user_trace_client_cw(uint32_t client_id, uint64_t instance, uint32_t hash,
                          int source_type, int source_id, uint32_t elapsed_ms,
                          const char *detail, const uint8_t cw[16]);
+/* Channel-level cache observations: never evidence that this client's ECM
+ * caused the event. Hash is a fingerprint, not a unique request ID. */
+void user_trace_cache_observation(uint16_t caid, uint32_t provider, uint16_t sid,
+                                  uint32_t hash, int peerid, const char *detail,
+                                  const uint8_t cw[16]);
 void user_trace_get_snapshot(struct user_trace_snapshot *out);
 
 #endif
