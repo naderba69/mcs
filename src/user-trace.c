@@ -35,6 +35,15 @@ static void append_locked(struct user_trace_event *event)
             }
         }
     }
+    if (event->type != USER_TRACE_RECEIVED) {
+        for (i = 0; i < count; ++i) {
+            size_t idx = (next_index + USER_TRACE_CAPACITY - count + i) % USER_TRACE_CAPACITY;
+            if (events[idx].type == USER_TRACE_RECEIVED && events[idx].attempt == event->attempt) {
+                event->caid = events[idx].caid; event->provider = events[idx].provider;
+                event->sid = events[idx].sid; break;
+            }
+        }
+    }
     event->session = generation;
     event->sequence = increment_nonzero(&next_sequence);
     events[next_index] = *event;
@@ -61,6 +70,7 @@ uint64_t user_trace_start(const struct user_trace_target *new_target)
     result = increment_nonzero(&generation);
     next_attempt = next_sequence = overwritten = dropped_links = dropped_events = 0;
     memset(links, 0, sizeof(links));
+    memset(events, 0, sizeof(events));
     next_index = count = 0;
     active = 1;
     pthread_mutex_unlock(&trace_lock);
@@ -78,8 +88,8 @@ int user_trace_matches(uint32_t client_id, uint16_t caid, uint32_t provider, uin
 {
     int matched;
     pthread_mutex_lock(&trace_lock);
-    matched = active && client_id == target.client_id && caid == target.caid &&
-              provider == target.provider && sid == target.sid;
+    matched = active && client_id == target.client_id &&
+              (target.all_channels || (caid == target.caid && provider == target.provider && sid == target.sid));
     pthread_mutex_unlock(&trace_lock);
     return matched;
 }
@@ -101,12 +111,13 @@ uint64_t user_trace_begin(uint32_t client_id, uint16_t caid, uint32_t provider,
     uint64_t attempt = 0;
     if (session) *session = 0;
     pthread_mutex_lock(&trace_lock);
-    if (active && client_id == target.client_id && caid == target.caid &&
-        provider == target.provider && sid == target.sid) {
+    if (active && client_id == target.client_id &&
+        (target.all_channels || (caid == target.caid && provider == target.provider && sid == target.sid))) {
         event.attempt = increment_nonzero(&next_attempt);
         event.timestamp = time(NULL);
         event.type = USER_TRACE_RECEIVED;
         event.ecm_hash = hash;
+        event.caid = caid; event.provider = provider; event.sid = sid;
         append_locked(&event);
         attempt = event.attempt;
         if (session) *session = generation;
@@ -200,9 +211,9 @@ done:
     return result;
 }
 
-size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type type,
-                               int source_type, int source_id,
-                               uint32_t elapsed_ms, const char *detail)
+static size_t shared_event(uint64_t instance, enum user_trace_event_type type,
+                           int source_type, int source_id, uint32_t elapsed_ms,
+                           const char *detail, const uint8_t *cw)
 {
     size_t i, recorded = 0;
     if (!instance || (type != USER_TRACE_SENT && type != USER_TRACE_REJECTED &&
@@ -228,6 +239,7 @@ size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type typ
             event.source_type = source_type;
             event.source_id = source_id;
             event.elapsed_ms = elapsed_ms;
+            if (cw) { event.has_cw = 1; memcpy(event.cw, cw, sizeof(event.cw)); }
             if (detail) {
                 strncpy(event.detail, detail, sizeof(event.detail) - 1);
                 event.detail[sizeof(event.detail) - 1] = '\0';
@@ -238,6 +250,18 @@ size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type typ
     }
     pthread_mutex_unlock(&trace_lock);
     return recorded;
+}
+
+size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type type,
+                               int source_type, int source_id, uint32_t elapsed_ms, const char *detail)
+{
+    return shared_event(instance, type, source_type, source_id, elapsed_ms, detail, NULL);
+}
+size_t user_trace_shared_cw(uint64_t instance, int source_type, int source_id,
+                            uint32_t elapsed_ms, const char *detail, const uint8_t cw[16])
+{
+    if (!cw) return 0;
+    return shared_event(instance, USER_TRACE_SOURCE_REPLY, source_type, source_id, elapsed_ms, detail, cw);
 }
 
 void user_trace_unbind_shared(uint64_t session, uint64_t attempt)
@@ -256,9 +280,9 @@ void user_trace_unbind_shared(uint64_t session, uint64_t attempt)
     pthread_mutex_unlock(&trace_lock);
 }
 
-int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
-                             enum user_trace_event_type type, int source_type,
-                             int source_id, uint32_t elapsed_ms, const char *detail)
+static int client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
+                         enum user_trace_event_type type, int source_type,
+                         int source_id, uint32_t elapsed_ms, const char *detail, const uint8_t *cw)
 {
     size_t i, found = USER_TRACE_MAX_LINKS, matches = 0;
     struct user_trace_event event = {0};
@@ -297,6 +321,7 @@ int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t has
     event.source_type = source_type;
     event.source_id = source_id;
     event.elapsed_ms = elapsed_ms;
+    if (cw) { event.has_cw = 1; memcpy(event.cw, cw, sizeof(event.cw)); }
     if (detail) {
         strncpy(event.detail, detail, sizeof(event.detail) - 1);
         event.detail[sizeof(event.detail) - 1] = '\0';
@@ -307,6 +332,21 @@ int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t has
 done:
     pthread_mutex_unlock(&trace_lock);
     return result;
+}
+
+int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
+                             enum user_trace_event_type type, int source_type,
+                             int source_id, uint32_t elapsed_ms, const char *detail)
+{
+    return client_result(client_id, instance, hash, type, source_type, source_id, elapsed_ms, detail, NULL);
+}
+int user_trace_client_cw(uint32_t client_id, uint64_t instance, uint32_t hash,
+                         int source_type, int source_id, uint32_t elapsed_ms,
+                         const char *detail, const uint8_t cw[16])
+{
+    if (!cw) return 0;
+    return client_result(client_id, instance, hash, USER_TRACE_DELIVERED,
+                         source_type, source_id, elapsed_ms, detail, cw);
 }
 
 void user_trace_get_snapshot(struct user_trace_snapshot *out)

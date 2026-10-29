@@ -711,7 +711,7 @@ void cc_senddcw_cli(struct cc_client_data *cli)
 			cc_disconnect_cli( cli );
 			return;
 		}
-		if (ecm->trace_instance) user_trace_client_result(cli->id, ecm->trace_instance, cli->ecm.hash, USER_TRACE_DELIVERED, ecm->dcwsrctype, ecm->dcwsrcid, ticks-cli->ecm.recvtime, "CW response sent; picture not verified");
+		if (ecm->trace_instance) user_trace_client_cw(cli->id, ecm->trace_instance, cli->ecm.hash, ecm->dcwsrctype, ecm->dcwsrcid, ticks-cli->ecm.recvtime, "CW response sent; picture not verified", ecm->cw);
 		cc_encrypt(&cli->sendblock, buf, 16); // additional crypto step
 		debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,ecm->cs->id)," => cw to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->ecm.recvtime);
 	}

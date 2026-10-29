@@ -1,5 +1,5 @@
 /* Bounded, opt-in diagnostic session for a single CCcam client and channel.
- * No ECM or CW bytes are stored here. */
+ * CW bytes may be stored temporarily in RAM for an explicitly started session. */
 #ifndef MCS_USER_TRACE_H
 #define MCS_USER_TRACE_H
 
@@ -28,6 +28,7 @@ struct user_trace_target {
     uint16_t caid;
     uint32_t provider;
     uint16_t sid;
+    int all_channels;
 };
 
 struct user_trace_event {
@@ -37,6 +38,10 @@ struct user_trace_event {
     time_t timestamp;
     enum user_trace_event_type type;
     uint32_t ecm_hash; /* Diagnostic fingerprint, not a unique request ID. */
+    uint16_t caid, sid;
+    uint32_t provider;
+    uint8_t has_cw;
+    uint8_t cw[16];
     int shared; /* Event is about a shared ECM, not exclusively this client. */
     int source_type;
     int source_id;
@@ -83,12 +88,17 @@ int user_trace_bind_shared(uint64_t session, uint64_t attempt, uint32_t hash,
 size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type type,
                                int source_type, int source_id,
                                uint32_t elapsed_ms, const char *detail);
+size_t user_trace_shared_cw(uint64_t instance, int source_type, int source_id,
+                            uint32_t elapsed_ms, const char *detail, const uint8_t cw[16]);
 void user_trace_unbind_shared(uint64_t session, uint64_t attempt);
 /* Completion refers to the current attempt for this single selected client.
  * Returns 0 if there is no unambiguous live binding. */
 int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
                              enum user_trace_event_type type, int source_type,
                              int source_id, uint32_t elapsed_ms, const char *detail);
+int user_trace_client_cw(uint32_t client_id, uint64_t instance, uint32_t hash,
+                         int source_type, int source_id, uint32_t elapsed_ms,
+                         const char *detail, const uint8_t cw[16]);
 void user_trace_get_snapshot(struct user_trace_snapshot *out);
 
 #endif

@@ -285,6 +285,9 @@ int main(int argc, char **argv)
 			unsigned long ms = strtoul(getenv("CCDCW_BETWEEN_MS"), NULL, 10);
 			if (ms <= 30000) usleep((useconds_t)ms * 1000);
 		}
+		/* Isolated multi-channel trace fixture: keep one CCcam connection. */
+		if (ecmno > 7 && getenv("CCDCW_NEXT_SID"))
+			sid = (uint16_t)strtoul(getenv("CCDCW_NEXT_SID"), NULL, 16);
 		/* "0x80" or "0x80:2" -- the suffix is the body seed (R43). */
 		char *pend = NULL;
 		int seed = 0;

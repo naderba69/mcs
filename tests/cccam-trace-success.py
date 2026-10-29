@@ -16,6 +16,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 
 ROOT = Path(__file__).resolve().parent.parent
 BINARY = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "bin/multics.x64"
@@ -117,12 +118,19 @@ def main():
                     req = urllib.request.Request(url, data=data, headers={"Authorization": auth})
                     with urllib.request.urlopen(req, timeout=5) as response:
                         return response.read().decode("utf-8")
+                try:
+                    urllib.request.urlopen(url, timeout=5)
+                    raise AssertionError("unauthenticated trace access succeeded")
+                except urllib.error.HTTPError as exc:
+                    assert exc.code in (401, 403)
                 page = request()
                 token = re.search("name='csrf' value='([a-f0-9]{64})'", page)
                 client = re.search("<option value='(\\d+)'[^>]*>traceuser", page)
                 assert token and client, "trace form not found"
                 form = {"csrf": token.group(1), "action": "start", "client": client.group(1),
                         "caid": caid, "provid": "000000", "sid": sid}
+                if os.environ.get("MCS_TRACE_ALL") == "1":
+                    form = {"csrf": token.group(1), "action": "start", "client": client.group(1), "mode": "all"}
                 request(urllib.parse.urlencode(form).encode())
                 result = subprocess.run([str(cc), "127.0.0.1", str(cccam), "traceuser", "tracepass",
                                          caid, sid, tag], capture_output=True,
@@ -139,7 +147,30 @@ def main():
                 if expected == "DCW": assert "CW response sent; picture not verified" in page
                 else: assert "decode failed; detailed reason unavailable" in page
                 assert "ECM مشترك" in page
+                assert "source response " in page
+                assert f"{caid}:000000:{sid}" in page
+                if mode in ("full", "half"):
+                    # Fixture key only: ensure both source and client rows carry
+                    # the actual same key, not merely a display placeholder.
+                    key = [0x30 + ((int(sid, 16) + i * 13) & 0x3F) for i in range(16)]
+                    for q in range(4): key[q * 4 + 3] = sum(key[q * 4:q * 4 + 3]) & 0xFF
+                    if mode == "half":
+                        if tag == "0x81": key[:8] = [0] * 8
+                        else: key[8:] = [0] * 8
+                    encoded = "".join(f"{x:02X}" for x in key)
+                    assert page.count(encoded) >= 2
+                if mode in ("full", "half", "excluded", "swap"):
+                    assert page.count("<summary>إظهار CW</summary>") >= 2
+                elif mode in ("bad", "wronghalf"):
+                    assert page.count("<summary>إظهار CW</summary>") == 1
+                else:
+                    assert "<summary>إظهار CW</summary>" not in page
                 assert server.poll() is None
+                # Starting a new session must not expose events or CW from the old one.
+                request(urllib.parse.urlencode(form).encode())
+                cleared = request()
+                assert "<summary>إظهار CW</summary>" not in cleared
+                assert "Newcamd CW response" not in cleared
                 print("PASS: CCcam/Newcamd trace mode=" + mode)
             finally:
                 if server is not None:

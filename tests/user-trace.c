@@ -22,12 +22,35 @@ static void *worker(void *arg)
 
 int main(void)
 {
-    struct user_trace_target target = {7, 0x1884, 0, 0x1136};
+    struct user_trace_target target = {7, 0x1884, 0, 0x1136, 0};
     uint64_t first, second, session, attempt;
     pthread_t threads[4];
     size_t i;
     char detail[256];
     assert(user_trace_start(NULL) == 0);
+    {
+        uint8_t cw[16] = {1,2,3,6,4,5,6,15};
+        uint64_t a, b, id;
+        target.all_channels = 1;
+        first = user_trace_start(&target);
+        assert(user_trace_matches(7, 0x09bd, 0, 0x014a));
+        assert(!user_trace_matches(8, 0x09bd, 0, 0x014a));
+        a = user_trace_begin(7, 0x09bd, 0, 0x014a, 10, &session);
+        b = user_trace_begin(7, 0x1884, 3, 0x1136, 11, &session);
+        assert(a && b && a != b);
+        id = user_trace_next_instance();
+        assert(user_trace_bind_shared(first, a, 10, id));
+        assert(user_trace_shared_cw(id, 1, 9, 20, "CW response", cw) == 1);
+        assert(user_trace_client_cw(7, id, 10, 2, 9, 25, "CW sent", cw));
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 4);
+        assert(snapshot.events[2].caid == 0x09bd && snapshot.events[2].sid == 0x014a);
+        assert(snapshot.events[3].caid == 0x09bd && snapshot.events[3].has_cw);
+        assert(!memcmp(snapshot.events[2].cw, cw, 16));
+        assert(!memcmp(snapshot.events[3].cw, cw, 16));
+        assert(snapshot.events[1].caid == 0x1884 && snapshot.events[1].provider == 3);
+        target.all_channels = 0;
+    }
     first = user_trace_start(&target);
     assert(first);
     assert(!user_trace_begin(8, 0x1884, 0, 0x1136, 1, &session) && !session);

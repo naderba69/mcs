@@ -271,8 +271,18 @@ void cs_srv_recvmsg(struct server_data *srv)
 						if (buf[2] != 0x10) detail = "Newcamd negative response; retry may follow";
 						else if (ishalfnulledcw(buf + 3)) detail = "Newcamd CW response; zero half present; validity not determined";
 						else detail = "Newcamd CW response; validity not determined";
-						user_trace_shared_event(ecm->trace_instance, USER_TRACE_SOURCE_REPLY,
-						                        TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime, detail);
+						char timed_detail[128];
+						if (srv->lastecmtime)
+							snprintf(timed_detail, sizeof(timed_detail), "%s; source response %u ms", detail,
+							         (unsigned)(GetTickCount() - srv->lastecmtime));
+						else
+							snprintf(timed_detail, sizeof(timed_detail), "%s; source time unavailable", detail);
+						if (buf[2] == 0x10)
+							user_trace_shared_cw(ecm->trace_instance, TYPE_NEWCAMD, srv->id,
+							                     GetTickCount()-ecm->recvtime, timed_detail, buf+3);
+						else
+							user_trace_shared_event(ecm->trace_instance, USER_TRACE_SOURCE_REPLY,
+							                        TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime, timed_detail);
 					}
 					if (buf[2]==0x10) {
 						// Check for DCW

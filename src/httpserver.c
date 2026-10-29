@@ -7832,16 +7832,19 @@ static void http_send_user_trace(int sock, http_request *req)
                     if (!strcmp(action, "stop")) {
                         user_trace_get_snapshot(snap); user_trace_stop(snap->session); ok = 1;
                     } else if (!strcmp(action, "start")) {
-                        unsigned long client, caid, prov, sid;
-                        if (trace_parse_number(trace_post_value(req, "client"), 10, 0xffffffffUL, &client) && client &&
-                            trace_parse_number(trace_post_value(req, "caid"), 16, 0xffff, &caid) && caid &&
-                            trace_parse_number(trace_post_value(req, "provid"), 16, 0xffffff, &prov) &&
-                            trace_parse_number(trace_post_value(req, "sid"), 16, 0xffff, &sid) && sid &&
-                            client) {
-                            struct user_trace_target t;
+                        unsigned long client, caid = 0, prov = 0, sid = 0;
+                        char *mode = trace_post_value(req, "mode");
+                        int all = mode && !strcmp(mode, "all");
+                        if ((!mode || !strcmp(mode, "single") || all) &&
+                            trace_parse_number(trace_post_value(req, "client"), 10, 0xffffffffUL, &client) && client &&
+                            (all || (trace_parse_number(trace_post_value(req, "caid"), 16, 0xffff, &caid) && caid &&
+                                     trace_parse_number(trace_post_value(req, "provid"), 16, 0xffffff, &prov) &&
+                                     trace_parse_number(trace_post_value(req, "sid"), 16, 0xffff, &sid) && sid))) {
+                            struct user_trace_target t = {0};
                             user_trace_config_lock();
                             if (getcccamclientbyid((uint32_t)client)) {
                                 t.client_id = client; t.caid = caid; t.provider = prov; t.sid = sid;
+                                t.all_channels = all;
                                 ok = user_trace_start(&t) != 0;
                             }
                             user_trace_config_unlock();
@@ -7904,20 +7907,25 @@ static void http_send_user_trace(int sock, http_request *req)
         if (truncated) tcp_writestr(&tcpbuf, sock, "<option disabled>القائمة محدودة بأول 4096 عميل</option>");
         if (!options) tcp_writestr(&tcpbuf, sock, "<option disabled>تعذر تحميل العملاء</option>");
     }
-    snprintf(out, sizeof(out), "</select></label><label>CAID <input name='caid' required maxlength='4' value='%04X'></label><label>Provider <input name='provid' required maxlength='6' value='%06X'></label><label>SID <input name='sid' required maxlength='4' value='%04X'></label><button type='submit'>بدء متابعة جديدة</button></form><form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='stop'><button type='submit'>إيقاف</button></form>", snap->active ? snap->target.caid : 0, snap->active ? snap->target.provider : 0, snap->active ? snap->target.sid : 0, trace_csrf);
+    snprintf(out, sizeof(out), "</select></label><label>نطاق المراقبة <select name='mode' onchange='traceMode(this)'><option value='single'%s>قناة واحدة</option><option value='all'%s>كل قنوات العميل</option></select></label><label>CAID <input name='caid' maxlength='4' value='%04X'></label><label>Provider <input name='provid' maxlength='6' value='%06X'></label><label>SID <input name='sid' maxlength='4' value='%04X'></label><button type='submit'>بدء متابعة جديدة</button></form><form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='stop'><button type='submit'>إيقاف</button></form>", snap->target.all_channels ? "" : " selected", snap->target.all_channels ? " selected" : "", snap->active ? snap->target.caid : 0, snap->active ? snap->target.provider : 0, snap->active ? snap->target.sid : 0, trace_csrf);
     tcp_writestr(&tcpbuf, sock, out);
-    snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | القناة: <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><table><tr><th>الوقت</th><th>المحاولة</th><th>الحدث</th><th>النطاق</th><th>المصدر (نوع / ID داخلي)</th><th>المدة ms</th><th>التفاصيل</th></tr>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
+    snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p><table><tr><th>الوقت</th><th>المحاولة</th><th>القناة</th><th>الحدث</th><th>النطاق</th><th>المصدر (نوع / ID داخلي)</th><th>المدة ms</th><th>التفاصيل</th><th>CW</th></tr>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
     tcp_writestr(&tcpbuf, sock, out);
     for (i = 0; i < snap->count; ++i) {
         struct user_trace_event *e = &snap->events[i];
-        char safe[768], timestr[32];
+        char safe[768], timestr[32], cw_html[160] = "—";
         time_t timestamp = e->timestamp;
         html_esc(safe, sizeof(safe), e->detail);
         mcs_format_local_time(timestr, sizeof(timestr), timestamp, "%H:%M:%S");
-        snprintf(out, sizeof(out), "<tr><td>%s</td><td>%llu</td><td>%s</td><td>%s</td><td>%d / %d</td><td>%u</td><td>%s</td></tr>", timestr, (unsigned long long)e->attempt, trace_type_name(e->type), e->shared ? "ECM مشترك" : "العميل", e->source_type, e->source_id, e->elapsed_ms, safe);
+        if (e->has_cw) {
+            char hex[33]; size_t j;
+            for (j = 0; j < 16; ++j) snprintf(hex + j * 2, 3, "%02X", e->cw[j]);
+            snprintf(cw_html, sizeof(cw_html), "<details data-event='%llu'><summary>إظهار CW</summary><code>%s</code></details>", (unsigned long long)e->sequence, hex);
+        }
+        snprintf(out, sizeof(out), "<tr><td>%s</td><td>%llu</td><td><code>%04X:%06X:%04X</code></td><td>%s</td><td>%s</td><td>%d / %d</td><td>%u</td><td>%s</td><td>%s</td></tr>", timestr, (unsigned long long)e->attempt, e->caid, e->provider, e->sid, trace_type_name(e->type), e->shared ? "ECM مشترك" : "العميل", e->source_type, e->source_id, e->elapsed_ms, safe, cw_html);
         tcp_writestr(&tcpbuf, sock, out);
     }
-    tcp_writestr(&tcpbuf, sock, "</table></section><p><a href='/user-trace'>تحديث يدوي</a> | <a href='/'>الرئيسية</a></p><script>function traceChoose(s){const o=s.options[s.selectedIndex];const c=o.dataset.caid,p=o.dataset.provid,i=o.dataset.sid;document.querySelector('[name=caid]').value=c&&c!='0000'?c:'';document.querySelector('[name=provid]').value=p||'000000';document.querySelector('[name=sid]').value=i&&i!='0000'?i:'';}setInterval(async function(){try{const r=await fetch('/user-trace',{cache:'no-store'});if(!r.ok)return;const doc=new DOMParser().parseFromString(await r.text(),'text/html');const n=doc.getElementById('trace-data');if(n)document.getElementById('trace-data').innerHTML=n.innerHTML;}catch(e){}},5000);</script></body></html>");
+    tcp_writestr(&tcpbuf, sock, "</table></section><p><a href='/user-trace'>تحديث يدوي</a> | <a href='/'>الرئيسية</a></p><script>function traceMode(s){for(const n of ['caid','provid','sid'])document.querySelector('[name='+n+']').disabled=s.value==='all';}traceMode(document.querySelector('[name=mode]'));function traceChoose(s){const o=s.options[s.selectedIndex];const c=o.dataset.caid,p=o.dataset.provid,i=o.dataset.sid;document.querySelector('[name=caid]').value=c&&c!='0000'?c:'';document.querySelector('[name=provid]').value=p||'000000';document.querySelector('[name=sid]').value=i&&i!='0000'?i:'';}setInterval(async function(){try{const r=await fetch('/user-trace',{cache:'no-store'});if(!r.ok)return;const doc=new DOMParser().parseFromString(await r.text(),'text/html');const n=doc.getElementById('trace-data');if(n){const open=Array.from(document.querySelectorAll('#trace-data details[open]')).map(x=>x.dataset.event);const box=document.getElementById('trace-data');box.innerHTML=n.innerHTML;box.querySelectorAll('details').forEach(x=>{if(open.includes(x.dataset.event))x.open=true;});}}catch(e){}},5000);</script></body></html>");
     tcp_flush(&tcpbuf, sock);
     free(snap);
 }
