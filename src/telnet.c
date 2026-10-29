@@ -1,4 +1,8 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "common.h"
+#include "safe-time.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -414,8 +418,8 @@ void *telnetprocess(int *param )
 						// date
 						if (!parse_str(str)) continue;
 						if ( strcmp(str, "*") ) {
-							if ( (str[4]=='-')&&(str[7]=='-') ) strptime(  str, "%Y-%m-%d %H", &cli->enddate);
-							else if ( (str[2]=='-')&&(str[5]=='-') ) strptime(  str, "%d-%m-%Y %H", &cli->enddate);
+							if ( (str[4]=='-')&&(str[7]=='-') ) mcs_parse_packed_tm( &cli->enddate, str, "%Y-%m-%d %H");
+							else if ( (str[2]=='-')&&(str[5]=='-') ) mcs_parse_packed_tm( &cli->enddate, str, "%d-%m-%Y %H");
 						}
 						//
 						if (parse_int(str)) {
@@ -450,8 +454,8 @@ void *telnetprocess(int *param )
 						// date
 						if (!parse_name(str)) continue;
 						if ( strcmp(str, "*") ) {
-							if ( (str[4]=='-')&&(str[7]=='-') ) strptime(  str, "%Y-%m-%d %H", &cli->enddate);
-							else if ( (str[2]=='-')&&(str[5]=='-') ) strptime(  str, "%d-%m-%Y %H", &cli->enddate);
+							if ( (str[4]=='-')&&(str[7]=='-') ) mcs_parse_packed_tm( &cli->enddate, str, "%Y-%m-%d %H");
+							else if ( (str[2]=='-')&&(str[5]=='-') ) mcs_parse_packed_tm( &cli->enddate, str, "%d-%m-%Y %H");
 						}
 						//
 						if (parse_int(str)) {

@@ -1,5 +1,8 @@
+#include <string.h>
 #ifndef MCS_HTMLESC_H
 #define MCS_HTMLESC_H
+
+#include <stddef.h>  /* NULL */
 
 /*
  * TASK 3.2 -- escape a name for HTML/XML text.

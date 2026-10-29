@@ -1,3 +1,4 @@
+#include "safe-time.h"
 #include "htmlesc.h"	/* TASK 3.2 -- client names are data, not markup */
 #ifdef MCS_DCWSTATS
 #include "dcwstats.h"	/* TASK 3.12: home-page readout, same names as telnet */
@@ -9,12 +10,21 @@
 #include "peer_origin.h"/* TASK R11 (D65): peer id masks on the page */
 #endif
 #include "biss.h"	/* BISS key management */
+#include "diagnostics.h"	/* Advanced diagnostics and analytics */
+#include "debug-ecm.h"	/* Detailed ECM tracking */
+#include "server-stats.h"	/* Server statistics */
+#include "log-viewer.h"	/* Live log viewer */
+#include "user-trace.h"
+#include "cache-analytics.h"	/* Cache analytics */
+#include "auto-tuning.h"	/* Auto-tuning suggestions */
 #include "common.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <unistd.h>
 
 #ifdef WIN32
@@ -177,7 +187,7 @@ typedef struct
 	char value[512];
 } http_get;
 
-typedef struct 
+typedef struct http_request
 {
 	int sock;
 	uint32_t ip;
@@ -202,6 +212,8 @@ typedef struct
 	char setcookie[240];
 
 } http_request;
+void http_send_biss(int sock, http_request *req);
+void http_send_auto_tuning(int sock, http_request *req);
 
 /*
  * TASK 3.1 -- bounded. The wire decides how long a header value or a request
@@ -417,9 +429,11 @@ int parse_http_request(int sock, http_request *req )
 	unsigned char buffer[2048]; // HTTP Header cant be greater than 1k
 	int size;
 	int totalsize = 0;
+	struct dyn_buffer saved_dbf = req->dbf;
 	memset(buffer,0,sizeof(buffer));
 	memset(req,0, sizeof(http_request));
-	size = recv( sock, buffer, sizeof(buffer), MSG_NOSIGNAL);
+	req->dbf = saved_dbf;
+	size = recv( sock, buffer, sizeof(buffer) - 1, MSG_NOSIGNAL);
 	if (size<10) return 0;
 	totalsize += size;
 	//printf("** Receiving %d bytes\n%s\n",size,buffer );
@@ -435,7 +449,9 @@ int parse_http_request(int sock, http_request *req )
 			if ( retval>0 )	{
 				if ( pfd.revents & (POLLHUP|POLLNVAL) ) return 0; // Disconnect
 				else if ( pfd.revents & (POLLIN|POLLPRI) ) {
-					int len = recv(sock, (buffer+size), sizeof(buffer)-size, MSG_NOSIGNAL);
+					int len;
+					if (size >= (int)sizeof(buffer) - 1) return 0;
+					len = recv(sock, (buffer+size), sizeof(buffer)-1-size, MSG_NOSIGNAL);
 					//printf("** Receiving %d bytes\n",len );
 					if (len<=0) return 0;
 					size+=len;
@@ -813,6 +829,15 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	if (!cfg.http.show.norestart) {
 		if (selected==PAGE_RESTART) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/restart", mlabel("Restart","إعادة تشغيل")); tcp_writestr(tcpbuf, sock, buf);
+		sprintf( buf, class, "/diagnostics", mlabel("Diagnostics","التشخيص")); tcp_writestr(tcpbuf, sock, buf);
+		sprintf( buf, class, "/debug-ecm", mlabel("Debug ECM","تتبع ECM")); tcp_writestr(tcpbuf, sock, buf);
+		sprintf( buf, class, "/server-stats", mlabel("Server Stats","إحصائيات الخوادم")); tcp_writestr(tcpbuf, sock, buf);
+		sprintf( buf, class, "/log-viewer", mlabel("Log Viewer","عارض السجلات")); tcp_writestr(tcpbuf, sock, buf);
+#ifdef CCCAM_SRV
+		if (!cfg.http.show.nocccam) { sprintf(buf, class, "/user-trace", mlabel("CCcam Trace", "متابعة CCcam")); tcp_writestr(tcpbuf, sock, buf); }
+#endif
+		sprintf( buf, class, "/cache-analytics", mlabel("Cache Analytics","تحليل الكاش")); tcp_writestr(tcpbuf, sock, buf);
+		sprintf( buf, class, "/auto-tuning", mlabel("Auto-Tuning","الضبط التلقائي")); tcp_writestr(tcpbuf, sock, buf);
 	}
 
 	/* TASK R7 (D61): the language toggle and logout close the bar */
@@ -7516,7 +7541,11 @@ static void http_send_json(int sock, struct http_request *req)
 		}
 #endif
 		in.cwlog_on = cwlogon;
+#ifdef MCS_DCWSTATS
 		in.cwlog_cap = cwlogon ? cwlog_capacity() : 0;
+#else
+		in.cwlog_cap = 0;
+#endif
 		in.nlogs = nlog;
 		in.logs = cwlrows;
 	}
@@ -7707,6 +7736,192 @@ static void http_session_drop(http_request *req, uint32_t ip)
 	http_add_cookie(req, "MCSSESSION=; Path=/; HttpOnly; Max-Age=0");
 }
 
+#ifdef CCCAM_SRV
+/* One process-wide CSRF secret; fail closed if secure randomness is absent. */
+static pthread_once_t trace_csrf_once = PTHREAD_ONCE_INIT;
+static char trace_csrf[65];
+static void trace_csrf_init(void)
+{
+    unsigned char raw[32];
+    int fd = open("/dev/urandom", O_RDONLY), n = 0;
+    if (fd < 0) return;
+    while (n < (int)sizeof(raw)) {
+        int r = read(fd, raw + n, sizeof(raw) - n);
+        if (r <= 0) { close(fd); return; }
+        n += r;
+    }
+    close(fd);
+    for (n = 0; n < 32; ++n) sprintf(trace_csrf + n * 2, "%02x", raw[n]);
+}
+static char *trace_post_value(http_request *req, const char *name)
+{
+    int i;
+    for (i = 0; i < req->postcount; ++i)
+        if (!strcmp(req->postlist[i].name, name)) return req->postlist[i].value;
+    return NULL;
+}
+static int trace_parse_number(const char *text, int base, unsigned long max, unsigned long *out)
+{
+    char *end;
+    unsigned long v;
+    const char *p;
+    if (!text || !*text) return 0;
+    for (p = text; *p; ++p)
+        if (!((*p >= '0' && *p <= '9') || (base == 16 && ((*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F'))))) return 0;
+    errno = 0;
+    v = strtoul(text, &end, base);
+    if (errno || *end || v > max) return 0;
+    *out = v;
+    return 1;
+}
+static const char *trace_type_name(enum user_trace_event_type type)
+{
+    switch (type) {
+    case USER_TRACE_RECEIVED: return "استلام ECM";
+    case USER_TRACE_DENIED: return "رفض الطلب";
+    case USER_TRACE_JOINED: return "انضم إلى ECM موجود";
+    case USER_TRACE_NEW: return "ECM جديد";
+    case USER_TRACE_SENT: return "إرسال لمصدر";
+    case USER_TRACE_REJECTED: return "رفض استجابة";
+    case USER_TRACE_FAILED: return "فشل";
+    case USER_TRACE_DELIVERED: return "أرسلت استجابة CW";
+    case USER_TRACE_SEND_FAILED: return "تعذر إرسال الاستجابة";
+    default: return "حدث غير معروف";
+    }
+}
+static void http_send_user_trace(int sock, http_request *req)
+{
+    struct tcp_buffer_data tcpbuf;
+    struct user_trace_snapshot *snap;
+    char out[2048];
+    size_t i;
+    pthread_once(&trace_csrf_once, trace_csrf_init);
+    tcp_init(&tcpbuf);
+    if (!cfg.http.user[0] || !cfg.http.pass[0] || !trace_csrf[0]) {
+        tcp_writestr(&tcpbuf, sock, "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nTrace requires configured web credentials and secure randomness.");
+        tcp_flush(&tcpbuf, sock); return;
+    }
+    snap = malloc(sizeof(*snap));
+    if (!snap) {
+        tcp_writestr(&tcpbuf, sock, "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
+        tcp_flush(&tcpbuf, sock); return;
+    }
+    if (req->type == HTTP_POST) {
+        char body[1024], *start, *csrf, *action;
+        int len, ok = 0;
+        char *content_type = isset_header(req, "Content-Type");
+        start = NULL;
+        if (req->dbf.data) {
+            int pos;
+            for (pos = 0; pos + 4 <= req->dbf.datasize; ++pos) {
+                if (!memcmp(req->dbf.data + pos, "\r\n\r\n", 4)) {
+                    start = req->dbf.data + pos;
+                    break;
+                }
+            }
+        }
+        if (start && content_type && !strncmp(content_type, "application/x-www-form-urlencoded", 33)) {
+            start += 4;
+            len = req->dbf.datasize - (int)(start - req->dbf.data);
+            if (len >= 0 && len < (int)sizeof(body)) {
+                memcpy(body, start, len); body[len] = 0;
+                explode_post(req, body);
+                csrf = trace_post_value(req, "csrf"); action = trace_post_value(req, "action");
+                if (csrf && strlen(csrf) == 64 && !strcmp(csrf, trace_csrf) && action) {
+                    if (!strcmp(action, "stop")) {
+                        user_trace_get_snapshot(snap); user_trace_stop(snap->session); ok = 1;
+                    } else if (!strcmp(action, "start")) {
+                        unsigned long client, caid, prov, sid;
+                        if (trace_parse_number(trace_post_value(req, "client"), 10, 0xffffffffUL, &client) && client &&
+                            trace_parse_number(trace_post_value(req, "caid"), 16, 0xffff, &caid) && caid &&
+                            trace_parse_number(trace_post_value(req, "provid"), 16, 0xffffff, &prov) &&
+                            trace_parse_number(trace_post_value(req, "sid"), 16, 0xffff, &sid) && sid &&
+                            client) {
+                            struct user_trace_target t;
+                            user_trace_config_lock();
+                            if (getcccamclientbyid((uint32_t)client)) {
+                                t.client_id = client; t.caid = caid; t.provider = prov; t.sid = sid;
+                                ok = user_trace_start(&t) != 0;
+                            }
+                            user_trace_config_unlock();
+                        }
+                    }
+                }
+            }
+        }
+        free(snap);
+        if (ok) tcp_writestr(&tcpbuf, sock, "HTTP/1.1 303 See Other\r\nLocation: /user-trace\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
+        else tcp_writestr(&tcpbuf, sock, "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nInvalid trace request or CSRF token.");
+        tcp_flush(&tcpbuf, sock); return;
+    }
+    user_trace_get_snapshot(snap);
+    tcp_writestr(&tcpbuf, sock, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\n");
+    if (req->setcookie[0]) { tcp_writestr(&tcpbuf, sock, "Set-Cookie: "); tcp_writestr(&tcpbuf, sock, req->setcookie); tcp_writestr(&tcpbuf, sock, "\r\n"); }
+    tcp_writestr(&tcpbuf, sock, "\r\n");
+    tcp_writestr(&tcpbuf, sock, "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><title>متابعة عميل</title><style>body{background:#151b22;color:#ddd;font:16px sans-serif;margin:2em}input,select,button{padding:.5em;margin:.3em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #555;padding:.5em;text-align:right}code{direction:ltr;display:inline-block}</style></head><body><h1>متابعة CCcam</h1><p>جلسة واحدة مشتركة للمشرفين؛ البدء يستبدل الجلسة السابقة، وإعادة تحميل الإعدادات توقفها. تبدأ المتابعة للطلبات الجديدة فقط. اختيار العميل يملأ آخر قناة مسجلة إن توفرت، وقد لا تكون القناة الحالية؛ يمكن تعديلها يدوياً. بعض أسباب الرفض غير مسجلة في هذه النسخة. الأحداث المشتركة تخص ECM وقد يشارك فيه عملاء آخرون؛ إرسال CW لا يثبت ظهور الصورة.</p>");
+    snprintf(out, sizeof(out), "<form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='start'><label>العميل <select name='client' required onchange='traceChoose(this)'><option value='' disabled%s>اختر عميلاً</option>", trace_csrf, snap->active ? "" : " selected");
+    tcp_writestr(&tcpbuf, sock, out);
+    {
+        struct trace_option { uint32_t id; int connected; uint16_t caid, sid; uint32_t provider; char name[64]; };
+        struct trace_option *options = calloc(4096, sizeof(*options));
+        size_t n = 0, k;
+        int truncated = 0;
+        if (options) {
+            struct cccam_server_data *server;
+            user_trace_config_lock();
+            server = cfg.cccam.server;
+            while (server) {
+                struct cc_client_data *client = server->client;
+                while (client) {
+                    if (!(server->flags & FLAG_DELETE) && !(client->flags & FLAG_DELETE)) {
+                        if (n == 4096) { truncated = 1; break; }
+                        options[n].id = client->id;
+                        options[n].connected = client->connection.status > 0;
+                        options[n].caid = client->lastecm.caid;
+                        options[n].provider = client->lastecm.prov;
+                        options[n].sid = client->lastecm.sid;
+                        memcpy(options[n].name, client->user, sizeof(options[n].name));
+                        options[n].name[sizeof(options[n].name)-1] = 0;
+                        ++n;
+                    }
+                    client = client->next;
+                }
+                if (truncated) break;
+                server = server->next;
+            }
+            user_trace_config_unlock();
+            for (k = 0; k < n; ++k) {
+                char name[384]; html_esc(name, sizeof(name), options[k].name);
+                snprintf(out, sizeof(out), "<option value='%u'%s data-caid='%04X' data-provid='%06X' data-sid='%04X'>%s (ID %u، %s، آخر قناة %04X:%06X:%04X)</option>", options[k].id,
+                    snap->active && snap->target.client_id == options[k].id ? " selected" : "",
+                    options[k].caid, options[k].provider, options[k].sid, name, options[k].id,
+                    options[k].connected ? "متصل" : "غير متصل", options[k].caid, options[k].provider, options[k].sid);
+                tcp_writestr(&tcpbuf, sock, out);
+            }
+            free(options);
+        }
+        if (truncated) tcp_writestr(&tcpbuf, sock, "<option disabled>القائمة محدودة بأول 4096 عميل</option>");
+        if (!options) tcp_writestr(&tcpbuf, sock, "<option disabled>تعذر تحميل العملاء</option>");
+    }
+    snprintf(out, sizeof(out), "</select></label><label>CAID <input name='caid' required maxlength='4' value='%04X'></label><label>Provider <input name='provid' required maxlength='6' value='%06X'></label><label>SID <input name='sid' required maxlength='4' value='%04X'></label><button type='submit'>بدء متابعة جديدة</button></form><form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='stop'><button type='submit'>إيقاف</button></form>", snap->active ? snap->target.caid : 0, snap->active ? snap->target.provider : 0, snap->active ? snap->target.sid : 0, trace_csrf);
+    tcp_writestr(&tcpbuf, sock, out);
+    snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | القناة: <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><table><tr><th>الوقت</th><th>المحاولة</th><th>الحدث</th><th>النطاق</th><th>المصدر (نوع / ID داخلي)</th><th>المدة ms</th><th>التفاصيل</th></tr>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
+    tcp_writestr(&tcpbuf, sock, out);
+    for (i = 0; i < snap->count; ++i) {
+        struct user_trace_event *e = &snap->events[i];
+        char safe[768], timestr[32];
+        time_t timestamp = e->timestamp;
+        html_esc(safe, sizeof(safe), e->detail);
+        mcs_format_local_time(timestr, sizeof(timestr), timestamp, "%H:%M:%S");
+        snprintf(out, sizeof(out), "<tr><td>%s</td><td>%llu</td><td>%s</td><td>%s</td><td>%d / %d</td><td>%u</td><td>%s</td></tr>", timestr, (unsigned long long)e->attempt, trace_type_name(e->type), e->shared ? "ECM مشترك" : "العميل", e->source_type, e->source_id, e->elapsed_ms, safe);
+        tcp_writestr(&tcpbuf, sock, out);
+    }
+    tcp_writestr(&tcpbuf, sock, "</table></section><p><a href='/user-trace'>تحديث يدوي</a> | <a href='/'>الرئيسية</a></p><script>function traceChoose(s){const o=s.options[s.selectedIndex];const c=o.dataset.caid,p=o.dataset.provid,i=o.dataset.sid;document.querySelector('[name=caid]').value=c&&c!='0000'?c:'';document.querySelector('[name=provid]').value=p||'000000';document.querySelector('[name=sid]').value=i&&i!='0000'?i:'';}setInterval(async function(){try{const r=await fetch('/user-trace',{cache:'no-store'});if(!r.ok)return;const doc=new DOMParser().parseFromString(await r.text(),'text/html');const n=doc.getElementById('trace-data');if(n)document.getElementById('trace-data').innerHTML=n.innerHTML;}catch(e){}},5000);</script></body></html>");
+    tcp_flush(&tcpbuf, sock);
+    free(snap);
+}
+#endif
+
 void *gererClient(struct connect_data *param)
 {
 	int sock = param->sock;
@@ -7729,7 +7944,10 @@ void *gererClient(struct connect_data *param)
 	int retval = poll(&pfd, 1, 2000);
 
 	//printf("\n*Connexion de %s(%d)\n", tt, sock); // print pid
-	dynbuf_init(&req.dbf, 1024);
+	if (!dynbuf_init(&req.dbf, 1024)) {
+		close(sock);
+		return NULL;
+	}
 
 	if ( retval>0 )
 	if ( pfd.revents & (POLLIN|POLLPRI) ) 
@@ -7884,6 +8102,30 @@ void *gererClient(struct connect_data *param)
 				else if (strcmp(req.path,"/restart")==0) {
 					if (!cfg.http.show.norestart) http_send_restart(sock,&req);
 				}
+				else if (strcmp(req.path,"/diagnostics")==0) {
+					http_send_diagnostics(sock,&req);
+				}
+				else if (strcmp(req.path,"/debug-ecm")==0) {
+					http_send_debug_ecm(sock,&req);
+				}
+				else if (strcmp(req.path,"/server-stats")==0) {
+					http_send_server_stats(sock,&req);
+				}
+#ifdef CCCAM_SRV
+				else if (strcmp(req.path,"/user-trace")==0) {
+					if (!cfg.http.show.nocccam) http_send_user_trace(sock,&req);
+				}
+#endif
+				else if (strcmp(req.path,"/log-viewer")==0) {
+					debugf(0, " [HTTP] /log-viewer requested\n");
+					http_send_log_viewer(sock,&req);
+				}
+				else if (strcmp(req.path,"/cache-analytics")==0) {
+					http_send_cache_analytics(sock,&req);
+				}
+				else if (strcmp(req.path,"/auto-tuning")==0) {
+					http_send_auto_tuning(sock,&req);
+				}
 				else if ( !memcmp(req.path,"/editor",7) )  {
 					if (!cfg.http.show.noeditor) {
 						int index=0;
@@ -8003,7 +8245,7 @@ void *gererClient(struct connect_data *param)
 /* ==========================================================================
  * BISS Key Management Page
  * ========================================================================== */
-void http_send_biss(int sock, http_request *req)
+void http_send_biss(int sock, struct http_request *req)
 {
 	struct tcp_buffer_data tcpbuf;
 	char *str_action = isset_get(req, "action");

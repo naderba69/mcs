@@ -155,6 +155,8 @@ void *reread_config_thread(void *param)
 				if (!fs->nowatch) inotify_rm_watch(fd, fs->wd);
 				fs = fs->next;
 			}
+			user_trace_config_lock();
+			user_trace_stop_active();
 			free_filenames( &cfg );
 			reread_config(&cfg);
 			sleep(1);
@@ -167,6 +169,7 @@ void *reread_config_thread(void *param)
 				debugf( DBG_ERROR, " !!! CONFIG: reloaded config has no profile section -- the server is serving nothing until it is fixed\n" );
 			check_config(&cfg);
 			cfg_set_id_counters(&cfg);
+			user_trace_config_unlock();
 		}
 	}
 	return NULL;

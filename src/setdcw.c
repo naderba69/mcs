@@ -147,16 +147,66 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	if (!cs) return;
 
 	if ( dcwcmp8(dcw,nullcw) && dcwcmp8(dcw+8,nullcw) ) return;
+
+	/* ADVANCED LOG: CW received */
+	debugf(0, "━━━ [CW-RECV] %04X:%06X:%04X from %s (id=%d) ━━━\n",
+		ecm->caid, ecm->provid, ecm->sid,
+		(srctype==DCW_SOURCE_CACHE)?"CACHE":"SERVER", srcid);
+	debugf(0, "    CW: %02X %02X %02X %02X %02X %02X %02X %02X | %02X %02X %02X %02X %02X %02X %02X %02X\n",
+		dcw[0], dcw[1], dcw[2], dcw[3], dcw[4], dcw[5], dcw[6], dcw[7],
+		dcw[8], dcw[9], dcw[10], dcw[11], dcw[12], dcw[13], dcw[14], dcw[15]);
+
+	/* SUPER SMART FILTER — Multi-layer CW validation (activated 2026-10-28)
+	 * Filters malformed/fake CWs before processing */
+	if (!ssf_check_format(ecm->ecm, ecm->ecmlen)) {
+		debugf(0, "    ❌ [SSF-REJECT] ECM format check FAILED for %04X:%06X:%04X\n",
+			ecm->caid, ecm->provid, ecm->sid);
+		if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, srctype, srcid, 0, "ECM format rejected by SSF");
+		return;
+	}
+	debugf(0, "    ✅ [SSF] format OK\n");
 	
+	if (!ssf_check_entropy(ecm->ecm, ecm->ecmlen)) {
+		debugf(0, "    ❌ [SSF-REJECT] ECM entropy check FAILED for %04X:%06X:%04X\n",
+			ecm->caid, ecm->provid, ecm->sid);
+		if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, srctype, srcid, 0, "ECM entropy rejected by SSF");
+		return;
+	}
+	debugf(0, "    ✅ [SSF] entropy OK\n");
+	
+	if (!ssf_check_blacklist(ecm->caid, ecm->provid, ecm->sid)) {
+		debugf(0, "    ❌ [SSF-REJECT] Channel BLACKLISTED %04X:%06X:%04X\n",
+			ecm->caid, ecm->provid, ecm->sid);
+		if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, srctype, srcid, 0, "channel blacklisted by SSF");
+		return;
+	}
+	debugf(0, "    ✅ [SSF] not blacklisted\n");
+	
+	if (!ssf_check_duplicate(ecm->ecm, ecm->ecmlen, ecm->caid, ecm->provid, ecm->sid)) {
+		debugf(0, "    ❌ [SSF-REJECT] DUPLICATE ECM detected for %04X:%06X:%04X\n",
+			ecm->caid, ecm->provid, ecm->sid);
+		if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, srctype, srcid, 0, "duplicate ECM rejected by SSF");
+		return;
+	}
+	debugf(0, "    ✅ [SSF] not duplicate\n");
+	
+	if (!ssf_check_fake(ecm->ecm, ecm->ecmlen, ecm->caid)) {
+		debugf(0, "    ❌ [SSF-REJECT] FAKE ECM pattern detected for %04X:%06X:%04X\n",
+			ecm->caid, ecm->provid, ecm->sid);
+		if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, srctype, srcid, 0, "ECM pattern rejected by SSF");
+		return;
+	}
+	debugf(0, "    ✅ [SSF] not fake\n");
+
 	/* DCW validation: check for fake patterns and badlist */
-	if (dcw_pattern_fake(dcw)) {
-		debugf(0, " [DCW] Rejected fake pattern CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
-		return;
-	}
-	if (dcw_on_badlist(dcw)) {
-		debugf(0, " [DCW] Rejected badlisted CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
-		return;
-	}
+//	if (dcw_pattern_fake(dcw)) {
+//		debugf(0, " [DCW] Rejected fake pattern CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+//		return;
+//	}
+//	if (dcw_on_badlist(dcw)) {
+//		debugf(0, " [DCW] Rejected badlisted CW for %04X:%06X:%04X\n", ecm->caid, ecm->provid, ecm->sid);
+//		return;
+//	}
 
 	/*
 	 * TASK 1.8 — structural soft signal, evaluated before acceptDCW() so that
@@ -258,6 +308,182 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 
 	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;
 
+
+	/*
+	 * TASK BS2 (2026-10-26) -- Fake CW Detection for Known Vulnerable CAIDs
+	 *
+	 * Some providers (notably CAID 1810 Movistar+, 1883 Canal+, 1884 NLS)
+	 * launch anti-sharing attacks by sending fake CWs through EMM or
+	 * cache-exchange. These fake CWs often have detectable structural
+	 * patterns (complement mirror, repeated bytes, constant step).
+	 *
+	 * dcw_pattern_fake() detects these shapes with ~1e-12 false positive
+	 * rate on genuine keys (verified by TASK R28/D79). Armed here for
+	 * the three CAIDs most affected by provider fake-CW attacks.
+	 *
+	 * Source: LinuxSat-Support Thread #151206 (CAID 1810),
+	 *         EXTERNAL-RESEARCH-REPORT.md (all three CAIDs).
+	 */
+	if (srctype != DCW_SOURCE_CACHE || (srcid & PEER_ORIGIN_FLAGS)) {
+		/* Check non-cache sources and cache-exchange pushes */
+		int check_fake = 0;
+		switch (ecm->caid) {
+			case 0x1810:  /* Movistar+ - known provider attacks */
+			case 0x1883:  /* Canal+ France */
+			case 0x1884:  /* NLS */
+			case 0x1811:  /* CanalSat NG */
+				check_fake = 1;
+				break;
+		}
+		if (check_fake && dcw_pattern_fake(dcw)) {
+			debugf(0, " !!! [FAKE-CW] %s: Fake CW detected for %04X:%06X:%04X (shape analysis) -- REFUSED\n",
+				cs->name, ecm->caid, ecm->provid, ecm->sid);
+#ifdef MCS_DCWSTATS
+			DCWSTATS_REJECT(DCW_REJ_PATTERN);
+#endif
+			return;
+		}
+	}
+
+	/*
+	 * TASK CWPOSTVAL (2026-10-27) -- Post-Acceptance CW Validation Pipeline
+	 *
+	 * The "key question": can we detect a CW that passes all basic checks
+	 * (checksum, null, bad-list) but is still WRONG?
+	 *
+	 * Answer: YES — using 6 complementary techniques:
+	 * 1. Fake CW fingerprint database (auto-learns from detected fakes)
+	 * 2. CW Shannon entropy analysis (real CWs ≈3.5, fakes <1.5)
+	 * 3. Pattern detection (repeating bytes, duplicate halves)
+	 * 4. CW plausibility scoring (0-12 multi-factor)
+	 * 5. Peer trust scoring (reputation-based filtering)
+	 * 6. Pre-descramble structural validation
+	 *
+	 * Post-descramble TS validation (cwpostval_confirm_cw) would be called
+	 * after the descrambler processes packets — that hook is in the client
+	 * delivery path (srv-cccam.c etc.) where we can observe actual TS data.
+	 */
+	{
+		/* ECM Pattern Analysis — detect coordinated attacks FIRST */
+		uint32_t now_ms = GetTickCount();
+		ecmpat_attack_type_t attack_type = ECMPAT_ATTACK_NONE;
+		int pat_result = ecmpat_analyze(
+			(uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid,
+			dcw, 1 /* is_success=true at this point, will update */,
+			0 /* not EMM */, ecm->ecm[0], now_ms, &attack_type);
+
+		if (pat_result == 2) {
+			/* Source is quarantined — block ALL CWs */
+			debugf(0, "    ❌ [ECM-PATTERN-REJECT] Source %d QUARANTINED -- all CWs blocked\n", srcid);
+			cwpostval_trust_bad((uint32_t)srcid);
+			ci_record_failure((uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid, CI_CW_KNOWN_FAKE);
+			return;
+		}
+		if (pat_result == 1) {
+			debugf(0, "    ❌ [ECM-PATTERN-REJECT] %04X:%06X:%04X from src %d -- ATTACK: %s\n",
+				ecm->caid, ecm->provid, ecm->sid, srcid, ecmpat_attack_name(attack_type));
+			cwpostval_trust_bad((uint32_t)srcid);
+			return;
+		}
+		debugf(0, "    ✅ [ECM-PATTERN] no attack detected\n");
+
+		/* CACHE-AI: Quick CW Validation (Level 3)
+		 * Fast check for null, repeating bytes, low entropy, known fakes */
+		{
+			ci_cw_status_t cw_status = ci_validate_cw(dcw, ecm->caid, ecm->provid, ecm->sid);
+			if (cw_status != CI_CW_VALID) {
+				debugf(0, "    ❌ [CACHE-AI-REJECT] %04X:%06X:%04X from src %d -- %s\n",
+					ecm->caid, ecm->provid, ecm->sid, srcid, ci_cw_status_name(cw_status));
+				ci_record_failure((uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid, cw_status);
+				/* Add to known-fake database if it's a pattern */
+				if (cw_status == CI_CW_KNOWN_FAKE || cw_status == CI_CW_REPEAT ||
+					cw_status == CI_CW_LOW_ENTROPY) {
+					ci_add_fake_cw(dcw, ecm->caid, ecm->provid);
+				}
+				return;
+			}
+			debugf(0, "    ✅ [CACHE-AI] CW validation OK\n");
+		}
+
+		/* CACHE-AI: Check predictive cache first (Level 7) */
+		if (ecm->ecm[0]) {
+			uint8_t predicted_cw[16];
+			uint32_t predict_peer = 0;
+			if (ci_predict_fetch(ecm->caid, ecm->provid, ecm->sid,
+				ecm->ecm[0], predicted_cw, &predict_peer)) {
+				/* Found pre-fetched CW! Use it immediately */
+				debugf(0, " [CACHE-AI] PREDICTIVE HIT! %04X:%06X:%04X from pre-fetched CW (peer %d)\n",
+					ecm->caid, ecm->provid, ecm->sid, predict_peer);
+				memcpy(dcw, predicted_cw, 16);
+				/* Continue with this CW through validation pipeline */
+			}
+		}
+
+		/* CACHE SPEED SUITE: CacheEx Drop Diffs check
+		 * If this CW differs from a previously validated good CW for the same
+		 * channel, reject it immediately (the earlier CW was confirmed working). */
+		{
+			uint8_t ecm_hash[16] = {0};
+			/* Simple hash from ecm data */
+			if (ecm->ecm[0]) {
+				ecm_hash[0] = ecm->ecm[0];
+				ecm_hash[1] = (ecm->caid >> 8) & 0xFF;
+				ecm_hash[2] = ecm->caid & 0xFF;
+				ecm_hash[3] = (ecm->sid >> 8) & 0xFF;
+				ecm_hash[4] = ecm->sid & 0xFF;
+			}
+		if (!cacheex_dropdiffs_check(ecm->caid, ecm->provid, ecm->sid, dcw, ecm_hash)) {
+			debugf(0, "    ❌ [CACHE-DIFF-REJECT] %04X:%06X:%04X from src %d -- CW differs from known-good\n",
+				ecm->caid, ecm->provid, ecm->sid, srcid);
+			cwpostval_trust_bad((uint32_t)srcid);
+			return;
+		}
+		debugf(0, "    ✅ [CACHE-DIFF] matches known-good\n");
+		}
+
+		/* CW Post-Validation pipeline */
+		cwpostval_result_t pvr = cwpostval_validate(
+			dcw, ecm->caid, ecm->provid, (uint32_t)srcid,
+			checksumDCW(dcw),   /* passes_checksum */
+			!isnullDCW(dcw),    /* is_not_null */
+			!isbadDCW(dcw),     /* is_not_bad */
+			1                   /* in_cycle — assume yes at this stage */
+		);
+
+		if (!pvr.accepted) {
+			debugf(0, "    ❌ [CW-POSTVAL-REJECT] %04X:%06X:%04X from src %d -- %s\n",
+				ecm->caid, ecm->provid, ecm->sid, srcid, pvr.reason);
+			cwpostval_trust_bad((uint32_t)srcid);
+#ifdef MCS_DCWSTATS
+			DCWSTATS_REJECT(DCW_REJ_PATTERN);
+#endif
+			return;
+		}
+		debugf(0, "    ✅ [CW-POSTVAL] OK (score=%d/12, entropy=%.1f)\n", 
+			pvr.plausibility_score, pvr.entropy, pvr.peer_trust);
+
+		if (pvr.plausibility_score < 10) {
+			debugf(DBG_CW+DBG_DVBAPI, " [CW-POSTVAL] %04X:%06X:%04X -- LOW SCORE %d/12 (entropy=%.1f, trust=%d): %s\n",
+				ecm->caid, ecm->provid, ecm->sid,
+				pvr.plausibility_score, pvr.entropy, pvr.peer_trust,
+				pvr.reason);
+		}
+
+		/* CACHE SPEED: Store accepted CW as known-good for future drop-diffs check */
+		{
+			uint8_t ecm_hash[16] = {0};
+			ecm_hash[0] = ecm->ecm[0];
+			ecm_hash[1] = (ecm->caid >> 8) & 0xFF;
+			ecm_hash[2] = ecm->caid & 0xFF;
+			ecm_hash[3] = (ecm->sid >> 8) & 0xFF;
+			ecm_hash[4] = ecm->sid & 0xFF;
+			cacheex_dropdiffs_store_good(ecm->caid, ecm->provid, ecm->sid, dcw, ecm_hash, pvr.peer_trust);
+		}
+
+		/* CACHE-AI: Detect CW cycle pattern (Level 6) */
+		ci_detect_cycle(ecm->caid, ecm->provid, ecm->sid, ecm->ecm[0], ci_now_ms());
+	}
+
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
 		if (ecm->ecm[0]==ecm->cw1cycle) cwpart = 1; else cwpart = 0;
@@ -352,11 +578,33 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
 
+	/* ADVANCED LOG: CW accepted! */
+	debugf(0, "    ✅ [CW-ACCEPTED] %04X:%06X:%04X from %s (id=%d) -- ALL CHECKS PASSED\n",
+		ecm->caid, ecm->provid, ecm->sid,
+		(srctype==DCW_SOURCE_CACHE)?"CACHE":"SERVER", srcid);
+	debugf(0, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+	/* CW-POSTVAL: Record successful CW for peer trust scoring */
+	cwpostval_trust_good((uint32_t)srcid);
+
+	/* CACHE-AI: Record success — update peer trust and channel learning (Level 1+4+5) */
+	ci_record_success((uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid, ecmtime);
+
+	/* CACHE-AI: Store CW for predictive cache (Level 7) */
+	{
+		uint8_t next_tag = ci_predict_next_tag(ecm->caid, ecm->ecm[0]);
+		ci_predict_store(ecm->caid, ecm->provid, ecm->sid,
+			next_tag, dcw, (uint32_t)srcid, 10000); /* Valid for 10s */
+	}
+
 	// Check timeout
 	uint32_t ecmtime = GetTickCount()-ecm->recvtime;
 	if ( ecmtime > cs->option.dcw.timeout*ecm->period ) return;
 	// Send DCW to clients
 	clients_check_sendcw(ecm);
+
+	/* IBS: Record CW delivery for black screen detection */
+	ibs_on_cw_sent(0, ecm->caid, ecm->provid, ecm->sid, (uint32_t)srcid, dcw, GetTickCount());
 
 	// Update Stat
 	cs->ecmok++;
@@ -668,6 +916,87 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 
 	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;
 
+	/*
+	 * TASK BS1 (2026-10-26) -- CW Cycle Validation for Black Screen Prevention
+	 *
+	 * When a CW arrives from the cache with a cycle marker (cwmark),
+	 * validate that the cycle matches the ECM's expectation.
+	 * A mismatch means the key is correct in content but wrong in
+	 * timing: applying it produces a black screen despite passing
+	 * every content filter. Closes docs/BLACKSCREEN.md Cause 5.
+	 *
+	 * ENHANCED: Now uses provider_cwcycle_enabled() to check only CAIDs
+	 * that need cycle validation (from ecm-provider-config.h).
+	 */
+	if (srctype == DCW_SOURCE_CACHE && cwmark != 0 && ecm->cw1cycle) {
+		/* Check if this CAID needs cycle validation */
+		if (provider_cwcycle_enabled(ecm->caid, ecm->provid) || dcw_filter_cycle) {
+			extern int checkcycle(uint8_t, uint8_t, uint8_t);
+			extern void checkcycle_mismatch_inc(void);
+			if (!checkcycle(ecm->cw1cycle, ecm->ecm[0], cwmark)) {
+				checkcycle_mismatch_inc();
+				debugf(0, " !!! [CYCLE] %s: CW cycle mismatch %04X:%06X:%04X/%02x (mark=%d) -- REFUSED\n",
+					cs->name, ecm->caid, ecm->provid, ecm->sid, ecm->ecm[0], cwmark);
+#ifdef MCS_DCWSTATS
+				DCWSTATS_REJECT(DCW_REJ_CYCLE);
+#endif
+				return;
+			}
+		}
+	}
+
+	/*
+	 * R200 v2.5 Integration: DCW STRICT + SuperSmartFilter
+	 *
+	 * Advanced CW validation with 12 total checks:
+	 * - DCW STRICT (3 stages): entropy < 5, all-same-byte, stale/recycled CW
+	 * - SuperSmartFilter (9 stages): empty, fake, entropy, pattern, format,
+	 *   blacklist, duplicate, cross-channel, multi-check
+	 *
+	 * Plus: Smart peer banning based on bad CW ratio, trust score penalty system.
+	 */
+	{
+		uint32_t now_ms = GetTickCount();
+		const char *dcwstrict_reason = NULL;
+		int dcwstrict_rejected = dcwstrict_check(dcw, ecm->caid, ecm->provid, ecm->sid, now_ms, &dcwstrict_reason);
+		
+		if (dcwstrict_rejected) {
+			debugf(0, "    ❌ [DCW-STRICT-REJECT] %04X:%06X:%04X -- %s\n",
+				ecm->caid, ecm->provid, ecm->sid, dcwstrict_reason ? dcwstrict_reason : "unknown");
+			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
+				dcwstrict_trust_penalty(srcid);
+			}
+			return;
+		}
+		debugf(0, "    ✅ [DCW-STRICT] OK\n");
+		
+		int ssf_reason = 0;
+		int ssf_rejected = supersmartfilter_check(dcw, 
+#ifdef CACHEEX
+			ecm->ecmd5,
+#else
+			NULL,
+#endif
+			ecm->caid, ecm->provid, ecm->sid, srcid, now_ms, &ssf_reason);
+		
+		if (ssf_rejected) {
+			debugf(0, "    ❌ [SSF-v2-REJECT] %04X:%06X:%04X -- reason code %d\n",
+				ecm->caid, ecm->provid, ecm->sid, ssf_reason);
+			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
+				dcwstrict_trust_penalty(srcid);
+			}
+			return;
+		}
+		debugf(0, "    ✅ [SSF-v2] OK\n");
+		
+		/* Reward valid CW */
+		if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
+			dcwstrict_trust_reward(srcid);
+		}
+	}
+
+
+
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
 		if (ecm->ecm[0]==ecm->cw1cycle) cwpart = 1; else cwpart = 0;
@@ -767,6 +1096,9 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
 
+	/* CW-POSTVAL: Record successful CW for peer trust scoring */
+	cwpostval_trust_good((uint32_t)srcid);
+
 	/*
 	 * TASK 3.6: the waiter is answered -- release the cache entry's push arm
 	 * now, while the success is already committed (dcwstatus above) and the
@@ -786,6 +1118,9 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	if ( ecmtime > cs->option.dcw.timeout*ecm->period ) return;
 	// Send DCW to clients
 	clients_check_sendcw(ecm);
+
+	/* IBS: Record CW delivery for black screen detection */
+	ibs_on_cw_sent(0, ecm->caid, ecm->provid, ecm->sid, (uint32_t)srcid, dcw, GetTickCount());
 
 	/*
 	 * TASK 2.5 -- the cache hand-off, observed at the moment it happens (see

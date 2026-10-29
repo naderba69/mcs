@@ -59,6 +59,7 @@ struct ecm_request {
 	int ecmlen;
 	uint8_t ecm[MAX_ECM_SIZE];
 	uint32_t hash;
+	uint64_t trace_instance; /* Assigned lazily while lockecm is held. */
 #ifdef CACHEEX
 	unsigned char ecmd5[16]; //MD5_DIGEST_LENGTH];
 #endif
@@ -92,6 +93,9 @@ struct ecm_request {
         uint32_t dcwchangetime;
 	} lastdecode; // maybe we have 3 different channels with same caid:provid:sid ???
 #endif
+
+	// Debug ECM tracking
+	int debug_request_id;  // Request ID from debug_ecm_record_request()
 
 	// SERVERS that received ecm request
 	struct {

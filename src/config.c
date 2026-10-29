@@ -1,6 +1,11 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "common.h"
+#include "safe-time.h"
 #include "cwtime.h"   /* TASK 2.3: CWT_MAX_FLOOR, so the clamp and the module agree */
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -191,8 +196,22 @@ void free_allhosts( struct config_data *cfg )
 	}
 }
 
-#if defined(CAMD35_SRV) || defined(CAMD35_CLI)
+#if defined(CAMD35_SRV) || defined(CAMD35_CLI) || defined(CS378X_SRV) || defined(CS378X_CLI)
 void camd35_init_data( char *user, char *pass, AES_KEY *encryptkey, AES_KEY *decryptkey, uint32_t *ucrc);
+
+/* Keys and CRC may be embedded in packed client/server structures. */
+static void camd35_init_packed_data(char *user, char *pass, void *encrypt_out,
+                                    void *decrypt_out, void *crc_out)
+{
+    AES_KEY encryptkey, decryptkey;
+    uint32_t ucrc;
+    memcpy(&encryptkey, encrypt_out, sizeof(encryptkey));
+    memcpy(&decryptkey, decrypt_out, sizeof(decryptkey));
+    camd35_init_data(user, pass, &encryptkey, &decryptkey, &ucrc);
+    memcpy(encrypt_out, &encryptkey, sizeof(encryptkey));
+    memcpy(decrypt_out, &decryptkey, sizeof(decryptkey));
+    memcpy(crc_out, &ucrc, sizeof(ucrc));
+}
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -475,11 +494,22 @@ struct global_user_data
 };
 
 
-void parse_option_shares( struct sharelimit_data sharelimits[100] )
+/* Destinations are arrays inside packed structures. Build entries locally and
+ * copy bytes back, rather than dereferencing a potentially unaligned pointer.
+ * The size argument also makes the sentinel reservation explicit. */
+void parse_option_shares(void *destination, size_t destination_size)
 {
+	struct sharelimit_data entries[100];
+	size_t capacity = destination_size / sizeof(entries[0]);
+	const uint16_t terminator = 0xFFFF;
 	char str[512];
 	int i;
-	int count = 0;
+	size_t count = 0;
+	if (!destination || capacity == 0) return;
+	if (capacity > sizeof(entries) / sizeof(entries[0]))
+		capacity = sizeof(entries) / sizeof(entries[0]);
+	/* Retain padding and untouched sentinel fields in non-packed builds. */
+	memcpy(entries, destination, capacity * sizeof(entries[0]));
 	while ( parse_hex(str)>0 ) {
 		uint16_t caid;
 		uint32_t provid[16];
@@ -489,9 +519,14 @@ void parse_option_shares( struct sharelimit_data sharelimits[100] )
 		parse_spaces();
 		if (*iparser==':') { // PROVIDER ID
 			iparser++;
+			int overflow_warned = 0;
 			while (parse_hex(str)>0) {
-				provid[nbprovid] = hex2int(str);
-				nbprovid++;
+				if (nbprovid < (int)(sizeof(provid) / sizeof(provid[0])))
+					provid[nbprovid++] = hex2int(str);
+				else if (!overflow_warned) {
+					debugf(getdbgflag(DBG_CONFIG,0,0), " config(,%d): too many providers in share limit, extra entries dropped\n", iparser-currentline);
+					overflow_warned = 1;
+				}
 				parse_spaces();
 				if (*iparser=='&') iparser++; else break;
 			}
@@ -502,20 +537,23 @@ void parse_option_shares( struct sharelimit_data sharelimits[100] )
 			}
 		} else break; // ERROR
 		for (i=0; i<nbprovid; i++) {
-			sharelimits[count].caid = caid;
-			sharelimits[count].provid = provid[i];
-			sharelimits[count].uphops = uphops;
+			if (count >= capacity - 1) break;
+			entries[count].caid = caid;
+			entries[count].provid = provid[i];
+			entries[count].uphops = uphops;
 			count++;
-			if (count>=99) {
+			if (count >= capacity - 1) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(,%d): too many share limits...\n",iparser-currentline);
 				break;
 			}
 		}
-		if (count>=99) break;
+		if (count >= capacity - 1) break;
 		parse_spaces();
 		if (*iparser==',') iparser++;
 	}
-	sharelimits[count].caid = 0xFFFF;
+	if (count) memcpy(destination, entries, count * sizeof(entries[0]));
+	memcpy((unsigned char *)destination + count * sizeof(entries[0]) +
+	       offsetof(struct sharelimit_data, caid), &terminator, sizeof(terminator));
 }
 
 void parse_server_data( struct server_data *tsrv )
@@ -598,7 +636,7 @@ void parse_server_data( struct server_data *tsrv )
 					sids->sid = 0;
 					sids->chid = 0;
 				}
-				else if (!strcmp(str,"shares")) parse_option_shares( tsrv->sharelimits );
+				else if (!strcmp(str,"shares")) parse_option_shares( &tsrv->sharelimits, sizeof(tsrv->sharelimits) );
 				else if (!strcmp(str,"priority")) {
 					if (parse_int(str)) tsrv->priority = atoi(str);
 				}
@@ -889,6 +927,19 @@ static int parse_sidlist(uint16_t *list)
 		if (*iparser==',') iparser++;
 	}
 	return count;
+}
+
+
+/* The profile is packed; parse into an aligned temporary before copying
+ * the resulting SID array back without forming an unaligned uint16_t *. */
+static int parse_packed_sidlist(void *destination)
+{
+    uint16_t list[SKIPCWC_SID_MAX];
+    int count;
+    memcpy(list, destination, sizeof(list));
+    count = parse_sidlist(list);
+    memcpy(destination, list, sizeof(list));
+    return count;
 }
 
 int read_config(struct config_data *cfg)
@@ -1764,7 +1815,7 @@ link_radegast_server:
 							}
 						}
 
-						else if (!strcmp(str,"shares")) parse_option_shares( cli->sharelimits );
+						else if (!strcmp(str,"shares")) parse_option_shares( &cli->sharelimits, sizeof(cli->sharelimits) );
 #ifdef CACHEEX
 						else if (!strcmp(str,"cacheex_mode")) {
 							if (parse_hex(str)) cli->cacheex_mode = hex2int(str);
@@ -1775,7 +1826,7 @@ link_radegast_server:
 					}
 					if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 				}
-				camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
+				camd35_init_packed_data(cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
 				cfg_addcamd35client(camd35, cli);
 			}
 		}
@@ -1869,7 +1920,7 @@ link_radegast_server:
 							}
 						}
 
-						else if (!strcmp(str,"shares")) parse_option_shares( cli->sharelimits );
+						else if (!strcmp(str,"shares")) parse_option_shares( &cli->sharelimits, sizeof(cli->sharelimits) );
 #ifdef CACHEEX
 						else if (!strcmp(str,"cacheex_mode")) {
 							if (parse_hex(str)) cli->cacheex_mode = hex2int(str);
@@ -1880,7 +1931,7 @@ link_radegast_server:
 					}
 					if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 				}
-				camd35_init_data( cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
+				camd35_init_packed_data(cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
 				//
 				cfg_addcamd35client( cs378x, cli);
 			}
@@ -1905,7 +1956,7 @@ link_radegast_server:
 				srv->handle = -1;
 				pthread_mutex_init( &srv->lock, NULL );
 				cfg_addserver(cfg, srv);
-				camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
+				camd35_init_packed_data(srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
 			}
 			else if (!strcmp(str,"KEEPALIVE")) {
 				parse_spaces();
@@ -1942,7 +1993,7 @@ link_camd35_server:
 			srv->handle = -1;
 			pthread_mutex_init( &srv->lock, NULL );
 			cfg_addserver(cfg, srv);
-			camd35_init_data( srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
+			camd35_init_packed_data(srv->user, srv->pass, &srv->encryptkey, &srv->decryptkey, &srv->ucrc);
 		}
 #endif
 
@@ -3125,7 +3176,7 @@ link_cccam_client:
 							}
 						}
 
-						else if (!strcmp(str,"shares")) parse_option_shares( cli->sharelimits );
+						else if (!strcmp(str,"shares")) parse_option_shares( &cli->sharelimits, sizeof(cli->sharelimits) );
 #ifdef CHECK_NEXTDCW
 						else if (!strcmp(str,"dcwcheck")) cli->dcwcheck = parse_boolean();
 #endif
@@ -3156,8 +3207,8 @@ link_cccam_client:
 						if (!strcmp(str,"NAME")) cli->realname = info->value;
 #ifdef EXPIREDATE
 						else if ( !strcmp(str,"ENDDATE") || !strcmp(str,"EXPIRE") ) {
-							if ( (info->value[4]=='-')&&(info->value[7]=='-') ) strptime(  info->value, "%Y-%m-%d %H", &cli->enddate);
-							else if ( (info->value[2]=='-')&&(info->value[5]=='-') ) strptime(  info->value, "%d-%m-%Y %H", &cli->enddate);
+							if ( (info->value[4]=='-')&&(info->value[7]=='-') ) mcs_parse_packed_tm( &cli->enddate, info->value, "%Y-%m-%d %H");
+							else if ( (info->value[2]=='-')&&(info->value[5]=='-') ) mcs_parse_packed_tm( &cli->enddate, info->value, "%d-%m-%Y %H");
  						}
 #endif
 						else if (!strcmp(str,"HOST")) {
@@ -3412,7 +3463,7 @@ link_mgcamd_user:
 #ifdef CHECK_NEXTDCW
 						else if (!strcmp(str,"dcwcheck")) cli->dcwcheck = parse_boolean();
 #endif
-						else if (!strcmp(str,"shares")) parse_option_shares( cli->sharelimits );
+						else if (!strcmp(str,"shares")) parse_option_shares( &cli->sharelimits, sizeof(cli->sharelimits) );
 						else {
 							struct client_info_data *info = malloc( sizeof(struct client_info_data) );
 							strcpy(info->name, str);
@@ -3435,8 +3486,8 @@ link_mgcamd_user:
 						if (!strcmp(str,"NAME")) cli->realname = info->value;
 #ifdef EXPIREDATE
 						else if ( !strcmp(str,"ENDDATE") || !strcmp(str,"EXPIRE") ) {
-							if (info->value[4]=='-') strptime(  info->value, "%Y-%m-%d %H", &cli->enddate);
-							else strptime(  info->value, "%d-%m-%Y:%H", &cli->enddate);
+							if (info->value[4]=='-') mcs_parse_packed_tm( &cli->enddate, info->value, "%Y-%m-%d %H");
+							else mcs_parse_packed_tm( &cli->enddate, info->value, "%d-%m-%Y:%H");
  						}
 #endif
 						else if (!strcmp(str,"HOST")) cli->host = add_host(cfg,info->value);
@@ -3703,7 +3754,7 @@ link_mgcamd_user:
 						else if (!strcmp(str,"sendrep")) {
 							if (parse_boolean()) peer->flags |= FLAG_CACHE_SENDREP; else peer->flags &= ~FLAG_CACHE_SENDREP;
 						}
-						else if (!strcmp(str,"shares")) parse_option_shares( peer->sharelimits );
+						else if (!strcmp(str,"shares")) parse_option_shares( &peer->sharelimits, sizeof(peer->sharelimits) );
 						parse_spaces();
 						if (*iparser==';') iparser++; else break;
 					}
@@ -4267,7 +4318,7 @@ link_mgcamd_user:
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
 				continue;
 			} else iparser++;
-			cardserver->option.skipcwc_only_total = parse_sidlist(cardserver->option.skipcwc_only);
+			cardserver->option.skipcwc_only_total = parse_packed_sidlist(cardserver->option.skipcwc_only);
 		}
 		else if (!strcmp(str,"SKIPCWC_EXCLUDE_SIDS_ACTIVE")) {
 			if (!cardserver) {
@@ -4291,7 +4342,7 @@ link_mgcamd_user:
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
 				continue;
 			} else iparser++;
-			cardserver->option.skipcwc_excl_total = parse_sidlist(cardserver->option.skipcwc_excl);
+			cardserver->option.skipcwc_excl_total = parse_packed_sidlist(cardserver->option.skipcwc_excl);
 		}
 		else if (!strcmp(str,"ECM")) {
 			if (!cardserver) {
@@ -4483,7 +4534,7 @@ link_mgcamd_user:
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
 					continue;
 				} else iparser++;
-				cardserver->option.skipcwc_only_total = parse_sidlist(cardserver->option.skipcwc_only);
+				cardserver->option.skipcwc_only_total = parse_packed_sidlist(cardserver->option.skipcwc_only);
 			}
 			else if (!strcmp(str,"SKIPCWC_EXCLUDE_SIDS_ACTIVE")) {
 				parse_spaces();
@@ -4499,7 +4550,7 @@ link_mgcamd_user:
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
 					continue;
 				} else iparser++;
-				cardserver->option.skipcwc_excl_total = parse_sidlist(cardserver->option.skipcwc_excl);
+				cardserver->option.skipcwc_excl_total = parse_packed_sidlist(cardserver->option.skipcwc_excl);
 			}
 
 			else if (!strcmp(str,"HALFNULLED")) {
@@ -7242,12 +7293,16 @@ int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs,
 		 * fake screens for black ones. With the key off (the
 		 * default) this block is inert and the decision is stock.
 		 */
-		if ( skipcwc_applies(cs->option.skipcwc,
-				cs->option.skipcwc_only_active, cs->option.skipcwc_only, cs->option.skipcwc_only_total,
-				cs->option.skipcwc_excl_active, cs->option.skipcwc_excl, cs->option.skipcwc_excl_total,
-				sid)
-		     && ca_cw_checksum_expected(caid) )
-			c = DCWFILTER_ON;
+		if (cs->option.skipcwc && ca_cw_checksum_expected(caid)) {
+			uint16_t only[SKIPCWC_SID_MAX], excl[SKIPCWC_SID_MAX];
+			memcpy(only, cs->option.skipcwc_only, sizeof(only));
+			memcpy(excl, cs->option.skipcwc_excl, sizeof(excl));
+			if (skipcwc_applies(cs->option.skipcwc,
+					cs->option.skipcwc_only_active, only, cs->option.skipcwc_only_total,
+					cs->option.skipcwc_excl_active, excl, cs->option.skipcwc_excl_total,
+					sid))
+				c = DCWFILTER_ON;
+		}
 	}
 	/* TASK R28 (D79): pattern INHERIT with the global gate OFF (the
 	 * default) keeps this decision identical to pre-R28. */

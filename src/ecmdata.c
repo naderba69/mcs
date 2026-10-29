@@ -1,3 +1,5 @@
+#include <stdlib.h>
+#include "md5.h"
 #include "common.h"
 
 #include <stdio.h>

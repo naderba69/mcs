@@ -1,3 +1,8 @@
+#include <stdint.h>
+struct mgcamdserver_data;
+struct cccam_server_data;
+struct http_request;
+char *isset_get(struct http_request *req, char *name);
 extern struct config_data cfg;
 extern struct program_data prg;
 

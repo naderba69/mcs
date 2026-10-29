@@ -1,6 +1,7 @@
 /* advanced-optimizations.c — Advanced Optimizations Implementation */
 
 #include "common.h"
+#include "debug.h"
 #include "advanced-optimizations.h"
 
 /* Global tables */

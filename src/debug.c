@@ -1,4 +1,5 @@
 #include "common.h"
+#include "log-viewer.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -199,12 +200,15 @@ void debugf(uint32_t flag, char *format, ...)
 	} else index=0;
 	
 	va_list args;
-	va_start (args, fstr);
+	va_start (args, format);
 	/* TASK 3.3 -- was vsprintf: the formatted line overflowed
 	 * debugline[1024] on long names and long evidence strings. */
 	vsnprintf( debugline+index, (int)sizeof(debugline)-index, fstr, args);
 	va_end( args );
 	debugline[sizeof(debugline)-1] = 0;
+
+	// Log Viewer: Add to log viewer (INFO level by default)
+	log_viewer_add(LOG_LEVEL_INFO, "debug", "%s", debugline);
 
 	debug(debugline);
 }

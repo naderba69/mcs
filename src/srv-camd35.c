@@ -188,6 +188,20 @@ void camd35_store_ecmclient(ECM_DATA *ecm, struct camd35_client_data *cli)
 	cli->ecm.request = ecm;
     cli->ecm.status = STAT_ECM_SENT;
 	ecm_addip(ecm, cli->ip);
+
+	/* IBS: Record ECM request from Camd35 client */
+	{
+		uint32_t bad_source = 0;
+		uint8_t bad_cw_hash[8] = {0};
+		int bs_detected = ibs_on_ecm_request(
+			cli->ip, ecm->caid, ecm->provid, ecm->sid,
+			ticks, &bad_source, bad_cw_hash);
+		if (bs_detected) {
+			debugf(0, " !!! [IBS-DETECT] BLACK SCREEN (Camd35) %04X:%06X:%04X client %08X -- source %d was WRONG\n",
+				ecm->caid, ecm->provid, ecm->sid, cli->ip, bad_source);
+			cwpostval_trust_bad(bad_source);
+		}
+	}
 }
 
 void camd35_recvmsg( struct camd35_server_data *camd35 )

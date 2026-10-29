@@ -14,6 +14,7 @@
 
 #include "caid-optimizations.h"
 #include "common.h"
+#include "debug.h"
 
 // ============================================================================
 // INITIALIZATION
@@ -21,7 +22,7 @@
 
 static inline void caid_integration_init(void) {
     caid_optimizations_init();
-    debugf(" CAID Optimizations: Initialized %d CAID-specific settings\n", caid_opt_tab.count);
+    debugf(0, " CAID Optimizations: Initialized %d CAID-specific settings\n", caid_opt_tab.count);
 }
 
 // ============================================================================
@@ -145,12 +146,12 @@ static inline int caid_integration_enable_cycle_check(uint16_t caid) {
 static inline void caid_integration_log_settings(uint16_t caid) {
     struct caid_settings *s = caid_get_settings(caid);
     if (s) {
-        debugf(" CAID %04X Settings:\n", caid);
-        debugf("   Timeout: %ums, ValidECM: %ums, Cache: %ums\n", 
+        debugf(0, " CAID %04X Settings:\n", caid);
+        debugf(0, "   Timeout: %ums, ValidECM: %ums, Cache: %ums\n",
                s->server_timeout, s->dcw_validecmtime, s->cache_timeout);
-        debugf("   Retry: %u, MaxFailed: %u, CachePriority: %u\n", 
+        debugf(0, "   Retry: %u, MaxFailed: %u, CachePriority: %u\n",
                s->dcw_retry, s->dcw_maxfailed, s->cache_priority);
-        debugf("   AvgResponse: %ums, Success: %u%%, BlackScreens: %u\n", 
+        debugf(0, "   AvgResponse: %ums, Success: %u%%, BlackScreens: %u\n",
                s->avg_response_time, s->success_rate, s->black_screen_count);
     }
 }

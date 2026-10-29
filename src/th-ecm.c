@@ -61,6 +61,15 @@ void clients_check_sendcw(ECM_DATA *ecm)
 
 
 #include "loadbalance.c"
+
+/* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT */
+#include "supersmartfilter.h"
+#include "dcwstrict.h"
+#include "cw-postvalidate.h"
+#include "ecm-pattern-analysis.h"
+#include "implicit-bs-detect.h"
+#include "cache-intelligence.h"
+#include "smart-server-select.h"
 #include "setdcw.c"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -74,6 +83,7 @@ void wakeup_sendecm() // not needed in mono-thread
 
 void ecm_faileddcw( ECM_DATA *ecm )
 {
+	if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, 0, "ECM failed; reason may be unavailable");
 	ecm->dcwstatus = STAT_DCW_FAILED;
 	ecm->checktime = 0;
 	ecm->waitserver = 0;
@@ -200,6 +210,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		if ( (cs->option.server.max>0) && (ecm->server_totalsent>=cs->option.server.max) ) {
 			if (!ecm->server_totalwait) {
 				ecm->statusmsg = "Decode failed, max servers is reached and no more servers to wait";
+				if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, ticks - ecm->recvtime, "maximum servers reached");
 				ecm_faileddcw( ecm );
 				// Send DCW to Cache if not sent
 				if ( cs->option.fallowcache && cs->option.cachesendrep && (ecm->cachestatus!=ECM_CACHE_REP) ) {
@@ -212,6 +223,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		// Check for ECM TimeOut (CAID:Provider-aware)
 		else if ( (ticks-ecm->recvtime) >= ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period ) {
 			ecm->statusmsg = "Decode failed, dcw timeout";
+			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, ticks - ecm->recvtime, "DCW timeout");
 			ecm_faileddcw( ecm );
 			// Send DCW to Cache if not sent
 			if ( cs->option.fallowcache && cs->option.cachesendrep && (ecm->cachestatus!=ECM_CACHE_REP) ) {
@@ -238,11 +250,36 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period;
 					return;
 				}
-				else if (psrvlist[0] && psrvlist[0]->srv) {
-					// SEND ECM
-					newsrv = psrvlist[0]->srv;
-					newsrv->busycard = psrvlist[0]->card; // dont save pointers!!!
-					newsrv->busycardid = psrvlist[0]->shareid;
+			else if (psrvlist[0] && psrvlist[0]->srv) {
+				// SEND ECM
+				newsrv = psrvlist[0]->srv;
+				newsrv->busycard = psrvlist[0]->card; // dont save pointers!!!
+				newsrv->busycardid = psrvlist[0]->shareid;
+
+				/* SMART-SERVER-SELECT: Check if selected server should be skipped
+				 * due to quarantine or very low trust score */
+				if (smartselect_should_skip((uint32_t)newsrv->id, ecm->caid, ecm->provid, ecm->sid, ticks)) {
+					debugf(0, " [SMART-SELECT] Server %d skipped (quarantined/low score) for %04X:%06X:%04X\n",
+						newsrv->id, ecm->caid, ecm->provid, ecm->sid);
+					/* Skip this server, try next iteration */
+					return;
+				}
+
+				/* CACHE-AI: Check if peer should be skipped (Level 2+5)
+				 * Skip banned/low-trust peers, use tier-based timeout */
+				if (ci_should_skip_peer((uint32_t)newsrv->id, ecm->caid, ecm->provid, ecm->sid)) {
+					debugf(0, " [CACHE-AI] Server %d skipped (low trust/banned) for %04X:%06X:%04X\n",
+						newsrv->id, ecm->caid, ecm->provid, ecm->sid);
+					return;
+				}
+
+				/* ECM DOUBLE CHECK — Verify CW from multiple sources (activated 2026-10-28)
+				 * For certain CAIDs, require CW confirmation from 2+ servers */
+				if (ecm_doublecheck_needed(ecm->caid)) {
+					ecm_doublecheck_start(ecm->hash, ecm->caid, ecm->provid, ecm->sid);
+					debugf(0, " [ECM-DBLCHK] Double check started for %04X:%06X:%04X hash=%08X\n",
+						ecm->caid, ecm->provid, ecm->sid, ecm->hash);
+				}
 					//debugf(0," sendecm: selected server to decode (%s:%d)\n", newsrv->host->name, newsrv->port);
 					if (newsrv->type==TYPE_NEWCAMD) {
 						if (cs_sendecm_srv(cs, newsrv, ecm)>0) {
@@ -255,6 +292,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
+							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, newsrv->type, newsrv->id, ticks - ecm->recvtime, "ECM sent to server");
 							ecm_addsrvip(ecm, newsrv->host->ip);
 						}
 					}
@@ -272,6 +310,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
+							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, newsrv->type, newsrv->id, ticks - ecm->recvtime, "ECM sent to server");
 							ecm_addsrvip(ecm, newsrv->host->ip);
 						}
 					}
@@ -289,6 +328,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
+							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, newsrv->type, newsrv->id, ticks - ecm->recvtime, "ECM sent to server");
 							ecm_addsrvip(ecm, newsrv->host->ip);
 						}
 					}
@@ -305,6 +345,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
+							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, newsrv->type, newsrv->id, ticks - ecm->recvtime, "ECM sent to server");
 							ecm_addsrvip(ecm, newsrv->host->ip);
 						}
 					}
@@ -322,6 +363,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
+							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, newsrv->type, newsrv->id, ticks - ecm->recvtime, "ECM sent to server");
 							ecm_addsrvip(ecm, newsrv->host->ip);
 						}
 					}
