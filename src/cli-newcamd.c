@@ -266,7 +266,7 @@ void cs_srv_recvmsg(struct server_data *srv)
 						break;
 					}
 
-					if (ecm->trace_instance) {
+					if (user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance)) {
 						const char *detail;
 						if (buf[2] != 0x10) detail = "Newcamd negative response; retry may follow";
 						else if (ishalfnulledcw(buf + 3)) detail = "Newcamd CW response; zero half present; validity not determined";
@@ -296,13 +296,13 @@ void cs_srv_recvmsg(struct server_data *srv)
 							case DCW_INVALID_BADLIST: why = "Newcamd CW rejected: operator BAD-DCW list"; break;
 							case DCW_INVALID_PATTERN: why = "Newcamd CW rejected: enabled pattern validation"; break;
 							}
-							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED,
+							if (user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance)) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED,
 							    TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime, why);
 							srv->ecmerrdcw ++;
 							pthread_mutex_unlock(&prg.lockecm); //###
 							break;
 						}
-						if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_VALIDATED,
+						if (user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance)) user_trace_shared_event(ecm->trace_instance, USER_TRACE_VALIDATED,
 						    TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime,
 						    "Newcamd CW passed initial validation; further gates remain");
 						srv->ecmok++;
@@ -369,7 +369,7 @@ void cs_srv_recvmsg(struct server_data *srv)
 									srv->lastecmtime = GetTickCount();
 									srv->ecmnb++;
 									srv->busy = 1;
-									if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT,
+									if (user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance)) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT,
 									    TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime,
 									    "Newcamd retry send reported success");
 									srv->ecm.request = ecm;

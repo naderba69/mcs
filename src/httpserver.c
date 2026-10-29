@@ -7794,6 +7794,17 @@ static const char *trace_type_name(enum user_trace_event_type type)
 }
 static const char *trace_detail_ar(const char *detail)
 {
+    if (!strncmp(detail, "CCcam CW response;", 18)) return "وصل رد CW من مصدر CCcam؛ لم تُحسم صلاحيته بعد";
+    if (!strncmp(detail, "CCcam NOK1 response;", 20)) return "رد مصدر CCcam بـNOK1؛ قد تُعاد المحاولة";
+    if (!strncmp(detail, "CCcam NOK2 response;", 20)) return "رد مصدر CCcam بـNOK2؛ قد تُعاد المحاولة";
+    if (!strcmp(detail, "CCcam CW passed initial validation; further gates remain")) return "اجتازت CW تحقق CCcam الأولي؛ لا تزال فحوص أخرى";
+    if (!strcmp(detail, "CCcam CW rejected: checksum validation failed")) return "رُفضت CW من CCcam: فشل تحقق checksum";
+    if (!strcmp(detail, "CCcam CW rejected: null-word validation failed")) return "رُفضت CW من CCcam: لم تجتز قاعدة الأجزاء الصفرية";
+    if (!strcmp(detail, "CCcam CW rejected: repeated-byte validation failed")) return "رُفضت CW من CCcam: لم تجتز قاعدة البايتات المتكررة";
+    if (!strcmp(detail, "CCcam CW rejected: operator BAD-DCW list")) return "رُفضت CW من CCcam: موجودة في قائمة BAD-DCW";
+    if (!strcmp(detail, "CCcam CW rejected: enabled pattern validation")) return "رُفضت CW من CCcam: لم تجتز فلتر النمط";
+    if (!strcmp(detail, "CCcam response rejected: ECM length not whitelisted")) return "رُفض رد CCcam: طول ECM غير موجود في القائمة المسموحة";
+    if (!strcmp(detail, "CCcam retry send reported success")) return "أفادت دالة الإرسال بنجاح إعادة الطلب إلى CCcam";
     if (!strcmp(detail, "Newcamd CW rejected: checksum validation failed")) return "رُفضت: فشل تحقق checksum";
     if (!strcmp(detail, "Newcamd CW rejected: null-word validation failed")) return "رُفضت: لم تجتز قاعدة أجزاء CW الصفرية";
     if (!strcmp(detail, "Newcamd CW rejected: repeated-byte validation failed")) return "رُفضت: لم تجتز قاعدة البايتات المتكررة";

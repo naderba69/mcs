@@ -72,6 +72,11 @@ uint64_t user_trace_start(const struct user_trace_target *target);
 void user_trace_stop(uint64_t session);
 int user_trace_matches(uint32_t client_id, uint16_t caid, uint32_t provider, uint16_t sid);
 uint64_t user_trace_next_instance(void);
+/* A queued response must not attach to a recycled ECM with the same hash. */
+static inline int user_trace_same_instance(uint64_t sent, uint64_t current)
+{
+    return sent != 0 && sent == current;
+}
 /* Returns zero if the request is outside the active target. */
 uint64_t user_trace_begin(uint32_t client_id, uint16_t caid, uint32_t provider,
                           uint16_t sid, uint32_t hash, uint64_t *session);

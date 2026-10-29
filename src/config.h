@@ -938,6 +938,7 @@ struct __attribute__ ((__packed__)) server_data
 		int id; // ecm id
 		uint32_t hash; // to check for ecm
 		uint32_t msgid;
+		uint64_t trace_instance_at_send; /* diagnostic ECM lifetime, zero if not traced */
 	} ecm;
 
 	// Last ECM Stat

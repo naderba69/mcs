@@ -293,6 +293,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecmnb++;
 							newsrv->busy=1;
 							newsrv->ecm.request = ecm;
+							newsrv->ecm.trace_instance_at_send = ecm->trace_instance;
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
@@ -311,6 +312,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							if (card) card->ecmnb++;
 							newsrv->busy=1;
 							newsrv->ecm.request = ecm;
+							newsrv->ecm.trace_instance_at_send = ecm->trace_instance;
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);

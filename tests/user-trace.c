@@ -28,6 +28,9 @@ int main(void)
     size_t i;
     char detail[256];
     assert(user_trace_start(NULL) == 0);
+    assert(!user_trace_same_instance(0, 0));
+    assert(!user_trace_same_instance(123, 124));
+    assert(user_trace_same_instance(123, 123));
     {
         uint8_t cw[16] = {1,2,3,6,4,5,6,15};
         uint64_t a, b, id;
