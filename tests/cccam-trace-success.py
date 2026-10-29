@@ -61,9 +61,9 @@ def main():
     if not BINARY.is_file():
         raise RuntimeError("binary not found: " + str(BINARY))
     mode = os.environ.get("MCS_TEST_RESPONSE", "full")
-    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half")
-    caid = "1884" if mode in ("full", "late", "non09half") else "09BD"
-    sid = "1136" if mode in ("full", "late", "non09half") else "014A"
+    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half", "recycled")
+    caid = "1884" if mode in ("full", "late", "non09half", "recycled") else "09BD"
+    sid = "1136" if mode in ("full", "late", "non09half", "recycled") else "014A"
     tag = os.environ.get("MCS_TEST_TAG", "0x80")
     assert tag in ("0x80", "0x81")
     with tempfile.TemporaryDirectory(prefix="mcs-trace-success-") as folder:
@@ -95,7 +95,7 @@ def main():
             env = dict(os.environ, NS_DELAYS="60")
             for name in ("NS_HALF_CW", "NS_BAD_CHECKSUM", "NS_NEGATIVE", "NS_OPPOSITE_HALF", "NS_NEGATIVE_FIRST"):
                 env.pop(name, None)
-            if mode not in ("full", "late"): env["NS_HALF_CW"] = "1"
+            if mode not in ("full", "late", "recycled"): env["NS_HALF_CW"] = "1"
             if mode in ("bad", "excluded"): env["NS_BAD_CHECKSUM"] = "1"
             if mode == "negative": env["NS_NEGATIVE"] = "1"
             if mode == "retry": env["NS_NEGATIVE_FIRST"] = "1"
@@ -137,13 +137,13 @@ def main():
                 result = subprocess.run([str(cc), "127.0.0.1", str(cccam), "traceuser", "tracepass",
                                          caid, sid, tag], capture_output=True,
                                         text=True, timeout=25, check=True)
-                expected = "TIMEOUT" if mode == "late" else ("DCW" if mode in ("full", "half", "excluded", "swap", "retry") else "NOK")
+                expected = "TIMEOUT" if mode in ("late", "recycled") else ("DCW" if mode in ("full", "half", "excluded", "swap", "retry") else "NOK")
                 assert "ECM1 tag=" + tag[2:].upper() + " " + expected in result.stdout, result.stdout
                 page = request()
                 assert "استلام ECM" in page and "ECM sent to server" in page
                 assert "cache lookup invoked; pipe delivery and result not confirmed" in page
                 assert "حركة كاش" in page
-                if mode in ("full", "late"): assert "Newcamd CW response; validity not determined" in page
+                if mode in ("full", "late", "recycled"): assert "Newcamd CW response; validity not determined" in page
                 if mode in ("half", "bad", "excluded", "swap", "wronghalf", "retry", "non09half"): assert "Newcamd CW response; zero half present; validity not determined" in page
                 if mode == "bad": assert "Newcamd CW rejected: checksum validation failed" in page
                 if mode in ("negative", "retry"): assert "Newcamd negative response; retry may follow" in page
@@ -159,6 +159,9 @@ def main():
                 if expected == "DCW":
                     assert "Newcamd CW passed initial validation; further gates remain" in page
                     assert "CW response sent; picture not verified" in page
+                elif mode == "recycled":
+                    assert "Newcamd CW passed initial validation; further gates remain" in page
+                    assert "CW response sent; picture not verified" not in page
                 elif mode == "late":
                     assert "Newcamd CW passed initial validation; further gates remain" in page
                     assert "CW committed; client dispatch skipped after DCW timeout" in page
@@ -180,7 +183,7 @@ def main():
                     assert page.count(encoded) >= 2
                 if mode in ("full", "half", "excluded", "swap", "retry"):
                     assert page.count("<summary>إظهار CW</summary>") >= 2
-                elif mode in ("bad", "wronghalf", "late", "non09half"):
+                elif mode in ("bad", "wronghalf", "late", "non09half", "recycled"):
                     assert page.count("<summary>إظهار CW</summary>") == 1
                 else:
                     assert "<summary>إظهار CW</summary>" not in page

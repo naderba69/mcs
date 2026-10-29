@@ -797,8 +797,20 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 
 #ifdef THREAD_DCW
 
-void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int cwmark, uint64_t trace_at_queue )
+void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int cwmark, uint64_t trace_at_queue, uint64_t lifetime_at_queue )
 {
+	/* The pipe carries a pointer to reusable storage. Copy the old request
+	 * under lock for the prechecks, then revalidate before any commit. */
+	ECM_DATA *queued_ecm = ecm;
+	ECM_DATA snapshot;
+	pthread_mutex_lock(&prg.lockecm);
+	if (!queued_ecm || !lifetime_at_queue || queued_ecm->lifetime_id != lifetime_at_queue) {
+		pthread_mutex_unlock(&prg.lockecm);
+		return;
+	}
+	memcpy(&snapshot, queued_ecm, sizeof(snapshot));
+	pthread_mutex_unlock(&prg.lockecm);
+	ecm = &snapshot;
 	char nullcw[16] = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
 	if ( dcwcmp16(dcw,nullcw) ) return;
 
@@ -1007,6 +1019,11 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	}
 
 	pthread_mutex_lock(&prg.lockecm);
+	ecm = queued_ecm;
+	if (ecm->lifetime_id != lifetime_at_queue) {
+		pthread_mutex_unlock(&prg.lockecm);
+		return;
+	}
 
 	if (ecm->dcwstatus==STAT_DCW_SUCCESS) {
 		pthread_mutex_unlock(&prg.lockecm);
@@ -1352,7 +1369,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
  * cycle marker the key's sender declared on the wire (0 = nothing declared).
  * Only the cache pipe consumer has it; every other producer passes 0.
  */
-inline int get_setdcwdata(uint8_t *buf, void *ecm, uint8_t *dcw, int *srctype, int *srcid, int *cwmark, uint64_t *trace_at_queue)
+inline int get_setdcwdata(uint8_t *buf, void *ecm, uint8_t *dcw, int *srctype, int *srcid, int *cwmark, uint64_t *trace_at_queue, uint64_t *lifetime_at_queue)
 {
 	int index = 1;
 	memcpy(srctype, buf+index, sizeof(int) );
@@ -1367,6 +1384,8 @@ inline int get_setdcwdata(uint8_t *buf, void *ecm, uint8_t *dcw, int *srctype, i
 	index+=1;
 	memcpy(trace_at_queue, buf+index, sizeof(*trace_at_queue));
 	index += sizeof(*trace_at_queue);
+	memcpy(lifetime_at_queue, buf+index, sizeof(*lifetime_at_queue));
+	index += sizeof(*lifetime_at_queue);
 	return index;
 }
 
@@ -1384,10 +1403,12 @@ int put_setdcwdata(uint8_t *buf, ECM_DATA *ecm, uint8_t *dcw, int srctype, int s
 	index+=16;
 	buf[index] = (uint8_t)cwmark;
 	index+=1;
-	/* All live callers queue while holding lockecm. This token is only
-	 * for trace attribution, not a validity guard for the queued CW. */
+	/* All live callers queue while holding lockecm. Trace identity controls
+	 * attribution; the independent lifetime ID guards the queued CW. */
 	memcpy(buf+index, &ecm->trace_instance, sizeof(ecm->trace_instance));
 	index += sizeof(ecm->trace_instance);
+	memcpy(buf+index, &ecm->lifetime_id, sizeof(ecm->lifetime_id));
+	index += sizeof(ecm->lifetime_id);
 	return index;
 }
 
@@ -1427,15 +1448,15 @@ void *setdcw_thread(void *param)
 		if ( retval>0 ) {
 			uint8_t buf[64];
 			int len = pipe_recv( dcwpipe[0], buf);
-			if (len == 1 + 2*(int)sizeof(int) + (int)sizeof(void*) + 16 + 1 + (int)sizeof(uint64_t)) {
+			if (len == 1 + 2*(int)sizeof(int) + (int)sizeof(void*) + 16 + 1 + 2*(int)sizeof(uint64_t)) {
 				ECM_DATA *ecm;
 				uint8_t dcw[16];
 				int srctype;
 				int srcid;
 				int cwmark = 0;
-				uint64_t trace_at_queue;
-				get_setdcwdata(buf, &ecm, dcw, &srctype, &srcid, &cwmark, &trace_at_queue);
-				ecm_setdcwdata( ecm, dcw, srctype, srcid, cwmark, trace_at_queue );
+				uint64_t trace_at_queue, lifetime_at_queue;
+				get_setdcwdata(buf, &ecm, dcw, &srctype, &srcid, &cwmark, &trace_at_queue, &lifetime_at_queue);
+				ecm_setdcwdata( ecm, dcw, srctype, srcid, cwmark, trace_at_queue, lifetime_at_queue );
 			}
 		}
 	}

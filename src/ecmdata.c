@@ -57,6 +57,8 @@ extern struct config_data cfg;
 struct ecm_request *ecmdata = NULL;
 
 int ecmindex = 0;
+/* store_ecmdata is called with lockecm held; never reset on config reload. */
+static uint64_t ecm_lifetime_sequence;
 
 
 void init_ecmdata()
@@ -229,6 +231,8 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 		}
 	}
 	cs_addecmdata(cs, new);
+	/* Exhaustion is fail-closed for queued CWs rather than reusing an ID. */
+	new->lifetime_id = ecm_lifetime_sequence == UINT64_MAX ? 0 : ++ecm_lifetime_sequence;
 	//
 	memcpy( new->ecm, ecm, ecmlen);
 	new->cs = cs;

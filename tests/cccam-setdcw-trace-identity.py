@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-setdcw-identity-') as folder:
     (src / 'x64').mkdir()
     path = src / 'setdcw.c'
     text = path.read_text()
-    marker = '\t\t\t\tget_setdcwdata(buf, &ecm, dcw, &srctype, &srcid, &cwmark, &trace_at_queue);'
+    marker = '\t\t\t\tget_setdcwdata(buf, &ecm, dcw, &srctype, &srcid, &cwmark, &trace_at_queue, &lifetime_at_queue);'
     assert text.count(marker) == 1
     injection = '''
                 if (getenv("MCS_TEST_QUEUE_TRACE")) {
