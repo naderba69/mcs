@@ -44,14 +44,19 @@ int main(void)
         id = user_trace_next_instance();
         assert(user_trace_bind_shared(first, a, 10, id));
         assert(user_trace_shared_cw(id, 1, 9, 20, "CW response", cw) == 1);
+        assert(user_trace_shared_event(id, USER_TRACE_DISPATCH_SKIPPED, 0, 0, 1001, "dispatch skipped") == 1);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 4 && snapshot.events[3].shared);
+        assert(snapshot.events[3].attempt == a && !snapshot.events[3].has_cw);
         assert(user_trace_client_cw(7, id, 10, 2, 9, 25, "CW sent", cw));
         user_trace_get_snapshot(&snapshot);
-        assert(snapshot.count == 4);
+        assert(snapshot.count == 5);
         assert(snapshot.events[2].caid == 0x09bd && snapshot.events[2].sid == 0x014a);
-        assert(snapshot.events[3].caid == 0x09bd && snapshot.events[3].has_cw);
+        assert(snapshot.events[4].caid == 0x09bd && snapshot.events[4].has_cw);
         assert(!memcmp(snapshot.events[2].cw, cw, 16));
-        assert(!memcmp(snapshot.events[3].cw, cw, 16));
+        assert(!memcmp(snapshot.events[4].cw, cw, 16));
         assert(snapshot.events[1].caid == 0x1884 && snapshot.events[1].provider == 3);
+        assert(!user_trace_shared_event(id, USER_TRACE_DISPATCH_SKIPPED, 0, 0, 1001, "dispatch skipped"));
         target.all_channels = 0;
     }
     first = user_trace_start(&target);

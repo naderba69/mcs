@@ -22,7 +22,8 @@ enum user_trace_event_type {
     USER_TRACE_SEND_FAILED,
     USER_TRACE_SOURCE_REPLY,
     USER_TRACE_VALIDATED,
-    USER_TRACE_CACHE
+    USER_TRACE_CACHE,
+    USER_TRACE_DISPATCH_SKIPPED
 };
 
 struct user_trace_target {
@@ -90,8 +91,8 @@ int user_trace_add(uint64_t session, uint64_t attempt,
  * request. A bind never backfills events that happened before the bind. */
 int user_trace_bind_shared(uint64_t session, uint64_t attempt, uint32_t hash,
                            uint64_t instance);
-/* Only send, source reply, reject, or fail events are valid at shared ECM scope. Returns
- * the number of linked attempts recorded. Never represents client delivery. */
+/* Shared ECM events never represent delivery to an individual client. Returns
+ * the number of linked attempts recorded. */
 size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type type,
                                int source_type, int source_id,
                                uint32_t elapsed_ms, const char *detail);

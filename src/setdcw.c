@@ -1115,11 +1115,23 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	 */
 	cache_clear_sendpipe( ecm );
 
+	/* Keep the diagnostic tied to this ECM lifetime across the unlocked
+	 * timeout check. It does not change the existing delivery decision. */
+	uint64_t committed_trace_instance = ecm->trace_instance;
 	pthread_mutex_unlock(&prg.lockecm);
 
 	// Check timeout
 	uint32_t ecmtime = GetTickCount()-ecm->recvtime;
-	if ( ecmtime > cs->option.dcw.timeout*ecm->period ) return;
+	if ( ecmtime > cs->option.dcw.timeout*ecm->period ) {
+		if (committed_trace_instance) {
+			pthread_mutex_lock(&prg.lockecm);
+			if (user_trace_same_instance(committed_trace_instance, ecm->trace_instance))
+				user_trace_shared_event(committed_trace_instance, USER_TRACE_DISPATCH_SKIPPED,
+				    0, 0, ecmtime, "CW committed; client dispatch skipped after DCW timeout");
+			pthread_mutex_unlock(&prg.lockecm);
+		}
+		return;
+	}
 	// Send DCW to clients
 	clients_check_sendcw(ecm);
 

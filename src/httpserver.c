@@ -7785,6 +7785,7 @@ static const char *trace_type_name(enum user_trace_event_type type)
     case USER_TRACE_SOURCE_REPLY: return "رد المصدر";
     case USER_TRACE_VALIDATED: return "اجتاز مرحلة تحقق";
     case USER_TRACE_CACHE: return "حركة كاش";
+    case USER_TRACE_DISPATCH_SKIPPED: return "تجاوز إرسال جماعي";
     case USER_TRACE_REJECTED: return "رفض استجابة";
     case USER_TRACE_FAILED: return "فشل";
     case USER_TRACE_DELIVERED: return "أرسلت استجابة CW";
@@ -7794,6 +7795,7 @@ static const char *trace_type_name(enum user_trace_event_type type)
 }
 static const char *trace_detail_ar(const char *detail)
 {
+    if (!strcmp(detail, "CW committed; client dispatch skipped after DCW timeout")) return "ثُبّت نجاح CW لكن استدعاء إرسال العملاء الجماعي تُجاوز بعد مهلة DCW";
     if (!strncmp(detail, "CCcam CW response;", 18)) return "وصل رد CW من مصدر CCcam؛ لم تُحسم صلاحيته بعد";
     if (!strncmp(detail, "CCcam NOK1 response;", 20)) return "رد مصدر CCcam بـNOK1؛ قد تُعاد المحاولة";
     if (!strncmp(detail, "CCcam NOK2 response;", 20)) return "رد مصدر CCcam بـNOK2؛ قد تُعاد المحاولة";
