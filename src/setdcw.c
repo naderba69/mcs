@@ -797,7 +797,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 
 #ifdef THREAD_DCW
 
-void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int cwmark )
+void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int cwmark, uint64_t trace_at_queue )
 {
 	char nullcw[16] = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
 	if ( dcwcmp16(dcw,nullcw) ) return;
@@ -1034,7 +1034,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		int f = cache_check_cw( ecm->recvtime, ecm->ecm[0], ecm->caid, ecm->hash, ecm->sid, dcw, cwpart);
 		pthread_mutex_unlock( &prg.lockcache );
 		if (!f) {
-			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED,
+			if (user_trace_same_instance(trace_at_queue, ecm->trace_instance)) user_trace_shared_event(trace_at_queue, USER_TRACE_REJECTED,
 			    0, 0, GetTickCount()-ecm->recvtime, "CW rejected by cache repeat check");
 			pthread_mutex_unlock(&prg.lockecm);
 			return;
@@ -1044,6 +1044,9 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	// filter non-nds halfnulled cw
 	if ( dcwcmp8(dcw,nullcw) || dcwcmp8(dcw+8,nullcw) ) {
 		if (!ca_halfnull_ok(ecm->caid)) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
+			if (user_trace_same_instance(trace_at_queue, ecm->trace_instance))
+				user_trace_shared_event(trace_at_queue, USER_TRACE_REJECTED, 0, 0,
+				    GetTickCount()-ecm->recvtime, "CW rejected: zero half not allowed for CAID family");
 			pthread_mutex_unlock(&prg.lockecm);
 			return;
 		}
@@ -1052,7 +1055,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		if (cs)	if (cs->option.dcw.swap) swap = 1;
 #endif
 		if ( !dcwcheck_nds( ecm, dcw, swap) ) {
-			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED,
+			if (user_trace_same_instance(trace_at_queue, ecm->trace_instance)) user_trace_shared_event(trace_at_queue, USER_TRACE_REJECTED,
 			    0, 0, GetTickCount()-ecm->recvtime, "CW rejected: half does not match ECM cycle and swap disabled");
 			pthread_mutex_unlock(&prg.lockecm);
 			return;
@@ -1117,7 +1120,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 
 	/* Keep the diagnostic tied to this ECM lifetime across the unlocked
 	 * timeout check. It does not change the existing delivery decision. */
-	uint64_t committed_trace_instance = ecm->trace_instance;
+	uint64_t committed_trace_instance = user_trace_same_instance(trace_at_queue, ecm->trace_instance) ? trace_at_queue : 0;
 	pthread_mutex_unlock(&prg.lockecm);
 
 	// Check timeout
@@ -1349,7 +1352,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
  * cycle marker the key's sender declared on the wire (0 = nothing declared).
  * Only the cache pipe consumer has it; every other producer passes 0.
  */
-inline int get_setdcwdata(uint8_t *buf, void *ecm, uint8_t *dcw, int *srctype, int *srcid, int *cwmark)
+inline int get_setdcwdata(uint8_t *buf, void *ecm, uint8_t *dcw, int *srctype, int *srcid, int *cwmark, uint64_t *trace_at_queue)
 {
 	int index = 1;
 	memcpy(srctype, buf+index, sizeof(int) );
@@ -1362,6 +1365,8 @@ inline int get_setdcwdata(uint8_t *buf, void *ecm, uint8_t *dcw, int *srctype, i
 	index+=16;
 	if (cwmark) *cwmark = buf[index];
 	index+=1;
+	memcpy(trace_at_queue, buf+index, sizeof(*trace_at_queue));
+	index += sizeof(*trace_at_queue);
 	return index;
 }
 
@@ -1379,6 +1384,10 @@ int put_setdcwdata(uint8_t *buf, ECM_DATA *ecm, uint8_t *dcw, int srctype, int s
 	index+=16;
 	buf[index] = (uint8_t)cwmark;
 	index+=1;
+	/* All live callers queue while holding lockecm. This token is only
+	 * for trace attribution, not a validity guard for the queued CW. */
+	memcpy(buf+index, &ecm->trace_instance, sizeof(ecm->trace_instance));
+	index += sizeof(ecm->trace_instance);
 	return index;
 }
 
@@ -1418,14 +1427,15 @@ void *setdcw_thread(void *param)
 		if ( retval>0 ) {
 			uint8_t buf[64];
 			int len = pipe_recv( dcwpipe[0], buf);
-			if (len>0) {
+			if (len == 1 + 2*(int)sizeof(int) + (int)sizeof(void*) + 16 + 1 + (int)sizeof(uint64_t)) {
 				ECM_DATA *ecm;
 				uint8_t dcw[16];
 				int srctype;
 				int srcid;
 				int cwmark = 0;
-				get_setdcwdata(buf, &ecm, dcw, &srctype, &srcid, &cwmark);
-				ecm_setdcwdata( ecm, dcw, srctype, srcid, cwmark );
+				uint64_t trace_at_queue;
+				get_setdcwdata(buf, &ecm, dcw, &srctype, &srcid, &cwmark, &trace_at_queue);
+				ecm_setdcwdata( ecm, dcw, srctype, srcid, cwmark, trace_at_queue );
 			}
 		}
 	}

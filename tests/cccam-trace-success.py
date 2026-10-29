@@ -61,9 +61,9 @@ def main():
     if not BINARY.is_file():
         raise RuntimeError("binary not found: " + str(BINARY))
     mode = os.environ.get("MCS_TEST_RESPONSE", "full")
-    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late")
-    caid = "1884" if mode in ("full", "late") else "09BD"
-    sid = "1136" if mode in ("full", "late") else "014A"
+    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half")
+    caid = "1884" if mode in ("full", "late", "non09half") else "09BD"
+    sid = "1136" if mode in ("full", "late", "non09half") else "014A"
     tag = os.environ.get("MCS_TEST_TAG", "0x80")
     assert tag in ("0x80", "0x81")
     with tempfile.TemporaryDirectory(prefix="mcs-trace-success-") as folder:
@@ -144,10 +144,17 @@ def main():
                 assert "cache lookup invoked; pipe delivery and result not confirmed" in page
                 assert "حركة كاش" in page
                 if mode in ("full", "late"): assert "Newcamd CW response; validity not determined" in page
-                if mode in ("half", "bad", "excluded", "swap", "wronghalf", "retry"): assert "Newcamd CW response; zero half present; validity not determined" in page
+                if mode in ("half", "bad", "excluded", "swap", "wronghalf", "retry", "non09half"): assert "Newcamd CW response; zero half present; validity not determined" in page
                 if mode == "bad": assert "Newcamd CW rejected: checksum validation failed" in page
                 if mode in ("negative", "retry"): assert "Newcamd negative response; retry may follow" in page
                 if mode == "retry": assert "Newcamd retry send reported success" in page
+                if mode == "non09half":
+                    assert "Newcamd CW passed initial validation; further gates remain" in page
+                    reason = "CW rejected: zero half not allowed for CAID family"
+                    if os.environ.get("MCS_TEST_QUEUE_TRACE") in ("zero", "different"):
+                        assert reason not in page
+                    else:
+                        assert reason in page
                 if mode == "wronghalf": assert "CW rejected: half does not match ECM cycle and swap disabled" in page
                 if expected == "DCW":
                     assert "Newcamd CW passed initial validation; further gates remain" in page
@@ -173,7 +180,7 @@ def main():
                     assert page.count(encoded) >= 2
                 if mode in ("full", "half", "excluded", "swap", "retry"):
                     assert page.count("<summary>إظهار CW</summary>") >= 2
-                elif mode in ("bad", "wronghalf", "late"):
+                elif mode in ("bad", "wronghalf", "late", "non09half"):
                     assert page.count("<summary>إظهار CW</summary>") == 1
                 else:
                     assert "<summary>إظهار CW</summary>" not in page
