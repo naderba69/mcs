@@ -14,7 +14,7 @@
 import sys, re, collections
 
 DEAD_GLOBAL = {
-    "DEFAULT FILTER", "DEFAULT FILTER TIME", "DEFAULT ECM CHECK",
+    "DEFAULT FILTER", "DEFAULT FILTER TIME", "FILTER", "FILTER TIME", "DEFAULT ECM CHECK",
     "DEFAULT ECM CHECK LENGTH", "DEFAULT DCW VALIDECMTIME",
     "DEFAULT ENABLE MGCAMD", "DEFAULT ENABLE FREECCCAM",
 }
@@ -22,7 +22,8 @@ DEAD_PROFILE = {
     "DCW VALIDECMTIME",     # no parser branch anywhere (SERVER VALIDECMTIME is the real key)
     "CACHEEX PUSH",         # no parser branch
     "CACHEEX RELAY",        # no parser branch
-    "FILTER", "FILTER TIME",# global keys; a per-profile line silently rewrites the global
+    "FILTER", "FILTER TIME", # no top-level parser branches
+    "CACHE FILTER", "CACHE FILTER TIME", # global cache fields, even inside a profile
     "ACCEPT NULL ONID",     # needs profile context but mutates global cache flag
     "ENABLE CAMD35", "ENABLE CS378X", "ENABLE MGCAMD", # no profile ENABLE branches
 }
@@ -74,7 +75,7 @@ def main(path):
     for k in DEAD_GLOBAL:
         if k in glob:
             bad("global dead key present: %s (no parser branch)" % k)
-    for k in ("FILTER", "FILTER TIME",
+    for k in ("CACHE FILTER", "CACHE FILTER TIME",
               "CAID FAMILY PROVIDERCHECK", "CAID FAMILY NOPROVCHK",
               "DEFAULT ENABLE CAMD35", "DEFAULT ENABLE CS378X"):
         if k not in glob:
@@ -86,7 +87,7 @@ def main(path):
     if glob.get("CAID FAMILY HALFNULLED", [""])[0].replace(" ", "") != "09":
         bad("CAID FAMILY HALFNULLED must be exactly 09 (NDS)")
     if not fails:
-        ok("global section: no dead DEFAULT keys; FILTER/family policy explicit; no inert global ONID")
+        ok("global section: no dead DEFAULT keys; CACHE FILTER/family policy explicit; no inert global ONID")
 
     # ---- profiles ----
     if len(profs) != 72:
