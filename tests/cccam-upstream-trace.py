@@ -107,8 +107,11 @@ with tempfile.TemporaryDirectory(prefix='mcs-upstream-cccam-') as folder:
         result = subprocess.run([str(cc), '127.0.0.1', str(front_cc), 'traceuser','tracepass',caid,sid,'0x80'], capture_output=True,text=True,timeout=25,check=True)
         page=get(front_http)
         expect = 'DCW' if mode in ('good', 'half') else 'NOK'
-        if mode == 'short':
-            assert 'ECM1 tag=80 DCW' not in result.stdout, result.stdout
+        if mode in ('short', 'bad'):
+            # The client's 6s read timeout races the frontend's 6s DCW
+            # deadline. Either a negative response or no response is possible;
+            # neither is a CW delivery. The specific rejection is checked below.
+            assert re.search(r'ECM1 tag=80 (NOK|TIMEOUT)', result.stdout), result.stdout
         else:
             assert f'ECM1 tag=80 {expect}' in result.stdout, (result.stdout, page)
         assert 'ECM sent to server' in page, page

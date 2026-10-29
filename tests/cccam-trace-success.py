@@ -61,9 +61,9 @@ def main():
     if not BINARY.is_file():
         raise RuntimeError("binary not found: " + str(BINARY))
     mode = os.environ.get("MCS_TEST_RESPONSE", "full")
-    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half", "recycled")
-    caid = "1884" if mode in ("full", "late", "non09half", "recycled") else "09BD"
-    sid = "1136" if mode in ("full", "late", "non09half", "recycled") else "014A"
+    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache")
+    caid = "1884" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache") else "09BD"
+    sid = "1136" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache") else "014A"
     tag = os.environ.get("MCS_TEST_TAG", "0x80")
     assert tag in ("0x80", "0x81")
     with tempfile.TemporaryDirectory(prefix="mcs-trace-success-") as folder:
@@ -90,12 +90,13 @@ def main():
                        "ENABLE SKIPCWC: YES\nDCWFILTER PATTERN: OFF\n"
                        + (f"DCWFILTER CHECKSUM: OFF\nDCW SKIPCWC_EXCLUDE_SIDS_ACTIVE: YES\nDCW SKIPCWC_EXCLUDE_SIDLIST: {sid}\n" if mode == "excluded" else "")
                        + ("RETRY NEWCAMD: 1\n" if mode == "retry" else "")
+                       + ("DCW MINTIME: 800\n" if mode.startswith("mintime-") else "")
                        + "USER: traceuser tracepass\n", encoding="utf-8")
         with (tmp / "peer.log").open("w+") as peerlog, (tmp / "server.log").open("w+") as serverlog:
-            env = dict(os.environ, NS_DELAYS="60")
+            env = dict(os.environ, NS_DELAYS="1200" if mode == "mintime-slow" else "60")
             for name in ("NS_HALF_CW", "NS_BAD_CHECKSUM", "NS_NEGATIVE", "NS_OPPOSITE_HALF", "NS_NEGATIVE_FIRST"):
                 env.pop(name, None)
-            if mode not in ("full", "late", "recycled"): env["NS_HALF_CW"] = "1"
+            if mode not in ("full", "late", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache"): env["NS_HALF_CW"] = "1"
             if mode in ("bad", "excluded"): env["NS_BAD_CHECKSUM"] = "1"
             if mode == "negative": env["NS_NEGATIVE"] = "1"
             if mode == "retry": env["NS_NEGATIVE_FIRST"] = "1"
@@ -137,14 +138,19 @@ def main():
                 result = subprocess.run([str(cc), "127.0.0.1", str(cccam), "traceuser", "tracepass",
                                          caid, sid, tag], capture_output=True,
                                         text=True, timeout=25, check=True)
-                expected = "TIMEOUT" if mode in ("late", "recycled") else ("DCW" if mode in ("full", "half", "excluded", "swap", "retry") else "NOK")
+                expected = "TIMEOUT" if mode in ("late", "recycled") else ("DCW" if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache") else "NOK")
                 assert "ECM1 tag=" + tag[2:].upper() + " " + expected in result.stdout, result.stdout
                 page = request()
                 assert "استلام ECM" in page and "ECM sent to server" in page
                 assert "cache lookup invoked; pipe delivery and result not confirmed" in page
                 assert "حركة كاش" in page
-                if mode in ("full", "late", "recycled"): assert "Newcamd CW response; validity not determined" in page
+                if mode in ("full", "late", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache"): assert "Newcamd CW response; validity not determined" in page
                 if mode in ("half", "bad", "excluded", "swap", "wronghalf", "retry", "non09half"): assert "Newcamd CW response; zero half present; validity not determined" in page
+                if mode == "mintime-fast":
+                    match = re.search(r"CW rejected by DCW MINTIME; (\d+) ms since dispatch at processing; threshold (\d+) ms", page)
+                    assert match and 0 <= int(match.group(1)) < 800 and int(match.group(2)) == 800, page
+                    assert "رُفضت CW بحد DCW MINTIME عند المعالجة" in page
+                if mode in ("mintime-slow", "mintime-local", "mintime-cache"): assert "CW rejected by DCW MINTIME;" not in page
                 if mode == "bad": assert "Newcamd CW rejected: checksum validation failed" in page
                 if mode in ("negative", "retry"): assert "Newcamd negative response; retry may follow" in page
                 if mode == "retry": assert "Newcamd retry send reported success" in page
@@ -181,9 +187,9 @@ def main():
                         else: key[8:] = [0] * 8
                     encoded = "".join(f"{x:02X}" for x in key)
                     assert page.count(encoded) >= 2
-                if mode in ("full", "half", "excluded", "swap", "retry"):
+                if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache"):
                     assert page.count("<summary>إظهار CW</summary>") >= 2
-                elif mode in ("bad", "wronghalf", "late", "non09half", "recycled"):
+                elif mode in ("bad", "wronghalf", "late", "non09half", "recycled", "mintime-fast"):
                     assert page.count("<summary>إظهار CW</summary>") == 1
                 else:
                     assert "<summary>إظهار CW</summary>" not in page

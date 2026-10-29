@@ -7795,6 +7795,7 @@ static const char *trace_type_name(enum user_trace_event_type type)
 }
 static const char *trace_detail_ar(const char *detail)
 {
+    if (!strncmp(detail, "CW rejected by DCW MINTIME;", 27)) return "رُفضت CW بحد DCW MINTIME عند المعالجة؛ المدة منذ الإرسال والحد في التفاصيل";
     if (!strcmp(detail, "CW rejected: zero half not allowed for CAID family")) return "رُفضت CW: عائلة CAID لا تسمح بنصف صفري";
     if (!strcmp(detail, "CW committed; client dispatch skipped after DCW timeout")) return "ثُبّت نجاح CW لكن استدعاء إرسال العملاء الجماعي تُجاوز بعد مهلة DCW";
     if (!strncmp(detail, "CCcam CW response;", 18)) return "وصل رد CW من مصدر CCcam؛ لم تُحسم صلاحيته بعد";

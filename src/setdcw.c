@@ -282,23 +282,19 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 #endif
 
 	/*
-	 * TASK R36 (D88) -- DCW MINTIME. A card server that answers an
-	 * ECM faster than physics allows (a real card needs tens of
-	 * milliseconds; the profiles arm 100-300) is manufacturing or
-	 * echoing, not decoding: skip its key and keep the request open
-	 * for a slower, plausible source. Only tracked server dispatches
-	 * are judged (their send stamp is in ecm->server[]); cache and
-	 * local deliveries are exempt -- a cache hit is legitimately
-	 * instant, and the cache side has its own gates. 0 = off.
+	 * DCW MINTIME is an operator-configured server-only timing gate.
+	 * It measures elapsed time from dispatch to this processing point,
+	 * not necessarily network response latency. A fast answer alone does
+	 * not prove an invalid CW. Cache and local client sources are exempt.
 	 */
-	if (cs->option.dcw.mintime > 0) {
+	if (srctype == DCW_SOURCE_SERVER && cs->option.dcw.mintime > 0) {
 		int k;
 		uint32_t now = GetTickCount();
 		for (k=0; k<20; k++) {
 			if (ecm->server[k].srvid && ecm->server[k].srvid==(uint32_t)srcid && ecm->server[k].sendtime) {
 				int elapsed = (int)(now - ecm->server[k].sendtime);
 				if (elapsed>=0 && elapsed < cs->option.dcw.mintime) {
-					debugf(DBG_ERROR, " !!! [MINTIME] %s: server %d answered in %dms < %dms - too fast to be real, CW skipped\n", cs->name, srcid, elapsed, cs->option.dcw.mintime);
+					debugf(DBG_ERROR, " !!! [MINTIME] %s: server %d processing after %dms < %dms, CW skipped\n", cs->name, srcid, elapsed, cs->option.dcw.mintime);
 					return;
 				}
 				break;
@@ -902,23 +898,28 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 #endif
 
 	/*
-	 * TASK R36 (D88) -- DCW MINTIME. A card server that answers an
-	 * ECM faster than physics allows (a real card needs tens of
-	 * milliseconds; the profiles arm 100-300) is manufacturing or
-	 * echoing, not decoding: skip its key and keep the request open
-	 * for a slower, plausible source. Only tracked server dispatches
-	 * are judged (their send stamp is in ecm->server[]); cache and
-	 * local deliveries are exempt -- a cache hit is legitimately
-	 * instant, and the cache side has its own gates. 0 = off.
+	 * DCW MINTIME is an operator-configured server-only timing gate.
+	 * It measures elapsed time from dispatch to this processing point,
+	 * not necessarily network response latency. A fast answer alone does
+	 * not prove an invalid CW. Cache and local client sources are exempt.
 	 */
-	if (cs->option.dcw.mintime > 0) {
+	if (srctype == DCW_SOURCE_SERVER && cs->option.dcw.mintime > 0) {
 		int k;
 		uint32_t now = GetTickCount();
 		for (k=0; k<20; k++) {
 			if (ecm->server[k].srvid && ecm->server[k].srvid==(uint32_t)srcid && ecm->server[k].sendtime) {
 				int elapsed = (int)(now - ecm->server[k].sendtime);
 				if (elapsed>=0 && elapsed < cs->option.dcw.mintime) {
-					debugf(DBG_ERROR, " !!! [MINTIME] %s: server %d answered in %dms < %dms - too fast to be real, CW skipped\n", cs->name, srcid, elapsed, cs->option.dcw.mintime);
+					debugf(DBG_ERROR, " !!! [MINTIME] %s: server %d processing after %dms < %dms, CW skipped\n", cs->name, srcid, elapsed, cs->option.dcw.mintime);
+					pthread_mutex_lock(&prg.lockecm);
+					if (queued_ecm->lifetime_id == lifetime_at_queue &&
+					    user_trace_same_instance(trace_at_queue, queued_ecm->trace_instance)) {
+						char detail[128];
+						snprintf(detail, sizeof(detail), "CW rejected by DCW MINTIME; %d ms since dispatch at processing; threshold %d ms", elapsed, cs->option.dcw.mintime);
+						user_trace_shared_event(trace_at_queue, USER_TRACE_REJECTED, 0, 0,
+						    now - queued_ecm->recvtime, detail);
+					}
+					pthread_mutex_unlock(&prg.lockecm);
 					return;
 				}
 				break;
