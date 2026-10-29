@@ -231,10 +231,12 @@ int dcw_pattern_fake(uint8_t *data)
 }
 
 static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
-		     int repeat_mode, int ca_modern, int pattern_mode)
+		     int repeat_mode, int ca_modern, int pattern_mode,
+                     enum dcw_validation_reason *reason)
 {
 	int checksum = dcw_filter_checksum;
 	int repeat = dcw_filter_repeat;
+        if (reason) *reason = DCW_VALID;
 
 	/* TASK 3.15 — a profile override replaces the global gate. Any
 	 * other value, including 0, inherits. Null and the BAD-DCW list
@@ -258,18 +260,21 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 		checksum = 0;
 
 	if ( checksum && !checksumDCW(data)) {
+		if (reason) *reason = DCW_INVALID_CHECKSUM;
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_CHECKSUM);
 #endif
 		return 0;
 	}
 	if ( isnullDCW(data) ) {
+		if (reason) *reason = DCW_INVALID_NULL;
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_NULL);
 #endif
 		return 0;
 	}
 	if ( repeat && isbadDCW(data) ) {
+		if (reason) *reason = DCW_INVALID_REPEAT;
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_REPEAT);
 #endif
@@ -281,6 +286,7 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 	 * hit. memcmp, not dcwcmp16: this TU does not include ecmdata.h.
 	 */
 	if ( dcw_on_badlist(data) ) {
+		if (reason) *reason = DCW_INVALID_BADLIST;
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_BADLIST);
 #endif
@@ -299,6 +305,7 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 		if (pattern_mode == DCWFILTER_ON) pattern = 1;
 		else if (pattern_mode == DCWFILTER_OFF) pattern = 0;
 		if (pattern && dcw_pattern_fake(data)) {
+		if (reason) *reason = DCW_INVALID_PATTERN;
 #ifdef MCS_DCWSTATS
 			DCWSTATS_REJECT(DCW_REJ_PATTERN);
 #endif
@@ -315,7 +322,7 @@ int acceptDCW_for_ca(uint8_t *data, uint16_t caid, int checksum_mode,
 		     int repeat_mode, int ca_modern)
 {
 	return acceptDCW_impl(data, caid, checksum_mode, repeat_mode,
-			      ca_modern, DCWFILTER_INHERIT);
+			      ca_modern, DCWFILTER_INHERIT, NULL);
 }
 
 /*
@@ -326,7 +333,14 @@ int acceptDCW_pattern(uint8_t *data, uint16_t caid, int checksum_mode,
 		      int repeat_mode, int ca_modern, int pattern_mode)
 {
 	return acceptDCW_impl(data, caid, checksum_mode, repeat_mode,
-			      ca_modern, pattern_mode);
+			      ca_modern, pattern_mode, NULL);
+}
+
+int acceptDCW_pattern_reason(uint8_t *data, uint16_t caid, int checksum_mode,
+                             int repeat_mode, int ca_modern, int pattern_mode,
+                             enum dcw_validation_reason *reason)
+{
+    return acceptDCW_impl(data, caid, checksum_mode, repeat_mode, ca_modern, pattern_mode, reason);
 }
 
 int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode)

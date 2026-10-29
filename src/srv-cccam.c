@@ -998,6 +998,8 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 					ecm->dcwstatus = STAT_DCW_WAITCACHE;
 					ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
 					pipe_cache_find(ecm, cs);
+					if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+					    0, 0, GetTickCount()-ecm->recvtime, "cache lookup invoked; pipe delivery and result not confirmed");
 				}
 				else ecm->checktime = 1; // Check NOW
 				pipe_wakeup( prg.pipe.ecm[1] );

@@ -7270,8 +7270,8 @@ int acceptDCW_profile(uint8_t *data, struct cardserver_data *cs)
  * expected), so even an armed profile changes nothing until a real
  * CAID arrives — every pre-R26 caller keeps its exact decision.
  */
-int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs,
-			 uint16_t caid, uint16_t sid)
+static int acceptDCW_profile_impl(uint8_t *data, struct cardserver_data *cs,
+                                  uint16_t caid, uint16_t sid, enum dcw_validation_reason *reason)
 {
 	int c = DCWFILTER_INHERIT, r = DCWFILTER_INHERIT;
 	int modern = 0, pattern = DCWFILTER_INHERIT;
@@ -7306,7 +7306,21 @@ int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs,
 	}
 	/* TASK R28 (D79): pattern INHERIT with the global gate OFF (the
 	 * default) keeps this decision identical to pre-R28. */
+        if (reason) return acceptDCW_pattern_reason(data, caid, c, r, modern, pattern, reason);
 	return acceptDCW_pattern(data, caid, c, r, modern, pattern);
+}
+
+int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs, uint16_t caid, uint16_t sid)
+{
+    return acceptDCW_profile_impl(data, cs, caid, sid, NULL);
+}
+int acceptDCW_profile_ca_sid_reason(uint8_t *data, struct cardserver_data *cs, uint16_t caid,
+                                   uint16_t sid, int *reason)
+{
+    enum dcw_validation_reason value = DCW_VALID;
+    int result = acceptDCW_profile_impl(data, cs, caid, sid, &value);
+    if (reason) *reason = value;
+    return result;
 }
 
 int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,

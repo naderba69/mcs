@@ -61,7 +61,7 @@ def main():
     if not BINARY.is_file():
         raise RuntimeError("binary not found: " + str(BINARY))
     mode = os.environ.get("MCS_TEST_RESPONSE", "full")
-    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf")
+    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry")
     caid = "1884" if mode == "full" else "09BD"
     sid = "1136" if mode == "full" else "014A"
     tag = os.environ.get("MCS_TEST_TAG", "0x80")
@@ -89,14 +89,16 @@ def main():
                        +
                        "ENABLE SKIPCWC: YES\nDCWFILTER PATTERN: OFF\n"
                        + (f"DCWFILTER CHECKSUM: OFF\nDCW SKIPCWC_EXCLUDE_SIDS_ACTIVE: YES\nDCW SKIPCWC_EXCLUDE_SIDLIST: {sid}\n" if mode == "excluded" else "")
+                       + ("RETRY NEWCAMD: 1\n" if mode == "retry" else "")
                        + "USER: traceuser tracepass\n", encoding="utf-8")
         with (tmp / "peer.log").open("w+") as peerlog, (tmp / "server.log").open("w+") as serverlog:
             env = dict(os.environ, NS_DELAYS="60")
-            for name in ("NS_HALF_CW", "NS_BAD_CHECKSUM", "NS_NEGATIVE", "NS_OPPOSITE_HALF"):
+            for name in ("NS_HALF_CW", "NS_BAD_CHECKSUM", "NS_NEGATIVE", "NS_OPPOSITE_HALF", "NS_NEGATIVE_FIRST"):
                 env.pop(name, None)
             if mode != "full": env["NS_HALF_CW"] = "1"
             if mode in ("bad", "excluded"): env["NS_BAD_CHECKSUM"] = "1"
             if mode == "negative": env["NS_NEGATIVE"] = "1"
+            if mode == "retry": env["NS_NEGATIVE_FIRST"] = "1"
             if mode in ("swap", "wronghalf"): env["NS_OPPOSITE_HALF"] = "1"
             peer = subprocess.Popen([str(nc), str(card), "0102030405060708091011121314", caid, "000000"],
                                     cwd=tmp, env=env, stdout=peerlog, stderr=subprocess.STDOUT)
@@ -135,16 +137,21 @@ def main():
                 result = subprocess.run([str(cc), "127.0.0.1", str(cccam), "traceuser", "tracepass",
                                          caid, sid, tag], capture_output=True,
                                         text=True, timeout=25, check=True)
-                expected = "DCW" if mode in ("full", "half", "excluded", "swap") else "NOK"
+                expected = "DCW" if mode in ("full", "half", "excluded", "swap", "retry") else "NOK"
                 assert "ECM1 tag=" + tag[2:].upper() + " " + expected in result.stdout, result.stdout
                 page = request()
                 assert "استلام ECM" in page and "ECM sent to server" in page
+                assert "cache lookup invoked; pipe delivery and result not confirmed" in page
+                assert "حركة كاش" in page
                 if mode == "full": assert "Newcamd CW response; validity not determined" in page
-                if mode in ("half", "bad", "excluded", "swap", "wronghalf"): assert "Newcamd CW response; zero half present; validity not determined" in page
-                if mode == "bad": assert "Newcamd CW rejected by initial validation" in page
-                if mode == "negative": assert "Newcamd negative response; retry may follow" in page
+                if mode in ("half", "bad", "excluded", "swap", "wronghalf", "retry"): assert "Newcamd CW response; zero half present; validity not determined" in page
+                if mode == "bad": assert "Newcamd CW rejected: checksum validation failed" in page
+                if mode in ("negative", "retry"): assert "Newcamd negative response; retry may follow" in page
+                if mode == "retry": assert "Newcamd retry send reported success" in page
                 if mode == "wronghalf": assert "CW rejected: half does not match ECM cycle and swap disabled" in page
-                if expected == "DCW": assert "CW response sent; picture not verified" in page
+                if expected == "DCW":
+                    assert "Newcamd CW passed initial validation; further gates remain" in page
+                    assert "CW response sent; picture not verified" in page
                 else: assert "decode failed; detailed reason unavailable" in page
                 assert "ECM مشترك" in page
                 assert "source response " in page
@@ -159,7 +166,7 @@ def main():
                         else: key[8:] = [0] * 8
                     encoded = "".join(f"{x:02X}" for x in key)
                     assert page.count(encoded) >= 2
-                if mode in ("full", "half", "excluded", "swap"):
+                if mode in ("full", "half", "excluded", "swap", "retry"):
                     assert page.count("<summary>إظهار CW</summary>") >= 2
                 elif mode in ("bad", "wronghalf"):
                     assert page.count("<summary>إظهار CW</summary>") == 1

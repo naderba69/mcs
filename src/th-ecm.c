@@ -178,6 +178,8 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					       ecm->caid, ecm->provid, ecm->sid);
 				}
 				pipe_cache_find(ecm, cs);
+				if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+				    0, 0, ticks-ecm->recvtime, "cache lookup invoked; pipe delivery and result not confirmed");
 				ecm->waitcache = 1;
 				uint32_t cache_timeout = caid_integration_get_cache_timeout(ecm->caid);
 				ecm->checktime = ecm->recvtime + cache_timeout; // wait for cache (CAID-specific)
@@ -236,6 +238,8 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 			// Check for cache request
 			if ( (ecm->cachestatus==ECM_CACHE_NONE) && cs->option.fallowcache && cs->option.cachesendreq ) {
 				pipe_cache_request(ecm,cs);
+				if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+				    0, 0, ticks-ecm->recvtime, "cache peer request invoked; pipe delivery not confirmed");
 				ecm->cachestatus = ECM_CACHE_REQ;
 			}
 			// check for decode failed with no remaining server to wait, send to new cardserver
@@ -412,6 +416,8 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		}
 		else if ( cs->option.fallowcache && cs->option.cacheresendreq && (ecm->cachestatus==ECM_CACHE_REQ) ) {
 			pipe_cache_resendreq(ecm, cs);
+			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+			    0, 0, ticks-ecm->recvtime, "cache peer retry invoked; pipe delivery not confirmed");
 			ecm->cachestatus = ECM_CACHE_REQ2;
 			ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period;
 		}

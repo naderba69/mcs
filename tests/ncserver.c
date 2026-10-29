@@ -342,7 +342,7 @@ int main(int argc, char **argv)
 				out[1] = 0;
 				out[2] = 0x10;
 				memcpy(out + 3, cw, 16);
-				if (!cs_message_send(fd, &cd, out, getenv("NS_NEGATIVE") ? 3 : 19, sessionkey)) {
+				if (!cs_message_send(fd, &cd, out, (getenv("NS_NEGATIVE") || (getenv("NS_NEGATIVE_FIRST") && replies == 0)) ? 3 : 19, sessionkey)) {
 					printf("NCSERVER: send failed\n");
 					close(fd);
 					break;

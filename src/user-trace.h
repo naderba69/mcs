@@ -20,7 +20,9 @@ enum user_trace_event_type {
     USER_TRACE_FAILED,
     USER_TRACE_DELIVERED,
     USER_TRACE_SEND_FAILED,
-    USER_TRACE_SOURCE_REPLY
+    USER_TRACE_SOURCE_REPLY,
+    USER_TRACE_VALIDATED,
+    USER_TRACE_CACHE
 };
 
 struct user_trace_target {

@@ -286,14 +286,25 @@ void cs_srv_recvmsg(struct server_data *srv)
 					}
 					if (buf[2]==0x10) {
 						// Check for DCW
-						if (!acceptDCW_profile_ca_sid(buf+3, ecm->cs, ecm->caid, ecm->sid)) {
+						int cw_reason = DCW_VALID;
+						if (!acceptDCW_profile_ca_sid_reason(buf+3, ecm->cs, ecm->caid, ecm->sid, &cw_reason)) {
+							const char *why = "Newcamd CW rejected by initial validation; reason unknown";
+							switch (cw_reason) {
+							case DCW_INVALID_CHECKSUM: why = "Newcamd CW rejected: checksum validation failed"; break;
+							case DCW_INVALID_NULL: why = "Newcamd CW rejected: null-word validation failed"; break;
+							case DCW_INVALID_REPEAT: why = "Newcamd CW rejected: repeated-byte validation failed"; break;
+							case DCW_INVALID_BADLIST: why = "Newcamd CW rejected: operator BAD-DCW list"; break;
+							case DCW_INVALID_PATTERN: why = "Newcamd CW rejected: enabled pattern validation"; break;
+							}
 							if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED,
-							    TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime,
-							    "Newcamd CW rejected by initial validation; exact rule unavailable");
+							    TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime, why);
 							srv->ecmerrdcw ++;
 							pthread_mutex_unlock(&prg.lockecm); //###
 							break;
 						}
+						if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_VALIDATED,
+						    TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime,
+						    "Newcamd CW passed initial validation; further gates remain");
 						srv->ecmok++;
 						srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
 						srv->ecmoktime += srv->lastecmoktime;
@@ -358,6 +369,9 @@ void cs_srv_recvmsg(struct server_data *srv)
 									srv->lastecmtime = GetTickCount();
 									srv->ecmnb++;
 									srv->busy = 1;
+									if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT,
+									    TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime,
+									    "Newcamd retry send reported success");
 									srv->ecm.request = ecm;
 									pthread_mutex_unlock(&prg.lockecm); //###
 									break;

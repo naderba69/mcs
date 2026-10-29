@@ -1291,6 +1291,8 @@ int acceptDCW_profile(uint8_t *data, struct cardserver_data *cs);
  * `CA MODERN` flag and the channel's CAID (casystem.h via dcw.c). */
 int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs,
 			 uint16_t caid, uint16_t sid); /* R36: SID-aware accept (SKIPCWC) */
+int acceptDCW_profile_ca_sid_reason(uint8_t *data, struct cardserver_data *cs,
+                                    uint16_t caid, uint16_t sid, int *reason);
 int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
 			 uint16_t caid);
 

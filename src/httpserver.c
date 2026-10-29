@@ -7783,12 +7783,28 @@ static const char *trace_type_name(enum user_trace_event_type type)
     case USER_TRACE_NEW: return "ECM جديد";
     case USER_TRACE_SENT: return "إرسال لمصدر";
     case USER_TRACE_SOURCE_REPLY: return "رد المصدر";
+    case USER_TRACE_VALIDATED: return "اجتاز مرحلة تحقق";
+    case USER_TRACE_CACHE: return "حركة كاش";
     case USER_TRACE_REJECTED: return "رفض استجابة";
     case USER_TRACE_FAILED: return "فشل";
     case USER_TRACE_DELIVERED: return "أرسلت استجابة CW";
     case USER_TRACE_SEND_FAILED: return "تعذر إرسال الاستجابة";
     default: return "حدث غير معروف";
     }
+}
+static const char *trace_detail_ar(const char *detail)
+{
+    if (!strcmp(detail, "Newcamd CW rejected: checksum validation failed")) return "رُفضت: فشل تحقق checksum";
+    if (!strcmp(detail, "Newcamd CW rejected: null-word validation failed")) return "رُفضت: لم تجتز قاعدة أجزاء CW الصفرية";
+    if (!strcmp(detail, "Newcamd CW rejected: repeated-byte validation failed")) return "رُفضت: لم تجتز قاعدة البايتات المتكررة";
+    if (!strcmp(detail, "Newcamd CW rejected: operator BAD-DCW list")) return "رُفضت: موجودة في قائمة BAD-DCW";
+    if (!strcmp(detail, "Newcamd CW rejected: enabled pattern validation")) return "رُفضت: لم تجتز فلتر النمط المفعّل";
+    if (!strcmp(detail, "Newcamd CW passed initial validation; further gates remain")) return "اجتازت التحقق الأولي؛ لا تزال فحوص أخرى لاحقة";
+    if (!strcmp(detail, "cache lookup invoked; pipe delivery and result not confirmed")) return "طُلب بحث الكاش؛ وصول الطلب والنتيجة غير مؤكدين";
+    if (!strcmp(detail, "cache peer request invoked; pipe delivery not confirmed")) return "طُلب إرسال بحث إلى نظراء الكاش؛ وصول الطلب غير مؤكد";
+    if (!strcmp(detail, "cache peer retry invoked; pipe delivery not confirmed")) return "طُلبت إعادة البحث لدى نظراء الكاش؛ وصول الطلب غير مؤكد";
+    if (!strcmp(detail, "Newcamd retry send reported success")) return "أفادت دالة الإرسال بنجاح إعادة الطلب إلى Newcamd";
+    return "";
 }
 static void http_send_user_trace(int sock, http_request *req)
 {
@@ -7922,7 +7938,7 @@ static void http_send_user_trace(int sock, http_request *req)
             for (j = 0; j < 16; ++j) snprintf(hex + j * 2, 3, "%02X", e->cw[j]);
             snprintf(cw_html, sizeof(cw_html), "<details data-event='%llu'><summary>إظهار CW</summary><code>%s</code></details>", (unsigned long long)e->sequence, hex);
         }
-        snprintf(out, sizeof(out), "<tr><td>%s</td><td>%llu</td><td><code>%04X:%06X:%04X</code></td><td>%s</td><td>%s</td><td>%d / %d</td><td>%u</td><td>%s</td><td>%s</td></tr>", timestr, (unsigned long long)e->attempt, e->caid, e->provider, e->sid, trace_type_name(e->type), e->shared ? "ECM مشترك" : "العميل", e->source_type, e->source_id, e->elapsed_ms, safe, cw_html);
+        snprintf(out, sizeof(out), "<tr><td>%s</td><td>%llu</td><td><code>%04X:%06X:%04X</code></td><td>%s</td><td>%s</td><td>%d / %d</td><td>%u</td><td>%s%s%s</td><td>%s</td></tr>", timestr, (unsigned long long)e->attempt, e->caid, e->provider, e->sid, trace_type_name(e->type), e->shared ? "ECM مشترك" : "العميل", e->source_type, e->source_id, e->elapsed_ms, trace_detail_ar(e->detail), *trace_detail_ar(e->detail) ? " — " : "", safe, cw_html);
         tcp_writestr(&tcpbuf, sock, out);
     }
     tcp_writestr(&tcpbuf, sock, "</table></section><p><a href='/user-trace'>تحديث يدوي</a> | <a href='/'>الرئيسية</a></p><script>function traceMode(s){for(const n of ['caid','provid','sid'])document.querySelector('[name='+n+']').disabled=s.value==='all';}traceMode(document.querySelector('[name=mode]'));function traceChoose(s){const o=s.options[s.selectedIndex];const c=o.dataset.caid,p=o.dataset.provid,i=o.dataset.sid;document.querySelector('[name=caid]').value=c&&c!='0000'?c:'';document.querySelector('[name=provid]').value=p||'000000';document.querySelector('[name=sid]').value=i&&i!='0000'?i:'';}setInterval(async function(){try{const r=await fetch('/user-trace',{cache:'no-store'});if(!r.ok)return;const doc=new DOMParser().parseFromString(await r.text(),'text/html');const n=doc.getElementById('trace-data');if(n){const open=Array.from(document.querySelectorAll('#trace-data details[open]')).map(x=>x.dataset.event);const box=document.getElementById('trace-data');box.innerHTML=n.innerHTML;box.querySelectorAll('details').forEach(x=>{if(open.includes(x.dataset.event))x.open=true;});}}catch(e){}},5000);</script></body></html>");
