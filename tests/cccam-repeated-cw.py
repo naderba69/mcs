@@ -69,11 +69,14 @@ def main():
                         str(ROOT / "tests/ncserver.c"), str(ROOT / "src/des.c"),
                         str(ROOT / "src/msg-newcamd.c"), str(ROOT / "src/md5.c")], check=True)
         ports = set()
-        while len(ports) < 4:
+        while len(ports) < 5:
             ports.add(free_port())
-        http, cccam, newcamd, card = ports
+        http, cccam, newcamd, card, cache = ports
         cfg = tmp / "isolated.cfg"
+        aged = os.environ.get("MCS_TEST_AGED_CW") == "1"
         cfg.write_text(f"HTTP PORT: {http}\nHTTP USER: test\nHTTP PASS: isolated\n"
+                       f"FILTER TIME: {10 if aged else 0}\n"
+                       f"{('CACHE PORT: ' + str(cache)) if aged else ''}\n"
                        f"TELNET PORT: 0\nCCCAM PORT: {cccam}\nF: traceuser tracepass\n"
                        f"N: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n\n"
                        f"[ isolated ]\nCAID: 1884\nPROVIDERS: 0\nPORT: {newcamd}\n"
@@ -109,7 +112,8 @@ def main():
                 request(urllib.parse.urlencode(form).encode())
                 result = subprocess.run([str(cc), "127.0.0.1", str(cccam), "traceuser", "tracepass",
                                          "1884", "1136", "0x80", "0x81"], capture_output=True,
-                                        text=True, timeout=25, check=True)
+                                        text=True, timeout=40, check=True,
+                                        env=dict(os.environ, CCDCW_BETWEEN_MS="11000" if aged else "0"))
                 serverlog.flush()
                 rejection = [line for line in (tmp / "server.log").read_text(errors="replace").splitlines()
                              if "DCW-STRICT-REJECT" in line or "SSF-v2-REJECT" in line]

@@ -1,14 +1,17 @@
 #define MAX_ECM_DATA 9000
 #define TIME_ECMALIVE 15000
 
-#if __x86_64__ || __ppc64__
-#define dcwcmp8(cw1, cw2) ( *((uint64_t*)(cw1))==*((uint64_t*)(cw2)) )
-#define dcwcmp16(cw1, cw2) (( *((uint64_t*)(cw1))==*((uint64_t*)(cw2)) ) && ( *((uint64_t*)(cw1+8))==*((uint64_t*)(cw2+8)) ))
-#else
-#define dcwcmp8(cw1, cw2) (( *((uint32_t*)(cw1))==*((uint32_t*)(cw2)) ) && ( *((uint32_t*)(cw1+4))==*((uint32_t*)(cw2+4)) ))
-#define dcwcmp16(cw1, cw2) (( *((uint32_t*)(cw1))==*((uint32_t*)(cw2)) ) && ( *((uint32_t*)(cw1+4))==*((uint32_t*)(cw2+4)) ) && ( *((uint32_t*)(cw1+8))==*((uint32_t*)(cw2+8)) ) && ( *((uint32_t*)(cw1+12))==*((uint32_t*)(cw2+12)) ))
-#endif
-
+/* CWs often reside in packed objects or byte buffers. Compare bytes rather
+ * than dereferencing potentially unaligned and aliasing integer pointers. */
+#include <string.h>
+static inline int dcwcmp8(const void *a, const void *b)
+{
+    return memcmp(a, b, 8) == 0;
+}
+static inline int dcwcmp16(const void *a, const void *b)
+{
+    return memcmp(a, b, 16) == 0;
+}
 
 #define ECM_SRV_REQUEST     0
 #define ECM_SRV_REPLY_GOOD  1

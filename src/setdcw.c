@@ -95,7 +95,7 @@ inline void cacheex_server_hitprofile( struct server_data *srv, int csid )
 #endif
 
 
-inline int dcwcheck_nds( ECM_DATA *ecm, uint8_t dcw[16], int swap )
+static inline int dcwcheck_nds( ECM_DATA *ecm, uint8_t dcw[16], int swap )
 {
 	char nullcw[8] = "\0\0\0\0\0\0\0\0";
 	//Must be halfnulled dcw
