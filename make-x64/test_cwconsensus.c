@@ -43,6 +43,16 @@ int main(void)
 	/* -- 2. second distinct voter: early unanimous delivery -- */
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x11111111,0x80), K1, 202, 1, 1200, 400, &loser);
 	chk(v==CWC_DELIVER, "second distinct voter delivers early", v);
+	{
+	  int distinct = -1, weight = -1;
+	  chk(cwconsensus_vote_counts(CH(0x1884,0x64,0x11111111,0x80), K1, 1200, 400, &distinct, &weight)==1,
+	      "vote report locates candidate", distinct);
+	  chk(distinct==2 && weight==2, "repeat voter counted once", distinct);
+	  chk(cwconsensus_vote_counts(CH(0x1884,0x64,0x11111111,0x80), K1, 1501, 400, &distinct, &weight)==1 && distinct==1 && weight==1,
+	      "vote report excludes expired voter", distinct);
+	  chk(cwconsensus_vote_counts(CH(0x1884,0x64,0x11111111,0x80), K2, 1200, 400, &distinct, &weight)==0 && distinct==0 && weight==0,
+	      "untracked candidate has no known agreement", distinct);
+	}
 	/* and the released hold is not popped by the walk */
 	{ struct cwconsensus_hold h;
 	  chk(cwconsensus_expired(&h, 1300, 400)==0, "delivered hold is not re-released", 0); }

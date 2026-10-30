@@ -2073,9 +2073,25 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			int cv;
 			if (cwin < 100) cwin = 100;
 			if (cwin > 2000) cwin = 2000;
+			uint32_t vote_tick = GetTickCount();
 			cv = cwconsensus_verdict(req->caid, req->sid, req->hash, req->tag,
-			                         cw, peerid, cw_weight, GetTickCount(),
+			                         cw, peerid, cw_weight, vote_tick,
 			                         cwin, &cwl);
+			{
+				int distinct = 0, weight = 0;
+				char detail[128];
+				int known = cwconsensus_vote_counts(req->caid, req->sid, req->hash, req->tag,
+				                                    cw, vote_tick, cwin, &distinct, &weight);
+				if (known) {
+					snprintf(detail, sizeof(detail), "cache consensus vote: verdict=%s; peer IDs=%d; weight=%d; threshold=%d",
+					         cv==CWC_HOLD ? "held" : (cv==CWC_REFUSE ? "refused" : "proceed"),
+					         distinct, weight, cfg.cache.consensus_sources >= 2 ? cfg.cache.consensus_sources : 2);
+				} else {
+					snprintf(detail, sizeof(detail), "cache consensus vote: no candidate slot; verdict=%s; agreement unconfirmed",
+					         cv==CWC_DELIVER ? "proceed" : "other");
+				}
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
+			}
 			if ( cv==CWC_HOLD ) {
 				cwconsensus_hold_cycle(req->caid, req->sid, req->hash, req->tag, cw, peerid, cwcycle);
 				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache held: consensus awaiting corroboration", cw);
@@ -2083,8 +2099,8 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 				cwlog_hold(peerid, req->caid, req->provid, req->sid, cw);
 #endif
 				debugf(getdbgflag(DBG_CACHE,0,0),
-					" [CONSENSUS] holding cw for corroboration (%d distinct so far) ch %04x:%06x:%04x\n",
-					1, req->caid, req->provid, req->sid);
+					" [CONSENSUS] holding cw for corroboration ch %04x:%06x:%04x\n",
+					req->caid, req->provid, req->sid);
 				return DCW_ERROR | DCW_SKIP;
 			}
 			if ( cv==CWC_REFUSE ) {

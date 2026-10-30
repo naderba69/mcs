@@ -216,6 +216,28 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 	}
 }
 
+int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t hash,
+                            uint8_t tag, const uint8_t *cw, uint32_t now_ms,
+                            uint32_t window_ms, int *distinct, int *weight)
+{
+    int idx, i, count = 0, weighted = 0;
+    if (distinct) *distinct = 0;
+    if (weight) *weight = 0;
+    if (!cw) return 0;
+    idx = cwc_slotof(caid, sid, hash, tag, cw);
+    if (idx < 0) return 0;
+    for (i = 0; i < cwc_tab[idx].nv; ++i) {
+        struct cw_voter *v = &cwc_tab[idx].v[i];
+        if (cwc_fresh(now_ms, v->tick, window_ms)) {
+            ++count;
+            weighted += v->weight;
+        }
+    }
+    if (distinct) *distinct = count;
+    if (weight) *weight = weighted;
+    return 1;
+}
+
 void cwconsensus_hold_cycle(uint16_t caid, uint16_t sid, uint32_t hash,
                             uint8_t tag, const uint8_t *cw, int peerid, int cycle)
 {

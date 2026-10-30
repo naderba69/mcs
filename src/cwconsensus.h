@@ -87,6 +87,12 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 			int weight, uint32_t now_ms, uint32_t window_ms,
 			const uint8_t **loser_cw);
 
+/* Query the candidate's live vote counts; caller must hold the cache lock.
+ * Distinct peer IDs are not necessarily independent sources. */
+int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t hash,
+                            uint8_t tag, const uint8_t *cw, uint32_t now_ms,
+                            uint32_t window_ms, int *distinct, int *weight);
+
 /* Preserve the first voter's wire-cycle declaration while a key is held.
  * Called under the same lock as verdict/expiry; does not record a new vote. */
 void cwconsensus_hold_cycle(uint16_t caid, uint16_t sid, uint32_t hash,
