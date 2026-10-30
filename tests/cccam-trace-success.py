@@ -61,9 +61,9 @@ def main():
     if not BINARY.is_file():
         raise RuntimeError("binary not found: " + str(BINARY))
     mode = os.environ.get("MCS_TEST_RESPONSE", "full")
-    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "zero", "repeatbytes", "pattern", "badlist")
-    caid = "1884" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache") else "09BD"
-    sid = "1136" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache") else "014A"
+    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "zero", "repeatbytes", "pattern", "badlist", "excluded1884", "enforced1884")
+    caid = "1884" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884") else "09BD"
+    sid = "1136" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884") else "014A"
     invalid_modes = ("zero", "repeatbytes", "pattern", "badlist")
     if mode in invalid_modes: caid, sid = "1884", "1136"
     tag = os.environ.get("MCS_TEST_TAG", "0x80")
@@ -93,7 +93,7 @@ def main():
                        "ENABLE SKIPCWC: YES\n"
                        + ("DCWFILTER PATTERN: ON\n" if mode == "pattern" else "DCWFILTER PATTERN: OFF\n")
                        + ("DCWFILTER REPEAT: ON\n" if mode == "repeatbytes" else "")
-                       + (f"DCWFILTER CHECKSUM: OFF\nDCW SKIPCWC_EXCLUDE_SIDS_ACTIVE: YES\nDCW SKIPCWC_EXCLUDE_SIDLIST: {sid}\n" if mode == "excluded" else "")
+                       + (f"DCWFILTER CHECKSUM: OFF\nDCW SKIPCWC_EXCLUDE_SIDS_ACTIVE: YES\nDCW SKIPCWC_EXCLUDE_SIDLIST: {sid if mode != 'enforced1884' else '9999'}\n" if mode in ("excluded", "excluded1884", "enforced1884") else "")
                        + ("RETRY NEWCAMD: 1\n" if mode == "retry" else "")
                        + ("DCW MINTIME: 800\n" if mode.startswith("mintime-") else "")
                        + "USER: traceuser tracepass\n", encoding="utf-8")
@@ -106,8 +106,8 @@ def main():
             if mode == "repeatbytes": env["NS_CW_SEQUENCE"] = "0505050F0405060F070809180A0B0C21"
             if mode == "pattern": env["NS_CW_SEQUENCE"] = "010203060405060F010203060405060F"
             if mode == "badlist": env["NS_CW_SEQUENCE"] = "010203060405060F070809180A0B0C21"
-            if mode not in ("full", "late", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache") + invalid_modes: env["NS_HALF_CW"] = "1"
-            if mode in ("bad", "excluded"): env["NS_BAD_CHECKSUM"] = "1"
+            if mode not in ("full", "late", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884") + invalid_modes: env["NS_HALF_CW"] = "1"
+            if mode in ("bad", "excluded", "excluded1884", "enforced1884"): env["NS_BAD_CHECKSUM"] = "1"
             if mode == "negative": env["NS_NEGATIVE"] = "1"
             if mode == "retry": env["NS_NEGATIVE_FIRST"] = "1"
             if mode in ("swap", "wronghalf"): env["NS_OPPOSITE_HALF"] = "1"
@@ -148,7 +148,7 @@ def main():
                 result = subprocess.run([str(cc), "127.0.0.1", str(cccam), "traceuser", "tracepass",
                                          caid, sid, tag], capture_output=True,
                                         text=True, timeout=25, check=True)
-                expected = "TIMEOUT" if mode in ("late", "recycled") else ("DCW" if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache") else "NOK")
+                expected = "TIMEOUT" if mode in ("late", "recycled") else ("DCW" if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884") else "NOK")
                 assert "ECM1 tag=" + tag[2:].upper() + " " + expected in result.stdout, result.stdout
                 page = request()
                 assert "استلام ECM" in page and "ECM sent to server" in page
@@ -161,7 +161,7 @@ def main():
                     assert match and 0 <= int(match.group(1)) < 800 and int(match.group(2)) == 800, page
                     assert "رُفضت CW بحد DCW MINTIME عند المعالجة" in page
                 if mode in ("mintime-slow", "mintime-local", "mintime-cache"): assert "CW rejected by DCW MINTIME;" not in page
-                if mode == "bad": assert "Newcamd CW rejected: checksum validation failed" in page
+                if mode in ("bad", "enforced1884"): assert "Newcamd CW rejected: checksum validation failed" in page
                 reasons = {"zero": "null-word validation failed", "repeatbytes": "repeated-byte validation failed", "pattern": "enabled pattern validation", "badlist": "operator BAD-DCW list"}
                 if mode in invalid_modes:
                     assert "Newcamd CW rejected: " + reasons[mode] in page
@@ -201,9 +201,9 @@ def main():
                         else: key[8:] = [0] * 8
                     encoded = "".join(f"{x:02X}" for x in key)
                     assert page.count(encoded) >= 2
-                if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache"):
+                if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884"):
                     assert page.count("<summary>إظهار CW</summary>") >= 2
-                elif mode in ("bad", "wronghalf", "late", "non09half", "recycled", "mintime-fast") + invalid_modes:
+                elif mode in ("bad", "wronghalf", "late", "non09half", "recycled", "mintime-fast", "enforced1884") + invalid_modes:
                     assert page.count("<summary>إظهار CW</summary>") == 1
                 else:
                     assert "<summary>إظهار CW</summary>" not in page

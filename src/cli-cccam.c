@@ -292,9 +292,10 @@ void cc_srv_recvmsg(struct server_data *srv)
 					break;
 				}
 				// Check for DCW
-				/* Preserve the existing initial-check SID=0 semantics here. */
+				/* Match Newcamd and the ECM worker: profile SID policy must
+				 * be evaluated against the actual request, not SID zero. */
 				int cc_reason = DCW_VALID;
-				if (!acceptDCW_profile_ca_sid_reason(dcw, cs, ecm->caid, 0, &cc_reason)) {
+				if (!acceptDCW_profile_ca_sid_reason(dcw, cs, ecm->caid, ecm->sid, &cc_reason)) {
 						const char *why = "CCcam CW rejected by initial validation; reason unknown";
 						switch (cc_reason) {
 						case DCW_INVALID_CHECKSUM: why = "CCcam CW rejected: checksum validation failed"; break;
