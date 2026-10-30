@@ -1653,6 +1653,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
                                  cwcycle_t cwcycle, int peerid)
 {
     int piped = 0;
+    cwcycle_t incoming_cycle = cwcycle;
 	// ACCEPTED
 	if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
 	if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, peerid);
@@ -1682,7 +1683,12 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 			cwdata->cwcycle = cwcycle;
 			cwdata->peerid = peerid;
 			if (!(cwdata->status&DCW_CYCLE)) {
+				char detail[128];
 				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache not forwarded: filter did not establish cycle", cw);
+				snprintf(detail, sizeof(detail), "cache cycle context: incoming=%s; expected=%s; previous CW=%s",
+				         cwcy_str((int)incoming_cycle), cwcy_str((int)pcache->cwcycle),
+				         isnullDCW(pcache->prevcw) ? "absent" : "present");
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
 				return cwdata->status;
 			}
 		}
@@ -1747,6 +1753,12 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 			 * based refusals (half-nulled non-NDS) and the consensus
 			 * convictions keep their node marks: those judge the bytes.
 			 */
+			{
+				char detail[128];
+				snprintf(detail, sizeof(detail), "cache cycle mismatch: expected=%s; assessed=%s; incoming=%s",
+				         cwcy_str((int)pcache->cwcycle), cwcy_str((int)cwcycle), cwcy_str((int)incoming_cycle));
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
+			}
 			return cwdata->status;
 		}
 	}
@@ -1865,6 +1877,8 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		default: break;
 		}
 		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, why, cw);
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+		    pcs ? "cache CW validation policy: attached ECM profile" : "cache CW validation policy: global; no attached ECM profile", cw);
 		/*
 		 * TASK 2.4 -- the blind spot this closes, found by running the live
 		 * target and watching nothing arrive.
@@ -2101,6 +2115,14 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 					         cv==CWC_DELIVER ? "proceed" : "other");
 				}
 				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
+				if (!known) {
+					struct cwconsensus_capacity cap;
+					cwconsensus_capacity(vote_tick, cwin, &cap);
+					snprintf(detail, sizeof(detail), "cache consensus capacity: used=%d/%d; held=%d; overdue=%d; reclaimable=%d; oldest hold=%u ms; window=%u ms",
+					         cap.used, cap.capacity, cap.held, cap.overdue, cap.reclaimable,
+					         cap.oldest_hold_ms, cwin);
+					user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
+				}
 			}
 			if ( cv==CWC_HOLD ) {
 				cwconsensus_hold_cycle(req->caid, req->sid, req->hash, req->tag, cw, peerid, cwcycle);
@@ -2114,14 +2136,17 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 				return DCW_ERROR | DCW_SKIP;
 			}
 			if ( cv==CWC_REFUSE ) {
-				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: consensus weighted decision", cw);
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+				    cwl ? "cache rejected: consensus weighted decision" : "cache rejected: consensus decision; weighted loss not established for this arrival", cw);
 #ifdef MCS_DCWSTATS
 				DCWSTATS_REJECT(DCW_REJ_CONSENSUS);
 				cwlog_refuse(DCW_REJ_CONSENSUS, peerid, req->caid, req->provid, req->sid, cw);
 #endif
 				{
 					struct cachepeer_data *rl_peer = getpeerbyid(peerid);
-					if (rl_peer) peerrep_event(rl_peer, "consensus-mismatch");
+					/* Only a weighted loss returns conflicting CW evidence. A timing
+					 * tie or sticky refusal does not condemn this sender. */
+					if (rl_peer && cwl) peerrep_event(rl_peer, "consensus-mismatch");
 				}
 				cwdata->status |= DCW_ERROR;
 				debugf(getdbgflag(DBG_CACHE,0,0),

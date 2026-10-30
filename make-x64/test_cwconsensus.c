@@ -62,6 +62,7 @@ int main(void)
 	cwconsensus_verdict(CH(0x1884,0x64,0x22222222,0x80), K1, 101, 1, 1000, 400, &loser);
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x22222222,0x80), K2, 202, 1, 1050, 400, &loser);
 	chk(v==CWC_REFUSE, "equal-weight later key is refused", v);
+	chk(loser==NULL, "timing-only refusal provides no weighted-loss evidence", loser != NULL);
 	/* sticky: the loser cannot sneak back within the window */
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x22222222,0x80), K2, 202, 1, 1100, 400, &loser);
 	chk(v==CWC_REFUSE, "the timing loser stays refused (sticky node)", v);
@@ -77,6 +78,7 @@ int main(void)
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x33333333,0x80), K2, 999, 0, 1100, 400, &loser);
 	chk(v==CWC_REFUSE, "the convicted key stays refused", v);
 	chk(cwconsensus_refusals()==1, "refusal counted once for the winner path", (long)cwconsensus_refusals());
+	chk(loser==NULL, "sticky refusal alone does not prove this voter cast a losing vote", loser != NULL);
 
 	/* -- 5. majority beats timing: two voters beat one earlier -- */
 	cwconsensus_init();
@@ -191,6 +193,28 @@ int main(void)
 	    chk(cwconsensus_expired(&h, 62002, 400) && h.sid == 1,
 	        "oldest pending hold is preserved for expiry", h.sid);
 	  }
+	}
+
+	/* Capacity is a global snapshot, not evidence about an individual ECM. */
+	cwconsensus_init();
+	{ int i; struct cwconsensus_capacity cap;
+	  for (i = 1; i <= 64; ++i) {
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 1, 1, 1000, 400, &loser);
+	    if (i > 32) cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 1001, 400, &loser);
+	  }
+	  cwconsensus_capacity(2000, 400, &cap);
+	  chk(cap.capacity==64 && cap.used==64 && cap.held==32 && cap.overdue==32 &&
+	      cap.reclaimable==0 && cap.oldest_hold_ms==1000, "capacity distinguishes overdue holds and retained entries", cap.held);
+	  v = cwconsensus_verdict(CH(0x1884,65,65,0x80), K1, 1, 1, 2000, 400, &loser);
+	  chk(v==CWC_DELIVER, "full table still follows documented fail-open policy", v);
+	  cwconsensus_capacity(62002, 400, &cap);
+	  chk(cap.held==32 && cap.reclaimable==32, "capacity reports reclaimable non-held entries", cap.reclaimable);
+	}
+	cwconsensus_init();
+	cwconsensus_verdict(CH(0x1884,1,1,0x80), K1, 1, 1, 0xfffffff0u, 400, &loser);
+	{ struct cwconsensus_capacity cap;
+	  cwconsensus_capacity(0x20, 400, &cap);
+	  chk(cap.held==1 && cap.overdue==0 && cap.oldest_hold_ms==48, "capacity handles tick wrap", cap.oldest_hold_ms);
 	}
 
 	printf("\n== %d/%d passed, %d failed ==\n", checks - fails, checks, fails);

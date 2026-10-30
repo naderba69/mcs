@@ -238,6 +238,28 @@ int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t hash,
     return 1;
 }
 
+void cwconsensus_capacity(uint32_t now_ms, uint32_t window_ms,
+                          struct cwconsensus_capacity *out)
+{
+    int i;
+    memset(out, 0, sizeof(*out));
+    out->capacity = CWC_SLOTS;
+    for (i = 0; i < CWC_SLOTS; ++i) {
+        struct cw_slot *s = &cwc_tab[i];
+        uint32_t age;
+        if (s->used != CWC_LIVE) continue;
+        ++out->used;
+        if (!s->holding) {
+            if (!cwc_fresh(now_ms, s->first_tick, 60000)) ++out->reclaimable;
+            continue;
+        }
+        ++out->held;
+        if (!cwc_fresh(now_ms, s->first_tick, window_ms)) ++out->overdue;
+        age = now_ms - s->first_tick;
+        if ((int32_t)age >= 0 && age > out->oldest_hold_ms) out->oldest_hold_ms = age;
+    }
+}
+
 void cwconsensus_hold_cycle(uint16_t caid, uint16_t sid, uint32_t hash,
                             uint8_t tag, const uint8_t *cw, int peerid, int cycle)
 {

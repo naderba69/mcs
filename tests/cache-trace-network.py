@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Isolated CSP + CCcam trace, no production services or credentials."""
 import base64
+import os
 import pathlib
 import re
 import socket
@@ -34,6 +35,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
     for name, policy, verdict, static in [
         ('checksum', 'CACHE FILTER: OFF\n', 'cache rejected: profile CW checksum validation failed', 'NO'),
         ('filter', 'CACHE FILTER: ON\n', 'cache not forwarded: filter did not establish cycle', 'NO'),
+        ('capacity', 'CACHE PROTECTION: STANDARD\nCACHE FILTER: OFF\n', 'cache consensus vote: no candidate slot; verdict=proceed; agreement unconfirmed', 'NO'),
         ('consensus', 'CACHE PROTECTION: STANDARD\nCACHE FILTER: OFF\n', 'cache held: consensus awaiting corroboration', 'NO'),
         ('accepted', 'CACHE FILTER: OFF\n', 'cache forwarded CW to ECM pipe; delivery not confirmed', 'NO'),
         ('static', 'CACHE FILTER: ON\n', 'cache not forwarded: filter did not establish cycle', 'YES'),
@@ -44,7 +46,9 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
         cfg.write_text(f'HTTP PORT: {hp}\nHTTP USER: test\nHTTP PASS: isolated\nTELNET PORT: 0\nCCCAM PORT: {ccport}\nF: traceuser tracepass\nCACHE PORT: {cp}\nCACHE PEER: 127.0.0.1:{pp} {{ csp=1 }}\n'+policy+f'\n[test]\nCAID: 1884\nPROVIDERS: 000000\nPORT: {ncport}\nDCW HALFNULLED: NO\nDCW CHECK: YES\nDCW MINTIME: 0\nDCWFILTER PATTERN: OFF\nENABLE CACHE: YES\nCACHE STATIC: {static}\nCACHE TIMEOUT: 900\nSERVER TIMEOUT: 5000\nUSER: traceuser tracepass\n')
         with (tmp/'peer.log').open('w+') as plog, (tmp/'server.log').open('w+') as slog:
             peer_cw = '11223367445566FF77889998AABBCC31' if name == 'checksum' else '11223366445566FF77889998AABBCC31'
-            peerproc = subprocess.Popen(['stdbuf','-o0','-e0',str(peer),str(cp),str(pp),peer_cw,'5'], cwd=tmp, stdout=plog, stderr=subprocess.STDOUT)
+            peer_env = {k:v for k,v in os.environ.items() if not k.startswith('CP_')}
+            if name == 'capacity': peer_env['CP_TEST_CAPACITY_FILL'] = '1'
+            peerproc = subprocess.Popen(['stdbuf','-o0','-e0',str(peer),str(cp),str(pp),peer_cw,'5'], cwd=tmp, env=peer_env, stdout=plog, stderr=subprocess.STDOUT)
             server = None
             try:
                 server = subprocess.Popen(['stdbuf','-o0','-e0',str(BINARY),'-v','-C',str(cfg)], cwd=tmp, stdout=slog, stderr=subprocess.STDOUT)
@@ -80,7 +84,12 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
                     assert 'cache wait policy: ECM thread timeout=500 ms; profile=900 ms; static=YES' in page, name
                 assert 'قناة فقط، ليس ربط عميل' in page, name
                 assert peer_cw in page, name
+                if name == 'capacity':
+                    assert 'cache consensus capacity: used=64/64; held=64; overdue=0; reclaimable=0;' in page, page
+                    assert 'سعة جدول Consensus العامة عند عدم توفر خانة' in page, name
+                    assert 'كيف أقرأ أدلة الكاش؟' in page, name
                 if name == 'checksum':
+                    assert 'cache CW validation policy: attached ECM profile' in page, page
                     assert 'رفض الكاش CW: فشل تحقق checksum' in page, name
                     assert 'ECM1 tag=80 DCW' not in result.stdout, result.stdout
                 if name == 'accepted':

@@ -7825,8 +7825,14 @@ static const char *trace_detail_ar(const char *detail)
     if (!strncmp(detail, "cache wait policy: ECM thread timeout=", 38)) return "مهلة CAID التي استعملها خيط ECM عند هذه المعالجة؛ ليست مدة انتظار مؤكدة";
     if (!strcmp(detail, "cache CW entered validation; decision pending")) return "وصلت CW لمسار التحقق في الكاش؛ القرار لم يصدر";
     if (!strcmp(detail, "cache consensus window expired; cycle checks pending")) return "انتهت نافذة consensus؛ لم يحسم فحص الدورة بعد";
+    if (!strncmp(detail, "cache consensus capacity:", 25)) return "سعة جدول Consensus العامة عند عدم توفر خانة؛ لا تنسب الخانات للعميل";
+    if (!strncmp(detail, "cache cycle context:", 20)) return "سياق فلتر الدورة: الوارد والمتوقع وتوفر CW سابقة";
+    if (!strncmp(detail, "cache cycle mismatch:", 21)) return "لم تُمرر CW لاختلاف الدورة المتوقعة عن الدورة التي قيّمها الكاش";
+    if (!strcmp(detail, "cache CW validation policy: attached ECM profile")) return "طبق فحص CW إعدادات بروفايل ECM المرتبط بسجل الكاش؛ لا يثبت ارتباطه بمحاولة العميل";
+    if (!strcmp(detail, "cache CW validation policy: global; no attached ECM profile")) return "طبق فحص CW القواعد العامة لعدم وجود بروفايل ECM مرتبط بسجل الكاش";
     if (!strncmp(detail, "cache consensus vote:", 21)) return "قرار consensus وعدد معرفات النظراء وأوزانها؛ تعددها لا يثبت استقلال المصادر";
     if (!strcmp(detail, "cache held: consensus awaiting corroboration")) return "الكاش احتجز CW انتظاراً لتأكيد consensus";
+    if (!strcmp(detail, "cache rejected: consensus decision; weighted loss not established for this arrival")) return "رفض Consensus الرد؛ لم يُثبت فقدان الوزن لهذا الرد، فلا يعاقَب النظير بسبب هذا القرار";
     if (!strcmp(detail, "cache rejected: consensus weighted decision")) return "الكاش رفض CW بقرار consensus";
     if (!strcmp(detail, "cache not forwarded: filter did not establish cycle")) return "الفلتر لم يثبت دورة CW فلم يمررها في هذا المسار";
     if (!strcmp(detail, "cache forwarded CW to ECM pipe; delivery not confirmed")) return "حاول الكاش تمرير CW إلى مسار ECM؛ لا يثبت تسليمها";
@@ -8021,6 +8027,7 @@ static void http_send_user_trace(int sock, http_request *req)
     tcp_writestr(&tcpbuf, sock, out);
     snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
     tcp_writestr(&tcpbuf, sock, out);
+    tcp_writestr(&tcpbuf, sock, "<details><summary>كيف أقرأ أدلة الكاش؟</summary><p>عند امتلاء Consensus: used عدد الخانات المستعملة من الإجمالي، held خانات تنتظر انتهاء النافذة، overdue خانات محتجزة تجاوزت النافذة، reclaimable خانات غير محتجزة يمكن إعادة استخدامها، oldest hold عمر أقدم حجز وwindow مدة النافذة. الخانات التي ليست held هي سجلات غير محتجزة محفوظة مؤقتاً. هذه حالة الجدول العام عند الحدث، لا هوية أصحاب الخانات ولا سببًا مثبتًا لفشل هذا العميل.</p><p>في أحداث الدورة: incoming الدورة التي وصلت إلى مسار الفحص، وقد تكون محفوظة من أول رد عند انتهاء Consensus؛ expected المتوقعة في سجل الكاش وassessed الدورة التي قيّمها الفلتر. no marker تعني عدم وجود علامة دورة معروفة في هذا المسار؛ previous CW يبين توفر CW سابقة للمقارنة، وليس صحتها. اختلاف الدورة لا يثبت وحده أن المصدر خبيث أو أن الصورة لن تظهر.</p></details>");
     trace_summary_write(&tcpbuf, sock, snap);
     tcp_writestr(&tcpbuf, sock, "<table><tr><th>الوقت</th><th>المحاولة</th><th>القناة</th><th>بصمة ECM غير فريدة</th><th>الحدث</th><th>النطاق</th><th>المصدر (نوع / ID داخلي)</th><th>المدة ms</th><th>التفاصيل</th><th>CW</th></tr>");
     for (i = 0; i < snap->count; ++i) {
