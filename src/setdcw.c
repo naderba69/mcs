@@ -793,6 +793,20 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 
 #ifdef THREAD_DCW
 
+/* Prechecks run on a snapshot outside lockecm. Report only if the queued
+ * storage still has the same lifetime and trace token; never infer from hash. */
+static void trace_queued_rejection(ECM_DATA *queued, uint64_t lifetime,
+                                   uint64_t trace, int srctype, int srcid,
+                                   const char *detail)
+{
+    if (!queued || !lifetime || !trace) return;
+    pthread_mutex_lock(&prg.lockecm);
+    if (queued->lifetime_id == lifetime && user_trace_same_instance(trace, queued->trace_instance))
+        user_trace_shared_event(trace, USER_TRACE_REJECTED, srctype, srcid,
+                                GetTickCount() - queued->recvtime, detail);
+    pthread_mutex_unlock(&prg.lockecm);
+}
+
 void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int cwmark, uint64_t trace_at_queue, uint64_t lifetime_at_queue )
 {
 	/* The pipe carries a pointer to reusable storage. Copy the old request
@@ -808,12 +822,21 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	pthread_mutex_unlock(&prg.lockecm);
 	ecm = &snapshot;
 	char nullcw[16] = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
-	if ( dcwcmp16(dcw,nullcw) ) return;
+	if ( dcwcmp16(dcw,nullcw) ) {
+        trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, "CW rejected by ECM worker: all bytes zero");
+        return;
+    }
 
 	struct cardserver_data *cs = ecm->cs;
-	if (!cs) return;
+	if (!cs) {
+        trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, "CW rejected by ECM worker: profile unavailable");
+        return;
+    }
 
-	if ( dcwcmp8(dcw,nullcw) && dcwcmp8(dcw+8,nullcw) ) return;
+	if ( dcwcmp8(dcw,nullcw) && dcwcmp8(dcw+8,nullcw) ) {
+        trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, "CW rejected by ECM worker: both halves zero");
+        return;
+    }
 
 	/*
 	 * TASK 1.8 — structural soft signal, evaluated before acceptDCW() so that
@@ -927,7 +950,21 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		}
 	}
 
-	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;
+	{
+        int reason = DCW_VALID;
+        if (!acceptDCW_profile_ca_sid_reason(dcw, cs, ecm->caid, ecm->sid, &reason)) {
+            const char *why = "CW rejected by ECM worker profile validation: reason unknown";
+            switch (reason) {
+            case DCW_INVALID_CHECKSUM: why = "CW rejected by ECM worker profile validation: checksum"; break;
+            case DCW_INVALID_NULL: why = "CW rejected by ECM worker profile validation: null-word"; break;
+            case DCW_INVALID_REPEAT: why = "CW rejected by ECM worker profile validation: repeated-byte"; break;
+            case DCW_INVALID_BADLIST: why = "CW rejected by ECM worker profile validation: BAD-DCW list"; break;
+            case DCW_INVALID_PATTERN: why = "CW rejected by ECM worker profile validation: enabled pattern"; break;
+            }
+            trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, why);
+            return;
+        }
+    }
 
 	/*
 	 * TASK BS1 (2026-10-26) -- CW Cycle Validation for Black Screen Prevention
@@ -947,6 +984,8 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 			extern int checkcycle(uint8_t, uint8_t, uint8_t);
 			extern void checkcycle_mismatch_inc(void);
 			if (!checkcycle(ecm->cw1cycle, ecm->ecm[0], cwmark)) {
+                trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid,
+                                       "CW rejected by ECM worker: cache cycle marker mismatch");
 				checkcycle_mismatch_inc();
 				debugf(0, " !!! [CYCLE] %s: CW cycle mismatch %04X:%06X:%04X/%02x (mark=%d) -- REFUSED\n",
 					cs->name, ecm->caid, ecm->provid, ecm->sid, ecm->ecm[0], cwmark);
@@ -974,6 +1013,10 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		int dcwstrict_rejected = dcwstrict_check(dcw, ecm->caid, ecm->provid, ecm->sid, now_ms, &dcwstrict_reason);
 		
 		if (dcwstrict_rejected) {
+            char detail[128];
+            snprintf(detail, sizeof(detail), "CW rejected by ECM worker: DCW STRICT; reason=%s",
+                     dcwstrict_reason ? dcwstrict_reason : "unknown");
+            trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, detail);
 			debugf(0, "    ❌ [DCW-STRICT-REJECT] %04X:%06X:%04X -- %s\n",
 				ecm->caid, ecm->provid, ecm->sid, dcwstrict_reason ? dcwstrict_reason : "unknown");
 			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
@@ -993,6 +1036,9 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 			ecm->caid, ecm->provid, ecm->sid, srcid, now_ms, &ssf_reason);
 		
 		if (ssf_rejected) {
+            char detail[96];
+            snprintf(detail, sizeof(detail), "CW rejected by ECM worker: SuperSmartFilter reason code %d", ssf_reason);
+            trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, detail);
 			debugf(0, "    ❌ [SSF-v2-REJECT] %04X:%06X:%04X -- reason code %d\n",
 				ecm->caid, ecm->provid, ecm->sid, ssf_reason);
 			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
@@ -1027,6 +1073,9 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	}
 
 	if (ecm->dcwstatus==STAT_DCW_SUCCESS) {
+        if (user_trace_same_instance(trace_at_queue, ecm->trace_instance))
+            user_trace_shared_event(trace_at_queue, USER_TRACE_REJECTED, srctype, srcid,
+                GetTickCount()-ecm->recvtime, "CW not applied: ECM already succeeded");
 		pthread_mutex_unlock(&prg.lockecm);
 		return;
 	}
@@ -1037,6 +1086,9 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	 * send the key. A card-server reply is not this path.
 	 */
 	if (srctype==DCW_SOURCE_CACHE && ecm->dcwstatus==STAT_DCW_FAILED) {
+        if (user_trace_same_instance(trace_at_queue, ecm->trace_instance))
+            user_trace_shared_event(trace_at_queue, USER_TRACE_REJECTED, srctype, srcid,
+                GetTickCount()-ecm->recvtime, "cache CW not applied: ECM already failed");
 		pthread_mutex_unlock(&prg.lockecm);
 		return;
 	}
@@ -1053,7 +1105,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		pthread_mutex_unlock( &prg.lockcache );
 		if (!f) {
 			if (user_trace_same_instance(trace_at_queue, ecm->trace_instance)) user_trace_shared_event(trace_at_queue, USER_TRACE_REJECTED,
-			    0, 0, GetTickCount()-ecm->recvtime, "CW rejected by cache repeat check");
+			    srctype, srcid, GetTickCount()-ecm->recvtime, "CW rejected by cache repeat check: matching cached CW or cache table unavailable");
 			pthread_mutex_unlock(&prg.lockecm);
 			return;
 		}
@@ -1084,6 +1136,13 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	if (cs->option.dcw.check && !cs->option.dcw.halfnulled) {
 		int check = checkfreeze_setdcw(ecm,dcw);
 		if (check==0) {
+            if (user_trace_same_instance(trace_at_queue, ecm->trace_instance)) {
+                const char *why = (dcwcmp8(dcw,nullcw) || dcwcmp8(dcw+8,nullcw)) ?
+                    "CW rejected by DCW CHECK: zero half with previous decode" :
+                    "CW rejected by DCW CHECK: inconsistent with recorded cycle";
+                user_trace_shared_event(trace_at_queue, USER_TRACE_REJECTED, srctype, srcid,
+                                        GetTickCount()-ecm->recvtime, why);
+            }
 			ecm->lastdecode.error++;
 			pthread_mutex_unlock(&prg.lockecm);
 			return;

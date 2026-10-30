@@ -1920,6 +1920,8 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		 * worth examining is the one about to be discarded). */
 		if ( cex_fake_reject(cex_gate_fake, cex_exchange,
 		                     checksumDCW(cw) && !isbadDCW(cw)) ) {
+            user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+                "cache rejected: CacheEX BLOCK_FAKE_CW gate", cw);
 #ifdef MCS_DCWSTATS
 			DCWSTATS_REJECT(DCW_REJ_CEXFAKE);
 			cwlog_refuse(DCW_REJ_CEXFAKE, peerid, req->caid, req->provid, req->sid, cw);
@@ -1989,7 +1991,11 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 * failed). The report is dropped this round -- the key is not stored and
 	 * not counted -- which is the same outcome a cache entry past its alive
 	 * time already produces; the peers' own retry brings it back. */
-	if (!pcache) return DCW_ERROR;
+	if (!pcache) {
+        user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+            "cache rejected: cache entry unavailable", cw);
+        return DCW_ERROR;
+    }
 
 	/*
 	 * TASK 2.5 -- what the peer OFFERED, judged against the half the pending
@@ -2014,7 +2020,11 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		/* TASK 3.4: the agreement record for this key could not be extended;
 		 * dropping the report keeps the counters honest (no phantom peer was
 		 * counted, no key was delivered on a bookkeeping failure). */
-		if (!cwdata) return DCW_ERROR;
+		if (!cwdata) {
+            user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+                "cache rejected: CW record allocation failed", cw);
+            return DCW_ERROR;
+        }
 		memset( cwdata, 0, sizeof(struct cw_cache_data) );
 		memcpy(cwdata->cw, cw, 16);
 		cwdata->status = 0;
@@ -2025,7 +2035,11 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	}
 	cwdata->nbpeers++;
 
-	if (cwdata->status&DCW_ERROR) return DCW_ERROR;
+	if (cwdata->status&DCW_ERROR) {
+        user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+            "cache rejected: existing CW record marked error; original cause unknown", cw);
+        return DCW_ERROR;
+    }
 
 	// TEST for min Peers
 	/*

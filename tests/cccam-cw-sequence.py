@@ -79,11 +79,21 @@ with tempfile.TemporaryDirectory(prefix='mcs-cw-sequence-') as folder:
             assert received == [(str(i+1), word) for i, word in enumerate(words)], (received, words, result.stdout)
             for i, tag in enumerate(('80' if n % 2 == 0 else '81' for n in range(len(words))), 1):
                 assert f'ECM{i} tag={tag} DCW' in result.stdout, result.stdout
-            page = request()
+            # The client can read the response before the trace writer records
+            # it. Wait briefly for the asynchronous final event, never accept a
+            # missing event as success.
+            deadline = time.monotonic() + 3
+            while True:
+                page = request()
+                rows = re.findall(r'<tr>.*?</tr>', page, re.DOTALL)
+                if sum('CW response sent; picture not verified' in row for row in rows) >= len(words) or time.monotonic() >= deadline:
+                    break
+                time.sleep(.05)
             assert 'أحداث مستبدلة: 0 | روابط مفقودة: 0 | أحداث مفقودة: 0' in page
-            assert page.count('Newcamd CW passed initial validation; further gates remain') == len(words)
-            assert page.count('CW response sent; picture not verified') == len(words)
-            rows = re.findall(r'<tr>.*?</tr>', page, re.DOTALL)
+            # The summary may repeat the latest evidence outside the table;
+            # count actual event rows rather than every occurrence on the page.
+            assert sum('Newcamd CW passed initial validation; further gates remain' in row for row in rows) == len(words)
+            assert sum('CW response sent; picture not verified' in row for row in rows) == len(words)
             for i, word in enumerate(words, 1):
                 attempt_rows = [row for row in rows if re.match(r'<tr><td>[^<]*</td><td>' + str(i) + r'</td>', row)]
                 received_rows = [row for row in attempt_rows if 'Newcamd CW response;' in row]

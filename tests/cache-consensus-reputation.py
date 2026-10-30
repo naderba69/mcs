@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-three-peers-') as folder:
     subprocess.run(['cc','-O2','-std=gnu89','-o',str(peer),str(ROOT/'tests/cachepeer.c')],check=True)
     subprocess.run(['cc','-O2','-std=gnu89','-w','-o',str(client),str(ROOT/'tests/ncclient.c'),str(ROOT/'src/des.c'),str(ROOT/'src/msg-newcamd.c'),str(ROOT/'src/md5.c')],check=True)
     # Delayed replies make the ordering deterministic on isolated local peers.
-    for name, count in [('timing-tie',2),('weighted-loss',3)]:
+    for name, count in [('timing-tie',2),('timing-repeat',3),('weighted-loss',3)]:
         tcp=set()
         while len(tcp)<3:tcp.add(port(socket.SOCK_STREAM))
         np,hp,ccport=tcp; cp=port(socket.SOCK_DGRAM); peers=[]
@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-three-peers-') as folder:
             try:
                 for i,(p,log) in enumerate(zip(peers,logs)):
                     peer_env=dict(env,CP_ANSWER_DELAY_MS=str(i*150))
-                    key = '1234569C789ABCCECDEF12CE234567CF' if i == count-1 else '11223366445566FF77889998AABBCC31'
+                    key = '1234569C789ABCCECDEF12CE234567CF' if (i > 0 if name == 'timing-repeat' else i == count-1) else '11223366445566FF77889998AABBCC31'
                     procs.append(subprocess.Popen(['stdbuf','-o0','-e0',str(peer),str(cp),str(p),key,'5'],cwd=d,env=peer_env,stdout=log,stderr=subprocess.STDOUT))
                 server=subprocess.Popen(['stdbuf','-o0','-e0',str(BINARY),'-C',str(cfg),'-v'],cwd=d,stdout=slog,stderr=subprocess.STDOUT)
                 deadline=time.monotonic()+20
@@ -69,9 +69,12 @@ with tempfile.TemporaryDirectory(prefix='mcs-three-peers-') as folder:
                 serverlog=(d/'server.log').read_text(errors='replace')
                 assert all(counts),(name,counts,serverlog)
                 page=request()
-                if name == 'timing-tie':
+                if name in ('timing-tie', 'timing-repeat'):
                     assert 'cache rejected: consensus decision; weighted loss not established for this arrival' in page, (name,page,serverlog)
                     assert 'ESCALATED to DISTRUST' not in serverlog, serverlog
+                    if name == 'timing-repeat':
+                        assert 'cache rejected: existing CW record marked error; original cause unknown' in page, (name,page)
+                        assert 'السبب الأصلي غير معروف' in page, name
                 else:
                     assert 'cache rejected: consensus weighted decision' in page, (name,page,serverlog)
                     assert 'ESCALATED to DISTRUST' in serverlog and 'consensus-mismatch' in serverlog, serverlog

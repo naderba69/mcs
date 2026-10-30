@@ -34,3 +34,6 @@ with tempfile.TemporaryDirectory(prefix='mcs-setdcw-identity-') as folder:
         env = dict(os.environ, MCS_TEST_RESPONSE='non09half', MCS_TEST_QUEUE_TRACE=token)
         subprocess.run([sys.executable, str(root / 'tests/cccam-trace-success.py'), str(src / 'x64/multics')], env=env, check=True, timeout=60)
         print('PASS: queued trace lifetime ' + token, flush=True)
+        env = dict(os.environ, MCS_TEST_QUEUE_TRACE=token, MCS_EXPECT_NO_REJECTION_TRACE='1')
+        subprocess.run([sys.executable, str(root / 'tests/cccam-dcw-check-trace.py'), str(src / 'x64/multics')], env=env, check=True, timeout=60)
+        print('PASS: DCW CHECK rejection not bound to queued trace lifetime ' + token, flush=True)

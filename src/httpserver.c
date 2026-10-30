@@ -7795,6 +7795,22 @@ static const char *trace_type_name(enum user_trace_event_type type)
 }
 static const char *trace_detail_ar(const char *detail)
 {
+    if (!strncmp(detail, "CW rejected by ECM worker profile validation:", 45)) return "رفض عامل ECM CW في فحص البروفايل؛ أول سبب في التفاصيل";
+    if (!strcmp(detail, "CW rejected by ECM worker: all bytes zero")) return "رفض عامل ECM CW كاملة صفرية";
+    if (!strcmp(detail, "CW rejected by ECM worker: profile unavailable")) return "تعذر فحص CW: لا يوجد بروفايل مرتبط بنسخة ECM";
+    if (!strcmp(detail, "CW rejected by ECM worker: both halves zero")) return "رفض عامل ECM نصفين صفريين";
+    if (!strcmp(detail, "CW rejected by ECM worker: cache cycle marker mismatch")) return "رفض عامل ECM علامة دورة الكاش لمخالفتها المتوقع";
+    if (!strncmp(detail, "CW rejected by ECM worker: DCW STRICT;", 38)) return "رفض عامل ECM CW عبر DCW STRICT؛ السبب في التفاصيل";
+    if (!strncmp(detail, "CW rejected by ECM worker: SuperSmartFilter", 43)) return "رفض عامل ECM CW عبر SuperSmartFilter؛ رمز السبب في التفاصيل";
+    if (!strcmp(detail, "CW rejected by DCW CHECK: zero half with previous decode")) return "رفض DCW CHECK نصف CW الصفري بعد وجود فك سابق";
+    if (!strcmp(detail, "CW rejected by DCW CHECK: inconsistent with recorded cycle")) return "رفض DCW CHECK CW لعدم توافقها مع الدورة المسجلة؛ لا يثبت ذلك خطأ المصدر";
+    if (!strcmp(detail, "CW not applied: ECM already succeeded")) return "لم تُطبق CW: كان ECM قد نجح مسبقًا";
+    if (!strcmp(detail, "cache CW not applied: ECM already failed")) return "لم تُطبق CW من الكاش: كان ECM قد فشل مسبقًا";
+    if (!strcmp(detail, "cache rejected: CacheEX BLOCK_FAKE_CW gate")) return "رفض الكاش CW عند بوابة CacheEX BLOCK_FAKE_CW";
+    if (!strcmp(detail, "cache rejected: cache entry unavailable")) return "رفض الكاش الرد لتعذر إنشاء أو إيجاد سجل الكاش";
+    if (!strcmp(detail, "cache rejected: CW record allocation failed")) return "رفض الكاش الرد لتعذر تخصيص سجل CW";
+    if (!strcmp(detail, "cache rejected: existing CW record marked error; original cause unknown")) return "رفض الكاش الرد لأن سجل CW موسوم بخطأ؛ السبب الأصلي غير معروف";
+    if (!strcmp(detail, "CW rejected by cache repeat check: matching cached CW or cache table unavailable")) return "رفض فحص الكاش CW: تطابق محتمل مع CW محفوظة أو تعذر تخصيص جدول الكاش؛ السبب المحدد غير معروف";
     if (!strncmp(detail, "CW rejected by DCW MINTIME;", 27)) return "رُفضت CW بحد DCW MINTIME عند المعالجة؛ المدة منذ الإرسال والحد في التفاصيل";
     if (!strcmp(detail, "CW rejected: zero half not allowed for CAID family")) return "رُفضت CW: عائلة CAID لا تسمح بنصف صفري";
     if (!strcmp(detail, "CW committed; client dispatch skipped after DCW timeout")) return "ثُبّت نجاح CW لكن استدعاء إرسال العملاء الجماعي تُجاوز بعد مهلة DCW";
