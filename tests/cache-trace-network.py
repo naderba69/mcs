@@ -31,15 +31,16 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
     peer, client = tmp/'peer', tmp/'client'
     subprocess.run(['cc', '-O2', '-std=gnu89', '-o', str(peer), str(ROOT/'tests/cachepeer.c')], check=True)
     subprocess.run(['cc', '-O2', '-std=gnu89', '-o', str(client), str(ROOT/'tests/ccdcw.c')], check=True)
-    for name, policy, verdict in [
-        ('filter', 'CACHE FILTER: ON\n', 'cache not forwarded: filter did not establish cycle'),
-        ('consensus', 'CACHE PROTECTION: STANDARD\nCACHE FILTER: OFF\n', 'cache held: consensus awaiting corroboration'),
-        ('accepted', 'CACHE FILTER: OFF\n', 'cache forwarded CW to ECM pipe; delivery not confirmed'),
+    for name, policy, verdict, static in [
+        ('filter', 'CACHE FILTER: ON\n', 'cache not forwarded: filter did not establish cycle', 'NO'),
+        ('consensus', 'CACHE PROTECTION: STANDARD\nCACHE FILTER: OFF\n', 'cache held: consensus awaiting corroboration', 'NO'),
+        ('accepted', 'CACHE FILTER: OFF\n', 'cache forwarded CW to ECM pipe; delivery not confirmed', 'NO'),
+        ('static', 'CACHE FILTER: ON\n', 'cache not forwarded: filter did not establish cycle', 'YES'),
     ]:
         hp, ccport, ncport = [port(socket.SOCK_STREAM) for _ in range(3)]
         cp, pp = [port(socket.SOCK_DGRAM) for _ in range(2)]
         cfg = tmp/'config'
-        cfg.write_text(f'HTTP PORT: {hp}\nHTTP USER: test\nHTTP PASS: isolated\nTELNET PORT: 0\nCCCAM PORT: {ccport}\nF: traceuser tracepass\nCACHE PORT: {cp}\nCACHE PEER: 127.0.0.1:{pp} {{ csp=1 }}\n'+policy+f'\n[test]\nCAID: 1884\nPROVIDERS: 000000\nPORT: {ncport}\nDCW HALFNULLED: NO\nDCW CHECK: YES\nDCW MINTIME: 0\nDCWFILTER PATTERN: OFF\nENABLE CACHE: YES\nCACHE STATIC: NO\nSERVER TIMEOUT: 5000\nUSER: traceuser tracepass\n')
+        cfg.write_text(f'HTTP PORT: {hp}\nHTTP USER: test\nHTTP PASS: isolated\nTELNET PORT: 0\nCCCAM PORT: {ccport}\nF: traceuser tracepass\nCACHE PORT: {cp}\nCACHE PEER: 127.0.0.1:{pp} {{ csp=1 }}\n'+policy+f'\n[test]\nCAID: 1884\nPROVIDERS: 000000\nPORT: {ncport}\nDCW HALFNULLED: NO\nDCW CHECK: YES\nDCW MINTIME: 0\nDCWFILTER PATTERN: OFF\nENABLE CACHE: YES\nCACHE STATIC: {static}\nCACHE TIMEOUT: 900\nSERVER TIMEOUT: 5000\nUSER: traceuser tracepass\n')
         with (tmp/'peer.log').open('w+') as plog, (tmp/'server.log').open('w+') as slog:
             peerproc = subprocess.Popen(['stdbuf','-o0','-e0',str(peer),str(cp),str(pp),'11223366445566FF77889998AABBCC31','5'], cwd=tmp, stdout=plog, stderr=subprocess.STDOUT)
             server = None
@@ -67,6 +68,14 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
                 assert 'got request sid 1136' in (tmp/'peer.log').read_text(), name
                 assert 'cache CW entered validation; decision pending' in page, (name, page)
                 assert verdict in page, (name, page)
+                assert 'خلاصة آخر محاولة مسجلة' in page, name
+                assert f'cache wait policy: initial schedule=900 ms; static={static}' in page, (name, re.findall(r'cache wait policy[^<]*', page))
+                summary = page.split('<h2>خلاصة آخر محاولة مسجلة</h2>', 1)[1].split('<table>', 1)[0]
+                assert 'سياسة انتظار الكاش عند البحث' in summary, (name, summary)
+                assert 'أحداث الكاش المصنفة' in summary, name
+                assert verdict not in summary, (name, 'channel verdict attributed to client')
+                if name == 'static':
+                    assert 'cache wait policy: ECM thread timeout=500 ms; profile=900 ms; static=YES' in page, name
                 assert 'قناة فقط، ليس ربط عميل' in page, name
                 assert '11223366445566FF77889998AABBCC31' in page, name
                 if name == 'accepted':

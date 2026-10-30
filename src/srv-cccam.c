@@ -997,6 +997,13 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 					ecm->waitcache = 1;
 					ecm->dcwstatus = STAT_DCW_WAITCACHE;
 					ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
+					if (ecm->trace_instance) {
+						char detail[128];
+						snprintf(detail, sizeof(detail), "cache wait policy: initial schedule=%u ms; static=%s; may end early or be rescheduled",
+						         (unsigned)cs->option.cachetimeout, cs->option.cachestatic ? "YES" : "NO");
+						user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE, 0, 0,
+						                        GetTickCount()-ecm->recvtime, detail);
+					}
 					pipe_cache_find(ecm, cs);
 					if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
 					    0, 0, GetTickCount()-ecm->recvtime, "cache lookup invoked; pipe delivery and result not confirmed");

@@ -7821,6 +7821,8 @@ static const char *trace_detail_ar(const char *detail)
     if (!strcmp(detail, "cache held: threshold not reached")) return "الكاش ينتظر بلوغ حد التأكيدات";
     if (!strcmp(detail, "cache held: CacheEX confirmation threshold")) return "CacheEX ينتظر تأكيدات إضافية";
     if (!strcmp(detail, "cache rejected: half-null not allowed for CAID family")) return "الكاش رفض نصف CW الصفري لعائلة CAID";
+    if (!strncmp(detail, "cache wait policy: initial schedule=", 36)) return "وقت الجدولة الأولي من البروفايل؛ قد يُعاد تحديده أو ينتهي مبكراً";
+    if (!strncmp(detail, "cache wait policy: ECM thread timeout=", 38)) return "مهلة CAID التي استعملها خيط ECM عند هذه المعالجة؛ ليست مدة انتظار مؤكدة";
     if (!strcmp(detail, "cache CW entered validation; decision pending")) return "وصلت CW لمسار التحقق في الكاش؛ القرار لم يصدر";
     if (!strcmp(detail, "cache held: consensus awaiting corroboration")) return "الكاش احتجز CW انتظاراً لتأكيد consensus";
     if (!strcmp(detail, "cache rejected: consensus weighted decision")) return "الكاش رفض CW بقرار consensus";
@@ -7834,6 +7836,62 @@ static const char *trace_detail_ar(const char *detail)
     if (!strcmp(detail, "cache peer retry invoked; pipe delivery not confirmed")) return "طُلبت إعادة البحث لدى نظراء الكاش؛ وصول الطلب غير مؤكد";
     if (!strcmp(detail, "Newcamd retry send reported success")) return "أفادت دالة الإرسال بنجاح إعادة الطلب إلى Newcamd";
     return "";
+}
+/* Render only evidence bound to the selected attempt. A channel-only cache
+ * event must never be inferred to have caused an individual client's result. */
+static void trace_summary_evidence(struct tcp_buffer_data *tcpbuf, int sock,
+                                   const char *label, const struct user_trace_event *e)
+{
+    char out[1400], safe[768];
+    const char *ar = trace_detail_ar(e->detail);
+    html_esc(safe, sizeof(safe), e->detail);
+    snprintf(out, sizeof(out), "<li>%s: %s%s%s؛ مصدر %d / %d؛ المدة المسجلة %u ms</li>",
+             label, ar, *ar ? " — " : "", safe, e->source_type, e->source_id, e->elapsed_ms);
+    tcp_writestr(tcpbuf, sock, out);
+}
+static void trace_summary_write(struct tcp_buffer_data *tcpbuf, int sock,
+                                const struct user_trace_snapshot *snap)
+{
+    struct user_trace_summary sum;
+    char out[1024];
+    user_trace_summarize(snap, &sum);
+    tcp_writestr(tcpbuf, sock, "<h2>خلاصة آخر محاولة مسجلة</h2>");
+    if (sum.incomplete)
+        tcp_writestr(tcpbuf, sock, "<p><b>التغطية ناقصة:</b> فقدت أو استبدلت أحداث أو روابط في الجلسة؛ قد تكون أدلة هذه المحاولة ناقصة.</p>");
+    if (sum.received < 0) {
+        tcp_writestr(tcpbuf, sock, "<p>لا يوجد طلب مستلم محفوظ في الجلسة؛ النتيجة والسبب غير معروفين.</p>");
+        return;
+    }
+    {
+        const struct user_trace_event *e = &snap->events[sum.received];
+        snprintf(out, sizeof(out), "<p>المحاولة %llu — <code>%04X:%06X:%04X</code>. لا يفترض تطابق البصمة هوية الطلب.</p><ul>",
+                 (unsigned long long)sum.attempt, e->caid, e->provider, e->sid);
+        tcp_writestr(tcpbuf, sock, out);
+    }
+    if (sum.client_result >= 0) {
+        const struct user_trace_event *e = &snap->events[sum.client_result];
+        if (e->type == USER_TRACE_DELIVERED)
+            tcp_writestr(tcpbuf, sock, "<li><b>نتيجة العميل:</b> سجل النظام إرسال CW؛ لا يثبت ظهور الصورة.</li>");
+        else if (e->type == USER_TRACE_SEND_FAILED)
+            tcp_writestr(tcpbuf, sock, "<li><b>نتيجة العميل:</b> سجل النظام تعذر إرسال الاستجابة.</li>");
+        else if (e->type == USER_TRACE_DENIED)
+            tcp_writestr(tcpbuf, sock, "<li><b>نتيجة العميل:</b> سجل النظام رفض الطلب.</li>");
+        else tcp_writestr(tcpbuf, sock, "<li><b>نتيجة العميل:</b> سجل النظام فشل الطلب.</li>");
+        trace_summary_evidence(tcpbuf, sock, "دليل نتيجة العميل", e);
+    } else tcp_writestr(tcpbuf, sock, "<li><b>نتيجة العميل:</b> غير معروفة من الأحداث المحتفظ بها؛ غياب الحدث ليس دليل عدم الإرسال.</li>");
+    if (sum.last_ecm_failure >= 0)
+        trace_summary_evidence(tcpbuf, sock, "حدث فشل ECM مشترك", &snap->events[sum.last_ecm_failure]);
+    if (sum.last_source_reply >= 0)
+        trace_summary_evidence(tcpbuf, sock, "آخر رد مصدر مسجل", &snap->events[sum.last_source_reply]);
+    else tcp_writestr(tcpbuf, sock, "<li>رد المصدر: لم يُسجَّل في الأحداث المحتفظ بها؛ لا يعني أنه لم يصل.</li>");
+    if (sum.last_source_rejection >= 0)
+        trace_summary_evidence(tcpbuf, sock, "رفض مسجل خلال المحاولة (ليس بالضرورة سبب النتيجة النهائية)", &snap->events[sum.last_source_rejection]);
+    if (sum.last_cache_policy >= 0)
+        trace_summary_evidence(tcpbuf, sock, "سياسة انتظار الكاش عند البحث", &snap->events[sum.last_cache_policy]);
+    if (sum.last_cache_lookup >= 0)
+        trace_summary_evidence(tcpbuf, sock, "طلب بحث الكاش", &snap->events[sum.last_cache_lookup]);
+    else tcp_writestr(tcpbuf, sock, "<li>بحث الكاش: غير معروف لهذه المحاولة من الأحداث المحتفظ بها.</li>");
+    tcp_writestr(tcpbuf, sock, "</ul><p>أحداث الكاش المصنفة «قناة فقط» لا تثبت أنها تخص هذه المحاولة؛ لذلك لا تُنسب إليها كسبب. القيم المسجلة لقطة عند البحث؛ قد تنتهي المهلة قبل وقتها بسبب مسارات أخرى.</p>");
 }
 static void http_send_user_trace(int sock, http_request *req)
 {
@@ -7954,8 +8012,10 @@ static void http_send_user_trace(int sock, http_request *req)
     }
     snprintf(out, sizeof(out), "</select></label><label>نطاق المراقبة <select name='mode' onchange='traceMode(this)'><option value='single'%s>قناة واحدة</option><option value='all'%s>كل قنوات العميل</option></select></label><label>CAID <input name='caid' maxlength='4' value='%04X'></label><label>Provider <input name='provid' maxlength='6' value='%06X'></label><label>SID <input name='sid' maxlength='4' value='%04X'></label><button type='submit'>بدء متابعة جديدة</button></form><form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='stop'><button type='submit'>إيقاف</button></form>", snap->target.all_channels ? "" : " selected", snap->target.all_channels ? " selected" : "", snap->active ? snap->target.caid : 0, snap->active ? snap->target.provider : 0, snap->active ? snap->target.sid : 0, trace_csrf);
     tcp_writestr(&tcpbuf, sock, out);
-    snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p><table><tr><th>الوقت</th><th>المحاولة</th><th>القناة</th><th>بصمة ECM غير فريدة</th><th>الحدث</th><th>النطاق</th><th>المصدر (نوع / ID داخلي)</th><th>المدة ms</th><th>التفاصيل</th><th>CW</th></tr>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
+    snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
     tcp_writestr(&tcpbuf, sock, out);
+    trace_summary_write(&tcpbuf, sock, snap);
+    tcp_writestr(&tcpbuf, sock, "<table><tr><th>الوقت</th><th>المحاولة</th><th>القناة</th><th>بصمة ECM غير فريدة</th><th>الحدث</th><th>النطاق</th><th>المصدر (نوع / ID داخلي)</th><th>المدة ms</th><th>التفاصيل</th><th>CW</th></tr>");
     for (i = 0; i < snap->count; ++i) {
         struct user_trace_event *e = &snap->events[i];
         char safe[768], timestr[32], attempt[32], elapsed[32], cw_html[160] = "—";
@@ -7972,7 +8032,8 @@ static void http_send_user_trace(int sock, http_request *req)
         snprintf(out, sizeof(out), "<tr><td>%s</td><td>%s</td><td><code>%04X:%06X:%04X</code></td><td><code>%08X</code></td><td>%s</td><td>%s</td><td>%d / %d</td><td>%s</td><td>%s%s%s</td><td>%s</td></tr>", timestr, attempt, e->caid, e->provider, e->sid, e->ecm_hash, trace_type_name(e->type), e->shared == 2 ? "قناة فقط، ليس ربط عميل" : (e->shared ? "ECM مشترك" : "العميل"), e->source_type, e->source_id, elapsed, trace_detail_ar(e->detail), *trace_detail_ar(e->detail) ? " — " : "", safe, cw_html);
         tcp_writestr(&tcpbuf, sock, out);
     }
-    tcp_writestr(&tcpbuf, sock, "</table></section><p><a href='/user-trace'>تحديث يدوي</a> | <a href='/'>الرئيسية</a></p><script>function traceMode(s){for(const n of ['caid','provid','sid'])document.querySelector('[name='+n+']').disabled=s.value==='all';}traceMode(document.querySelector('[name=mode]'));function traceChoose(s){const o=s.options[s.selectedIndex];const c=o.dataset.caid,p=o.dataset.provid,i=o.dataset.sid;document.querySelector('[name=caid]').value=c&&c!='0000'?c:'';document.querySelector('[name=provid]').value=p||'000000';document.querySelector('[name=sid]').value=i&&i!='0000'?i:'';}setInterval(async function(){try{const r=await fetch('/user-trace',{cache:'no-store'});if(!r.ok)return;const doc=new DOMParser().parseFromString(await r.text(),'text/html');const n=doc.getElementById('trace-data');if(n){const open=Array.from(document.querySelectorAll('#trace-data details[open]')).map(x=>x.dataset.event);const box=document.getElementById('trace-data');box.innerHTML=n.innerHTML;box.querySelectorAll('details').forEach(x=>{if(open.includes(x.dataset.event))x.open=true;});}}catch(e){}},5000);</script></body></html>");
+    tcp_writestr(&tcpbuf, sock, "</table>");
+    tcp_writestr(&tcpbuf, sock, "</section><p><a href='/user-trace'>تحديث يدوي</a> | <a href='/'>الرئيسية</a></p><script>function traceMode(s){for(const n of ['caid','provid','sid'])document.querySelector('[name='+n+']').disabled=s.value==='all';}traceMode(document.querySelector('[name=mode]'));function traceChoose(s){const o=s.options[s.selectedIndex];const c=o.dataset.caid,p=o.dataset.provid,i=o.dataset.sid;document.querySelector('[name=caid]').value=c&&c!='0000'?c:'';document.querySelector('[name=provid]').value=p||'000000';document.querySelector('[name=sid]').value=i&&i!='0000'?i:'';}setInterval(async function(){try{const r=await fetch('/user-trace',{cache:'no-store'});if(!r.ok)return;const doc=new DOMParser().parseFromString(await r.text(),'text/html');const n=doc.getElementById('trace-data');if(n){const open=Array.from(document.querySelectorAll('#trace-data details[open]')).map(x=>x.dataset.event);const box=document.getElementById('trace-data');box.innerHTML=n.innerHTML;box.querySelectorAll('details').forEach(x=>{if(open.includes(x.dataset.event))x.open=true;});}}catch(e){}},5000);</script></body></html>");
     tcp_flush(&tcpbuf, sock);
     free(snap);
 }

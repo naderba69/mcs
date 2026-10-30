@@ -182,12 +182,28 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 				    0, 0, ticks-ecm->recvtime, "cache lookup invoked; pipe delivery and result not confirmed");
 				ecm->waitcache = 1;
 				uint32_t cache_timeout = caid_integration_get_cache_timeout(ecm->caid);
+				if (ecm->trace_instance) {
+					char detail[128];
+					snprintf(detail, sizeof(detail), "cache wait policy: ECM thread timeout=%u ms; profile=%u ms; static=%s; wait may end early",
+					         cache_timeout, (unsigned)cs->option.cachetimeout,
+					         cs->option.cachestatic ? "YES" : "NO");
+					user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE, 0, 0,
+					                        ticks-ecm->recvtime, detail);
+				}
 				ecm->checktime = ecm->recvtime + cache_timeout; // wait for cache (CAID-specific)
 			}
 			else ecm->dcwstatus = STAT_DCW_WAIT;
 		}
 		else {
 			uint32_t cache_timeout = caid_integration_get_cache_timeout(ecm->caid);
+			if (ecm->trace_instance) {
+				char detail[128];
+				snprintf(detail, sizeof(detail), "cache wait policy: ECM thread timeout=%u ms; profile=%u ms; static=%s; wait may end early",
+				         cache_timeout, (unsigned)cs->option.cachetimeout,
+				         cs->option.cachestatic ? "YES" : "NO");
+				user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE, 0, 0,
+				                        ticks-ecm->recvtime, detail);
+			}
 			if ( ( (ecm->recvtime+cache_timeout)<=ticks ) ) ecm->dcwstatus = STAT_DCW_WAIT;
 			else {
 				//debugf(" Wait for cache\n");

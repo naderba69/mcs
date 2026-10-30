@@ -405,3 +405,42 @@ void user_trace_get_snapshot(struct user_trace_snapshot *out)
     }
     pthread_mutex_unlock(&trace_lock);
 }
+
+/* A summary reports observations, not causation. Ring loss is session-wide,
+ * so conservatively mark the summary incomplete whenever any loss occurred. */
+void user_trace_summarize(const struct user_trace_snapshot *snap,
+                          struct user_trace_summary *out)
+{
+    size_t i, n;
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    out->received = out->client_result = out->last_ecm_failure = -1;
+    out->last_source_reply = out->last_source_rejection = -1;
+    out->last_cache_lookup = out->last_cache_policy = -1;
+    if (!snap) { out->incomplete = 1; return; }
+    n = snap->count <= USER_TRACE_CAPACITY ? snap->count : USER_TRACE_CAPACITY;
+    out->incomplete = snap->count > USER_TRACE_CAPACITY || snap->overwritten ||
+                      snap->dropped_links || snap->dropped_events;
+    for (i = 0; i < n; ++i) {
+        const struct user_trace_event *e = &snap->events[i];
+        if (e->type == USER_TRACE_RECEIVED && e->attempt && e->session == snap->session) {
+            out->attempt = e->attempt;
+            out->received = (int)i;
+        }
+    }
+    if (out->received < 0) return;
+    for (i = (size_t)out->received + 1; i < n; ++i) {
+        const struct user_trace_event *e = &snap->events[i];
+        if (e->session != snap->session || e->attempt != out->attempt || e->shared == 2) continue;
+        if (!e->shared && (e->type == USER_TRACE_DELIVERED || e->type == USER_TRACE_SEND_FAILED ||
+                           e->type == USER_TRACE_DENIED || e->type == USER_TRACE_FAILED))
+            out->client_result = (int)i;
+        if (e->shared == 1 && e->type == USER_TRACE_FAILED) out->last_ecm_failure = (int)i;
+        if (e->type == USER_TRACE_SOURCE_REPLY) out->last_source_reply = (int)i;
+        if (e->type == USER_TRACE_REJECTED) out->last_source_rejection = (int)i;
+        if (e->type == USER_TRACE_CACHE && !strcmp(e->detail, "cache lookup invoked; pipe delivery and result not confirmed"))
+            out->last_cache_lookup = (int)i;
+        if (e->type == USER_TRACE_CACHE && !strncmp(e->detail, "cache wait policy:", 18))
+            out->last_cache_policy = (int)i;
+    }
+}

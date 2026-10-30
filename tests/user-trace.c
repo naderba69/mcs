@@ -27,6 +27,33 @@ int main(void)
     pthread_t threads[4];
     size_t i;
     char detail[256];
+    {
+        struct user_trace_snapshot synthetic = {0};
+        struct user_trace_summary sum;
+        synthetic.session = 10;
+        synthetic.count = 5;
+        synthetic.events[0].type = USER_TRACE_RECEIVED;
+        synthetic.events[0].session = 10; synthetic.events[0].attempt = 1;
+        synthetic.events[1].type = USER_TRACE_CACHE;
+        synthetic.events[1].session = 10; synthetic.events[1].attempt = 0;
+        synthetic.events[1].shared = 2; /* same channel, NOT same request */
+        strcpy(synthetic.events[1].detail, "cache held: consensus awaiting corroboration");
+        synthetic.events[2].type = USER_TRACE_SOURCE_REPLY;
+        synthetic.events[2].session = 10; synthetic.events[2].attempt = 99;
+        synthetic.events[3].type = USER_TRACE_CACHE;
+        synthetic.events[3].session = 10; synthetic.events[3].attempt = 1; synthetic.events[3].shared = 1;
+        strcpy(synthetic.events[3].detail, "cache wait policy: effective=500 ms; profile=900 ms");
+        synthetic.events[4].type = USER_TRACE_FAILED;
+        synthetic.events[4].session = 10; synthetic.events[4].attempt = 1; synthetic.events[4].shared = 1;
+        user_trace_summarize(&synthetic, &sum);
+        assert(sum.attempt == 1 && sum.received == 0 && sum.last_cache_policy == 3);
+        assert(sum.client_result == -1 && sum.last_source_reply == -1 && sum.last_ecm_failure == 4);
+        assert(!sum.incomplete);
+        synthetic.overwritten = 1; user_trace_summarize(&synthetic, &sum); assert(sum.incomplete);
+        synthetic.events[4].shared = 0; user_trace_summarize(&synthetic, &sum); assert(sum.client_result == 4);
+        synthetic.events[4].type = USER_TRACE_DELIVERED; user_trace_summarize(&synthetic, &sum); assert(sum.client_result == 4);
+        synthetic.events[4].session = 9; user_trace_summarize(&synthetic, &sum); assert(sum.client_result == -1);
+    }
     assert(user_trace_start(NULL) == 0);
     assert(!user_trace_same_instance(0, 0));
     assert(!user_trace_same_instance(123, 124));

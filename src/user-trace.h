@@ -63,6 +63,17 @@ struct user_trace_snapshot {
     struct user_trace_event events[USER_TRACE_CAPACITY];
 };
 
+/* Summary references the immutable snapshot, never hash-matches channel-only
+ * cache traffic to an attempt. All indices are -1 when evidence is absent. */
+struct user_trace_summary {
+    uint64_t attempt;
+    int received, client_result, last_ecm_failure, last_source_reply;
+    int last_source_rejection, last_cache_lookup, last_cache_policy;
+    int incomplete;
+};
+void user_trace_summarize(const struct user_trace_snapshot *snapshot,
+                          struct user_trace_summary *out);
+
 /* A start replaces the previous session and invalidates its tokens. */
 /* Protect the CCcam client list while the HTTP selector snapshots it and
  * while configuration is reloaded. Never hold this lock during socket I/O. */
