@@ -11,7 +11,7 @@
 
 #include "cwconsensus.h"
 
-#define CWC_SLOTS   64   /* power of two */
+#define CWC_SLOTS   CWC_CAPACITY
 #define CWC_MAXV     8   /* distinct voters tracked per key */
 #define CWC_NOUSE    0
 #define CWC_LIVE     1

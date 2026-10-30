@@ -46,6 +46,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
         ('unknown', 'CACHE FILTER: OFF\n', 'CSP reply dropped: unknown sender; length=29; header unverified', 'NO'),
         ('filter', 'CACHE FILTER: ON\n', 'cache not forwarded: filter did not establish cycle', 'NO'),
         ('capacity', 'CACHE PROTECTION: STANDARD\nCACHE FILTER: OFF\n', 'cache consensus vote: no candidate slot; verdict=proceed; agreement unconfirmed', 'NO'),
+        ('capacity128', 'CACHE PROTECTION: STANDARD\nCACHE FILTER: OFF\n', 'cache held: consensus awaiting corroboration', 'NO'),
         ('consensus', 'CACHE PROTECTION: STANDARD\nCACHE FILTER: OFF\n', 'cache held: consensus awaiting corroboration', 'NO'),
         ('accepted', 'CACHE FILTER: OFF\n', 'cache forwarded CW to ECM pipe; delivery not confirmed', 'NO'),
         ('static', 'CACHE FILTER: ON\n', 'cache not forwarded: filter did not establish cycle', 'YES'),
@@ -60,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
         with (tmp/'peer.log').open('w+') as plog, (tmp/'server.log').open('w+') as slog:
             peer_cw = '11223367445566FF77889998AABBCC31' if name in ('checksum', 'checksum-excluded', 'checksum-enforced') else '11223366445566FF77889998AABBCC31'
             peer_env = {k:v for k,v in os.environ.items() if not k.startswith('CP_')}
-            if name == 'capacity': peer_env['CP_TEST_CAPACITY_FILL'] = '1'
+            if name in ('capacity', 'capacity128'): peer_env['CP_TEST_CAPACITY_FILL'] = '256' if name == 'capacity' else '128'
             if name in ('short8', 'short12', 'short20', 'oversize', 'integrity', 'tag', 'hash', 'unknown'): peer_env['CP_TEST_DROP'] = name
             peerproc = subprocess.Popen(['stdbuf','-o0','-e0',str(peer),str(cp),str(pp),peer_cw,'5'], cwd=tmp, env=peer_env, stdout=plog, stderr=subprocess.STDOUT)
             server = None
@@ -113,8 +114,11 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
                     row = next(row for row in page.split('<tr>') if verdict in row)
                     assert arabic[name] in row and 'قناة فقط، ليس ربط عميل' in row, (name,row)
                     assert 'data-event=' not in row, (name, 'unvalidated CW exposed')
+                if name == 'capacity128':
+                    assert 'cache consensus vote: no candidate slot' not in page, page
+                    assert 'cache consensus vote: verdict=held; peer IDs=1; weight=1; threshold=3' in page, page
                 if name == 'capacity':
-                    assert 'cache consensus capacity: used=64/64; held=64; overdue=0; reclaimable=0;' in page, page
+                    assert 'cache consensus capacity: used=256/256; held=256; overdue=0; reclaimable=0;' in page, page
                     assert 'سعة جدول Consensus العامة عند عدم توفر خانة' in page, name
                     assert 'كيف أقرأ أدلة الكاش؟' in page, name
                 if name == 'checksum':

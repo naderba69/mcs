@@ -653,8 +653,9 @@ int main(int argc, char **argv)
                 /* Test-only burst of unrelated channel candidates, used to
                  * exercise global consensus capacity through the real CSP path. */
                 if (sent == 0 && getenv("CP_TEST_CAPACITY_FILL")) {
-                    int j;
-                    for (j = 0; j < 64; ++j) {
+                    int j, count = atoi(getenv("CP_TEST_CAPACITY_FILL"));
+                    if (count < 1 || count > 256) count = 256;
+                    for (j = 0; j < count; ++j) {
                         unsigned char fill[30];
                         memcpy(fill, rep, sizeof(fill));
                         fill[2] = 0x20; fill[3] = (unsigned char)j;

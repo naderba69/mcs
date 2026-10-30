@@ -139,13 +139,13 @@ int main(void)
 	/* -- 11. fail-open: exhausting the table still delivers -- */
 	cwconsensus_init();
 	{ int i, holds = 0;
-	  for (i = 0; i < 200; i++) {
+	  for (i = 0; i < CWC_CAPACITY + 136; i++) {
 		uint8_t k[16]; uint32_t h = 0xA0000000u + (uint32_t)i * 0x1000u;
 		memcpy(k, K1, 16); k[0] = (uint8_t)i;
 		if (cwconsensus_verdict(CH(0x1884,(uint16_t)(0x80+i),h,0x80), k, 900+i, 1, 1000, 400, &loser)==CWC_HOLD)
 			holds++;
 	  }
-	  chk(holds>=64, "the table held at least a full pass of requests", holds); }
+	  chk(holds==CWC_CAPACITY, "the table holds capacity then fails open", holds); }
 
 	/* -- 12. TASK R29 (D80): SOURCES raises the corroboration bar -- */
 	cwconsensus_init();
@@ -183,11 +183,11 @@ int main(void)
 	cwconsensus_set_min_sources(2);
 	cwconsensus_verdict(CH(0x1884,1,1,0x80), K1, 1, 1, 1000, 400, &loser);
 	{ int i;
-	  for (i = 2; i <= 64; ++i) {
+	  for (i = 2; i <= CWC_CAPACITY; ++i) {
 	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 1, 1, 2000, 400, &loser);
 	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 2001, 400, &loser);
 	  }
-	  v = cwconsensus_verdict(CH(0x1884,65,65,0x80), K1, 1, 1, 62002, 400, &loser);
+	  v = cwconsensus_verdict(CH(0x1884,CWC_CAPACITY+1,CWC_CAPACITY+1,0x80), K1, 1, 1, 62002, 400, &loser);
 	  chk(v == CWC_HOLD, "reclaim expired non-held entry even when oldest is held", v);
 	  { struct cwconsensus_hold h = {0};
 	    chk(cwconsensus_expired(&h, 62002, 400) && h.sid == 1,
@@ -198,17 +198,17 @@ int main(void)
 	/* Capacity is a global snapshot, not evidence about an individual ECM. */
 	cwconsensus_init();
 	{ int i; struct cwconsensus_capacity cap;
-	  for (i = 1; i <= 64; ++i) {
+	  for (i = 1; i <= CWC_CAPACITY; ++i) {
 	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 1, 1, 1000, 400, &loser);
-	    if (i > 32) cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 1001, 400, &loser);
+	    if (i > CWC_CAPACITY/2) cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 1001, 400, &loser);
 	  }
 	  cwconsensus_capacity(2000, 400, &cap);
-	  chk(cap.capacity==64 && cap.used==64 && cap.held==32 && cap.overdue==32 &&
-	      cap.reclaimable==32 && cap.oldest_hold_ms==1000, "capacity distinguishes overdue holds and retained entries", cap.held);
-	  v = cwconsensus_verdict(CH(0x1884,65,65,0x80), K1, 1, 1, 2000, 400, &loser);
+	  chk(cap.capacity==CWC_CAPACITY && cap.used==CWC_CAPACITY && cap.held==CWC_CAPACITY/2 && cap.overdue==CWC_CAPACITY/2 &&
+	      cap.reclaimable==CWC_CAPACITY/2 && cap.oldest_hold_ms==1000, "capacity distinguishes overdue holds and retained entries", cap.held);
+	  v = cwconsensus_verdict(CH(0x1884,CWC_CAPACITY+1,CWC_CAPACITY+1,0x80), K1, 1, 1, 2000, 400, &loser);
 	  chk(v==CWC_HOLD, "expired completed slot is reclaimed before fail-open", v);
 	  cwconsensus_capacity(62002, 400, &cap);
-	  chk(cap.held==33 && cap.reclaimable==31, "capacity reports reclaimable non-held entries", cap.reclaimable);
+	  chk(cap.held==CWC_CAPACITY/2+1 && cap.reclaimable==CWC_CAPACITY/2-1, "capacity reports reclaimable non-held entries", cap.reclaimable);
 	}
 	cwconsensus_init();
 	cwconsensus_verdict(CH(0x1884,1,1,0x80), K1, 1, 1, 0xfffffff0u, 400, &loser);
@@ -229,20 +229,20 @@ int main(void)
 	/* Recently active non-held entries must not be reclaimed based on birth. */
 	cwconsensus_init();
 	{ int i; struct cwconsensus_capacity cap;
-	  for (i=1; i<=64; i++) {
+	  for (i=1; i<=CWC_CAPACITY; i++) {
 	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 1, 1, 1000, 600, &loser);
 	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 1100, 600, &loser);
 	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 1600, 600, &loser);
 	  }
 	  cwconsensus_capacity(1700, 600, &cap);
 	  chk(cap.reclaimable==0, "recent activity protects completed slot", cap.reclaimable);
-	  v=cwconsensus_verdict(CH(0x1884,65,65,0x80), K1, 1, 1, 1700, 600, &loser);
+	  v=cwconsensus_verdict(CH(0x1884,CWC_CAPACITY+1,CWC_CAPACITY+1,0x80), K1, 1, 1, 1700, 600, &loser);
 	  chk(v==CWC_DELIVER, "fully active table still fails open", v);
 	  cwconsensus_capacity(2200, 600, &cap);
 	  chk(cap.reclaimable==0, "boundary remains inside window", cap.reclaimable);
 	  cwconsensus_capacity(2201, 600, &cap);
-	  chk(cap.reclaimable==64, "idle window makes completed slots reclaimable", cap.reclaimable);
-	  v=cwconsensus_verdict(CH(0x1884,65,65,0x80), K1, 1, 1, 2201, 600, &loser);
+	  chk(cap.reclaimable==CWC_CAPACITY, "idle window makes completed slots reclaimable", cap.reclaimable);
+	  v=cwconsensus_verdict(CH(0x1884,CWC_CAPACITY+1,CWC_CAPACITY+1,0x80), K1, 1, 1, 2201, 600, &loser);
 	  chk(v==CWC_HOLD, "fresh candidate uses reclaimed slot", v);
 	}
 
