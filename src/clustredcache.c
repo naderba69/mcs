@@ -3030,7 +3030,7 @@ void cache_pipe_recvmsg()
 	uint8_t cw[16];
 	struct cache_data req;
 	struct cache_data *pcache;
-	int find_hold_noted = 0;
+	int find_hold_noted = 0, find_policy_noted = 0;
 
 	int len =  pipe_recv( prg.pipe.cache[0], buf );
 	if (len<=0) return;
@@ -3142,12 +3142,24 @@ void cache_pipe_recvmsg()
 					cwdata = pcache->cwdata;
 					while (cwdata) {
 						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) &&
-				     !cache_find_consensus_held(pcache, cwdata, &find_hold_noted) )
-						if ( !(cwdata->status&DCW_CYCLE) && (cwdata->nbpeers>=5) ) {
+				     !cache_find_consensus_held(pcache, cwdata, &find_hold_noted) ) {
+						if (!(cwdata->status & DCW_CYCLE) && !find_policy_noted &&
+						    (cfg.cache.filter || cwdata->nbpeers < cfg.cache.threshold)) {
+							user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+							    pcache->hash, cwdata->peerid,
+							    cfg.cache.filter ? "cache find deferred: cycle not established" :
+							                       "cache find deferred: threshold not reached", cwdata->cw);
+							find_policy_noted = 1;
+						}
+						/* Five arrivals alone do not satisfy an enabled cycle filter
+						 * or an operator threshold greater than five. */
+						if ( !(cwdata->status&DCW_CYCLE) && !cfg.cache.filter &&
+						     cwdata->nbpeers>=5 && cwdata->nbpeers>=cfg.cache.threshold ) {
 							if ( cachepref_gate(pcache, cwdata)==CACHEPREF_ALLOW ) {
 								cwdata->status |= DCW_SENT;
 								pipe_cache2ecm_find_success(pcache, cwdata->cw, cwdata->peerid );
 							}
+						}
 						}
 						cwdata = cwdata->next;
 					}
