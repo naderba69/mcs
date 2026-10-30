@@ -35,8 +35,8 @@
  * is the cross-request memory.
  *
  * The table is small, fixed and tick-driven: 64 slots, held entries are popped by
- * window expiry, non-held entries can be reclaimed after 60 seconds and otherwise fails
- * open (CWC_DELIVER with no votes recorded). Availability first, always.
+ * window expiry, non-held entries can be reclaimed after their last activity exceeds the
+ * current window; otherwise it fails open (CWC_DELIVER with no votes recorded). Availability first, always.
  */
 #ifndef CWCONSENSUS_H
 #define CWCONSENSUS_H

@@ -105,7 +105,7 @@ static struct cw_slot *cwc_best_conflict(uint16_t caid, uint16_t sid,
 
 static struct cw_slot *cwc_alloc(uint16_t caid, uint16_t sid, uint16_t provid,
 			uint32_t hash, uint8_t tag, const uint8_t *cw,
-			uint32_t now)
+			uint32_t now, uint32_t window)
 {
 	int i, start;
 	struct cw_slot *free_slot = NULL, *oldest = NULL;
@@ -115,8 +115,8 @@ static struct cw_slot *cwc_alloc(uint16_t caid, uint16_t sid, uint16_t provid,
 	for (i = 0; i < CWC_SLOTS; i++) {
 		struct cw_slot *s = &cwc_tab[(start + i) & (CWC_SLOTS - 1)];
 		if (s->used != CWC_LIVE) { free_slot = s; break; }
-		if (!s->holding && !cwc_fresh(now, s->first_tick, 60000)
-		    && (!oldest || (int32_t)(s->first_tick - oldest->first_tick) < 0)) oldest = s;
+		if (!s->holding && !cwc_fresh(now, s->tick, window)
+		    && (!oldest || (int32_t)(s->tick - oldest->tick) < 0)) oldest = s;
 	}
 	if (!free_slot) {
 		/* reclaim the oldest EXPIRED slot; never steal a live hold */
@@ -153,8 +153,16 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 	if (loser_cw) *loser_cw = NULL;
 	cwc_n_votes++;
 
+	/* A completed decision is only evidence within its idle window. Do not
+	 * resurrect stale voters or sticky losses on an identical later key.
+	 * A held slot belongs to the expiry walker and must never be stolen. */
+	if (idx >= 0 && !cwc_tab[idx].holding &&
+	    !cwc_fresh(now_ms, cwc_tab[idx].tick, window_ms)) {
+		cwc_tab[idx].used = CWC_NOUSE;
+		idx = -1;
+	}
 	if (idx < 0) {
-		s = cwc_alloc(caid, sid, 0, hash, tag, cw, now_ms);
+		s = cwc_alloc(caid, sid, 0, hash, tag, cw, now_ms, window_ms);
 		if (!s) return CWC_DELIVER; /* table exhausted: fail open */
 		idx = (int)(s - cwc_tab);
 	}
@@ -250,7 +258,7 @@ void cwconsensus_capacity(uint32_t now_ms, uint32_t window_ms,
         if (s->used != CWC_LIVE) continue;
         ++out->used;
         if (!s->holding) {
-            if (!cwc_fresh(now_ms, s->first_tick, 60000)) ++out->reclaimable;
+            if (!cwc_fresh(now_ms, s->tick, window_ms)) ++out->reclaimable;
             continue;
         }
         ++out->held;

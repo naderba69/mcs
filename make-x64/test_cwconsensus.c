@@ -204,17 +204,56 @@ int main(void)
 	  }
 	  cwconsensus_capacity(2000, 400, &cap);
 	  chk(cap.capacity==64 && cap.used==64 && cap.held==32 && cap.overdue==32 &&
-	      cap.reclaimable==0 && cap.oldest_hold_ms==1000, "capacity distinguishes overdue holds and retained entries", cap.held);
+	      cap.reclaimable==32 && cap.oldest_hold_ms==1000, "capacity distinguishes overdue holds and retained entries", cap.held);
 	  v = cwconsensus_verdict(CH(0x1884,65,65,0x80), K1, 1, 1, 2000, 400, &loser);
-	  chk(v==CWC_DELIVER, "full table still follows documented fail-open policy", v);
+	  chk(v==CWC_HOLD, "expired completed slot is reclaimed before fail-open", v);
 	  cwconsensus_capacity(62002, 400, &cap);
-	  chk(cap.held==32 && cap.reclaimable==32, "capacity reports reclaimable non-held entries", cap.reclaimable);
+	  chk(cap.held==33 && cap.reclaimable==31, "capacity reports reclaimable non-held entries", cap.reclaimable);
 	}
 	cwconsensus_init();
 	cwconsensus_verdict(CH(0x1884,1,1,0x80), K1, 1, 1, 0xfffffff0u, 400, &loser);
 	{ struct cwconsensus_capacity cap;
 	  cwconsensus_capacity(0x20, 400, &cap);
 	  chk(cap.held==1 && cap.overdue==0 && cap.oldest_hold_ms==48, "capacity handles tick wrap", cap.oldest_hold_ms);
+	}
+
+	/* A stale lost candidate must start a fresh window; an active loss sticks. */
+	cwconsensus_init();
+	cwconsensus_verdict(CH(0x1884,0x1136,123,0x80), K2, 1, 0, 1000, 600, &loser);
+	cwconsensus_verdict(CH(0x1884,0x1136,123,0x80), K1, 2, 1, 1100, 600, &loser);
+	v = cwconsensus_verdict(CH(0x1884,0x1136,123,0x80), K2, 3, 1, 1200, 600, &loser);
+	chk(v==CWC_REFUSE, "active conviction remains sticky", v);
+	v = cwconsensus_verdict(CH(0x1884,0x1136,123,0x80), K2, 3, 1, 62000, 600, &loser);
+	chk(v==CWC_HOLD && loser==NULL, "stale conviction starts a new window", v);
+
+	/* Recently active non-held entries must not be reclaimed based on birth. */
+	cwconsensus_init();
+	{ int i; struct cwconsensus_capacity cap;
+	  for (i=1; i<=64; i++) {
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 1, 1, 1000, 600, &loser);
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 1100, 600, &loser);
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 1600, 600, &loser);
+	  }
+	  cwconsensus_capacity(1700, 600, &cap);
+	  chk(cap.reclaimable==0, "recent activity protects completed slot", cap.reclaimable);
+	  v=cwconsensus_verdict(CH(0x1884,65,65,0x80), K1, 1, 1, 1700, 600, &loser);
+	  chk(v==CWC_DELIVER, "fully active table still fails open", v);
+	  cwconsensus_capacity(2200, 600, &cap);
+	  chk(cap.reclaimable==0, "boundary remains inside window", cap.reclaimable);
+	  cwconsensus_capacity(2201, 600, &cap);
+	  chk(cap.reclaimable==64, "idle window makes completed slots reclaimable", cap.reclaimable);
+	  v=cwconsensus_verdict(CH(0x1884,65,65,0x80), K1, 1, 1, 2201, 600, &loser);
+	  chk(v==CWC_HOLD, "fresh candidate uses reclaimed slot", v);
+	}
+
+	cwconsensus_init();
+	cwconsensus_verdict(CH(0x1884,1,1,0x80), K1, 1, 1, 0xfffffff0u, 400, &loser);
+	cwconsensus_verdict(CH(0x1884,1,1,0x80), K1, 2, 1, 0xfffffff1u, 400, &loser);
+	{ struct cwconsensus_capacity cap;
+	  cwconsensus_capacity(0x20u, 400, &cap);
+	  chk(cap.reclaimable==0, "completed slot stays live across tick wrap", cap.reclaimable);
+	  cwconsensus_capacity(0x183u, 400, &cap);
+	  chk(cap.reclaimable==1, "completed slot expires across tick wrap", cap.reclaimable);
 	}
 
 	printf("\n== %d/%d passed, %d failed ==\n", checks - fails, checks, fails);
