@@ -288,7 +288,7 @@ struct ecm_request *search_ecmdata_dcw( uint8_t *ecm, int ecmlen, unsigned short
 }
 
 
-struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm, int ecmlen, unsigned short sid, unsigned short caid)
+struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm, int ecmlen, unsigned short sid, unsigned short caid, uint32_t provid)
 {
 	uint32_t hash =  hashCode(ecm+3, ecmlen-3);
 	uint32_t ticks = GetTickCount();
@@ -300,6 +300,9 @@ struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm,
 		if (ecmlen==req->ecmlen)
 		if (sid==req->sid)
 		if (caid==req->caid)
+		/* Same bytes and channel do not establish the same provider.
+		 * Provider is part of the request and its validation policy. */
+		if (provid==req->provid)
 		if ( !memcmp(ecm, req->ecm, ecmlen) ) return req;
 
 		req = req->csnext;

@@ -138,7 +138,7 @@ uint16_t ecm_getchid( uint8_t *ecm, int ecmlen, uint16_t caid ); /* R25: bounded
 
 //struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ecmlen, unsigned short sid, unsigned short caid, unsigned int provid);
 struct ecm_request *search_ecmdata_dcw( uint8_t *ecm, int ecmlen, unsigned short sid);
-struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm, int ecmlen, unsigned short sid, unsigned short caid);
+struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm, int ecmlen, unsigned short sid, unsigned short caid, uint32_t provid);
 struct ecm_request *search_ecmdata_byhash( uint16_t caid, uint16_t sid,uint32_t hash );
 struct ecm_request *search_ecmdata_byecmd5( uint16_t caid, uint32_t provid, uint8_t ecmd5[16] );
 

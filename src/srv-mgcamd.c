@@ -655,7 +655,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					pthread_mutex_lock(&prg.lockecm); //###
 
 					// Search for ECM
-					ECM_DATA *ecm = search_ecmdata_any(cs, ecmdata, ecmlen, clicd.sid, clicd.caid); // dont get failed ecm request from cache
+					ECM_DATA *ecm = search_ecmdata_any(cs, ecmdata, ecmlen, clicd.sid, clicd.caid, clicd.provid); // dont get failed ecm request from cache
 					/* TASK R31 (D82) -- receiver attestation tap, mirroring
 					 * srv-newcamd's: this client's too-soon re-ask after a
 					 * delivered key is one receiver's vote on the BYTES;

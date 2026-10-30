@@ -316,7 +316,15 @@ int main(int argc, char **argv)
 		memset(payload, 0, sizeof(payload));
 		payload[0] = caid >> 8;
 		payload[1] = caid & 0xff;
-		/* provid (4) = 0, cardid (4) = 0x0000 (profile by caid:prov) */
+		/* Default provider remains zero; tests can supply a 24-bit provider.
+		 * cardid remains zero (profile lookup by caid:provider). */
+		if (getenv("CCDCW_PROVID")) {
+			unsigned long provid = strtoul(getenv("CCDCW_PROVID"), NULL, 16);
+			if (provid > 0xffffffUL) { fprintf(stderr, "invalid CCDCW_PROVID\n"); return 2; }
+			payload[3] = provid >> 16;
+			payload[4] = provid >> 8;
+			payload[5] = provid;
+		}
 		payload[10] = sid >> 8;
 		payload[11] = sid & 0xff;
 		memcpy(payload + 13, ecm, 64);

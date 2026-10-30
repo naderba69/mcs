@@ -465,7 +465,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 					pthread_mutex_lock(&prg.lockecm); //###
 
 					// Search for ECM
-					ECM_DATA *ecm = search_ecmdata_any(cs, data,  len, clicd.sid, clicd.caid); // dont get failed ecm request from cache
+					ECM_DATA *ecm = search_ecmdata_any(cs, data,  len, clicd.sid, clicd.caid, clicd.provid); // dont get failed ecm request from cache
 					int isnew =  ( ecm==NULL );
 
 					/*

@@ -886,7 +886,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			pthread_mutex_lock(&prg.lockecm);
 
 			// Search for ECM
-			ECM_DATA *ecm = search_ecmdata_any(cs, data,  len-17, sid, caid);
+			ECM_DATA *ecm = search_ecmdata_any(cs, data,  len-17, sid, caid, provid);
 			/* TASK R31 (D82) -- receiver attestation tap, mirroring
 			 * srv-newcamd's: this client's too-soon re-ask after a
 			 * delivered key is one receiver's vote on the BYTES;
