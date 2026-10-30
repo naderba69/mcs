@@ -7865,7 +7865,7 @@ static const char *trace_detail_ar(const char *detail)
     if (!strcmp(detail, "cache rejected: consensus weighted decision")) return "الكاش رفض CW بقرار consensus";
     if (!strcmp(detail, "cache not forwarded: filter did not establish cycle")) return "الفلتر لم يثبت دورة CW فلم يمررها في هذا المسار";
     if (!strcmp(detail, "cache forwarded CW to ECM pipe; delivery not confirmed")) return "حاول الكاش تمرير CW إلى مسار ECM؛ لا يثبت تسليمها";
-    if (!strcmp(detail, "cache provider collision: existing waiter retained; conflicting operation skipped")) return "تعارض قيم provider في سجل كاش: حُفظ الطلب المنتظر وتُركت العملية المتعارضة؛ الحدث للقناة فقط ولا يثبت هوية الطلب أو provider";
+    if (!strcmp(detail, "cache provider collision: different local provider; conflicting operation skipped")) return "تعارض قيم provider المحلية في سجل كاش: تُركت العملية المتعارضة؛ الحدث للقناة فقط ولا يثبت هوية الطلب أو provider";
     if (!strcmp(detail, "cache lookup: no existing entry; peer response may still arrive")) return "لم يوجد سجل كاش عند البحث؛ قد يصل رد النظير لاحقاً";
     if (!strcmp(detail, "cache rejected: profile CW checksum validation failed")) return "رفض الكاش CW: فشل تحقق checksum";
     if (!strcmp(detail, "cache rejected: profile CW null-word validation failed")) return "رفض الكاش CW: لم تجتز قاعدة الأجزاء الصفرية";

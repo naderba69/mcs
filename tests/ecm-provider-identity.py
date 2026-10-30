@@ -14,9 +14,11 @@ first_provid=os.environ.get('FIRST_PROVID','000000')
 assert first_provid in ('000000','000001')
 cache_collision=os.environ.get('CACHE_COLLISION') == '1'
 inject=os.environ.get('CACHE_INJECT') == '1'
+prefill=os.environ.get('CACHE_PREFILL') == '1'
 if inject and (not cache_collision or mode != 'different'): raise ValueError('injection needs different-provider collision')
 timing=os.environ.get('TIMING','pending')
-if cache_collision and timing != 'pending': raise ValueError('cache collision case requires pending ECMs')
+if prefill and (not cache_collision or timing != 'completed' or mode != 'different'): raise ValueError('prefill requires completed different-provider case')
+if cache_collision and timing != 'pending' and not prefill: raise ValueError('cache collision case requires pending ECMs')
 assert timing in ('pending','completed')
 second_provid=first_provid if mode=='same' else ('000001' if first_provid=='000000' else '000000')
 spec=importlib.util.spec_from_file_location('fixture',ROOT/'tests/cccam-trace-success.py')
@@ -31,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-provider-identity-') as folder:
  cacheconfig = f'CACHE PORT: {cacheport}\nCACHE PEER: 127.0.0.1:{peerport} {{ csp=1 }}\nCACHE FILTER: OFF\nCACHE THRESHOLD: 0\n' if cache_collision else ''
  cfg=tmp/'mcs.cfg';cfg.write_text(f'HTTP PORT: {http}\nHTTP USER: test\nHTTP PASS: isolated\nTELNET PORT: 0\nCCCAM PORT: {cccam}\nF: first password\nF: second password\nN: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n{cacheconfig}\n[isolated]\nCAID: 1884\nPROVIDERS: 000000, 000001\nPORT: {newcamd}\nDCW TIMEOUT: 5000\nSERVER TIMEOUT: 4500\nDCW HALFNULLED: YES\nDCW SWAP: YES\n' + ('ENABLE CACHE: YES\nCACHE STATIC: NO\nCACHE TIMEOUT: 1000\n' if cache_collision else '') + 'USER: first password\nUSER: second password\n')
  logs=[];children=[]
- udp=socket.socket(socket.AF_INET,socket.SOCK_DGRAM) if inject else None
+ udp=socket.socket(socket.AF_INET,socket.SOCK_DGRAM) if (inject or prefill) else None
  if udp: udp.bind(('127.0.0.1',peerport))
  def launch(args,log,env=None):
   file=(tmp/log).open('w+');logs.append(file);p=subprocess.Popen(args,cwd=tmp,env=env,stdout=file,stderr=subprocess.STDOUT);children.append(p);return p
@@ -58,19 +60,30 @@ with tempfile.TemporaryDirectory(prefix='mcs-provider-identity-') as folder:
   if timing=='completed':
    assert first.wait(timeout=15)==0
    assert 'ECM1 tag=80 DCW' in (tmp/'first.log').read_text(errors='replace')
+   if prefill:
+    first_out=(tmp/'first.log').read_text(errors='replace')
+    first_cw=re.search(r'CW=([0-9A-F]{32})',first_out).group(1)
+    body=bytearray((i*7+1+0x36+7*0x40)&255 for i in range(3,64));body[0] ^= 7 >> 2
+    hv=0
+    for byte in body: hv=(31*hv+byte)&0xffffffff
+    packet=bytes([2,0x80,0x11,0x36,0,0,0x18,0x84])+hv.to_bytes(4,'big')+bytes([0x80])+bytes.fromhex(first_cw)
+    time.sleep(.2) # allow the local successful result to enter the cache
+    for i in range(8):
+     udp.sendto(packet,('127.0.0.1',cacheport));time.sleep(.08)
   watch('second',second_provid)
+  second_start=time.monotonic()
   second=launch([str(cc),'127.0.0.1',str(cccam),'second','password','1884','1136','0x80:7'],'second.log',dict(os.environ,CCDCW_PROVID=second_provid,CCDCW_PRINT_CW='1'))
   def saw_second():
    page=request();return 'new ECM accepted' in page or 'joined existing ECM; earlier events unavailable' in page
   f.wait_until(saw_second,[peer,server],10);page=request()
   expected='joined existing ECM; earlier events unavailable' if mode=='same' else 'new ECM accepted'
   assert expected in page, ('expected '+expected, page)
-  if cache_collision:
-   collision='cache provider collision: existing waiter retained; conflicting operation skipped'
+  if cache_collision and not prefill:
+   collision='cache provider collision: different local provider; conflicting operation skipped'
    if mode=='different':
     f.wait_until(lambda: collision in request(),[peer,server],5)
     page = request()
-    assert 'تعارض قيم provider في سجل كاش' in page
+    assert 'تعارض قيم provider المحلية في سجل كاش' in page
     assert 'الحدث للقناة فقط ولا يثبت هوية الطلب أو provider' in page
     row = next(row for row in page.split('<tr>') if collision in row)
     assert 'قناة فقط، ليس ربط عميل' in row
@@ -78,6 +91,22 @@ with tempfile.TemporaryDirectory(prefix='mcs-provider-identity-') as folder:
     summary = page.split('<h2>خلاصة آخر محاولة مسجلة</h2>',1)[1].split('<table>',1)[0]
     assert collision not in summary
    else: assert collision not in request()
+  if prefill:
+   assert second.wait(timeout=12)==0
+   second_out=(tmp/'second.log').read_text(errors='replace')
+   target=os.environ.get('CACHE_PREFILL_EXPECT','delivered')
+   if target=='delivered':
+    assert 'CW='+first_cw in second_out, (first_out,second_out,request())
+    assert 'cache forwarded CW to ECM pipe; delivery not confirmed' in request()
+   else:
+    page=request()
+    assert 'cache forwarded CW to ECM pipe; delivery not confirmed' not in page, page
+    assert 'cache provider collision: different local provider; conflicting operation skipped' in page
+    assert 'تعارض قيم provider المحلية في سجل كاش' in page
+    if 'ECM1 tag=80 DCW' in second_out:
+     assert 'Newcamd CW response; validity not determined' in page, page
+     assert time.monotonic()-second_start >= 2, second_out
+   print('PASS: after first completion, cached CW reuse '+target+' for different numeric provider; a source may return identical bytes')
   if inject:
    body=bytearray((i*7+1+0x36+7*0x40)&255 for i in range(3,64))
    body[0] ^= 7 >> 2
