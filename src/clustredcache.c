@@ -337,6 +337,9 @@ struct __attribute__ ((__packed__)) cache_data {
 	struct cw_cache_data *cwdata;
 
 	ECM_DATA *ecm;
+	/* Provider of the local waiter, separate from the cache entry provider,
+	 * which may later be populated from a different incoming source. */
+	uint32_t waiter_provid;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -3024,6 +3027,22 @@ static int cache_find_consensus_held(struct cache_data *entry,
 }
 
 
+/* Keep a local cache waiter from being replaced by a different numeric
+ * provider on the same CSP key. CSP may not carry provider, so this is a
+ * collision guard, not proof that either provider or CW is authentic.
+ * Caller holds lockcache; pointers are compared, never dereferenced. */
+static int cache_provider_waiter_collision(struct cache_data *entry,
+                                           struct cache_data *req)
+{
+    if (entry && (entry->flags & CACHE_FLAG_SENDPIPE) && entry->ecm &&
+        entry->ecm != req->ecm && entry->waiter_provid != req->provid) {
+        user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, 0,
+            "cache provider collision: existing waiter retained; conflicting operation skipped", NULL);
+        return 1;
+    }
+    return 0;
+}
+
 void cache_pipe_recvmsg()
 {
 	uint8_t buf[64];
@@ -3048,6 +3067,7 @@ void cache_pipe_recvmsg()
 				 * to the card servers; the find is simply not served. */
 				if (!pcache) break;
 				pcache->ecm = req.ecm;
+				pcache->waiter_provid = req.provid;
 				pcache->cwcycle = req.cwcycle;
 
 #ifdef CACHEEX
@@ -3064,7 +3084,16 @@ void cache_pipe_recvmsg()
 				pipe_cache2ecm_find_failed(pcache);
 			}
 			else {
+				if (cache_provider_waiter_collision(pcache, &req)) {
+					/* Wake this request's normal cache-miss flow without
+					 * modifying the first waiter's cache entry. */
+					uint8_t miss[48];
+					int misslen = put_cache2ecm(PIPE_CACHE_FIND_FAILED, miss, &req, NULL, 0, 0);
+					pipe_send(prg.pipe.ecm[1], miss, misslen);
+					break;
+				}
 				pcache->ecm = req.ecm;
+				pcache->waiter_provid = req.provid;
 				pcache->tag = req.tag; // set tag if not set (coming from cahceex)
 				pcache->provid = req.provid; // set provid if not set (coming from csp)
 				pcache->cwcycle = req.cwcycle;
@@ -3176,6 +3205,7 @@ void cache_pipe_recvmsg()
 			pcache = cache_fetch( &req );
 			if (pcache==NULL) pcache = cache_new( &req );
 			else {
+				if (cache_provider_waiter_collision(pcache, &req)) break;
 				pcache->tag = req.tag; // set tag if not set (coming from cahceex)
 				pcache->provid = req.provid; // set provid if not set (coming from csp)
 			}
@@ -3183,6 +3213,7 @@ void cache_pipe_recvmsg()
 			 * request to peers is dropped; the ECM's server flow is unchanged. */
 			if (!pcache) break;
 			pcache->ecm = req.ecm;
+			pcache->waiter_provid = req.provid;
 			/* TASK 3.6: same arm guard -- the REQUEST rides the pipe too, and
 			 * its waiter can be answered or failed before the cache thread gets
 			 * here. */
@@ -3203,6 +3234,7 @@ void cache_pipe_recvmsg()
 			pcache = cache_fetch( &req );
 			if (pcache==NULL) pcache = cache_new( &req );
 			else {
+				if (cache_provider_waiter_collision(pcache, &req)) break;
 				pcache->tag = req.tag; // set tag if not set (coming from cahceex)
 				pcache->provid = req.provid; // set provid if not set (coming from csp)
 			}
