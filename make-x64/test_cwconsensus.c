@@ -36,6 +36,8 @@ int main(void)
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x11111111,0x80), K1, 101, 1, 1000, 400, &loser);
 	chk(v==CWC_HOLD, "first key one voter holds", v);
 	chk(cwconsensus_holds()==1, "hold counted", (long)cwconsensus_holds());
+	chk(cwconsensus_is_held(CH(0x1884,0x64,0x11111111,0x80), K1), "held candidate is visible to cache FIND", 0);
+	chk(!cwconsensus_is_held(CH(0x1884,0x64,0x11111111,0x81), K1), "different tag is not held", 0);
 	/* same peer again: still one DISTINCT voter */
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x11111111,0x80), K1, 101, 1, 1100, 400, &loser);
 	chk(v==CWC_HOLD, "re-push from the same peer is still one vote", v);
@@ -43,6 +45,7 @@ int main(void)
 	/* -- 2. second distinct voter: early unanimous delivery -- */
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x11111111,0x80), K1, 202, 1, 1200, 400, &loser);
 	chk(v==CWC_DELIVER, "second distinct voter delivers early", v);
+	chk(!cwconsensus_is_held(CH(0x1884,0x64,0x11111111,0x80), K1), "delivered candidate no longer held", 0);
 	{
 	  int distinct = -1, weight = -1;
 	  chk(cwconsensus_vote_counts(CH(0x1884,0x64,0x11111111,0x80), K1, 1200, 400, &distinct, &weight)==1,

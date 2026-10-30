@@ -95,6 +95,11 @@ int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t hash,
                             uint8_t tag, const uint8_t *cw, uint32_t now_ms,
                             uint32_t window_ms, int *distinct, int *weight);
 
+/* Read-only check for a stored candidate still owned by the expiry walker.
+ * Caller holds the cache lock; a hold is never expired by this query. */
+int cwconsensus_is_held(uint16_t caid, uint16_t sid, uint32_t hash,
+                        uint8_t tag, const uint8_t *cw);
+
 /* Snapshot under the cache lock; held includes overdue holds, and retained
  * means non-held entries. These counts do not attribute entries to a client. */
 struct cwconsensus_capacity {

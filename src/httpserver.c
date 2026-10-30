@@ -7857,6 +7857,7 @@ static const char *trace_detail_ar(const char *detail)
     if (!strcmp(detail, "cache CW validation policy: attached ECM profile")) return "طبق فحص CW إعدادات بروفايل ECM المرتبط بسجل الكاش؛ لا يثبت ارتباطه بمحاولة العميل";
     if (!strcmp(detail, "cache CW validation policy: global; no attached ECM profile")) return "طبق فحص CW القواعد العامة لعدم وجود بروفايل ECM مرتبط بسجل الكاش";
     if (!strncmp(detail, "cache consensus vote:", 21)) return "قرار consensus وعدد معرفات النظراء وأوزانها؛ تعددها لا يثبت استقلال المصادر";
+    if (!strcmp(detail, "cache find deferred: candidate held by consensus")) return "تأجل جلب CW المخزنة: ما زالت محتجزة في consensus";
     if (!strcmp(detail, "cache held: consensus awaiting corroboration")) return "الكاش احتجز CW انتظاراً لتأكيد consensus";
     if (!strcmp(detail, "cache rejected: consensus decision; weighted loss not established for this arrival")) return "رفض Consensus الرد؛ لم يُثبت فقدان الوزن لهذا الرد، فلا يعاقَب النظير بسبب هذا القرار";
     if (!strcmp(detail, "cache rejected: consensus weighted decision")) return "الكاش رفض CW بقرار consensus";

@@ -246,6 +246,15 @@ int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t hash,
     return 1;
 }
 
+int cwconsensus_is_held(uint16_t caid, uint16_t sid, uint32_t hash,
+                        uint8_t tag, const uint8_t *cw)
+{
+    int idx;
+    if (!cw) return 0;
+    idx = cwc_slotof(caid, sid, hash, tag, cw);
+    return idx >= 0 && cwc_tab[idx].holding && !cwc_tab[idx].lost;
+}
+
 void cwconsensus_capacity(uint32_t now_ms, uint32_t window_ms,
                           struct cwconsensus_capacity *out)
 {

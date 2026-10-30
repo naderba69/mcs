@@ -3006,12 +3006,31 @@ static int cachepref_gate(struct cache_data *pcache, struct cw_cache_data *cwdat
 }
 
 
+/* A stored record can have many arrivals while the consensus window still
+ * owns it. FIND must not mistake arrival count for a completed verdict. */
+static int cache_find_consensus_held(struct cache_data *entry,
+                                     struct cw_cache_data *candidate, int *noted)
+{
+    int held = cfg.cache.consensus &&
+        cwconsensus_is_held(entry->caid, entry->sid, entry->hash,
+                            entry->tag, candidate->cw);
+    if (held && !*noted) {
+        user_trace_cache_observation(entry->caid, entry->provid, entry->sid,
+                                     entry->hash, candidate->peerid,
+                                     "cache find deferred: candidate held by consensus", candidate->cw);
+        *noted = 1;
+    }
+    return held;
+}
+
+
 void cache_pipe_recvmsg()
 {
 	uint8_t buf[64];
 	uint8_t cw[16];
 	struct cache_data req;
 	struct cache_data *pcache;
+	int find_hold_noted = 0;
 
 	int len =  pipe_recv( prg.pipe.cache[0], buf );
 	if (len<=0) return;
@@ -3066,7 +3085,8 @@ void cache_pipe_recvmsg()
 					// look for consecutif cw & same cycle
 					struct cw_cache_data *cwdata = pcache->cwdata;
 					while (cwdata) {
-						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) )
+						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) &&
+				     !cache_find_consensus_held(pcache, cwdata, &find_hold_noted) )
 						if ( (cwdata->status&DCW_CYCLE)&&(cwdata->nbpeers>=cfg.cache.threshold) ) {
 							if ( pcache->cwcycle==cwdata->cwcycle ) {
 								if (  ( (pcache->cwcycle==CW1CYCLE) && dcwcmp8(pcache->prevcw,cwdata->cw) && !similarcw(pcache->prevcw+8,cwdata->cw+8) ) ||
@@ -3084,7 +3104,8 @@ void cache_pipe_recvmsg()
 					// look for consecutif cw only
 					cwdata = pcache->cwdata;
 					while (cwdata) {
-						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) )
+						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) &&
+				     !cache_find_consensus_held(pcache, cwdata, &find_hold_noted) )
 						if ( !(cwdata->status&DCW_CYCLE) && (cwdata->nbpeers>=cfg.cache.threshold) ) {
 							if (  ( (pcache->cwcycle==CW1CYCLE) && dcwcmp8(pcache->prevcw,cwdata->cw) && !similarcw(pcache->prevcw+8,cwdata->cw+8) ) ||
 								( (pcache->cwcycle==CW0CYCLE) && !similarcw(pcache->prevcw,cwdata->cw) && dcwcmp8(pcache->prevcw+8,cwdata->cw+8) )  ) {
@@ -3104,7 +3125,8 @@ void cache_pipe_recvmsg()
 					// cached cw with cycle
 					struct cw_cache_data *cwdata = pcache->cwdata;
 					while (cwdata) {
-						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) )
+						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) &&
+				     !cache_find_consensus_held(pcache, cwdata, &find_hold_noted) )
 						if ( (cwdata->status&DCW_CYCLE)&&(cwdata->nbpeers>=cfg.cache.threshold) ) {
 							if ( (pcache->cwcycle==NO_CYCLE)||(pcache->cwcycle==cwdata->cwcycle) ) {
 								if ( cachepref_gate(pcache, cwdata)==CACHEPREF_ALLOW ) {
@@ -3119,7 +3141,8 @@ void cache_pipe_recvmsg()
 					// no cycle for cached cw
 					cwdata = pcache->cwdata;
 					while (cwdata) {
-						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) )
+						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) &&
+				     !cache_find_consensus_held(pcache, cwdata, &find_hold_noted) )
 						if ( !(cwdata->status&DCW_CYCLE) && (cwdata->nbpeers>=5) ) {
 							if ( cachepref_gate(pcache, cwdata)==CACHEPREF_ALLOW ) {
 								cwdata->status |= DCW_SENT;
