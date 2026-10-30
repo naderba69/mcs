@@ -7831,6 +7831,11 @@ static const char *trace_detail_ar(const char *detail)
     if (!strcmp(detail, "cache not forwarded: filter did not establish cycle")) return "الفلتر لم يثبت دورة CW فلم يمررها في هذا المسار";
     if (!strcmp(detail, "cache forwarded CW to ECM pipe; delivery not confirmed")) return "حاول الكاش تمرير CW إلى مسار ECM؛ لا يثبت تسليمها";
     if (!strcmp(detail, "cache lookup: no existing entry; peer response may still arrive")) return "لم يوجد سجل كاش عند البحث؛ قد يصل رد النظير لاحقاً";
+    if (!strcmp(detail, "cache rejected: profile CW checksum validation failed")) return "رفض الكاش CW: فشل تحقق checksum";
+    if (!strcmp(detail, "cache rejected: profile CW null-word validation failed")) return "رفض الكاش CW: لم تجتز قاعدة الأجزاء الصفرية";
+    if (!strcmp(detail, "cache rejected: profile CW repeated-byte validation failed")) return "رفض الكاش CW: لم تجتز قاعدة البايتات المتكررة";
+    if (!strcmp(detail, "cache rejected: profile CW operator BAD-DCW list")) return "رفض الكاش CW: موجودة في قائمة BAD-DCW";
+    if (!strcmp(detail, "cache rejected: profile CW enabled pattern validation")) return "رفض الكاش CW: لم تجتز فلتر النمط المفعّل";
     if (!strcmp(detail, "cache rejected: profile CW validation; specific check unknown")) return "رفض الكاش CW في فحص البروفايل؛ الفحص المحدد غير معروف";
     if (!strcmp(detail, "cache rejected: CacheEX local-only gate")) return "رفض الكاش CW بسبب CacheEX local-only";
     if (!strcmp(detail, "cache lookup invoked; pipe delivery and result not confirmed")) return "طُلب بحث الكاش؛ وصول الطلب والنتيجة غير مؤكدين";

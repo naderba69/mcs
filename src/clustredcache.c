@@ -1853,8 +1853,18 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			debugf(getdbgflag(DBG_CACHE,0,0), " [CACHEEX GATE] LOCAL_ONLY: unsolicited push dropped ch %04x:%06x:%04x\n", req->caid, req->provid, req->sid);
 			return -1;
 		}
-		if ( !acceptDCW_profile_ca_sid(cw, pcs, req->caid, req->sid) ) {
-		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: profile CW validation; specific check unknown", cw);
+		int validation_reason = DCW_VALID;
+		if ( !acceptDCW_profile_ca_sid_reason(cw, pcs, req->caid, req->sid, &validation_reason) ) {
+		const char *why = "cache rejected: profile CW validation; specific check unknown";
+		switch (validation_reason) {
+		case DCW_INVALID_CHECKSUM: why = "cache rejected: profile CW checksum validation failed"; break;
+		case DCW_INVALID_NULL: why = "cache rejected: profile CW null-word validation failed"; break;
+		case DCW_INVALID_REPEAT: why = "cache rejected: profile CW repeated-byte validation failed"; break;
+		case DCW_INVALID_BADLIST: why = "cache rejected: profile CW operator BAD-DCW list"; break;
+		case DCW_INVALID_PATTERN: why = "cache rejected: profile CW enabled pattern validation"; break;
+		default: break;
+		}
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, why, cw);
 		/*
 		 * TASK 2.4 -- the blind spot this closes, found by running the live
 		 * target and watching nothing arrive.

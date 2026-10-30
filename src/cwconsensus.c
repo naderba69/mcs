@@ -115,12 +115,12 @@ static struct cw_slot *cwc_alloc(uint16_t caid, uint16_t sid, uint16_t provid,
 	for (i = 0; i < CWC_SLOTS; i++) {
 		struct cw_slot *s = &cwc_tab[(start + i) & (CWC_SLOTS - 1)];
 		if (s->used != CWC_LIVE) { free_slot = s; break; }
-		if (!oldest || (int32_t)(s->first_tick - oldest->first_tick) < 0) oldest = s;
+		if (!s->holding && !cwc_fresh(now, s->first_tick, 60000)
+		    && (!oldest || (int32_t)(s->first_tick - oldest->first_tick) < 0)) oldest = s;
 	}
 	if (!free_slot) {
 		/* reclaim the oldest EXPIRED slot; never steal a live hold */
-		if (oldest && !oldest->holding
-		    && !cwc_fresh(now, oldest->first_tick, 60000)) free_slot = oldest;
+		if (oldest) free_slot = oldest;
 	}
 	if (!free_slot) return NULL; /* fail open */
 	memset(free_slot, 0, sizeof(*free_slot));

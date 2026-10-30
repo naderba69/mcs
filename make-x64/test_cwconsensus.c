@@ -175,6 +175,24 @@ int main(void)
 	chk(v==CWC_DELIVER, "SOURCES back to 2: second voter delivers (D62 stock)", v);
 	cwconsensus_set_min_sources(2);
 
+	/* A still-held oldest entry must not hide a different reclaimable entry.
+	 * No held entry may be stolen, even when its deadline has passed. */
+	cwconsensus_init();
+	cwconsensus_set_min_sources(2);
+	cwconsensus_verdict(CH(0x1884,1,1,0x80), K1, 1, 1, 1000, 400, &loser);
+	{ int i;
+	  for (i = 2; i <= 64; ++i) {
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 1, 1, 2000, 400, &loser);
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 2001, 400, &loser);
+	  }
+	  v = cwconsensus_verdict(CH(0x1884,65,65,0x80), K1, 1, 1, 62002, 400, &loser);
+	  chk(v == CWC_HOLD, "reclaim expired non-held entry even when oldest is held", v);
+	  { struct cwconsensus_hold h = {0};
+	    chk(cwconsensus_expired(&h, 62002, 400) && h.sid == 1,
+	        "oldest pending hold is preserved for expiry", h.sid);
+	  }
+	}
+
 	printf("\n== %d/%d passed, %d failed ==\n", checks - fails, checks, fails);
 	return fails ? 1 : 0;
 }
