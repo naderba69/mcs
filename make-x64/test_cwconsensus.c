@@ -78,12 +78,17 @@ int main(void)
 	/* -- 6. window expiry releases the hold with the right fields -- */
 	cwconsensus_init();
 	cwconsensus_verdict(CH(0x1884,0x65,0x55555555,0x80), K1, 101, 1, 1000, 400, &loser);
+	/* A later peer's declaration must not replace the first held vote. */
+	cwconsensus_hold_cycle(CH(0x1884,0x65,0x55555555,0x80), K1, 202, 2);
+	cwconsensus_hold_cycle(CH(0x1884,0x65,0x55555555,0x80), K1, 101, 1);
+	cwconsensus_hold_cycle(CH(0x1884,0x65,0x55555555,0x80), K1, 101, 2);
 	{ struct cwconsensus_hold h;
 	  chk(cwconsensus_expired(&h, 1200, 400)==0, "no release before the window", 0);
 	  chk(cwconsensus_expired(&h, 1500, 400)==1, "the hold pops at window expiry", 1);
 	  chk(h.caid==0x1884 && h.sid==0x65 && h.hash==0x55555555 && h.peerid==101,
 	      "the release carries the channel and first voter", h.sid);
 	  chk(!memcmp(h.cw, K1, 16), "the release carries the held bytes", h.cw[15]);
+	  chk(h.cycle==1, "first held declaration survives expiry", h.cycle);
 	  chk(cwconsensus_expired(&h, 1600, 400)==0, "a popped hold never pops twice", 0);
 	  chk(cwconsensus_releases()==1, "release counted", (long)cwconsensus_releases()); }
 

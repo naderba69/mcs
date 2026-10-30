@@ -7824,6 +7824,7 @@ static const char *trace_detail_ar(const char *detail)
     if (!strncmp(detail, "cache wait policy: initial schedule=", 36)) return "وقت الجدولة الأولي من البروفايل؛ قد يُعاد تحديده أو ينتهي مبكراً";
     if (!strncmp(detail, "cache wait policy: ECM thread timeout=", 38)) return "مهلة CAID التي استعملها خيط ECM عند هذه المعالجة؛ ليست مدة انتظار مؤكدة";
     if (!strcmp(detail, "cache CW entered validation; decision pending")) return "وصلت CW لمسار التحقق في الكاش؛ القرار لم يصدر";
+    if (!strcmp(detail, "cache consensus window expired; cycle checks pending")) return "انتهت نافذة consensus؛ لم يحسم فحص الدورة بعد";
     if (!strcmp(detail, "cache held: consensus awaiting corroboration")) return "الكاش احتجز CW انتظاراً لتأكيد consensus";
     if (!strcmp(detail, "cache rejected: consensus weighted decision")) return "الكاش رفض CW بقرار consensus";
     if (!strcmp(detail, "cache not forwarded: filter did not establish cycle")) return "الفلتر لم يثبت دورة CW فلم يمررها في هذا المسار";

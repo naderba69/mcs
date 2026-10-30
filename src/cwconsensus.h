@@ -53,6 +53,7 @@ struct cwconsensus_hold {
 	uint8_t  tag;
 	uint8_t  cw[16];
 	int      peerid;
+	int      cycle; /* declared cycle from the first held vote */
 };
 
 void cwconsensus_init(void);
@@ -85,6 +86,11 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 			uint8_t tag, const uint8_t *cw, int peerid,
 			int weight, uint32_t now_ms, uint32_t window_ms,
 			const uint8_t **loser_cw);
+
+/* Preserve the first voter's wire-cycle declaration while a key is held.
+ * Called under the same lock as verdict/expiry; does not record a new vote. */
+void cwconsensus_hold_cycle(uint16_t caid, uint16_t sid, uint32_t hash,
+                            uint8_t tag, const uint8_t *cw, int peerid, int cycle);
 
 /* Pop ONE hold whose window expired (holding slots only -- lost or
  * delivered slots never come back). Returns 1 when out was filled. */

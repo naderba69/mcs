@@ -1,6 +1,7 @@
 """Isolated CSP characterization; only synthetic keys and local child processes."""
-import tempfile,subprocess,time,socket,os, pathlib, urllib.request, base64
+import tempfile,subprocess,time,socket,os, pathlib, urllib.request, base64, sys
 ROOT=pathlib.Path(__file__).resolve().parent.parent
+BINARY=pathlib.Path(sys.argv[1]).resolve() if len(sys.argv)>1 else ROOT/'bin/multics.x64'
 def port(t):
  s=socket.socket(socket.AF_INET,t);s.bind(('127.0.0.1',0));p=s.getsockname()[1];s.close();return p
 def stop(p):
@@ -21,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-csp-comp-') as d:
    peerp=subprocess.Popen(['stdbuf','-o0','-e0',str(peer),str(cp),str(pp),'11223366445566FF77889998AABBCC31','5'],stdout=pf,stderr=subprocess.STDOUT,cwd=d,env=env)
    srv=None
    try:
-    time.sleep(.2);srv=subprocess.Popen(['stdbuf','-o0','-e0',str(ROOT/'bin/multics.x64'),'-C',str(cfg),'-v'],stdout=sf,stderr=subprocess.STDOUT,cwd=d)
+    time.sleep(.2);srv=subprocess.Popen(['stdbuf','-o0','-e0',str(BINARY),'-C',str(cfg),'-v'],stdout=sf,stderr=subprocess.STDOUT,cwd=d)
     deadline=time.monotonic()+20
     while time.monotonic()<deadline:
      if peerp.poll() is not None or srv.poll() is not None:raise RuntimeError('child exited')
@@ -36,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-csp-comp-') as d:
     want_filter='ON' if name in ('bare-no','legacy-filter') else 'OFF'
     assert 'Filter = '+want_filter in page,(name,'unexpected filter state')
     assert 'got request sid 1136' in peerout and 'PEER: replied CW' in peerout,(name,'peer did not receive and answer request')
-    expected=2 if name=='explicit-off' else 0
+    expected=2 if name in ('explicit-off','standard-off') else 0
     assert run.stdout.count('DELIVERED A CONTROL WORD') == expected,(name,run.stdout)
     if name=='standard-off': assert '[CONSENSUS] holding cw' in serverout,(name,'no consensus hold observed')
     print(name,'delivered=',run.stdout.count('DELIVERED A CONTROL WORD'),'peer_request=',peerout.count('request'), 'client_exit=',run.returncode, 'consensus=', serverout.count('CONSENSUS'))

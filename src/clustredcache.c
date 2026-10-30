@@ -1646,6 +1646,168 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 // 0: nothing to do
 // 1: dcw set
 // 2: dcw set & sent to pipe
+/* Run the same post-consensus cycle/family gates for both immediately
+ * corroborated and window-expired CWs. Caller holds prg.lockcache. */
+static int cache_after_consensus(struct cache_data *req, struct cache_data *pcache,
+                                 struct cw_cache_data *cwdata, uint8_t cw[16],
+                                 cwcycle_t cwcycle, int peerid)
+{
+    int piped = 0;
+	// ACCEPTED
+	if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
+	if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, peerid);
+
+	// Half Nulled CW
+	char nullcw[8] = "\0\0\0\0\0\0\0\0";
+	if ( !dcwcmp8(cw,nullcw) && !dcwcmp8(cw+8,nullcw) ) {
+
+		if ( !isnullDCW(pcache->prevcw) ) {
+			if (  ( (pcache->cwcycle==CW1CYCLE) && dcwcmp8(pcache->prevcw,cw) && !similarcw(pcache->prevcw+8,cw+8) ) ||
+				( (pcache->cwcycle==CW0CYCLE) && !similarcw(pcache->prevcw,cw) && dcwcmp8(pcache->prevcw+8,cw+8) )  ) {
+				// update new dcw
+				cwdata->status |= DCW_CYCLE;
+				cwdata->cwcycle = pcache->cwcycle;
+				cwdata->peerid = peerid;
+				if ( (pcache->flags&CACHE_FLAG_SENDPIPE) && !(cwdata->status&DCW_SENT) ) {
+					pipe_cache2ecm_find_success(pcache, cw, peerid);
+					piped = 1;   /* TASK R11 (D65) */
+					cwdata->status |= DCW_SENT;
+				}
+				return cwdata->status;
+			}
+		}
+		// cache without cw1 cycle
+		if (cfg.cache.filter && (cwcycle==NO_CYCLE) ) {
+			cwdata->status |= cache_fetch_goodcw(pcache, cw, &cwcycle);
+			cwdata->cwcycle = cwcycle;
+			cwdata->peerid = peerid;
+			if (!(cwdata->status&DCW_CYCLE)) {
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache not forwarded: filter did not establish cycle", cw);
+				return cwdata->status;
+			}
+		}
+		else {
+			// update new dcw
+			cwdata->status |= DCW_CYCLE;
+			cwdata->cwcycle = cwcycle;
+			cwdata->peerid = peerid;
+		}
+		// Check Cycle
+		if ( (pcache->cwcycle!=NO_CYCLE)&&(pcache->cwcycle!=cwcycle) ) {
+			/*
+			 * TASK R2 (D56) -- the D9 remedy, at the ONLY site where this
+			 * tree actually refuses a contradictory key. The refusal itself
+			 * is stock r82a and stays untouched: the entry's expectation
+			 * (pcache->cwcycle, written by the ECM FIND through the live
+			 * rule -- put_ecm2cache() computes exactly cwcy_expect()) met a
+			 * DECLARED wire mark for the other half. What stock never had
+			 * is any way for the operator to SEE it: no counter, no line.
+			 * D9 demanded measurement before policy, so where the profile
+			 * arms `DCWFILTER CYCLE` (tristate over the global default
+			 * OFF), the refusal is counted under MCS_DCWSTATS and logged
+			 * with its reason. The counted verdict is the same CWCY_CONTRA
+			 * the TASK 2.5 observation records one storey up: both halves
+			 * declared and different. An UNMARKED key refused here (the
+			 * strict FILTER-OFF shape) stays uncounted -- silence judged
+			 * as silence, not as contradiction (GR3). Disarmed = the
+			 * refusal happens exactly as stock, invisibly, byte for byte.
+			 */
+			if ( cwcy_judge(pcache->cwcycle, cwcy_observed((int)cwcycle)) == CWCY_CONTRA ) {
+				struct cardserver_data *cyc_cs = pcache->ecm ? pcache->ecm->cs : NULL;
+				int cyc_mode = cyc_cs ? cyc_cs->option.dcwfilter_cycle
+				                      : (dcw_filter_cycle ? DCWFILTER_ON : DCWFILTER_INHERIT);
+				if ( (cyc_mode==DCWFILTER_ON) ||
+				     (cyc_mode==DCWFILTER_INHERIT && dcw_filter_cycle) ) {
+#ifdef MCS_DCWSTATS
+					DCWSTATS_REJECT(DCW_REJ_CYCLE);
+					cwlog_refuse(DCW_REJ_CYCLE, peerid, req->caid, req->provid, req->sid, cw);
+#endif
+					debugf(getdbgflag(DBG_CACHE,0,0),
+						" [CYCLE GATE] wrong-half key refused at ingest (expected %s, saw %s) ch %04x:%06x:%04x\n",
+						cwcy_str(pcache->cwcycle), cwcy_str(cwcy_observed((int)cwcycle)),
+						req->caid, req->provid, req->sid);
+				{ struct cachepeer_data *pr_peer = getpeerbyid(peerid); /* TASK R4 (D58) */
+				  if (pr_peer) peerrep_event(pr_peer, "cycle-contradiction"); }
+				}
+			}
+			/*
+			 * TASK R12 (D66) -- the node poison is gone; the refusal stays.
+			 * Stock r82a marked the KEY'S node DCW_ERROR here, but the
+			 * contradiction is between the DECLARED mark and the entry's
+			 * expectation -- a verdict about this reply's declaration, not
+			 * about the bytes. Two peers can carry the very same key with
+			 * different marks (the R4 flood made B do it on purpose); the
+			 * poisoned node then swallowed the honest reply at the status
+			 * early-out above -- silently, before any gate, counter or
+			 * ring row -- and the client starved (reproduced live: honest
+			 * mark matching the expectation, zero-DCW timeout). This reply
+			 * is still refused (the return below); a repeat with the same
+			 * wrong mark is refused here again, per reply; an honest mark
+			 * on the same bytes now flows through and delivers. Content-
+			 * based refusals (half-nulled non-NDS) and the consensus
+			 * convictions keep their node marks: those judge the bytes.
+			 */
+			return cwdata->status;
+		}
+	}
+	else {
+		// half nulled cw: exit if non-nds
+		if ( !ca_halfnull_ok(req->caid) ) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: half-null not allowed for CAID family", cw);
+			cwdata->status |= DCW_ERROR;
+			return cwdata->status;
+		}
+		//
+		if ( dcwcmp8(cw,nullcw) ) cwcycle = CW1CYCLE;
+		else if ( dcwcmp8(cw+8,nullcw) ) cwcycle = CW0CYCLE;
+		// update new dcw
+		cwdata->status |= DCW_CYCLE;
+		cwdata->cwcycle = cwcycle;
+		cwdata->peerid = peerid; // CSP CACHE
+	}
+
+	if ( (pcache->flags&CACHE_FLAG_SENDPIPE) && !(cwdata->status&DCW_SENT) ) {
+		cwdata->status |= DCW_SENT;
+		/*
+		 * TASK 3.16 rig. Unset, this is one compare. A positive
+		 * MCS_316_HOLD_MS (capped at 500) sleeps here, still holding
+		 * the caller's lockcache, so the ECM thread can commit FAILED
+		 * and block in cache_clear_sendpipe before the push is piped.
+		 * The handler then sees a dead waiter. Production does not
+		 * set the variable.
+		 */
+		{
+			static int hold_ms = -1;
+			if (hold_ms < 0) {
+				const char *e = getenv("MCS_316_HOLD_MS");
+				hold_ms = e ? atoi(e) : 0;
+				if (hold_ms < 0) hold_ms = 0;
+				if (hold_ms > 500) hold_ms = 500;
+			}
+			if (hold_ms) usleep((useconds_t)hold_ms * 1000);
+		}
+		pipe_cache2ecm_find_success(pcache, cw, peerid);
+		piped = 1;   /* TASK R11 (D65) */
+#ifdef TESTCHANNEL
+		int testchannel = ( (pcache->caid==cfg.testchn.caid) && (!pcache->provid || pcache->provid==cfg.testchn.provid) && (pcache->sid==cfg.testchn.sid) );
+		if (testchannel) {
+			char dump[64];
+			array2hex( cw, dump, 16);
+			fdebugf(" (Cache->Setdcw) ch %04x:%06x:%04x/%02x:%08x -> %s (%s)\n", pcache->caid, pcache->provid, pcache->sid, pcache->tag, pcache->hash,
+				dump, cwcycle2str(pcache->cwcycle) );
+		}
+#endif
+	}
+#ifdef MCS_DCWSTATS
+	/* TASK R11 (D65): the no-waiter seeds (no SENDPIPE, nothing piped)
+	 * end here silently; the ring records them as STORED so the page
+	 * shows the whole intake, not only what reached an ECM. */
+	if ( !piped && !(cwdata->status & DCW_SENT) )
+		cwlog_note(CWLOG_STORED, 0, peerid, req->caid, req->provid, req->sid, cw, GetTickCount());
+#endif
+	return cwdata->status;
+}
+
 int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int peerid )
 {
 	/*
@@ -1665,7 +1827,6 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 */
 	int cex_exchange;
 	int cex_gate_fake, cex_gate_check;
-	int piped = 0;   /* TASK R11 (D65): did THIS call pipe to a waiter? */
 	user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache CW entered validation; decision pending", cw);
 	{
 		struct cache_data *pend = cache_fetch(req);
@@ -1916,6 +2077,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			                         cw, peerid, cw_weight, GetTickCount(),
 			                         cwin, &cwl);
 			if ( cv==CWC_HOLD ) {
+				cwconsensus_hold_cycle(req->caid, req->sid, req->hash, req->tag, cw, peerid, cwcycle);
 				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache held: consensus awaiting corroboration", cw);
 #ifdef MCS_DCWSTATS
 				cwlog_hold(peerid, req->caid, req->provid, req->sid, cw);
@@ -1956,159 +2118,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		}
 	}
 
-	// ACCEPTED
-	if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
-	if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, peerid);
-
-	// Half Nulled CW
-	char nullcw[8] = "\0\0\0\0\0\0\0\0";
-	if ( !dcwcmp8(cw,nullcw) && !dcwcmp8(cw+8,nullcw) ) {
-
-		if ( !isnullDCW(pcache->prevcw) ) {
-			if (  ( (pcache->cwcycle==CW1CYCLE) && dcwcmp8(pcache->prevcw,cw) && !similarcw(pcache->prevcw+8,cw+8) ) ||
-				( (pcache->cwcycle==CW0CYCLE) && !similarcw(pcache->prevcw,cw) && dcwcmp8(pcache->prevcw+8,cw+8) )  ) {
-				// update new dcw
-				cwdata->status |= DCW_CYCLE;
-				cwdata->cwcycle = pcache->cwcycle;
-				cwdata->peerid = peerid;
-				if ( (pcache->flags&CACHE_FLAG_SENDPIPE) && !(cwdata->status&DCW_SENT) ) {
-					pipe_cache2ecm_find_success(pcache, cw, peerid);
-					piped = 1;   /* TASK R11 (D65) */
-					cwdata->status |= DCW_SENT;
-				}
-				return cwdata->status;
-			}
-		}
-		// cache without cw1 cycle
-		if (cfg.cache.filter && (cwcycle==NO_CYCLE) ) {
-			cwdata->status |= cache_fetch_goodcw(pcache, cw, &cwcycle);
-			cwdata->cwcycle = cwcycle;
-			cwdata->peerid = peerid;
-			if (!(cwdata->status&DCW_CYCLE)) {
-				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache not forwarded: filter did not establish cycle", cw);
-				return cwdata->status;
-			}
-		}
-		else {
-			// update new dcw
-			cwdata->status |= DCW_CYCLE;
-			cwdata->cwcycle = cwcycle;
-			cwdata->peerid = peerid;
-		}
-		// Check Cycle
-		if ( (pcache->cwcycle!=NO_CYCLE)&&(pcache->cwcycle!=cwcycle) ) {
-			/*
-			 * TASK R2 (D56) -- the D9 remedy, at the ONLY site where this
-			 * tree actually refuses a contradictory key. The refusal itself
-			 * is stock r82a and stays untouched: the entry's expectation
-			 * (pcache->cwcycle, written by the ECM FIND through the live
-			 * rule -- put_ecm2cache() computes exactly cwcy_expect()) met a
-			 * DECLARED wire mark for the other half. What stock never had
-			 * is any way for the operator to SEE it: no counter, no line.
-			 * D9 demanded measurement before policy, so where the profile
-			 * arms `DCWFILTER CYCLE` (tristate over the global default
-			 * OFF), the refusal is counted under MCS_DCWSTATS and logged
-			 * with its reason. The counted verdict is the same CWCY_CONTRA
-			 * the TASK 2.5 observation records one storey up: both halves
-			 * declared and different. An UNMARKED key refused here (the
-			 * strict FILTER-OFF shape) stays uncounted -- silence judged
-			 * as silence, not as contradiction (GR3). Disarmed = the
-			 * refusal happens exactly as stock, invisibly, byte for byte.
-			 */
-			if ( cwcy_judge(pcache->cwcycle, cwcy_observed((int)cwcycle)) == CWCY_CONTRA ) {
-				struct cardserver_data *cyc_cs = pcache->ecm ? pcache->ecm->cs : NULL;
-				int cyc_mode = cyc_cs ? cyc_cs->option.dcwfilter_cycle
-				                      : (dcw_filter_cycle ? DCWFILTER_ON : DCWFILTER_INHERIT);
-				if ( (cyc_mode==DCWFILTER_ON) ||
-				     (cyc_mode==DCWFILTER_INHERIT && dcw_filter_cycle) ) {
-#ifdef MCS_DCWSTATS
-					DCWSTATS_REJECT(DCW_REJ_CYCLE);
-					cwlog_refuse(DCW_REJ_CYCLE, peerid, req->caid, req->provid, req->sid, cw);
-#endif
-					debugf(getdbgflag(DBG_CACHE,0,0),
-						" [CYCLE GATE] wrong-half key refused at ingest (expected %s, saw %s) ch %04x:%06x:%04x\n",
-						cwcy_str(pcache->cwcycle), cwcy_str(cwcy_observed((int)cwcycle)),
-						req->caid, req->provid, req->sid);
-				{ struct cachepeer_data *pr_peer = getpeerbyid(peerid); /* TASK R4 (D58) */
-				  if (pr_peer) peerrep_event(pr_peer, "cycle-contradiction"); }
-				}
-			}
-			/*
-			 * TASK R12 (D66) -- the node poison is gone; the refusal stays.
-			 * Stock r82a marked the KEY'S node DCW_ERROR here, but the
-			 * contradiction is between the DECLARED mark and the entry's
-			 * expectation -- a verdict about this reply's declaration, not
-			 * about the bytes. Two peers can carry the very same key with
-			 * different marks (the R4 flood made B do it on purpose); the
-			 * poisoned node then swallowed the honest reply at the status
-			 * early-out above -- silently, before any gate, counter or
-			 * ring row -- and the client starved (reproduced live: honest
-			 * mark matching the expectation, zero-DCW timeout). This reply
-			 * is still refused (the return below); a repeat with the same
-			 * wrong mark is refused here again, per reply; an honest mark
-			 * on the same bytes now flows through and delivers. Content-
-			 * based refusals (half-nulled non-NDS) and the consensus
-			 * convictions keep their node marks: those judge the bytes.
-			 */
-			return cwdata->status;
-		}
-	}
-	else {
-		// half nulled cw: exit if non-nds
-		if ( !ca_halfnull_ok(req->caid) ) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
-		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: half-null not allowed for CAID family", cw);
-			cwdata->status |= DCW_ERROR;
-			return cwdata->status;
-		}
-		//
-		if ( dcwcmp8(cw,nullcw) ) cwcycle = CW1CYCLE;
-		else if ( dcwcmp8(cw+8,nullcw) ) cwcycle = CW0CYCLE;
-		// update new dcw
-		cwdata->status |= DCW_CYCLE;
-		cwdata->cwcycle = cwcycle;
-		cwdata->peerid = peerid; // CSP CACHE
-	}
-
-	if ( (pcache->flags&CACHE_FLAG_SENDPIPE) && !(cwdata->status&DCW_SENT) ) {
-		cwdata->status |= DCW_SENT;
-		/*
-		 * TASK 3.16 rig. Unset, this is one compare. A positive
-		 * MCS_316_HOLD_MS (capped at 500) sleeps here, still holding
-		 * the caller's lockcache, so the ECM thread can commit FAILED
-		 * and block in cache_clear_sendpipe before the push is piped.
-		 * The handler then sees a dead waiter. Production does not
-		 * set the variable.
-		 */
-		{
-			static int hold_ms = -1;
-			if (hold_ms < 0) {
-				const char *e = getenv("MCS_316_HOLD_MS");
-				hold_ms = e ? atoi(e) : 0;
-				if (hold_ms < 0) hold_ms = 0;
-				if (hold_ms > 500) hold_ms = 500;
-			}
-			if (hold_ms) usleep((useconds_t)hold_ms * 1000);
-		}
-		pipe_cache2ecm_find_success(pcache, cw, peerid);
-		piped = 1;   /* TASK R11 (D65) */
-#ifdef TESTCHANNEL
-		int testchannel = ( (pcache->caid==cfg.testchn.caid) && (!pcache->provid || pcache->provid==cfg.testchn.provid) && (pcache->sid==cfg.testchn.sid) );
-		if (testchannel) {
-			char dump[64];
-			array2hex( cw, dump, 16);
-			fdebugf(" (Cache->Setdcw) ch %04x:%06x:%04x/%02x:%08x -> %s (%s)\n", pcache->caid, pcache->provid, pcache->sid, pcache->tag, pcache->hash,
-				dump, cwcycle2str(pcache->cwcycle) );
-		}
-#endif
-	}
-#ifdef MCS_DCWSTATS
-	/* TASK R11 (D65): the no-waiter seeds (no SENDPIPE, nothing piped)
-	 * end here silently; the ring records them as STORED so the page
-	 * shows the whole intake, not only what reached an ECM. */
-	if ( !piped && !(cwdata->status & DCW_SENT) )
-		cwlog_note(CWLOG_STORED, 0, peerid, req->caid, req->provid, req->sid, cw, GetTickCount());
-#endif
-	return cwdata->status;
+	return cache_after_consensus(req, pcache, cwdata, cw, cwcycle, peerid);
 }
 
 
@@ -3226,6 +3236,7 @@ void *cache_thread(void *param)
 		 * expired -- a single-source channel loses only the window, never
 		 * the key (each loop pass is one housekeeping tick; the release
 		 * cadence is therefore window + one tick, worst case). */
+		pthread_mutex_lock(&prg.lockcache);
 		while ( cfg.cache.consensus ) {
 			struct cwconsensus_hold cch;
 			struct cache_data creq;
@@ -3241,11 +3252,15 @@ void *cache_thread(void *param)
 				while (chw) {
 					if ( dcwcmp16(chw->cw, cch.cw) ) {
 						if ( !(chw->status & (DCW_SENT|DCW_ERROR)) ) {
-							chw->status |= DCW_SENT;
-							pipe_cache2ecm_find_success(chpc, chw->cw, cch.peerid);
+							/* Expiry only clears consensus; the normal cycle/family
+							 * gates still decide whether the CW may be forwarded. */
+							user_trace_cache_observation(chpc->caid, chpc->provid, chpc->sid, chpc->hash, cch.peerid,
+							    "cache consensus window expired; cycle checks pending", chw->cw);
+							cache_after_consensus(chpc, chpc, chw, chw->cw,
+							                      (cwcycle_t)cch.cycle, cch.peerid);
 							debugf(getdbgflag(DBG_CACHE,0,0),
-								" [CONSENSUS] window expired, single-source cw released ch %04x:%06x:%04x\n",
-								cch.caid, cch.provid, cch.sid);
+								" [CONSENSUS] window expired, CW rechecked ch %04x:%06x:%04x\n",
+								cch.caid, chpc->provid, cch.sid);
 						}
 						break;
 					}
@@ -3253,8 +3268,9 @@ void *cache_thread(void *param)
 				}
 			}
 		}
+		pthread_mutex_unlock(&prg.lockcache);
 
-		int ready = epoll_wait( prg.epoll.cache, evlist, MAX_EPOLL_EVENTS, 1001);
+		int ready = epoll_wait( prg.epoll.cache, evlist, MAX_EPOLL_EVENTS, cfg.cache.consensus ? 100 : 1001);
 		if (ready == -1) {
 			if ( (errno==EINTR)||(errno==EAGAIN) ) {
 				usleep(1000);
@@ -3310,6 +3326,7 @@ void *cache_thread(void *param)
 		}
 
 		/* TASK R8 (D62): the poll flavour's identical release walk. */
+		pthread_mutex_lock(&prg.lockcache);
 		while ( cfg.cache.consensus ) {
 			struct cwconsensus_hold cch;
 			struct cache_data creq;
@@ -3325,11 +3342,15 @@ void *cache_thread(void *param)
 				while (chw) {
 					if ( dcwcmp16(chw->cw, cch.cw) ) {
 						if ( !(chw->status & (DCW_SENT|DCW_ERROR)) ) {
-							chw->status |= DCW_SENT;
-							pipe_cache2ecm_find_success(chpc, chw->cw, cch.peerid);
+							/* Expiry only clears consensus; the normal cycle/family
+							 * gates still decide whether the CW may be forwarded. */
+							user_trace_cache_observation(chpc->caid, chpc->provid, chpc->sid, chpc->hash, cch.peerid,
+							    "cache consensus window expired; cycle checks pending", chw->cw);
+							cache_after_consensus(chpc, chpc, chw, chw->cw,
+							                      (cwcycle_t)cch.cycle, cch.peerid);
 							debugf(getdbgflag(DBG_CACHE,0,0),
-								" [CONSENSUS] window expired, single-source cw released ch %04x:%06x:%04x\n",
-								cch.caid, cch.provid, cch.sid);
+								" [CONSENSUS] window expired, CW rechecked ch %04x:%06x:%04x\n",
+								cch.caid, chpc->provid, cch.sid);
 						}
 						break;
 					}
@@ -3337,6 +3358,7 @@ void *cache_thread(void *param)
 				}
 			}
 		}
+		pthread_mutex_unlock(&prg.lockcache);
 
 		struct pollfd pfd[100];
 		int pfdcount = 0;
@@ -3355,7 +3377,7 @@ void *cache_thread(void *param)
 			cache = cache->next;
 		}
 
-		int retval = poll(pfd, pfdcount, 3001);
+		int retval = poll(pfd, pfdcount, cfg.cache.consensus ? 100 : 3001);
 
 		if ( retval>0 ) {
 #ifndef THREAD_CACHE_PIPE
@@ -3385,7 +3407,7 @@ void *cache_thread(void *param)
 				}
 				cache = cache->next;
 			}
-		} else usleep( 99000 );
+		} else if (retval < 0 || !cfg.cache.consensus) usleep( 99000 );
 	}
 
 	//close(cfg.cache.handle);

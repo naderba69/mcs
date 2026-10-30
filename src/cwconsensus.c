@@ -22,6 +22,7 @@ struct cw_slot {
 	int      used;
 	int      lost;        /* convicted within this window: refuse always */
 	int      holding;     /* delivered nothing yet (release walk owns it) */
+	int      cycle_set, cycle; /* first held voter's declaration */
 	uint16_t caid, sid, provid;
 	uint32_t hash;
 	uint8_t  tag;
@@ -215,6 +216,19 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 	}
 }
 
+void cwconsensus_hold_cycle(uint16_t caid, uint16_t sid, uint32_t hash,
+                            uint8_t tag, const uint8_t *cw, int peerid, int cycle)
+{
+    int idx = cwc_slotof(caid, sid, hash, tag, cw);
+    struct cw_slot *s;
+    if (idx < 0) return;
+    s = &cwc_tab[idx];
+    if (s->holding && !s->cycle_set && s->nv && s->v[0].peerid == peerid) {
+        s->cycle = cycle;
+        s->cycle_set = 1;
+    }
+}
+
 int cwconsensus_expired(struct cwconsensus_hold *out, uint32_t now_ms,
 			uint32_t window_ms)
 {
@@ -227,6 +241,7 @@ int cwconsensus_expired(struct cwconsensus_hold *out, uint32_t now_ms,
 		out->hash = s->hash; out->tag = s->tag;
 		memcpy(out->cw, s->cw, 16);
 		out->peerid = s->nv ? s->v[0].peerid : 0;
+		out->cycle = s->cycle_set ? s->cycle : 0;
 		s->used = CWC_NOUSE; /* consumed: no double release */
 		cwc_n_releases++;
 		return 1;
