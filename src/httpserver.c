@@ -7816,6 +7816,16 @@ static const char *trace_detail_ar(const char *detail)
     if (!strcmp(detail, "Newcamd CW rejected: operator BAD-DCW list")) return "رُفضت: موجودة في قائمة BAD-DCW";
     if (!strcmp(detail, "Newcamd CW rejected: enabled pattern validation")) return "رُفضت: لم تجتز فلتر النمط المفعّل";
     if (!strcmp(detail, "Newcamd CW passed initial validation; further gates remain")) return "اجتازت التحقق الأولي؛ لا تزال فحوص أخرى لاحقة";
+    if (!strncmp(detail, "CSP reply dropped: incomplete integrity header", 46)) return "أُسقط رد CSP قبل التحقق: ترويسة السلامة ناقصة";
+    if (!strncmp(detail, "CSP reply dropped: incomplete CW payload", 40)) return "أُسقط رد CSP: لا يحتوي CW كاملة";
+    if (!strncmp(detail, "CSP reply dropped: unknown sender", 33)) return "أُسقط رد CSP من عنوان غير معروف";
+    if (!strncmp(detail, "CSP reply dropped: configured peer disabled", 42)) return "أُسقط رد CSP لأن النظير معطّل";
+    if (!strncmp(detail, "CSP reply dropped: peer reputation isolation", 44)) return "أُسقط رد CSP لعزل النظير في السمعة";
+    if (!strncmp(detail, "CSP reply dropped: integrity tag mismatch", 41)) return "أُسقط رد CSP لاختلاف بايت سلامة الترويسة";
+    if (!strncmp(detail, "CSP reply dropped: invalid ECM tag", 34)) return "أُسقط رد CSP: نوع ECM غير صالح";
+    if (!strncmp(detail, "CSP reply dropped: missing channel or hash", 42)) return "أُسقط رد CSP: قناة أو بصمة ناقصة";
+    if (!strncmp(detail, "CSP reply dropped: CAID not allowed by cache", 44)) return "أُسقط رد CSP: CAID غير مسموح في الكاش";
+    if (!strncmp(detail, "CSP reply dropped: oversized datagram", 37)) return "أُسقط رد CSP لتجاوز حجم الرسالة المسموح";
     if (!strcmp(detail, "cache rejected: negative memory gate")) return "الكاش رفض CW بسبب الذاكرة السلبية";
     if (!strcmp(detail, "cache rejected: attestation gate")) return "الكاش رفض CW بسبب بوابة attestation";
     if (!strcmp(detail, "cache held: threshold not reached")) return "الكاش ينتظر بلوغ حد التأكيدات";
@@ -8028,6 +8038,8 @@ static void http_send_user_trace(int sock, http_request *req)
     snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
     tcp_writestr(&tcpbuf, sock, out);
     tcp_writestr(&tcpbuf, sock, "<details><summary>كيف أقرأ أدلة الكاش؟</summary><p>عند امتلاء Consensus: used عدد الخانات المستعملة من الإجمالي، held خانات تنتظر انتهاء النافذة، overdue خانات محتجزة تجاوزت النافذة، reclaimable خانات غير محتجزة يمكن إعادة استخدامها، oldest hold عمر أقدم حجز وwindow مدة النافذة. الخانات التي ليست held هي سجلات غير محتجزة محفوظة مؤقتاً. هذه حالة الجدول العام عند الحدث، لا هوية أصحاب الخانات ولا سببًا مثبتًا لفشل هذا العميل.</p><p>في أحداث الدورة: incoming الدورة التي وصلت إلى مسار الفحص، وقد تكون محفوظة من أول رد عند انتهاء Consensus؛ expected المتوقعة في سجل الكاش وassessed الدورة التي قيّمها الفلتر. no marker تعني عدم وجود علامة دورة معروفة في هذا المسار؛ previous CW يبين توفر CW سابقة للمقارنة، وليس صحتها. اختلاف الدورة لا يثبت وحده أن المصدر خبيث أو أن الصورة لن تظهر.</p></details>");
+    snprintf(out, sizeof(out), "<p>ردود CSP قصيرة جدًا لا تكفي لقراءة القناة: %llu خلال جلسة المتابعة، على مستوى السيرفر كله؛ لا يمكن نسبتها لهذا العميل أو قناته. أحداث CSP المرفوضة ذات الترويسة غير المتحقق منها تعرض قناة يدّعيها المرسل فقط، دون CW أو إثبات طلب العميل.</p>", (unsigned long long)snap->csp_unattributed_short);
+    tcp_writestr(&tcpbuf, sock, out);
     trace_summary_write(&tcpbuf, sock, snap);
     tcp_writestr(&tcpbuf, sock, "<table><tr><th>الوقت</th><th>المحاولة</th><th>القناة</th><th>بصمة ECM غير فريدة</th><th>الحدث</th><th>النطاق</th><th>المصدر (نوع / ID داخلي)</th><th>المدة ms</th><th>التفاصيل</th><th>CW</th></tr>");
     for (i = 0; i < snap->count; ++i) {

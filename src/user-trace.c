@@ -11,7 +11,7 @@ static struct user_trace_event events[USER_TRACE_CAPACITY];
 struct shared_link { uint64_t attempt, instance; uint32_t hash; };
 static struct shared_link links[USER_TRACE_MAX_LINKS];
 static uint64_t generation, next_attempt, next_sequence, overwritten, dropped_links, dropped_events;
-static uint64_t next_instance;
+static uint64_t next_instance, csp_unattributed_short;
 static size_t next_index, count;
 static int active;
 
@@ -69,6 +69,7 @@ uint64_t user_trace_start(const struct user_trace_target *new_target)
     target = *new_target;
     result = increment_nonzero(&generation);
     next_attempt = next_sequence = overwritten = dropped_links = dropped_events = 0;
+    csp_unattributed_short = 0;
     memset(links, 0, sizeof(links));
     memset(events, 0, sizeof(events));
     next_index = count = 0;
@@ -386,6 +387,13 @@ void user_trace_cache_observation(uint16_t caid, uint32_t provider, uint16_t sid
     pthread_mutex_unlock(&trace_lock);
 }
 
+void user_trace_note_short_csp_reply(void)
+{
+    pthread_mutex_lock(&trace_lock);
+    if (active && csp_unattributed_short != UINT64_MAX) ++csp_unattributed_short;
+    pthread_mutex_unlock(&trace_lock);
+}
+
 void user_trace_get_snapshot(struct user_trace_snapshot *out)
 {
     size_t i;
@@ -397,6 +405,7 @@ void user_trace_get_snapshot(struct user_trace_snapshot *out)
     out->overwritten = overwritten;
     out->dropped_links = dropped_links;
     out->dropped_events = dropped_events;
+    out->csp_unattributed_short = csp_unattributed_short;
     out->count = count;
     for (i = 0; i < count; ++i) {
         size_t index = (next_index + USER_TRACE_CAPACITY - count + i)

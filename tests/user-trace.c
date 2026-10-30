@@ -88,6 +88,16 @@ int main(void)
     }
     first = user_trace_start(&target);
     assert(first);
+    user_trace_note_short_csp_reply();
+    user_trace_get_snapshot(&snapshot);
+    assert(snapshot.csp_unattributed_short == 1 && snapshot.count == 0);
+    user_trace_stop(first);
+    user_trace_note_short_csp_reply();
+    user_trace_get_snapshot(&snapshot);
+    assert(!snapshot.active && snapshot.csp_unattributed_short == 1);
+    first = user_trace_start(&target);
+    user_trace_get_snapshot(&snapshot);
+    assert(snapshot.csp_unattributed_short == 0);
     assert(!user_trace_begin(8, 0x1884, 0, 0x1136, 1, &session) && !session);
     assert(!user_trace_begin(7, 0x1884, 1, 0x1136, 1, &session) && !session);
     attempt = user_trace_begin(7, 0x1884, 0, 0x1136, 123, &session);

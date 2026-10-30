@@ -2207,6 +2207,24 @@ void *cache_queue_thread(void *param);
 
 #endif /* CACHE_QUEUE */
 
+/* The first 12 bytes of a CSP reply contain only an untrusted claimed
+ * channel and fingerprint. Never attach these drops to a client or CW. */
+static void cache_trace_csp_drop(const unsigned char *buf, int len, int peerid,
+                                 const char *reason)
+{
+    char detail[128];
+    uint32_t hash;
+    if (len < 12) {
+        user_trace_note_short_csp_reply();
+        return;
+    }
+    hash = ((uint32_t)buf[8] << 24) | ((uint32_t)buf[9] << 16) |
+           ((uint32_t)buf[10] << 8) | (uint32_t)buf[11];
+    snprintf(detail, sizeof(detail), "CSP reply dropped: %s; length=%d; header unverified", reason, len);
+    user_trace_cache_observation((uint16_t)((buf[6]<<8)|buf[7]), 0,
+        (uint16_t)((buf[2]<<8)|buf[3]), hash, peerid, detail, NULL);
+}
+
 void cache_recvmsg(struct cacheserver_data *cache)
 {
 	unsigned int recv_ip;
@@ -2231,7 +2249,11 @@ void cache_recvmsg(struct cacheserver_data *cache)
 #else
 	int received = recvfrom( cache->handle, buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
 #endif
-	if ( (received<2)||(received>512) ) return;
+	if ( (received<2)||(received>512) ) {
+        if (received > 0 && buf[0] == TYPE_REPLY)
+            cache_trace_csp_drop(buf, received, 0, received > 512 ? "oversized datagram" : "incomplete header");
+        return;
+    }
 	memcpy( &recv_ip, &si_other.sin_addr, 4);
 	recv_port = ntohs(si_other.sin_port);
 
@@ -2248,6 +2270,8 @@ void cache_recvmsg(struct cacheserver_data *cache)
 		int cgmin = cg_minlen( buf[0] );
 		if ( received < cgmin ) {
 			cg_note_short( buf[0], received, recv_ip, recv_port );
+            if (buf[0] == TYPE_REPLY)
+                cache_trace_csp_drop(buf, received, 0, "incomplete integrity header");
 			return;
 		}
 	}
@@ -2310,14 +2334,22 @@ void cache_recvmsg(struct cacheserver_data *cache)
 		case TYPE_REPLY:
 			// Check Peer
 			peer = getpeerbyaddr(cache, recv_ip,recv_port);
-			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
+			if (!peer) {
+                cg_note_unknown(buf[0], recv_ip, recv_port);
+                cache_trace_csp_drop(buf, received, 0, "unknown sender");
+                break;
+            }
 			// Check Status
-			if (IS_DISABLED(peer->flags)) break;
+			if (IS_DISABLED(peer->flags)) {
+                cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, "configured peer disabled");
+                break;
+            }
 			/* TASK R4 (D58): an isolated peer's push is dropped unprocessed
 			 * -- but the arrival itself still counts: after confirmed
 			 * contradictions, choosing to keep pushing is the peer's own
 			 * escalation (reason push-while-isolated). Off = never speaks. */
 			if ( !peerrep_push_ok(peer->host->ip, peer->port) ) {
+                cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, "peer reputation isolation");
 				peerrep_event(peer, "push-while-isolated");
 				debugf(getdbgflag(DBG_CACHE,0,peer->id),
 					" [PEER REP] push from %s:%u dropped unprocessed\n",
@@ -2325,7 +2357,10 @@ void cache_recvmsg(struct cacheserver_data *cache)
 				break;
 			}
 			// Check Integrity
-			if (buf[12]!=buf[1]) break;
+			if (buf[12]!=buf[1]) {
+                cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, "integrity tag mismatch");
+                break;
+            }
 			// SetUp Request
 			req.tag = buf[1];
 			req.sid = (buf[2]<<8) | buf[3];
@@ -2423,8 +2458,14 @@ void cache_recvmsg(struct cacheserver_data *cache)
 							}
 						}
 #endif
-				}
-			}
+				} else {
+                    cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, "incomplete CW payload");
+                }
+			} else {
+                const char *why = ((req.tag & 0xfe) != 0x80) ? "invalid ECM tag" :
+                    (!req.caid || !req.hash || !req.sid) ? "missing channel or hash" : "CAID not allowed by cache";
+                cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, why);
+            }
 
 			pthread_mutex_unlock( &prg.lockcache );
 			break;
@@ -3502,8 +3543,8 @@ void *cache_pipe_thread(void *param)
 #ifdef CACHE_QUEUE
 /*
  * The receive-side half: recvfrom plus the wire range check -- the same
- * two lines the inline path ran first -- then the hand-off. No locks
- * here, ever: that is the whole point of the queue.
+ * range guard the inline path ran first -- then the hand-off. Only
+ * malformed CSP replies may take the diagnostic lock before the queue.
  */
 static void cache_queue_recv(struct cacheserver_data *cache)
 {
@@ -3511,7 +3552,11 @@ static void cache_queue_recv(struct cacheserver_data *cache)
 	struct sockaddr_in si_other;
 	socklen_t slen = sizeof(si_other);
 	int received = recvfrom( cache->handle, buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
-	if ( (received<2)||(received>512) ) return;
+	if ( (received<2)||(received>512) ) {
+        if (received > 0 && buf[0] == TYPE_REPLY)
+            cache_trace_csp_drop(buf, received, 0, received > 512 ? "oversized datagram" : "incomplete header");
+        return;
+    }
 	cq_push(cache, &si_other, buf, received);
 }
 

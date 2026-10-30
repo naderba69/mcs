@@ -34,6 +34,14 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
     subprocess.run(['cc', '-O2', '-std=gnu89', '-o', str(client), str(ROOT/'tests/ccdcw.c')], check=True)
     for name, policy, verdict, static in [
         ('checksum', 'CACHE FILTER: OFF\n', 'cache rejected: profile CW checksum validation failed', 'NO'),
+        ('short8', 'CACHE FILTER: OFF\n', 'cache forwarded CW to ECM pipe; delivery not confirmed', 'NO'),
+        ('short12', 'CACHE FILTER: OFF\n', 'CSP reply dropped: incomplete integrity header; length=12; header unverified', 'NO'),
+        ('short20', 'CACHE FILTER: OFF\n', 'CSP reply dropped: incomplete CW payload; length=20; header unverified', 'NO'),
+        ('oversize', 'CACHE FILTER: OFF\n', 'CSP reply dropped: oversized datagram; length=513; header unverified', 'NO'),
+        ('integrity', 'CACHE FILTER: OFF\n', 'CSP reply dropped: integrity tag mismatch; length=29; header unverified', 'NO'),
+        ('tag', 'CACHE FILTER: OFF\n', 'CSP reply dropped: invalid ECM tag; length=29; header unverified', 'NO'),
+        ('hash', 'CACHE FILTER: OFF\n', 'CSP reply dropped: missing channel or hash; length=29; header unverified', 'NO'),
+        ('unknown', 'CACHE FILTER: OFF\n', 'CSP reply dropped: unknown sender; length=29; header unverified', 'NO'),
         ('filter', 'CACHE FILTER: ON\n', 'cache not forwarded: filter did not establish cycle', 'NO'),
         ('capacity', 'CACHE PROTECTION: STANDARD\nCACHE FILTER: OFF\n', 'cache consensus vote: no candidate slot; verdict=proceed; agreement unconfirmed', 'NO'),
         ('consensus', 'CACHE PROTECTION: STANDARD\nCACHE FILTER: OFF\n', 'cache held: consensus awaiting corroboration', 'NO'),
@@ -48,6 +56,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
             peer_cw = '11223367445566FF77889998AABBCC31' if name == 'checksum' else '11223366445566FF77889998AABBCC31'
             peer_env = {k:v for k,v in os.environ.items() if not k.startswith('CP_')}
             if name == 'capacity': peer_env['CP_TEST_CAPACITY_FILL'] = '1'
+            if name in ('short8', 'short12', 'short20', 'oversize', 'integrity', 'tag', 'hash', 'unknown'): peer_env['CP_TEST_DROP'] = name
             peerproc = subprocess.Popen(['stdbuf','-o0','-e0',str(peer),str(cp),str(pp),peer_cw,'5'], cwd=tmp, env=peer_env, stdout=plog, stderr=subprocess.STDOUT)
             server = None
             try:
@@ -84,6 +93,19 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
                     assert 'cache wait policy: ECM thread timeout=500 ms; profile=900 ms; static=YES' in page, name
                 assert 'قناة فقط، ليس ربط عميل' in page, name
                 assert peer_cw in page, name
+                if name == 'short8':
+                    assert 'ردود CSP قصيرة جدًا لا تكفي لقراءة القناة: 1' in page, page
+                    assert 'CSP reply dropped:' not in page, name
+                if name in ('short12', 'short20', 'oversize', 'integrity', 'tag', 'hash', 'unknown'):
+                    assert 'ردود CSP قصيرة جدًا لا تكفي لقراءة القناة: 0' in page, name
+                    assert 'cache forwarded CW to ECM pipe; delivery not confirmed' in page, name
+                    assert 'header unverified' in page, name
+                    arabic = {'short12':'ترويسة السلامة ناقصة', 'short20':'لا يحتوي CW كاملة',
+                              'oversize':'لتجاوز حجم الرسالة المسموح', 'integrity':'لاختلاف بايت سلامة الترويسة',
+                              'tag':'نوع ECM غير صالح', 'hash':'قناة أو بصمة ناقصة', 'unknown':'من عنوان غير معروف'}
+                    row = next(row for row in page.split('<tr>') if verdict in row)
+                    assert arabic[name] in row and 'قناة فقط، ليس ربط عميل' in row, (name,row)
+                    assert 'data-event=' not in row, (name, 'unvalidated CW exposed')
                 if name == 'capacity':
                     assert 'cache consensus capacity: used=64/64; held=64; overdue=0; reclaimable=0;' in page, page
                     assert 'سعة جدول Consensus العامة عند عدم توفر خانة' in page, name

@@ -58,6 +58,7 @@ struct user_trace_snapshot {
     uint64_t overwritten;
     uint64_t dropped_links; /* Full link table or start event evicted. */
     uint64_t dropped_events; /* Event could not retain its start record. */
+    uint64_t csp_unattributed_short; /* server-wide CSP type 2, header incomplete */
     int active;
     size_t count;
     struct user_trace_event events[USER_TRACE_CAPACITY];
@@ -123,6 +124,8 @@ int user_trace_client_cw(uint32_t client_id, uint64_t instance, uint32_t hash,
 void user_trace_cache_observation(uint16_t caid, uint32_t provider, uint16_t sid,
                                   uint32_t hash, int peerid, const char *detail,
                                   const uint8_t cw[16]);
+/* Global count, not attributable to a channel/client; active session only. */
+void user_trace_note_short_csp_reply(void);
 void user_trace_get_snapshot(struct user_trace_snapshot *out);
 
 #endif
