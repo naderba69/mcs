@@ -658,9 +658,18 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 				}
 			}
 			else {
-				cs->ecmaccepted++;
 				// Setup ECM Request for Server(s)
 				ecm = store_ecmdata(cs, ecmdata, ecmlen, sid,caid,provid);
+				if (!ecm) {
+					cs->ecmdenied++;
+					cli->ecmdenied++;
+					buf[4] = 0x44;
+					buf[5] = 0;
+					if (!cs378x_send(cli->handle, &cli->encryptkey, cli->ucrc, buf+4, 20)) cs378x_disconnect_cli(cli);
+					pthread_mutex_unlock(&prg.lockecm);
+					break;
+				}
+				cs->ecmaccepted++;
 				cs378x_store_ecmclient(ecm, cli);
 				cli->ecm.pin = pin;
 				debugf(getdbgflagpro(DBG_CS378X,0,cli->id, cs->id)," <- ecm from cs378x client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,caid,provid,sid, ecm->hash);

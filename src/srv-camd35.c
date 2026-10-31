@@ -534,9 +534,18 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 				}
 			}
 			else {
-				cs->ecmaccepted++;
 				// Setup ECM Request for Server(s)
 				ecm = store_ecmdata(cs, ecmdata, ecmlen, sid,caid,provid);
+				if (!ecm) {
+					cs->ecmdenied++;
+					cli->ecmdenied++;
+					buf[4] = 0x44;
+					buf[5] = 0;
+					camd35_sendto(camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf+4, 20);
+					pthread_mutex_unlock(&prg.lockecm);
+					break;
+				}
+				cs->ecmaccepted++;
 				camd35_store_ecmclient(ecm, cli);
 				cli->ecm.pin = pin;
 				debugf(getdbgflagpro(DBG_CAMD35,0,cli->id, cs->id)," <- ecm from camd35 client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,caid,provid,sid, ecm->hash);

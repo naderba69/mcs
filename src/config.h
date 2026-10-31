@@ -419,6 +419,7 @@ struct __attribute__ ((__packed__)) rdgd_client_data { // Connected Client
 		// Ecm Data
 		uint32_t recvtime; // ECM Receive Time in ms
 		int id;
+		uint8_t request_storage[sizeof(void *)]; // active ECM pointer; access via memcpy (packed struct)
 		//Last Used Share Saved data
 		uint16_t lastcaid;
 		uint32_t lastprov;

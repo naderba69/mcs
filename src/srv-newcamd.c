@@ -805,9 +805,17 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						}
 					}
 					else {
-						cs->ecmaccepted++;
 						// Setup ECM Request for Server(s)
 						ecm = store_ecmdata(cs, data, len, clicd.sid, clicd.caid, clicd.provid);
+						if (!ecm) {
+							cs->ecmdenied++;
+							cli->ecmdenied++;
+							uint8_t failure[3] = { data[0], 0, 0 };
+							if (!cs_message_send(cli->handle, &clicd, failure, sizeof(failure), cli->sessionkey)) cs_disconnect_cli(cli);
+							pthread_mutex_unlock(&prg.lockecm);
+							break;
+						}
+						cs->ecmaccepted++;
 						cs_store_ecmclient(cs, ecm, cli, clicd.msgid);
 						debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <- ecm from client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,clicd.caid,clicd.provid,clicd.sid,ecm->hash);
 						cli->ecm.busy=1;

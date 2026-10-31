@@ -732,9 +732,17 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 						}
 					}
 					else {
-						cs->ecmaccepted++;
 						// Setup ECM Request for Server(s)
 						ecm = store_ecmdata(cs, ecmdata, ecmlen, clicd.sid,clicd.caid,clicd.provid);
+						if (!ecm) {
+							cs->ecmdenied++;
+							cli->ecmdenied++;
+							uint8_t failure[3] = { ecmdata[0], 0, 0 };
+							if (!cs_message_send(cli->handle, &clicd, failure, sizeof(failure), cli->sessionkey)) mg_disconnect_cli(cli);
+							pthread_mutex_unlock(&prg.lockecm);
+							break;
+						}
+						cs->ecmaccepted++;
 						mg_store_ecmclient(ecm, cli, clicd.msgid);
 						debugf(getdbgflagpro(DBG_MGCAMD,0,cli->id, cs->id)," <- ecm from mgcamd client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,clicd.caid,clicd.provid,clicd.sid,ecm->hash);
 						cli->ecm.busy=1;

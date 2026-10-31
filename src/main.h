@@ -46,6 +46,8 @@ char *src2string(int srctype, int srcid, char *ret);
 // ECM
 ////////////////////////////////////////////////////////////////////////////////
 
+/* Returns NULL on allocation failure without modifying ECM rings/counters;
+ * protocol handlers must send a failure response instead of dereferencing it. */
 struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ecmlen, unsigned short sid, unsigned short caid, unsigned int provid);
 
 

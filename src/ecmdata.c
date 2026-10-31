@@ -184,8 +184,9 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 	if (!ecmdata) {
 		// nothing so add new
 		//debugf(0," first ecmdata\n");
-		totalecm++;
 		new = malloc( sizeof(struct ecm_request) );
+		if (!new) goto allocation_failed;
+		totalecm++;
 		memset( new, 0,  sizeof(struct ecm_request) );
 		new->next = NULL;
 		new->prev = NULL;
@@ -193,8 +194,9 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 	}
 	else if (!ecmdata->next) {
 		//debugf(0," second ecmdata\n");
-		totalecm++;
 		new = malloc( sizeof(struct ecm_request) );
+		if (!new) goto allocation_failed;
+		totalecm++;
 		memset( new, 0,  sizeof(struct ecm_request) );
 
 		new->prev = ecmdata;
@@ -217,9 +219,10 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 			ecmdata = new; // it becomes the current one			
 		}
 		else { // allocate new data
-			totalecm++;
-			//debugf(0," new ecmdata size = %d\n", totalecm);
+			//debugf(0," new ecmdata size = %d\n", totalecm+1);
 			new = malloc( sizeof(struct ecm_request) );
+			if (!new) goto allocation_failed;
+			totalecm++;
 			memset( new, 0,  sizeof(struct ecm_request) );
 			new->prev = ecmdata->prev;
 			new->next = ecmdata;
@@ -263,6 +266,11 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 	//checkfreeze_storeECM(new);
 #endif
 	return new;
+
+allocation_failed:
+	debugf(DBG_ERROR, " ECM: allocation failed for %04x:%06x:%04x; request not queued\n",
+	       caid, provid, sid);
+	return NULL;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

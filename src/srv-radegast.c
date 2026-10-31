@@ -10,6 +10,24 @@ uint rdgd_check_sendcw();
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+static ECM_DATA *rdgd_get_ecm_request(struct rdgd_client_data *cli)
+{
+	ECM_DATA *ecm = NULL;
+	memcpy(&ecm, cli->ecm.request_storage, sizeof(ecm));
+	return ecm;
+}
+
+static void rdgd_set_ecm_request(struct rdgd_client_data *cli, ECM_DATA *ecm)
+{
+	memcpy(cli->ecm.request_storage, &ecm, sizeof(ecm));
+}
+
+static void rdgd_send_failure(struct rdgd_client_data *cli)
+{
+	unsigned char failure[4] = { 0x02, 0x02, 0x04, 0x00 };
+	if (cli && cli->handle > 0) rdgd_message_send(cli->handle, failure, sizeof(failure));
+}
+
 void rdgd_senddcw_cli(struct rdgd_client_data *cli)
 {
 	unsigned char buf[CWS_NETMSGSIZE];
@@ -27,7 +45,7 @@ void rdgd_senddcw_cli(struct rdgd_client_data *cli)
 		return;
 	}
 
-	ECM_DATA *ecm = getecmbyid(cli->ecm.id);
+	ECM_DATA *ecm = rdgd_get_ecm_request(cli);
 	if (ecm) {
 		cli->ecm.lastcaid = ecm->caid;
 		cli->ecm.lastprov = ecm->provid;
@@ -55,12 +73,9 @@ void rdgd_senddcw_cli(struct rdgd_client_data *cli)
 		cli->ecm.laststatus=0;
 		cli->ecm.lastdcwsrctype = DCW_SOURCE_NONE;
 		cli->ecm.lastdcwsrcid = 0;
-		buf[0] = 0x02;
-		buf[1] = 0x02;
-		buf[2] = 0x04;
-		buf[3] = 0x00;
-		rdgd_message_send( cli->handle, buf, 4);
-		debugf(0, " |> decode failed to client (%s) ch %04x:%06x:%04x (%dms)\n", ip2string(cli->ip), ecm->caid,ecm->provid,ecm->sid, GetTickCount()-cli->ecm.recvtime);
+		rdgd_send_failure(cli);
+		if (ecm) debugf(0, " |> decode failed to client (%s) ch %04x:%06x:%04x (%dms)\n", ip2string(cli->ip), ecm->caid,ecm->provid,ecm->sid, GetTickCount()-cli->ecm.recvtime);
+		else debugf(0, " |> decode failed to radegast client (%s), ECM record unavailable\n", ip2string(cli->ip));
 	}
 	cli->ecm.busy=0;
 	cli->ecm.status = STAT_DCW_SENT;
@@ -170,21 +185,34 @@ void *rdgd_connect_cli_thread(void *param)
 void rdgd_store_ecmclient(struct cardserver_data *cs, ECM_DATA *ecm, struct rdgd_client_data *cli)
 {
 	cli->ecm.recvtime = GetTickCount();
-	cli->ecm.request = ecm;
+	rdgd_set_ecm_request(cli, ecm);
     cli->ecm.status = STAT_ECM_SENT;
 	ecm_addip(ecm, cli->ip);
 }
 
-int accept_ecm (struct cardserver_data *cs, uint16_t caid, uint32_t provid, uint16_t sid)
+static int rdgd_cache_has_peers(void)
 {
+	struct cacheserver_data *cache = cfg.cache.server;
+	while (cache) {
+		if (cache->peer) return 1;
+		cache = cache->next;
+	}
+	return 0;
+}
+
+int accept_ecm(struct cardserver_data *cs, uint16_t caid, uint32_t provid,
+               uint16_t sid, uint16_t chid, uint16_t ecmlen, uint8_t *cw1cycle)
+{
+	if (!cw1cycle) return 0;
+	*cw1cycle = 0;
 	// Check for caid, accept caid=0
-	if ( !accept_caid(cs,caid) ) return 0;
+	if (!accept_caid(cs, caid)) return 0;
 
 	// Check for provid, accept provid==0
-	if ( !accept_prov(cs,provid) ) return 0;
+	if (!accept_prov(cs, provid)) return 0;
 
-	// Check for Accepted sids
-	if ( !accept_sid(cs,sid) ) return 0;
+	// Check for Accepted SIDs, CHID and ECM length
+	if (!accept_sid(cs, provid, sid, chid, ecmlen, cw1cycle)) return 0;
 
 	return 1;
 }
@@ -224,10 +252,10 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 				case 0x01: // ECM
 					cli->lastecmtime = GetTickCount();
 					cli->ecmnb++;
-					cli->ecm.id = -1; // ECM DENIED
 					if (cli->ecm.busy) {
+						cs->ecmdenied++;
 						cli->ecmdenied++;
-						rdgd_senddcw_cli(cli);
+						rdgd_send_failure(cli); // reject this new ECM; preserve the active request
 						break;
 					}
 					uint16_t caid = 0;
@@ -262,8 +290,11 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 						index += buf[index+1]+2;
 					}
 
-					if (!accept_ecm(cs,caid,provid,0)) {
-						rdgd_senddcw_cli(cli);
+					uint8_t cw1cycle = 0;
+					if (!accept_ecm(cs, caid, provid, 0, ecm_getchid(ecmdata, ecmlen, caid), ecmlen, &cw1cycle)) {
+						cs->ecmdenied++;
+						cli->ecmdenied++;
+						rdgd_send_failure(cli);
 						break;
 					}
 
@@ -271,26 +302,30 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 					pthread_mutex_lock(&prg.lockecm); //###
 
 					// Search for ECM
-					int ecmid = search_ecmdata_dcw( ecmdata,  ecmlen, 0); // dont get failed ecm request from cache
-					if ( ecmid!=-1 ) {
-						ECM_DATA *ecm=getecmbyid(ecmid);
+					ECM_DATA *ecm = search_ecmdata_dcw(ecmdata, ecmlen, 0); // don't join a failed request
+					if (ecm) {
 						ecm->lastrecvtime = GetTickCount();
 						//TODO: Add another card for sending ecm
-						rdgd_store_ecmclient(cs, ecmid, cli);
+						rdgd_store_ecmclient(cs, ecm, cli);
 						debugf(0, " <- ecm from client (%s) ch %04x:%06x:%04x*\n", ip2string(cli->ip), caid, provid, 0);
 						cli->ecm.busy=1;
-						cli->ecm.hash = ecm->hash;
 					}
 					else {
-						cs->ecmaccepted++;
 						// Setup ECM Request for Server(s)
-						ecmid = store_ecmdata(cs, ecmdata, ecmlen, 0, caid, provid);
-						ECM_DATA *ecm=getecmbyid(ecmid);
-						rdgd_store_ecmclient(cs, ecmid, cli);
+						ecm = store_ecmdata(cs, ecmdata, ecmlen, 0, caid, provid);
+						if (!ecm) {
+							cs->ecmdenied++;
+							cli->ecmdenied++;
+							rdgd_send_failure(cli);
+							pthread_mutex_unlock(&prg.lockecm);
+							break;
+						}
+						cs->ecmaccepted++;
+						rdgd_store_ecmclient(cs, ecm, cli);
 						debugf(0, " <- ecm from client (%s) ch %04x:%06x:%04x\n", ip2string(cli->ip), caid, provid, 0);
 						cli->ecm.busy=1;
-						cli->ecm.hash = ecm->hash;
-						if (cs->option.fallowcache && cfg.cache.peer) {
+						ecm->cw1cycle = cw1cycle;
+						if (cs->option.fallowcache && rdgd_cache_has_peers()) {
 							ecm->waitcache = 1;
 							ecm->dcwstatus = STAT_DCW_WAITCACHE;
 							ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
@@ -328,7 +363,7 @@ uint rdgd_check_sendcw()
 				if ( (cli->handle>0)&&(cli->ecm.busy) ) {
 					clitime = ticks+11000;
 					// Check for DCW ANSWER
-					ECM_DATA *ecm = getecmbyid(cli->ecm.id);
+					ECM_DATA *ecm = rdgd_get_ecm_request(cli);
 					if (ecm) {
 						// Check for FAILED
 						if (ecm->dcwstatus==STAT_DCW_FAILED) rdgd_senddcw_cli( cli );

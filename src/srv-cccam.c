@@ -974,9 +974,20 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				}
 			}
 			else {
-				cs->ecmaccepted++;
 				// Setup ECM Request for Server(s)
 				ecm = store_ecmdata(cs, data, len-17, sid, caid, provid);
+				if (!ecm) {
+					cs->ecmdenied++;
+					cli->ecmdenied++;
+					if (trace_attempt) {
+						user_trace_add(trace_session, trace_attempt, USER_TRACE_FAILED, trace_hash, 0, 0, 0, "ECM allocation failed; request not queued");
+						user_trace_unbind_shared(trace_session, trace_attempt);
+					}
+					if (!cc_msg_send(cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL)) cc_disconnect_cli(cli);
+					pthread_mutex_unlock(&prg.lockecm);
+					break;
+				}
+				cs->ecmaccepted++;
 				if (trace_attempt) {
 					ecm->trace_instance = user_trace_next_instance();
 					if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))

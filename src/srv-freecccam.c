@@ -502,9 +502,16 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 							}
 						}
 						else {
-							cs->ecmaccepted++;
 							// Setup ECM Request for Server(s)
 							ecm = store_ecmdata(cs, data, len-17, sid, caid, provid);
+							if (!ecm) {
+								cs->ecmdenied++;
+								cli->ecmdenied++;
+								if (!cc_msg_send(cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL)) frcc_disconnect_cli(cli);
+								pthread_mutex_unlock(&prg.lockecm);
+								break;
+							}
+							cs->ecmaccepted++;
 							cc_store_ecmclient(ecm, cli);
 							debugf( getdbgflagpro(DBG_CCCAM,0,cli->id,cs->id), " <- ecm from FreeCCcam client(%s) ch %04x:%06x:%04x\n", cli->user,caid,provid,sid);
 							cli->ecm.busy=1;
