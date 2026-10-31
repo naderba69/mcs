@@ -3,7 +3,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 void *rdgd_connect_cli_thread(void *param);
-void rdgd_getclimsg();
+void *rdgd_getclimsg(void *param);
 uint rdgd_check_sendcw();
 
 
@@ -119,75 +119,87 @@ void *rdgd_connect_cli_thread(void *param)
 {
 	int clientsock;
 	struct sockaddr_in clientaddr;
-	socklen_t socklen = sizeof(struct sockaddr);
+	(void)param;
 
 	while (1) {
-		pthread_mutex_lock(&prg.lockrdgdsrv);
-
 		struct pollfd pfd[MAX_CSPORTS];
 		int pfdcount = 0;
+		struct cardserver_data *cs;
+		int i;
 
-		struct cardserver_data *cs = cfg.cardserver;
-		while(cs) {
-			if (cs->radegast.handle>0) {
-				cs->radegast.ipoll = pfdcount;
+		pthread_mutex_lock(&prg.lockrdgdsrv);
+		cs = cfg.cardserver;
+		while (cs) {
+			cs->radegast.ipoll = -1;
+			if (cs->radegast.handle > 0 && pfdcount < MAX_CSPORTS) {
 				pfd[pfdcount].fd = cs->radegast.handle;
-				pfd[pfdcount++].events = POLLIN | POLLPRI;
-			} else cs->radegast.ipoll = -1;
+				pfd[pfdcount].events = POLLIN | POLLPRI;
+				pfd[pfdcount].revents = 0;
+				cs->radegast.ipoll = pfdcount++;
+			}
 			cs = cs->next;
 		}
-
-		int retval = poll(pfd, pfdcount, 3013);
-
-		if (retval>0) {
-			struct cardserver_data *cs = cfg.cardserver;
-			while(cs) {
-				if ( (cs->radegast.handle>0) && (cs->radegast.ipoll>=0) && (cs->radegast.handle==pfd[cs->radegast.ipoll].fd) ) {
-					if ( pfd[cs->radegast.ipoll].revents & (POLLIN|POLLPRI) ) {
-						clientsock = accept(cs->radegast.handle, (struct sockaddr*)&clientaddr, &socklen );
-						if (clientsock<0) {
-							if (errno == EAGAIN || errno == EINTR) continue;
-							else {
-								debugf(0, " Radegast: Accept failed (errno=%d)\n",errno);
-								usleep(1000);
-							}
-						}
-						else {
-							SetSocketKeepalive(clientsock);
-							SetSocketNoDelay(clientsock);
-							SetSoketNonBlocking(clientsock);
-							// ADD TO DB
-							struct rdgd_client_data *cli = malloc( sizeof(struct rdgd_client_data) );
-							memset( cli, 0, sizeof(struct rdgd_client_data) );
-							cli->chkrecvtime = 0;
-							cli->handle = clientsock; 
-							cli->ip = clientaddr.sin_addr.s_addr;
-							pthread_mutex_lock(&prg.lockrdgdcli);
-							cli->next = cs->radegast.client;
-							cs->radegast.client = cli;
-							debugf(0, " radegast: client (%s) connected\n", ip2string(cli->ip));
-							pthread_mutex_unlock(&prg.lockrdgdcli);
-							pipe_wakeup( prg.pipe.ecm[1] );
-						}
-					}
-				}
-				cs = cs->next;
-			}
-		}
 		pthread_mutex_unlock(&prg.lockrdgdsrv);
-		usleep(3000);
+
+		/* Never hold the server-list lock across a blocking poll. */
+		int retval = poll(pfd, pfdcount, 100);
+		if (retval > 0) {
+			pthread_mutex_lock(&prg.lockrdgdsrv);
+			for (i = 0; i < pfdcount; i++) {
+				if (!(pfd[i].revents & (POLLIN | POLLPRI))) continue;
+				cs = cfg.cardserver;
+				while (cs && cs->radegast.handle != pfd[i].fd) cs = cs->next;
+				if (!cs) continue; /* listener changed during poll */
+
+				socklen_t socklen = sizeof(clientaddr);
+				clientsock = accept(cs->radegast.handle, (struct sockaddr *)&clientaddr, &socklen);
+				if (clientsock < 0) {
+					if (errno != EAGAIN && errno != EINTR)
+						debugf(0, " Radegast: Accept failed (errno=%d)\n", errno);
+					continue;
+				}
+				SetSocketKeepalive(clientsock);
+				SetSocketNoDelay(clientsock);
+				SetSoketNonBlocking(clientsock);
+				struct rdgd_client_data *cli = malloc(sizeof(struct rdgd_client_data));
+				if (!cli) {
+					close(clientsock);
+					debugf(DBG_ERROR, " Radegast: unable to allocate client record\n");
+					continue;
+				}
+				memset(cli, 0, sizeof(struct rdgd_client_data));
+				cli->handle = clientsock;
+				cli->ip = clientaddr.sin_addr.s_addr;
+				pthread_mutex_lock(&prg.lockrdgdcli);
+				cli->next = cs->radegast.client;
+				cs->radegast.client = cli;
+				pthread_mutex_unlock(&prg.lockrdgdcli);
+				debugf(0, " radegast: client (%s) connected\n", ip2string(cli->ip));
+				pipe_wakeup(prg.pipe.ecm[1]);
+			}
+			pthread_mutex_unlock(&prg.lockrdgdsrv);
+		} else if (retval < 0 && errno != EINTR) {
+			usleep(3000);
+		}
 	}
-	END_PROCESS = 1;
+	return NULL;
 }
-
-
 
 void rdgd_store_ecmclient(struct cardserver_data *cs, ECM_DATA *ecm, struct rdgd_client_data *cli)
 {
 	cli->ecm.recvtime = GetTickCount();
 	rdgd_set_ecm_request(cli, ecm);
-    cli->ecm.status = STAT_ECM_SENT;
+	cli->ecm.status = STAT_ECM_SENT;
 	ecm_addip(ecm, cli->ip);
+}
+
+/* Radegast carries a stream-framed packet containing tag/length/value TLVs.
+ * Validate the remaining bytes before reading the length byte or value. */
+static int rdgd_tlv_is_complete(const uint8_t *buf, int received, int index)
+{
+	if (!buf || received < 0 || index < 0 || index > received) return 0;
+	if (received - index < 2) return 0;
+	return (int)buf[index + 1] <= received - index - 2;
 }
 
 static int rdgd_cache_has_peers(void)
@@ -262,32 +274,50 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 					uint32_t provid = 0;
 					unsigned char ecmdata[300];
 					memset(ecmdata, 0, sizeof(ecmdata));
-					int ecmlen=0;
-					int index = 2;
-					while (index<len) {
-						//entry = buf[index];	
-						//len = buf[index+1];
-					    switch (buf[index]) {
-							case  2: // CAID (upper byte only, oldstyle)
-								caid = buf[index+2]<<8;
-								break;
-							case 10: // CAID
-								caid = (buf[index+2]<<8) | buf[index+3];
-								break;
-							case  3: // ECM DATA
-								ecmlen = buf[index+1];
-								memcpy( ecmdata, &buf[index+2], ecmlen);
-								break;
-							case  6: // PROVID (ASCII)
-								for (i=0; i<buf[index+1]; i++) provid = (provid<<4) | hexvalue(buf[index+2+i]);
-								//provid = hex2int(char *src); // 6
-								break;
-							case  7: // KEYNR (ASCII), not needed
-								break;
-							case  8: // ECM PROCESS PID ?? don't know, not needed
-								break;
+					int ecmlen = 0;
+					int index = 2, malformed = 0;
+					while (index < len) {
+						if (!rdgd_tlv_is_complete(buf, len, index)) { malformed = 1; break; }
+						uint8_t tlv_type = buf[index];
+						uint8_t tlv_len = buf[index + 1];
+						switch (tlv_type) {
+						case 2: // CAID (upper byte only, oldstyle)
+							if (tlv_len < 1) malformed = 1;
+							else caid = (uint16_t)buf[index + 2] << 8;
+							break;
+						case 10: // CAID
+							if (tlv_len < 2) malformed = 1;
+							else caid = ((uint16_t)buf[index + 2] << 8) | buf[index + 3];
+							break;
+						case 3: // ECM DATA
+							if (!tlv_len || tlv_len > sizeof(ecmdata)) malformed = 1;
+							else {
+								ecmlen = tlv_len;
+								memcpy(ecmdata, buf + index + 2, ecmlen);
+							}
+							break;
+						case 6: // PROVID (ASCII hex)
+							if (tlv_len > 8) { malformed = 1; break; }
+							for (i = 0; i < tlv_len; i++) {
+								int digit = hexvalue(buf[index + 2 + i]);
+								if (digit < 0) { malformed = 1; break; }
+								provid = (provid << 4) | (uint32_t)digit;
+							}
+							break;
+						case 7: // KEYNR (ASCII), not needed
+						case 8: // ECM PROCESS PID, not needed
+						default:
+							break;
 						}
-						index += buf[index+1]+2;
+						if (malformed) break;
+						index += 2 + tlv_len;
+					}
+					if (!ecmlen) malformed = 1;
+					if (malformed) {
+						cs->ecmdenied++;
+						cli->ecmdenied++;
+						rdgd_send_failure(cli);
+						break;
 					}
 
 					uint8_t cw1cycle = 0;
@@ -349,6 +379,73 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 
 
 // Check sending cw to clients
+struct rdgd_poll_target {
+	struct cardserver_data *cs;
+	struct rdgd_client_data *cli;
+};
+
+void *rdgd_getclimsg(void *param)
+{
+	(void)param;
+	while (1) {
+		size_t count = 0, index = 0;
+		struct pollfd *pfds = NULL;
+		struct rdgd_poll_target *targets = NULL;
+		struct cardserver_data *cs;
+		struct rdgd_client_data *cli;
+		int ready, i;
+
+		/* Match the acceptor's lock order; keep the Radegast client list
+		 * stable while poll returns and a readable client can be removed. */
+		pthread_mutex_lock(&prg.lockrdgdsrv);
+		pthread_mutex_lock(&prg.lockrdgdcli);
+		for (cs = cfg.cardserver; cs; cs = cs->next)
+			for (cli = cs->radegast.client; cli; cli = cli->next)
+				if (cli->handle > 0) count++;
+
+		if (count) {
+			pfds = calloc(count, sizeof(*pfds));
+			targets = malloc(count * sizeof(*targets));
+			if (!pfds || !targets) {
+				free(pfds);
+				free(targets);
+				pthread_mutex_unlock(&prg.lockrdgdcli);
+				pthread_mutex_unlock(&prg.lockrdgdsrv);
+				usleep(50000);
+				continue;
+			}
+			for (cs = cfg.cardserver; cs; cs = cs->next) {
+				for (cli = cs->radegast.client; cli; cli = cli->next) {
+					if (cli->handle <= 0) continue;
+					pfds[index].fd = cli->handle;
+					pfds[index].events = POLLIN | POLLPRI;
+					pfds[index].revents = 0;
+					targets[index].cs = cs;
+					targets[index].cli = cli;
+					index++;
+				}
+			}
+		}
+
+		ready = poll(pfds, (nfds_t)count, 50);
+		if (ready > 0) {
+			for (i = 0; i < (int)count; i++) {
+				if (pfds[i].revents & (POLLIN | POLLPRI | POLLHUP | POLLERR | POLLNVAL))
+					rdgd_cli_recvmsg(targets[i].cli, targets[i].cs);
+			}
+		}
+		pthread_mutex_lock(&prg.lockecm);
+		rdgd_check_sendcw();
+		pthread_mutex_unlock(&prg.lockecm);
+		free(pfds);
+		free(targets);
+		pthread_mutex_unlock(&prg.lockrdgdcli);
+		pthread_mutex_unlock(&prg.lockrdgdsrv);
+		if (ready < 0 && errno != EINTR) usleep(3000);
+	}
+	return NULL;
+}
+
 uint rdgd_check_sendcw()
 {
 	struct cardserver_data *cs = cfg.cardserver;

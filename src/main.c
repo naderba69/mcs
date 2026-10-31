@@ -2804,7 +2804,8 @@ void mainprocess()
 
 	pthread_t cli_tid;
 #ifdef RADEGAST_SRV
-	create_thread(&cli_tid, (threadfn)rdgd_connect_cli_thread, NULL); // Lock server
+	create_thread(&cli_tid, rdgd_connect_cli_thread, NULL); // Accept Radegast clients
+	create_thread(&cli_tid, rdgd_getclimsg, NULL); // Read client requests and return ECM results
 #endif
 
 	start_thread_newcamd();
