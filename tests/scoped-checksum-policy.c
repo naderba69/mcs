@@ -21,6 +21,7 @@ int main(void) {
  uint8_t bad[16]={1,2,3,7,4,5,6,15,7,8,9,24,10,11,12,33};
  memset(&cs,0,sizeof cs); cs.card.caid=0x1884; cs.option.skipcwc=1; cs.option.cw_checksum_exempt_active=1; cs.option.cw_checksum_exempt_provider=0; cs.option.cw_checksum_exempt_sid=0x1136;
 #define CHECK(n, cond) do { if(!(cond)){printf("FAIL %s reason %d\n",n,reason);fail++;} else printf("PASS %s\n",n); } while(0)
+ CHECK("global cycle starts at config default",dcw_filter_cycle==0);
  CHECK("trace used",acceptDCW_profile_ecm_trace_reason(bad,&cs,0x1884,0,0x1136,&reason,&used) && used);
  CHECK("match",acceptDCW_profile_ecm_reason(bad,&cs,0x1884,0,0x1136,&reason));
  CHECK("wrong caid",!acceptDCW_profile_ecm_reason(bad,&cs,0x1885,0,0x1136,&reason) && reason==DCW_INVALID_CHECKSUM);

@@ -283,6 +283,8 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 				if (dcw_hard_reject(cw)) break; /* TASK 3.15: profile gate is cache_setdcw */
 				//srv->cacheex.totalrep++;
 				struct cache_data cacheex;
+				memset(&cacheex, 0, sizeof(cacheex));
+				cacheex.provider_known = 1;
 				cacheex.sid = (buf[12]<<8)|buf[13];
 				cacheex.caid = (buf[14]<<8)|buf[15];
 				cacheex.provid = (buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];

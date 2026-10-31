@@ -1046,6 +1046,8 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			memcpy( cw, buf+44, 16);
 			if (dcw_hard_reject(cw)) break; /* TASK 3.15: profile gate is cache_setdcw */
 			struct cache_data cacheex;
+			memset(&cacheex, 0, sizeof(cacheex));
+			cacheex.provider_known = 1;
 			cacheex.caid = (buf[4]<<8) | buf[5];
 			cacheex.provid = (buf[6]<<24) | (buf[7]<<16) | (buf[8]<<8) | buf[9];
 			cacheex.sid = (buf[14]<<8) | buf[15];

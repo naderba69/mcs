@@ -277,21 +277,25 @@ allocation_failed:
 // SEARCH FUNCTIONS
 ////////////////////////////////////////////////////////////////////////////////
 
-struct ecm_request *search_ecmdata_dcw( uint8_t *ecm, int ecmlen, unsigned short sid)
+struct ecm_request *search_ecmdata_dcw( uint8_t *ecm, int ecmlen, unsigned short sid,
+                                         unsigned short caid, uint32_t provid)
 {
+	if (!ecm || ecmlen < 3) return NULL;
 	uint32_t ticks = GetTickCount();
-	uint32_t hash =  hashCode(ecm+3, ecmlen-3);
+	uint32_t hash = hashCode(ecm+3, ecmlen-3);
 	struct ecm_request *req = ecmdata;
 	while (req) {
-		if ( (req->recvtime+TIME_ECMALIVE) < ticks ) return NULL;
-		if (req->dcwstatus!=STAT_DCW_FAILED)
-		if (hash==req->hash)
-		if (ecm[0]==req->ecm[0])
-		if (ecmlen==req->ecmlen)
-		if (sid==req->sid)
-		if ( !memcmp(ecm+3, req->ecm+3, ecmlen-3) ) return req;
+		if ((uint32_t)(ticks - req->recvtime) <= TIME_ECMALIVE &&
+		    req->dcwstatus != STAT_DCW_FAILED &&
+		    hash == req->hash &&
+		    ecm[0] == req->ecm[0] &&
+		    ecmlen == req->ecmlen &&
+		    sid == req->sid &&
+		    caid == req->caid &&
+		    provid == req->provid &&
+		    !memcmp(ecm+3, req->ecm+3, ecmlen-3)) return req;
 		req = req->next;
-		if (req==ecmdata) break;
+		if (req == ecmdata) break;
 	}
 	return NULL;
 }

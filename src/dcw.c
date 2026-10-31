@@ -28,10 +28,11 @@
  * not: every key is dropped, the profile shows a black screen, and the server
  * looks healthy.
  *
- * Both default to 1, so a config file written for r82a behaves identically.
- * They remain plain ints rather than `cfg` fields because dcw.c deliberately
- * does not include config.h. Runtime wrappers obtain a coherent snapshot
- * through dcw_filter_globals_snapshot(); standalone tests either use their
+ * Checksum and repeat both default to 1, so a config file written for r82a
+ * behaves identically. Cycle and pattern use the defaults staged by
+ * init_config(). These remain plain ints rather than `cfg` fields because
+ * dcw.c deliberately does not include config.h. Runtime wrappers obtain a
+ * coherent snapshot through dcw_filter_globals_snapshot(); standalone tests either use their
  * own gate storage or compile with MCS_SELFTEST and read it directly.
  *
  * A test binary defines MCS_DCWFILTER_NOGLOBALS when it supplies its own copy.
@@ -39,7 +40,7 @@
 #ifndef MCS_DCWFILTER_NOGLOBALS
 int dcw_filter_checksum = 1;
 int dcw_filter_repeat   = 1;
-int dcw_filter_cycle    = 1; /* TASK BS (2026-10-26): cycle gate ARMED by default to prevent black screens */
+int dcw_filter_cycle    = 0; /* TASK R2 (D56): matches init_config() default; cycle gate is off */
 int dcw_filter_pattern  = 0; /* TASK R28 (D79): the fake-shape gate starts disarmed */
 #endif
 

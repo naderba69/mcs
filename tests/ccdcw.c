@@ -297,6 +297,11 @@ int main(int argc, char **argv)
 	if (cc_msg_send(fd, &sendblock, CC_MSG_CLI_INFO, 64, buf) < 0) goto connfail;
 
 	for (ecmno = 7; ecmno < argc; ecmno++) {
+		/* Let web-trace tests attach after login but before the first ECM. */
+		if (ecmno == 7 && getenv("CCDCW_PRE_ECM_DELAY_MS")) {
+			unsigned long ms = strtoul(getenv("CCDCW_PRE_ECM_DELAY_MS"), NULL, 10);
+			if (ms <= 30000) usleep((useconds_t)ms * 1000);
+		}
 		/* Optional delay for isolated CW-age regressions. */
 		if (ecmno > 7 && getenv("CCDCW_BETWEEN_MS")) {
 			unsigned long ms = strtoul(getenv("CCDCW_BETWEEN_MS"), NULL, 10);

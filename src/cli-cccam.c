@@ -622,6 +622,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 							int uphop = buf[60];
 							if (uphop<10) srv->cacheex.got[uphop]++;
 							struct cache_data cacheex;
+							memset(&cacheex, 0, sizeof(cacheex));
+							cacheex.provider_known = 1;
 							cacheex.caid = (buf[4]<<8) | buf[5];
 							cacheex.provid = (buf[6]<<24) | (buf[7]<<16) | (buf[8]<<8) | buf[9];
 							cacheex.sid = (buf[14]<<8) | buf[15];

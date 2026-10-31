@@ -121,6 +121,10 @@ with tempfile.TemporaryDirectory(prefix='mcs-provider-identity-') as folder:
    expected=os.environ.get('CACHE_INJECT_TARGET','first')
    assert ('11223366445566FF77889998AABBCC31' in first_output) == (expected=='first'), (first_output,second_output)
    assert ('11223366445566FF77889998AABBCC31' in second_output) == (expected=='second'), (first_output,second_output)
+   page=request()
+   if first_provid != '000000' and expected == 'first':
+    assert 'CSP supplied no provider; profile validation used the active local ECM provider only' in page
+    assert 'رد CSP لا يحمل provider؛ استُخدم provider للـECM المحلي النشط لفحص البروفايل فقط' in page
    print('PASS: synthetic CSP CW delivered to '+expected+' requester; provider in CSP is absent')
   print('PASS: '+timing+' '+first_provid+' -> '+second_provid+': '+expected)
  except Exception:

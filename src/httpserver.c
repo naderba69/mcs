@@ -7886,6 +7886,9 @@ static const char *trace_detail_ar(const char *detail)
     if (!strcmp(detail, "cache peer reply deferred: candidate not approved, held or below threshold")) return "لم يرسل الكاش CW للنظير: المرشح غير مجتاز أو محتجز أو دون الحد؛ السبب المحدد غير معروف؛ الحدث للقناة فقط";
     if (!strcmp(detail, "cache relay deferred: target confirmation not established")) return "تأجل الترحيل الاستدلالي: تأكيد سجل الوجهة غير مثبت؛ الحدث للقناة فقط ولا يثبت نتيجة طلب العميل";
     if (!strcmp(detail, "cache provider collision: different local provider; conflicting operation skipped")) return "تعارض قيم provider المحلية في سجل كاش: تُركت العملية المتعارضة؛ الحدث للقناة فقط ولا يثبت هوية الطلب أو provider";
+    if (!strcmp(detail, "cache provider collision: explicit cached provider differs from local request; conflicting operation skipped")) return "تعارض provider المصرح به في سجل الكاش مع طلب ECM المحلي؛ تُركت العملية، والحدث للقناة فقط ولا يثبت هوية النظير";
+    if (!strcmp(detail, "cache provider collision: explicit incoming provider conflicts with known cache/local provider; CW refused")) return "رُفضت CW لأن provider الوارد صراحة يخالف provider المعروف لسجل الكاش أو الطلب المحلي؛ الحدث للقناة فقط ولا يثبت هوية النظير";
+    if (!strcmp(detail, "CSP supplied no provider; profile validation used the active local ECM provider only")) return "رد CSP لا يحمل provider؛ استُخدم provider للـECM المحلي النشط لفحص البروفايل فقط، وهذا لا يثبت هوية مصدر CW";
     if (!strcmp(detail, "cache lookup: no existing entry; peer response may still arrive")) return "لم يوجد سجل كاش عند البحث؛ قد يصل رد النظير لاحقاً";
     if (!strcmp(detail, "cache rejected: profile CW checksum validation failed")) return "رفض الكاش CW: فشل تحقق checksum";
     if (!strcmp(detail, "cache rejected: profile CW null-word validation failed")) return "رفض الكاش CW: لم تجتز قاعدة الأجزاء الصفرية";

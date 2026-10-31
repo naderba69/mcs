@@ -8,10 +8,10 @@ BIN     ?= ../make-x64/x64/multics
 CFG      = multics-live.cfg
 HTTPPORT = 15500
 
-.PHONY: pm jm sk cn smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr soak pq qv rt all
+.PHONY: pm jm sk cn smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr soak pq qv rt ecm-radegast-identity cacheex-provider-collision all
 include stability.mk
 # soak is deliberately NOT in `all`. It runs for about 20 minutes.
-all: smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr jm pq sk cn vl ri md fk fz at md sc qv cf rt
+all: smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr jm pq sk cn vl ri md fk fz at md sc qv cf rt ecm-radegast-identity cacheex-provider-collision
 
 # TASK 4.2. Stats binary, not the stock one: counters must be on.
 SOAK_BIN ?= ../bin/multics-r82a-stats-x64
@@ -128,3 +128,9 @@ docrefs:
 # Fast and side-effect free, so it runs before the boot targets in `all`.
 cfgcheck:
 	@python3 cfgcheck.py ../multics-r24-optimized.cfg
+
+ecm-radegast-identity:
+	sh ./ecm-radegast-identity.sh
+
+cacheex-provider-collision:
+	@python3 cacheex-provider-collision.py $(BIN)

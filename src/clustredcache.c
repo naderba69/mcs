@@ -333,6 +333,8 @@ struct __attribute__ ((__packed__)) cache_data {
 	 * its waiter finishes. It does not authenticate the provider or the CW. */
 	uint8_t local_provider_set;
 	uint32_t local_provider;
+	/* `provid == 0` can be either a real provider value or absent on CSP. */
+	uint8_t provider_known;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -442,6 +444,20 @@ static int cache_local_providers_conflict(const struct cache_data *a,
            a->local_provider != b->local_provider;
 }
 
+/* A provider on an incoming CacheEX record is explicit metadata, unlike the
+ * provider-less CSP wire key (zero). Never let a known local or cache-entry
+ * provider be overwritten by a different explicit value. `provider_known`
+ * distinguishes a real local numeric zero from a peer protocol that carries
+ * no provider at all. */
+static int cache_provider_identity_conflicts(const struct cache_data *entry,
+                                             uint32_t provider,
+                                             int provider_known)
+{
+    if (!entry || !provider_known) return 0;
+    if (entry->local_provider_set && entry->local_provider != provider) return 1;
+    return (entry->provider_known || entry->provid != 0) && entry->provid != provider;
+}
+
 /* Cache timestamps are 32-bit milliseconds. Compare elapsed time rather than
  * absolute deadlines, which wrap at startup and every ~49.7 days. The cache
  * lifetime and filter window are far below half the counter range. */
@@ -538,6 +554,7 @@ struct cache_data *cache_new( struct cache_data *newdata )
 	pcache->caid = newdata->caid;
 	pcache->hash = newdata->hash;
 	pcache->provid = newdata->provid;
+	pcache->provider_known = newdata->provider_known || newdata->provid != 0;
 #ifdef CACHEEX
 	memcpy( pcache->ecmd5, newdata->ecmd5, 16);
 #endif
@@ -810,12 +827,16 @@ void pipe_cache2ecm_find_success(struct cache_data *pcache, uint8_t *cw, int pee
 
 int get_ecm2cache(uint8_t *buf , struct cache_data *pcache, uint8_t *cw)
 {
+	/* Pipe messages serialize only the wire/cache key fields. Clear local-only
+	 * provider association and pointers before decoding into a stack record. */
+	memset(pcache, 0, sizeof(*pcache));
 	pcache->tag = buf[1];
 	pcache->sid = (buf[2]<<8) | buf[3];
 	pcache->onid = (buf[4]<<8) | buf[5];
 	pcache->caid = (buf[6]<<8) | buf[7];
 	pcache->hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | (buf[11]);
 	pcache->provid = (buf[12]<<16) | (buf[13]<<8) | (buf[14]);
+	pcache->provider_known = 1; /* local ECM pipe carries the provider, including zero */
 	pcache->cwcycle = buf[15];
 	int index = 16;
 	//
@@ -1904,15 +1925,45 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 */
 	int cex_exchange;
 	int cex_gate_fake, cex_gate_check;
+	int has_waiter;
+	uint32_t validation_provider;
+	struct cache_data *pend;
+	struct cardserver_data *pcs;
 	user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache CW entered validation; decision pending", cw);
 	{
-		struct cache_data *pend = cache_fetch(req);
-		struct cardserver_data *pcs = (pend && pend->ecm) ? pend->ecm->cs : NULL;
-		int has_waiter = (pend && pend->ecm) ? 1 : 0;
+		pend = cache_fetch(req);
+		/* The ECM pointer remains in an entry after completion for identity
+		 * checks, so it alone is not evidence of a live waiter. SENDPIPE is
+		 * cleared when that request succeeds or fails; the status guard also
+		 * closes the short commit-before-clear window. */
+		has_waiter = pend && pend->ecm && (pend->flags & CACHE_FLAG_SENDPIPE) &&
+		             cache_sendpipe_armable(pend->ecm);
+		pcs = has_waiter ? pend->ecm->cs : NULL;
 		cex_exchange = cex_is_exchange(peerid);
 		int gate_local = cfg.cache.gate_localonly;
 		cex_gate_fake  = cfg.cache.gate_blockfake;
 		cex_gate_check = cfg.cache.gate_cwcheck;
+
+		/* CacheEX carries a provider; CSP does not. A source with a known,
+		 * conflicting provider must not be folded into the entry or piped to
+		 * another provider's pending ECM. */
+		if (cache_provider_identity_conflicts(pend, req->provid, cex_exchange)) {
+			user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+			    "cache provider collision: explicit incoming provider conflicts with known cache/local provider; CW refused", cw);
+			return DCW_ERROR;
+		}
+
+		/* A provider-less CSP reply may be checked against the exact active
+		 * local ECM it answered. Keep req->provid untouched for source tracing:
+		 * zero still correctly records that CSP supplied no provider. */
+		validation_provider = req->provid;
+		if (!validation_provider && has_waiter) {
+			if (pend->local_provider_set) validation_provider = pend->local_provider;
+			else if (pend->provid) validation_provider = pend->provid;
+			if (validation_provider)
+				user_trace_cache_observation(req->caid, 0, req->sid, req->hash, peerid,
+				    "CSP supplied no provider; profile validation used the active local ECM provider only", cw);
+		}
 		if (pcs) {
 			if (pcs->option.fexblockfake) cex_gate_fake = 1;
 			if (pcs->option.excheck > cex_gate_check) cex_gate_check = pcs->option.excheck;
@@ -1931,7 +1982,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			return -1;
 		}
 		int validation_reason = DCW_VALID, checksum_exemption_used = 0;
-		if ( !acceptDCW_profile_ecm_trace_reason(cw, pcs, req->caid, req->provid, req->sid,
+		if ( !acceptDCW_profile_ecm_trace_reason(cw, pcs, req->caid, validation_provider, req->sid,
 		                                               &validation_reason, &checksum_exemption_used) ) {
 		const char *why = "cache rejected: profile CW validation; specific check unknown";
 		switch (validation_reason) {
@@ -2065,6 +2116,11 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
             "cache rejected: cache entry unavailable", cw);
         return DCW_ERROR;
     }
+	if (cex_exchange) {
+		/* CacheEX has a provider field even when its numeric value is zero. */
+		if (!pcache->provider_known && !pcache->provid) pcache->provid = req->provid;
+		pcache->provider_known = 1;
+	}
 
 	/*
 	 * TASK 2.5 -- what the peer OFFERED, judged against the half the pending
@@ -2383,6 +2439,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 
 	// Store Data
 	struct cache_data req;
+	memset(&req, 0, sizeof(req));
 	switch(buf[0]) {
 
 
@@ -2584,6 +2641,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			if (received<16) break;
 			// Good Packet
 			struct cache_data req;
+			memset(&req, 0, sizeof(req));
 			req.tag = buf[5];
 			req.sid = (buf[6]<<8) | buf[7];
 			req.onid = (buf[8]<<8) | buf[9];
@@ -3137,9 +3195,15 @@ static int cache_find_consensus_held(struct cache_data *entry,
 static int cache_local_provider_collision(struct cache_data *entry,
                                           struct cache_data *req)
 {
-    if (entry && entry->local_provider_set && entry->local_provider != req->provid) {
+    if (!entry || !req) return 0;
+    if (entry->local_provider_set && entry->local_provider != req->provid) {
         user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, 0,
             "cache provider collision: different local provider; conflicting operation skipped", NULL);
+        return 1;
+    }
+    if ((entry->provider_known || entry->provid) && entry->provid != req->provid) {
+        user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, 0,
+            "cache provider collision: explicit cached provider differs from local request; conflicting operation skipped", NULL);
         return 1;
     }
     return 0;
@@ -3171,6 +3235,7 @@ void cache_pipe_recvmsg()
 				pcache->ecm = req.ecm;
 				pcache->local_provider_set = 1;
 				pcache->local_provider = req.provid;
+				pcache->provider_known = 1;
 				pcache->cwcycle = req.cwcycle;
 
 #ifdef CACHEEX
@@ -3198,6 +3263,7 @@ void cache_pipe_recvmsg()
 				pcache->ecm = req.ecm;
 				pcache->local_provider_set = 1;
 				pcache->local_provider = req.provid;
+				pcache->provider_known = 1;
 				pcache->tag = req.tag; // set tag if not set (coming from cahceex)
 				pcache->provid = req.provid; // set provid if not set (coming from csp)
 				pcache->cwcycle = req.cwcycle;
@@ -3319,6 +3385,7 @@ void cache_pipe_recvmsg()
 			pcache->ecm = req.ecm;
 			pcache->local_provider_set = 1;
 			pcache->local_provider = req.provid;
+			pcache->provider_known = 1;
 			/* TASK 3.6: same arm guard -- the REQUEST rides the pipe too, and
 			 * its waiter can be answered or failed before the cache thread gets
 			 * here. */
@@ -3357,6 +3424,7 @@ void cache_pipe_recvmsg()
 			if (!pcache) break;
 			pcache->local_provider_set = 1;
 			pcache->local_provider = req.provid;
+			pcache->provider_known = 1;
 			//Check & update DCW
 			struct cw_cache_data *cwdata = pcache->cwdata;
 			while (cwdata) {

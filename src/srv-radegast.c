@@ -332,7 +332,7 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 					pthread_mutex_lock(&prg.lockecm); //###
 
 					// Search for ECM
-					ECM_DATA *ecm = search_ecmdata_dcw(ecmdata, ecmlen, 0); // don't join a failed request
+					ECM_DATA *ecm = search_ecmdata_dcw(ecmdata, ecmlen, 0, caid, provid); // key includes the parsed CAID/provider
 					if (ecm) {
 						ecm->lastrecvtime = GetTickCount();
 						//TODO: Add another card for sending ecm

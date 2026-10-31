@@ -1,6 +1,6 @@
 # جرد البروفايلات الـ72 — نسخة المستودع
 
-تاريخ الفحص: 2026-10-29. هذه مراجعة للإعداد المرفق مع البناء x64 الحالي، وليست فحصًا لسيرفر الإنتاج أو إثباتًا لتطور أي مشغّل. لا يوجد في التجربة اتصال بمصدر خارجي أو تيار فيديو.
+تاريخ الفحص الأول: 2026-10-29؛ أُعيد فحص التشغيل في 2026-10-31. هذه مراجعة للإعداد المرفق مع البناء x64، وليست فحصًا لسيرفر الإنتاج أو إثباتًا لتطور أي مشغّل. لا يوجد في التجربة اتصال بمصدر خارجي أو تيار فيديو.
 
 > تحديث لاحق: صُحح خطأ سابق بشأن FILTER؛ الصيغة المقروءة هي CACHE FILTER، وأسطر FILTER المجردة لم تكن فعالة. انظر `docs/cache-1884-comparison-ar.md`. كذلك القيمة المعروضة لـ CACHE TIMEOUT لا تعني أنها مستخدمة في كل مسار.
 
@@ -461,4 +461,3 @@
 - السطر: 2256؛ CAID المعروض: `1010`؛ المنفذ الأصلي: `1980`.
 - المكتوب: `PORT=1980`؛ `CAID=1010`؛ `CA MODERN=ON`؛ `DCW CHECK=YES`؛ `DCW HALFNULLED=NO`؛ `PROVIDERS=000000`؛ `ACCEPT NULL PROVIDER=YES`؛ `ENABLE SOFTCAM=YES`؛ `DCWFILTER PATTERN=OFF`؛ `ENABLE CACHE=NO`؛ `ENABLE CACHEEX=NO`؛ `DCW TIMEOUT=1000`؛ `SERVER TIMEOUT=800`؛ `CACHE TIMEOUT=250`.
 - الواجهة: `ECM CHECK=NO`؛ `ECM CHECK LENGTH=YES`؛ `DCW TIMEOUT=1000ms`؛ `DCW RETRY=2`؛ `DCW CHECK=YES`؛ `DCW HALFNULLED=NO`؛ `DCW SWAP=NO`؛ `DCW MAXFAILED=3`؛ `SERVER MAX=0`؛ `SERVER INTERVAL=100ms`؛ `SERVER TIMEOUT=800ms`؛ `SERVER VALIDECMTIME=1000ms`؛ `SERVER FIRST=3`؛ `ACCEPT NULL CAID=YES`؛ `ACCEPT NULL PROVIDER=YES`؛ `ACCEPT NULL SID=NO`؛ `ENABLE CCCAM=YES`؛ `ENABLE NEWCAMD=YES`؛ `ENABLE RADEGAST=YES`؛ `ENABLE CAMD35=YES`؛ `ENABLE CS378X=YES`؛ `ENABLE CACHE=NO`؛ `ENABLE CACHEEX=NO`؛ `CACHEEX MAXHOP=4`؛ `RETRY NEWCAMD=0`؛ `RETRY CCCAM=0`؛ `CACHE TIMEOUT=250ms`؛ `CACHE SENDREQ=YES`؛ `CACHE SENDREP=YES`؛ `CACHE STATIC=NO`.
-
