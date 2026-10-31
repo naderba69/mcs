@@ -14,15 +14,18 @@
 import sys, re, collections
 
 DEAD_GLOBAL = {
-    "DEFAULT FILTER", "DEFAULT FILTER TIME", "DEFAULT ECM CHECK",
+    "DEFAULT FILTER", "DEFAULT FILTER TIME", "FILTER", "FILTER TIME", "DEFAULT ECM CHECK",
     "DEFAULT ECM CHECK LENGTH", "DEFAULT DCW VALIDECMTIME",
+    "DEFAULT ENABLE MGCAMD", "DEFAULT ENABLE FREECCCAM",
 }
 DEAD_PROFILE = {
     "DCW VALIDECMTIME",     # no parser branch anywhere (SERVER VALIDECMTIME is the real key)
     "CACHEEX PUSH",         # no parser branch
     "CACHEEX RELAY",        # no parser branch
-    "FILTER", "FILTER TIME",# global keys; a per-profile line silently rewrites the global
-    "ACCEPT NULL ONID",     # global cache flag; same problem
+    "FILTER", "FILTER TIME", # no top-level parser branches
+    "CACHE FILTER", "CACHE FILTER TIME", # global cache fields, even inside a profile
+    "ACCEPT NULL ONID",     # needs profile context but mutates global cache flag
+    "ENABLE CAMD35", "ENABLE CS378X", "ENABLE MGCAMD", # no profile ENABLE branches
 }
 FIXED_CAIDS = {0x2600, 0x2610, 0x1010}
 ICAM = {0x0963, 0x098C, 0x098D, 0x098E, 0x09C4, 0x09CD}
@@ -72,14 +75,19 @@ def main(path):
     for k in DEAD_GLOBAL:
         if k in glob:
             bad("global dead key present: %s (no parser branch)" % k)
-    for k in ("FILTER", "FILTER TIME", "ACCEPT NULL ONID",
-              "CAID FAMILY PROVIDERCHECK", "CAID FAMILY NOPROVCHK"):
+    for k in ("CACHE FILTER", "CACHE FILTER TIME",
+              "CAID FAMILY PROVIDERCHECK", "CAID FAMILY NOPROVCHK",
+              "DEFAULT ENABLE CAMD35", "DEFAULT ENABLE CS378X"):
         if k not in glob:
             bad("global key missing: %s" % k)
+    # The parser skips ACCEPT NULL ONID before any profile, and the cache
+    # checks using the resulting global field are currently commented out.
+    if "ACCEPT NULL ONID" in glob:
+        bad("global ACCEPT NULL ONID is skipped by the parser")
     if glob.get("CAID FAMILY HALFNULLED", [""])[0].replace(" ", "") != "09":
         bad("CAID FAMILY HALFNULLED must be exactly 09 (NDS)")
     if not fails:
-        ok("global section: no dead DEFAULT keys; FILTER/ONID/family policy explicit")
+        ok("global section: no dead DEFAULT keys; CACHE FILTER/family policy explicit; no inert global ONID")
 
     # ---- profiles ----
     if len(profs) != 72:
@@ -92,6 +100,9 @@ def main(path):
                   "DCW HALFNULLED", "CACHE TIMEOUT", "SERVER TIMEOUT"):
             if k not in kv:
                 bad("%s: missing %s" % (name, k))
+        for k, values in kv.items():
+            if len(values) > 1:
+                bad("%s: duplicate key %s" % (name, k))
         for k in DEAD_PROFILE:
             if k in kv:
                 bad("%s: dead/global-only key inside a profile: %s" % (name, k))
@@ -103,6 +114,8 @@ def main(path):
             continue
         if kv.get("PORT"):
             ports[kv["PORT"][0]] += 1
+        if "," in kv["CAID"][0]:
+            bad("%s: parser accepts only one CAID per profile" % name)
         fam = caid >> 8
         fixed = caid in FIXED_CAIDS
         if not fixed:
@@ -162,8 +175,8 @@ def main(path):
         return 1
     print("  [ ok ] " + oks[0])
     print("  [ ok ] " + oks[1])
-    print("  [ ok ] dead keys: none (global or per-profile)")
-    print("  [ ok ] family policy: VideoGuard CSA half+swap, iCam strict, fixed keys local")
+    print("  [ ok ] known dead keys: none (global or per-profile)")
+    print("  [ ok ] configured family policy: 09xx half+swap, iCam no half, fixed keys local")
     print("cfgcheck: %d checks ok" % (len(oks) + 2))
     return 0
 

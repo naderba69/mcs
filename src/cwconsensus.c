@@ -11,7 +11,7 @@
 
 #include "cwconsensus.h"
 
-#define CWC_SLOTS   64   /* power of two */
+#define CWC_SLOTS   CWC_CAPACITY
 #define CWC_MAXV     8   /* distinct voters tracked per key */
 #define CWC_NOUSE    0
 #define CWC_LIVE     1
@@ -22,6 +22,7 @@ struct cw_slot {
 	int      used;
 	int      lost;        /* convicted within this window: refuse always */
 	int      holding;     /* delivered nothing yet (release walk owns it) */
+	int      cycle_set, cycle; /* first held voter's declaration */
 	uint16_t caid, sid, provid;
 	uint32_t hash;
 	uint8_t  tag;
@@ -104,7 +105,7 @@ static struct cw_slot *cwc_best_conflict(uint16_t caid, uint16_t sid,
 
 static struct cw_slot *cwc_alloc(uint16_t caid, uint16_t sid, uint16_t provid,
 			uint32_t hash, uint8_t tag, const uint8_t *cw,
-			uint32_t now)
+			uint32_t now, uint32_t window)
 {
 	int i, start;
 	struct cw_slot *free_slot = NULL, *oldest = NULL;
@@ -114,12 +115,12 @@ static struct cw_slot *cwc_alloc(uint16_t caid, uint16_t sid, uint16_t provid,
 	for (i = 0; i < CWC_SLOTS; i++) {
 		struct cw_slot *s = &cwc_tab[(start + i) & (CWC_SLOTS - 1)];
 		if (s->used != CWC_LIVE) { free_slot = s; break; }
-		if (!oldest || (int32_t)(s->first_tick - oldest->first_tick) < 0) oldest = s;
+		if (!s->holding && !cwc_fresh(now, s->tick, window)
+		    && (!oldest || (int32_t)(s->tick - oldest->tick) < 0)) oldest = s;
 	}
 	if (!free_slot) {
 		/* reclaim the oldest EXPIRED slot; never steal a live hold */
-		if (oldest && !oldest->holding
-		    && !cwc_fresh(now, oldest->first_tick, 60000)) free_slot = oldest;
+		if (oldest) free_slot = oldest;
 	}
 	if (!free_slot) return NULL; /* fail open */
 	memset(free_slot, 0, sizeof(*free_slot));
@@ -152,8 +153,16 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 	if (loser_cw) *loser_cw = NULL;
 	cwc_n_votes++;
 
+	/* A completed decision is only evidence within its idle window. Do not
+	 * resurrect stale voters or sticky losses on an identical later key.
+	 * A held slot belongs to the expiry walker and must never be stolen. */
+	if (idx >= 0 && !cwc_tab[idx].holding &&
+	    !cwc_fresh(now_ms, cwc_tab[idx].tick, window_ms)) {
+		cwc_tab[idx].used = CWC_NOUSE;
+		idx = -1;
+	}
 	if (idx < 0) {
-		s = cwc_alloc(caid, sid, 0, hash, tag, cw, now_ms);
+		s = cwc_alloc(caid, sid, 0, hash, tag, cw, now_ms, window_ms);
 		if (!s) return CWC_DELIVER; /* table exhausted: fail open */
 		idx = (int)(s - cwc_tab);
 	}
@@ -215,6 +224,72 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 	}
 }
 
+int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t hash,
+                            uint8_t tag, const uint8_t *cw, uint32_t now_ms,
+                            uint32_t window_ms, int *distinct, int *weight)
+{
+    int idx, i, count = 0, weighted = 0;
+    if (distinct) *distinct = 0;
+    if (weight) *weight = 0;
+    if (!cw) return 0;
+    idx = cwc_slotof(caid, sid, hash, tag, cw);
+    if (idx < 0) return 0;
+    for (i = 0; i < cwc_tab[idx].nv; ++i) {
+        struct cw_voter *v = &cwc_tab[idx].v[i];
+        if (cwc_fresh(now_ms, v->tick, window_ms)) {
+            ++count;
+            weighted += v->weight;
+        }
+    }
+    if (distinct) *distinct = count;
+    if (weight) *weight = weighted;
+    return 1;
+}
+
+int cwconsensus_is_held(uint16_t caid, uint16_t sid, uint32_t hash,
+                        uint8_t tag, const uint8_t *cw)
+{
+    int idx;
+    if (!cw) return 0;
+    idx = cwc_slotof(caid, sid, hash, tag, cw);
+    return idx >= 0 && cwc_tab[idx].holding && !cwc_tab[idx].lost;
+}
+
+void cwconsensus_capacity(uint32_t now_ms, uint32_t window_ms,
+                          struct cwconsensus_capacity *out)
+{
+    int i;
+    memset(out, 0, sizeof(*out));
+    out->capacity = CWC_SLOTS;
+    for (i = 0; i < CWC_SLOTS; ++i) {
+        struct cw_slot *s = &cwc_tab[i];
+        uint32_t age;
+        if (s->used != CWC_LIVE) continue;
+        ++out->used;
+        if (!s->holding) {
+            if (!cwc_fresh(now_ms, s->tick, window_ms)) ++out->reclaimable;
+            continue;
+        }
+        ++out->held;
+        if (!cwc_fresh(now_ms, s->first_tick, window_ms)) ++out->overdue;
+        age = now_ms - s->first_tick;
+        if ((int32_t)age >= 0 && age > out->oldest_hold_ms) out->oldest_hold_ms = age;
+    }
+}
+
+void cwconsensus_hold_cycle(uint16_t caid, uint16_t sid, uint32_t hash,
+                            uint8_t tag, const uint8_t *cw, int peerid, int cycle)
+{
+    int idx = cwc_slotof(caid, sid, hash, tag, cw);
+    struct cw_slot *s;
+    if (idx < 0) return;
+    s = &cwc_tab[idx];
+    if (s->holding && !s->cycle_set && s->nv && s->v[0].peerid == peerid) {
+        s->cycle = cycle;
+        s->cycle_set = 1;
+    }
+}
+
 int cwconsensus_expired(struct cwconsensus_hold *out, uint32_t now_ms,
 			uint32_t window_ms)
 {
@@ -227,6 +302,7 @@ int cwconsensus_expired(struct cwconsensus_hold *out, uint32_t now_ms,
 		out->hash = s->hash; out->tag = s->tag;
 		memcpy(out->cw, s->cw, 16);
 		out->peerid = s->nv ? s->v[0].peerid : 0;
+		out->cycle = s->cycle_set ? s->cycle : 0;
 		s->used = CWC_NOUSE; /* consumed: no double release */
 		cwc_n_releases++;
 		return 1;

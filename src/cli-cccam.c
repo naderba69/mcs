@@ -221,6 +221,24 @@ void cc_srv_recvmsg(struct server_data *srv)
 						break;
 					}
 #endif
+					/* A positive CCcam reply needs a 16-byte CW. A shorter
+					 * frame cannot complete the additional crypto step, so
+					 * drop the connection rather than reading uninitialised
+					 * bytes or trying to continue with a desynchronised cipher. */
+					if (len < 20) {
+						pthread_mutex_lock(&prg.lockecm);
+						ecm = srv->ecm.request;
+						if (ecm && ecm->hash == srv->ecm.hash &&
+						    user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance))
+							user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, TYPE_CCCAM, srv->id,
+							    GetTickCount()-ecm->recvtime,
+							    "CCcam malformed CW response: fewer than 16 bytes; source disconnected");
+						debugf(getdbgflag(DBG_SERVER,0,srv->id), " [!] short CCcam CW response; disconnecting source\n");
+						disconnect_srv(srv);
+						pthread_mutex_unlock(&prg.lockecm);
+						wakeup_sendecm();
+						break;
+					}
 					uint8_t dcw[16];
 					cc_crypt_cw( cfg.cccam.nodeid, srv->busycardid, &buf[4]);
 					memcpy(dcw, &buf[4], 16);
@@ -250,16 +268,45 @@ void cc_srv_recvmsg(struct server_data *srv)
 
 				cs = ecm->cs;
 				card = cc_getcardbyid( srv, srv->busycardid );
+				/* No message id exists here: only attribute replies to the
+				 * ECM lifetime observed when the request was sent. */
+				if (len >= 20 && user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance)) {
+					char detail[128];
+					const char *shape = ishalfnulledcw(dcw) ? "zero half present" : "shape not classified";
+					if (srv->lastecmtime)
+						snprintf(detail, sizeof(detail), "CCcam CW response; %s; source response %u ms", shape,
+						         (unsigned)(GetTickCount()-srv->lastecmtime));
+					else snprintf(detail, sizeof(detail), "CCcam CW response; %s; source time unavailable", shape);
+					user_trace_shared_cw(ecm->trace_instance, TYPE_CCCAM, srv->id,
+					                     GetTickCount()-ecm->recvtime, detail, dcw);
+				}
 				/* EXTERNAL RESEARCH: ECM whitelist check */
 				if (ecm->ecmlen > 2 && !ecm_is_whitelisted(ecm)) {
 					debugf(getdbgflagpro(DBG_SERVER, 0, srv->id, cs->id), " [PROVIDER CONFIG] %04X:%06X - ECM length %d not whitelisted, rejecting\n", ecm->caid, ecm->provid, ecm->ecm[1]);
 					srv->ecmerrdcw++;
+					if (user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance))
+						user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, TYPE_CCCAM, srv->id,
+						                        GetTickCount()-ecm->recvtime, "CCcam response rejected: ECM length not whitelisted");
 					ecm_setsrvflag(srv->ecm.request, srv->id, ECM_SRV_REPLY_FAIL);
 					pthread_mutex_unlock(&prg.lockecm);
 					break;
 				}
 				// Check for DCW
-				if (!acceptDCW_profile_ca(dcw, cs, ecm->caid)) {
+				/* Match Newcamd and the ECM worker: profile SID policy must
+				 * be evaluated against the actual request, not SID zero. */
+				int cc_reason = DCW_VALID;
+				if (!acceptDCW_profile_ca_sid_reason(dcw, cs, ecm->caid, ecm->sid, &cc_reason)) {
+						const char *why = "CCcam CW rejected by initial validation; reason unknown";
+						switch (cc_reason) {
+						case DCW_INVALID_CHECKSUM: why = "CCcam CW rejected: checksum validation failed"; break;
+						case DCW_INVALID_NULL: why = "CCcam CW rejected: null-word validation failed"; break;
+						case DCW_INVALID_REPEAT: why = "CCcam CW rejected: repeated-byte validation failed"; break;
+						case DCW_INVALID_BADLIST: why = "CCcam CW rejected: operator BAD-DCW list"; break;
+						case DCW_INVALID_PATTERN: why = "CCcam CW rejected: enabled pattern validation"; break;
+						}
+						if (len >= 20 && user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance))
+							user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, TYPE_CCCAM, srv->id,
+							                        GetTickCount()-ecm->recvtime, why);
 						srv->ecmerrdcw ++;
 #ifdef SID_FILTER
 						if (cs && card) {
@@ -273,6 +320,9 @@ void cc_srv_recvmsg(struct server_data *srv)
 					}
 //					else {
 
+					if (len >= 20 && user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance))
+						user_trace_shared_event(ecm->trace_instance, USER_TRACE_VALIDATED, TYPE_CCCAM, srv->id,
+						                        GetTickCount()-ecm->recvtime, "CCcam CW passed initial validation; further gates remain");
 					srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
 					srv->ecmoktime += srv->lastecmoktime;
 					srv->ecmok++;
@@ -374,6 +424,16 @@ void cc_srv_recvmsg(struct server_data *srv)
 						break;
 					}
 
+			if (user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance)) {
+				char detail[128];
+				const char *kind = buf[1] == CC_MSG_ECM_NOK1 ? "NOK1" : "NOK2";
+				if (srv->lastecmtime)
+					snprintf(detail, sizeof(detail), "CCcam %s response; retry may follow; source response %u ms", kind,
+					         (unsigned)(GetTickCount()-srv->lastecmtime));
+				else snprintf(detail, sizeof(detail), "CCcam %s response; retry may follow; source time unavailable", kind);
+				user_trace_shared_event(ecm->trace_instance, USER_TRACE_SOURCE_REPLY, TYPE_CCCAM, srv->id,
+				                        GetTickCount()-ecm->recvtime, detail);
+			}
 			debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 			/* Black screen prevention: track CW failure */
 			dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
@@ -425,6 +485,9 @@ void cc_srv_recvmsg(struct server_data *srv)
 								srv->lastecmtime = GetTickCount();
 								srv->busy = 1;
 								srv->retry++;
+								if (user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance))
+									user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, TYPE_CCCAM, srv->id,
+									                        GetTickCount()-ecm->recvtime, "CCcam retry send reported success");
 								debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " (RE%d) -> ecm to CCcam server (%s:%d) ch %04x:%06x:%04x\n",srv->retry,srv->host->name,srv->port,ecm->caid,ecm->provid,ecm->sid);
 								pthread_mutex_unlock(&prg.lockecm); //###
 								break;

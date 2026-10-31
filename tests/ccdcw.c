@@ -113,6 +113,21 @@ static void cc_encrypt(struct cc_crypt_block *b, uint8_t *data, int len)
 	}
 }
 
+/* Reverse the CW obfuscation before advancing the additional stream step.
+ * This fixture requests card ID zero; keep the general transform explicit. */
+static void cc_crypt_cw_fixture(const uint8_t nodeid[8], uint32_t card_id, uint8_t cw[16])
+{
+    int i; uint8_t nod[8];
+    for (i = 0; i < 8; i++) nod[i] = nodeid[7-i];
+    for (i = 0; i < 16; i++) {
+        int n = (i & 1) ? ((i == 15) ? nod[i>>1] >> 4 :
+                    (nod[i>>1] >> 4) | (nod[(i>>1)+1] << 4)) : nod[i>>1];
+        uint8_t v = cw[i] ^ (n & 0xff);
+        if (i & 1) v = (uint8_t)~v;
+        cw[i] = (uint8_t)((card_id >> (2*i)) ^ v);
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* Wire constants from src/msg-cccam.h                                 */
 #define CC_MSG_ECM_REQUEST  0x01
@@ -197,6 +212,8 @@ static void ecm_build(uint16_t sid, uint8_t tag, int seed, uint8_t *ecm)
 	 * so a test can ask a genuinely new ECM (new identity hash) of
 	 * the same channel instead of re-asking the delivered one. */
 	for (i = 3; i < 64; i++) ecm[i] = (uint8_t)(i * 7 + 1 + (sid & 0xFF) + (tag & 0x0F) + seed * 0x40);
+	/* Preserve uniqueness beyond four seeds despite byte wraparound. */
+	ecm[3] ^= (uint8_t)((unsigned)seed >> 2);
 }
 
 static int tcp_connect(const char *host, int port)
@@ -280,6 +297,14 @@ int main(int argc, char **argv)
 	if (cc_msg_send(fd, &sendblock, CC_MSG_CLI_INFO, 64, buf) < 0) goto connfail;
 
 	for (ecmno = 7; ecmno < argc; ecmno++) {
+		/* Optional delay for isolated CW-age regressions. */
+		if (ecmno > 7 && getenv("CCDCW_BETWEEN_MS")) {
+			unsigned long ms = strtoul(getenv("CCDCW_BETWEEN_MS"), NULL, 10);
+			if (ms <= 30000) usleep((useconds_t)ms * 1000);
+		}
+		/* Isolated multi-channel trace fixture: keep one CCcam connection. */
+		if (ecmno > 7 && getenv("CCDCW_NEXT_SID"))
+			sid = (uint16_t)strtoul(getenv("CCDCW_NEXT_SID"), NULL, 16);
 		/* "0x80" or "0x80:2" -- the suffix is the body seed (R43). */
 		char *pend = NULL;
 		int seed = 0;
@@ -291,7 +316,15 @@ int main(int argc, char **argv)
 		memset(payload, 0, sizeof(payload));
 		payload[0] = caid >> 8;
 		payload[1] = caid & 0xff;
-		/* provid (4) = 0, cardid (4) = 0x0000 (profile by caid:prov) */
+		/* Default provider remains zero; tests can supply a 24-bit provider.
+		 * cardid remains zero (profile lookup by caid:provider). */
+		if (getenv("CCDCW_PROVID")) {
+			unsigned long provid = strtoul(getenv("CCDCW_PROVID"), NULL, 16);
+			if (provid > 0xffffffUL) { fprintf(stderr, "invalid CCDCW_PROVID\n"); return 2; }
+			payload[3] = provid >> 16;
+			payload[4] = provid >> 8;
+			payload[5] = provid;
+		}
 		payload[10] = sid >> 8;
 		payload[11] = sid & 0xff;
 		memcpy(payload + 13, ecm, 64);
@@ -306,7 +339,16 @@ int main(int argc, char **argv)
 				 * send; cli-cccam.c mirrors it with cc_decrypt). Consume
 				 * those 16 keystream bytes or every later frame is read
 				 * one message behind. */
+				uint8_t delivered[16];
+				cc_crypt_cw_fixture(nodeid, 0, buf + 4);
+				memcpy(delivered, buf + 4, sizeof(delivered));
 				cc_decrypt(&recvblock, buf + 4, r - 4);
+				if (getenv("CCDCW_PRINT_CW")) {
+					int j;
+					printf("ccdcw: ECM%d CW=", ecmno - 6);
+					for (j=0; j<16; j++) printf("%02X", delivered[j]);
+					printf("\n");
+				}
 				got_dcw = 1; break;
 			}
 			if (r >= 2 && (buf[1] == CC_MSG_ECM_NOK1 || buf[1] == CC_MSG_ECM_NOK2)) { got_nok = 1; break; }

@@ -7782,12 +7782,162 @@ static const char *trace_type_name(enum user_trace_event_type type)
     case USER_TRACE_JOINED: return "انضم إلى ECM موجود";
     case USER_TRACE_NEW: return "ECM جديد";
     case USER_TRACE_SENT: return "إرسال لمصدر";
+    case USER_TRACE_SOURCE_REPLY: return "رد المصدر";
+    case USER_TRACE_VALIDATED: return "اجتاز مرحلة تحقق";
+    case USER_TRACE_CACHE: return "حركة كاش";
+    case USER_TRACE_DISPATCH_SKIPPED: return "تجاوز إرسال جماعي";
     case USER_TRACE_REJECTED: return "رفض استجابة";
     case USER_TRACE_FAILED: return "فشل";
     case USER_TRACE_DELIVERED: return "أرسلت استجابة CW";
     case USER_TRACE_SEND_FAILED: return "تعذر إرسال الاستجابة";
     default: return "حدث غير معروف";
     }
+}
+static const char *trace_detail_ar(const char *detail)
+{
+    if (!strncmp(detail, "CW rejected by ECM worker profile validation:", 45)) return "رفض عامل ECM CW في فحص البروفايل؛ أول سبب في التفاصيل";
+    if (!strcmp(detail, "CW rejected by ECM worker: all bytes zero")) return "رفض عامل ECM CW كاملة صفرية";
+    if (!strcmp(detail, "CW rejected by ECM worker: profile unavailable")) return "تعذر فحص CW: لا يوجد بروفايل مرتبط بنسخة ECM";
+    if (!strcmp(detail, "CW rejected by ECM worker: both halves zero")) return "رفض عامل ECM نصفين صفريين";
+    if (!strcmp(detail, "CW rejected by ECM worker: cache cycle marker mismatch")) return "رفض عامل ECM علامة دورة الكاش لمخالفتها المتوقع";
+    if (!strncmp(detail, "CW rejected by ECM worker: DCW STRICT;", 38)) return "رفض عامل ECM CW عبر DCW STRICT؛ السبب في التفاصيل";
+    if (!strncmp(detail, "CW rejected by ECM worker: SuperSmartFilter", 43)) return "رفض عامل ECM CW عبر SuperSmartFilter؛ رمز السبب في التفاصيل";
+    if (!strcmp(detail, "CW rejected by DCW CHECK: zero half with previous decode")) return "رفض DCW CHECK نصف CW الصفري بعد وجود فك سابق";
+    if (!strcmp(detail, "CW rejected by DCW CHECK: inconsistent with recorded cycle")) return "رفض DCW CHECK CW لعدم توافقها مع الدورة المسجلة؛ لا يثبت ذلك خطأ المصدر";
+    if (!strcmp(detail, "CW not applied: ECM already succeeded")) return "لم تُطبق CW: كان ECM قد نجح مسبقًا";
+    if (!strcmp(detail, "cache CW not applied: ECM already failed")) return "لم تُطبق CW من الكاش: كان ECM قد فشل مسبقًا";
+    if (!strcmp(detail, "cache rejected: CacheEX BLOCK_FAKE_CW gate")) return "رفض الكاش CW عند بوابة CacheEX BLOCK_FAKE_CW";
+    if (!strcmp(detail, "cache rejected: cache entry unavailable")) return "رفض الكاش الرد لتعذر إنشاء أو إيجاد سجل الكاش";
+    if (!strcmp(detail, "cache rejected: CW record allocation failed")) return "رفض الكاش الرد لتعذر تخصيص سجل CW";
+    if (!strcmp(detail, "cache rejected: existing CW record marked error; original cause unknown")) return "رفض الكاش الرد لأن سجل CW موسوم بخطأ؛ السبب الأصلي غير معروف";
+    if (!strcmp(detail, "CW rejected by cache repeat check: matching cached CW or cache table unavailable")) return "رفض فحص الكاش CW: تطابق محتمل مع CW محفوظة أو تعذر تخصيص جدول الكاش؛ السبب المحدد غير معروف";
+    if (!strncmp(detail, "CW rejected by DCW MINTIME;", 27)) return "رُفضت CW بحد DCW MINTIME عند المعالجة؛ المدة منذ الإرسال والحد في التفاصيل";
+    if (!strcmp(detail, "CW rejected: zero half not allowed for CAID family")) return "رُفضت CW: عائلة CAID لا تسمح بنصف صفري";
+    if (!strcmp(detail, "CW committed; client dispatch skipped after DCW timeout")) return "ثُبّت نجاح CW لكن استدعاء إرسال العملاء الجماعي تُجاوز بعد مهلة DCW";
+    if (!strncmp(detail, "CCcam CW response;", 18)) return "وصل رد CW من مصدر CCcam؛ لم تُحسم صلاحيته بعد";
+    if (!strncmp(detail, "CCcam NOK1 response;", 20)) return "رد مصدر CCcam بـNOK1؛ قد تُعاد المحاولة";
+    if (!strncmp(detail, "CCcam NOK2 response;", 20)) return "رد مصدر CCcam بـNOK2؛ قد تُعاد المحاولة";
+    if (!strcmp(detail, "CCcam CW passed initial validation; further gates remain")) return "اجتازت CW تحقق CCcam الأولي؛ لا تزال فحوص أخرى";
+    if (!strcmp(detail, "CCcam malformed CW response: fewer than 16 bytes; source disconnected")) return "رُفض رد CCcam قصير وأُغلق اتصال المصدر";
+    if (!strcmp(detail, "CCcam CW rejected: checksum validation failed")) return "رُفضت CW من CCcam: فشل تحقق checksum";
+    if (!strcmp(detail, "CCcam CW rejected: null-word validation failed")) return "رُفضت CW من CCcam: لم تجتز قاعدة الأجزاء الصفرية";
+    if (!strcmp(detail, "CCcam CW rejected: repeated-byte validation failed")) return "رُفضت CW من CCcam: لم تجتز قاعدة البايتات المتكررة";
+    if (!strcmp(detail, "CCcam CW rejected: operator BAD-DCW list")) return "رُفضت CW من CCcam: موجودة في قائمة BAD-DCW";
+    if (!strcmp(detail, "CCcam CW rejected: enabled pattern validation")) return "رُفضت CW من CCcam: لم تجتز فلتر النمط";
+    if (!strcmp(detail, "CCcam response rejected: ECM length not whitelisted")) return "رُفض رد CCcam: طول ECM غير موجود في القائمة المسموحة";
+    if (!strcmp(detail, "CCcam retry send reported success")) return "أفادت دالة الإرسال بنجاح إعادة الطلب إلى CCcam";
+    if (!strcmp(detail, "Newcamd CW rejected: checksum validation failed")) return "رُفضت: فشل تحقق checksum";
+    if (!strcmp(detail, "Newcamd CW rejected: null-word validation failed")) return "رُفضت: لم تجتز قاعدة أجزاء CW الصفرية";
+    if (!strcmp(detail, "Newcamd CW rejected: repeated-byte validation failed")) return "رُفضت: لم تجتز قاعدة البايتات المتكررة";
+    if (!strcmp(detail, "Newcamd CW rejected: operator BAD-DCW list")) return "رُفضت: موجودة في قائمة BAD-DCW";
+    if (!strcmp(detail, "Newcamd CW rejected: enabled pattern validation")) return "رُفضت: لم تجتز فلتر النمط المفعّل";
+    if (!strcmp(detail, "Newcamd CW passed initial validation; further gates remain")) return "اجتازت التحقق الأولي؛ لا تزال فحوص أخرى لاحقة";
+    if (!strncmp(detail, "CSP reply dropped: incomplete integrity header", 46)) return "أُسقط رد CSP قبل التحقق: ترويسة السلامة ناقصة";
+    if (!strncmp(detail, "CSP reply dropped: incomplete CW payload", 40)) return "أُسقط رد CSP: لا يحتوي CW كاملة";
+    if (!strncmp(detail, "CSP reply dropped: unknown sender", 33)) return "أُسقط رد CSP من عنوان غير معروف";
+    if (!strncmp(detail, "CSP reply dropped: configured peer disabled", 42)) return "أُسقط رد CSP لأن النظير معطّل";
+    if (!strncmp(detail, "CSP reply dropped: peer reputation isolation", 44)) return "أُسقط رد CSP لعزل النظير في السمعة";
+    if (!strncmp(detail, "CSP reply dropped: integrity tag mismatch", 41)) return "أُسقط رد CSP لاختلاف بايت سلامة الترويسة";
+    if (!strncmp(detail, "CSP reply dropped: invalid ECM tag", 34)) return "أُسقط رد CSP: نوع ECM غير صالح";
+    if (!strncmp(detail, "CSP reply dropped: missing channel or hash", 42)) return "أُسقط رد CSP: قناة أو بصمة ناقصة";
+    if (!strncmp(detail, "CSP reply dropped: CAID not allowed by cache", 44)) return "أُسقط رد CSP: CAID غير مسموح في الكاش";
+    if (!strncmp(detail, "CSP reply dropped: oversized datagram", 37)) return "أُسقط رد CSP لتجاوز حجم الرسالة المسموح";
+    if (!strcmp(detail, "cache rejected: negative memory gate")) return "الكاش رفض CW بسبب الذاكرة السلبية";
+    if (!strcmp(detail, "cache rejected: attestation gate")) return "الكاش رفض CW بسبب بوابة attestation";
+    if (!strcmp(detail, "cache held: threshold not reached")) return "الكاش ينتظر بلوغ حد التأكيدات";
+    if (!strcmp(detail, "cache held: CacheEX confirmation threshold")) return "CacheEX ينتظر تأكيدات إضافية";
+    if (!strcmp(detail, "cache rejected: half-null not allowed for CAID family")) return "الكاش رفض نصف CW الصفري لعائلة CAID";
+    if (!strncmp(detail, "cache wait policy: initial schedule=", 36)) return "وقت الجدولة الأولي من البروفايل؛ قد يُعاد تحديده أو ينتهي مبكراً";
+    if (!strncmp(detail, "cache wait policy: ECM thread timeout=", 38)) return "مهلة CAID التي استعملها خيط ECM عند هذه المعالجة؛ ليست مدة انتظار مؤكدة";
+    if (!strcmp(detail, "cache CW entered validation; decision pending")) return "وصلت CW لمسار التحقق في الكاش؛ القرار لم يصدر";
+    if (!strcmp(detail, "cache consensus window expired; cycle checks pending")) return "انتهت نافذة consensus؛ لم يحسم فحص الدورة بعد";
+    if (!strncmp(detail, "cache consensus capacity:", 25)) return "سعة جدول Consensus العامة عند عدم توفر خانة؛ لا تنسب الخانات للعميل";
+    if (!strncmp(detail, "cache cycle context:", 20)) return "سياق فلتر الدورة: الوارد والمتوقع وتوفر CW سابقة";
+    if (!strncmp(detail, "cache cycle mismatch:", 21)) return "لم تُمرر CW لاختلاف الدورة المتوقعة عن الدورة التي قيّمها الكاش";
+    if (!strcmp(detail, "cache CW validation policy: attached ECM profile")) return "طبق فحص CW إعدادات بروفايل ECM المرتبط بسجل الكاش؛ لا يثبت ارتباطه بمحاولة العميل";
+    if (!strcmp(detail, "cache CW validation policy: global; no attached ECM profile")) return "طبق فحص CW القواعد العامة لعدم وجود بروفايل ECM مرتبط بسجل الكاش";
+    if (!strncmp(detail, "cache consensus vote:", 21)) return "قرار consensus وعدد معرفات النظراء وأوزانها؛ تعددها لا يثبت استقلال المصادر";
+    if (!strcmp(detail, "cache find deferred: cycle not established")) return "تأجل جلب CW المخزنة: فلتر الكاش لم يثبت الدورة";
+    if (!strcmp(detail, "cache find deferred: threshold not reached")) return "تأجل جلب CW المخزنة: لم تبلغ حد الوصولات";
+    if (!strcmp(detail, "cache find deferred: candidate held by consensus")) return "تأجل جلب CW المخزنة: ما زالت محتجزة في consensus";
+    if (!strcmp(detail, "cache held: consensus awaiting corroboration")) return "الكاش احتجز CW انتظاراً لتأكيد consensus";
+    if (!strcmp(detail, "cache rejected: consensus decision; weighted loss not established for this arrival")) return "رفض Consensus الرد؛ لم يُثبت فقدان الوزن لهذا الرد، فلا يعاقَب النظير بسبب هذا القرار";
+    if (!strcmp(detail, "cache rejected: consensus weighted decision")) return "الكاش رفض CW بقرار consensus";
+    if (!strcmp(detail, "cache not forwarded: filter did not establish cycle")) return "الفلتر لم يثبت دورة CW فلم يمررها في هذا المسار";
+    if (!strcmp(detail, "cache forwarded CW to ECM pipe; delivery not confirmed")) return "حاول الكاش تمرير CW إلى مسار ECM؛ لا يثبت تسليمها";
+    if (!strcmp(detail, "cache-origin reply not rebroadcast: disabled or candidate unavailable")) return "لم تُعَد إذاعة CW القادمة من الكاش: الترحيل معطل أو المرشح غير متاح؛ السبب المحدد غير معروف؛ الحدث للقناة فقط";
+    if (!strcmp(detail, "cache peer reply deferred: candidate not approved, held or below threshold")) return "لم يرسل الكاش CW للنظير: المرشح غير مجتاز أو محتجز أو دون الحد؛ السبب المحدد غير معروف؛ الحدث للقناة فقط";
+    if (!strcmp(detail, "cache relay deferred: target confirmation not established")) return "تأجل الترحيل الاستدلالي: تأكيد سجل الوجهة غير مثبت؛ الحدث للقناة فقط ولا يثبت نتيجة طلب العميل";
+    if (!strcmp(detail, "cache provider collision: different local provider; conflicting operation skipped")) return "تعارض قيم provider المحلية في سجل كاش: تُركت العملية المتعارضة؛ الحدث للقناة فقط ولا يثبت هوية الطلب أو provider";
+    if (!strcmp(detail, "cache lookup: no existing entry; peer response may still arrive")) return "لم يوجد سجل كاش عند البحث؛ قد يصل رد النظير لاحقاً";
+    if (!strcmp(detail, "cache rejected: profile CW checksum validation failed")) return "رفض الكاش CW: فشل تحقق checksum";
+    if (!strcmp(detail, "cache rejected: profile CW null-word validation failed")) return "رفض الكاش CW: لم تجتز قاعدة الأجزاء الصفرية";
+    if (!strcmp(detail, "cache rejected: profile CW repeated-byte validation failed")) return "رفض الكاش CW: لم تجتز قاعدة البايتات المتكررة";
+    if (!strcmp(detail, "cache rejected: profile CW operator BAD-DCW list")) return "رفض الكاش CW: موجودة في قائمة BAD-DCW";
+    if (!strcmp(detail, "cache rejected: profile CW enabled pattern validation")) return "رفض الكاش CW: لم تجتز فلتر النمط المفعّل";
+    if (!strcmp(detail, "cache rejected: profile CW validation; specific check unknown")) return "رفض الكاش CW في فحص البروفايل؛ الفحص المحدد غير معروف";
+    if (!strcmp(detail, "cache rejected: CacheEX local-only gate")) return "رفض الكاش CW بسبب CacheEX local-only";
+    if (!strcmp(detail, "cache lookup invoked; pipe delivery and result not confirmed")) return "طُلب بحث الكاش؛ وصول الطلب والنتيجة غير مؤكدين";
+    if (!strcmp(detail, "cache peer request invoked; pipe delivery not confirmed")) return "طُلب إرسال بحث إلى نظراء الكاش؛ وصول الطلب غير مؤكد";
+    if (!strcmp(detail, "cache peer retry invoked; pipe delivery not confirmed")) return "طُلبت إعادة البحث لدى نظراء الكاش؛ وصول الطلب غير مؤكد";
+    if (!strcmp(detail, "Newcamd retry send reported success")) return "أفادت دالة الإرسال بنجاح إعادة الطلب إلى Newcamd";
+    return "";
+}
+/* Render only evidence bound to the selected attempt. A channel-only cache
+ * event must never be inferred to have caused an individual client's result. */
+static void trace_summary_evidence(struct tcp_buffer_data *tcpbuf, int sock,
+                                   const char *label, const struct user_trace_event *e)
+{
+    char out[1400], safe[768];
+    const char *ar = trace_detail_ar(e->detail);
+    html_esc(safe, sizeof(safe), e->detail);
+    snprintf(out, sizeof(out), "<li>%s: %s%s%s؛ مصدر %d / %d؛ المدة المسجلة %u ms</li>",
+             label, ar, *ar ? " — " : "", safe, e->source_type, e->source_id, e->elapsed_ms);
+    tcp_writestr(tcpbuf, sock, out);
+}
+static void trace_summary_write(struct tcp_buffer_data *tcpbuf, int sock,
+                                const struct user_trace_snapshot *snap)
+{
+    struct user_trace_summary sum;
+    char out[1024];
+    user_trace_summarize(snap, &sum);
+    tcp_writestr(tcpbuf, sock, "<h2>خلاصة آخر محاولة مسجلة</h2>");
+    if (sum.incomplete)
+        tcp_writestr(tcpbuf, sock, "<p><b>التغطية ناقصة:</b> فقدت أو استبدلت أحداث أو روابط في الجلسة؛ قد تكون أدلة هذه المحاولة ناقصة.</p>");
+    if (sum.received < 0) {
+        tcp_writestr(tcpbuf, sock, "<p>لا يوجد طلب مستلم محفوظ في الجلسة؛ النتيجة والسبب غير معروفين.</p>");
+        return;
+    }
+    {
+        const struct user_trace_event *e = &snap->events[sum.received];
+        snprintf(out, sizeof(out), "<p>المحاولة %llu — <code>%04X:%06X:%04X</code>. لا يفترض تطابق البصمة هوية الطلب.</p><ul>",
+                 (unsigned long long)sum.attempt, e->caid, e->provider, e->sid);
+        tcp_writestr(tcpbuf, sock, out);
+    }
+    if (sum.client_result >= 0) {
+        const struct user_trace_event *e = &snap->events[sum.client_result];
+        if (e->type == USER_TRACE_DELIVERED)
+            tcp_writestr(tcpbuf, sock, "<li><b>نتيجة العميل:</b> سجل النظام إرسال CW؛ لا يثبت ظهور الصورة.</li>");
+        else if (e->type == USER_TRACE_SEND_FAILED)
+            tcp_writestr(tcpbuf, sock, "<li><b>نتيجة العميل:</b> سجل النظام تعذر إرسال الاستجابة.</li>");
+        else if (e->type == USER_TRACE_DENIED)
+            tcp_writestr(tcpbuf, sock, "<li><b>نتيجة العميل:</b> سجل النظام رفض الطلب.</li>");
+        else tcp_writestr(tcpbuf, sock, "<li><b>نتيجة العميل:</b> سجل النظام فشل الطلب.</li>");
+        trace_summary_evidence(tcpbuf, sock, "دليل نتيجة العميل", e);
+    } else tcp_writestr(tcpbuf, sock, "<li><b>نتيجة العميل:</b> غير معروفة من الأحداث المحتفظ بها؛ غياب الحدث ليس دليل عدم الإرسال.</li>");
+    if (sum.last_ecm_failure >= 0)
+        trace_summary_evidence(tcpbuf, sock, "حدث فشل ECM مشترك", &snap->events[sum.last_ecm_failure]);
+    if (sum.last_source_reply >= 0)
+        trace_summary_evidence(tcpbuf, sock, "آخر رد مصدر مسجل", &snap->events[sum.last_source_reply]);
+    else tcp_writestr(tcpbuf, sock, "<li>رد المصدر: لم يُسجَّل في الأحداث المحتفظ بها؛ لا يعني أنه لم يصل.</li>");
+    if (sum.last_source_rejection >= 0)
+        trace_summary_evidence(tcpbuf, sock, "رفض مسجل خلال المحاولة (ليس بالضرورة سبب النتيجة النهائية)", &snap->events[sum.last_source_rejection]);
+    if (sum.last_cache_policy >= 0)
+        trace_summary_evidence(tcpbuf, sock, "سياسة انتظار الكاش عند البحث", &snap->events[sum.last_cache_policy]);
+    if (sum.last_cache_lookup >= 0)
+        trace_summary_evidence(tcpbuf, sock, "طلب بحث الكاش", &snap->events[sum.last_cache_lookup]);
+    else tcp_writestr(tcpbuf, sock, "<li>بحث الكاش: غير معروف لهذه المحاولة من الأحداث المحتفظ بها.</li>");
+    tcp_writestr(tcpbuf, sock, "</ul><p>أحداث الكاش المصنفة «قناة فقط» لا تثبت أنها تخص هذه المحاولة؛ لذلك لا تُنسب إليها كسبب. القيم المسجلة لقطة عند البحث؛ قد تنتهي المهلة قبل وقتها بسبب مسارات أخرى.</p>");
 }
 static void http_send_user_trace(int sock, http_request *req)
 {
@@ -7831,16 +7981,19 @@ static void http_send_user_trace(int sock, http_request *req)
                     if (!strcmp(action, "stop")) {
                         user_trace_get_snapshot(snap); user_trace_stop(snap->session); ok = 1;
                     } else if (!strcmp(action, "start")) {
-                        unsigned long client, caid, prov, sid;
-                        if (trace_parse_number(trace_post_value(req, "client"), 10, 0xffffffffUL, &client) && client &&
-                            trace_parse_number(trace_post_value(req, "caid"), 16, 0xffff, &caid) && caid &&
-                            trace_parse_number(trace_post_value(req, "provid"), 16, 0xffffff, &prov) &&
-                            trace_parse_number(trace_post_value(req, "sid"), 16, 0xffff, &sid) && sid &&
-                            client) {
-                            struct user_trace_target t;
+                        unsigned long client, caid = 0, prov = 0, sid = 0;
+                        char *mode = trace_post_value(req, "mode");
+                        int all = mode && !strcmp(mode, "all");
+                        if ((!mode || !strcmp(mode, "single") || all) &&
+                            trace_parse_number(trace_post_value(req, "client"), 10, 0xffffffffUL, &client) && client &&
+                            (all || (trace_parse_number(trace_post_value(req, "caid"), 16, 0xffff, &caid) && caid &&
+                                     trace_parse_number(trace_post_value(req, "provid"), 16, 0xffffff, &prov) &&
+                                     trace_parse_number(trace_post_value(req, "sid"), 16, 0xffff, &sid) && sid))) {
+                            struct user_trace_target t = {0};
                             user_trace_config_lock();
                             if (getcccamclientbyid((uint32_t)client)) {
                                 t.client_id = client; t.caid = caid; t.provider = prov; t.sid = sid;
+                                t.all_channels = all;
                                 ok = user_trace_start(&t) != 0;
                             }
                             user_trace_config_unlock();
@@ -7858,7 +8011,7 @@ static void http_send_user_trace(int sock, http_request *req)
     tcp_writestr(&tcpbuf, sock, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\n");
     if (req->setcookie[0]) { tcp_writestr(&tcpbuf, sock, "Set-Cookie: "); tcp_writestr(&tcpbuf, sock, req->setcookie); tcp_writestr(&tcpbuf, sock, "\r\n"); }
     tcp_writestr(&tcpbuf, sock, "\r\n");
-    tcp_writestr(&tcpbuf, sock, "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><title>متابعة عميل</title><style>body{background:#151b22;color:#ddd;font:16px sans-serif;margin:2em}input,select,button{padding:.5em;margin:.3em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #555;padding:.5em;text-align:right}code{direction:ltr;display:inline-block}</style></head><body><h1>متابعة CCcam</h1><p>جلسة واحدة مشتركة للمشرفين؛ البدء يستبدل الجلسة السابقة، وإعادة تحميل الإعدادات توقفها. تبدأ المتابعة للطلبات الجديدة فقط. اختيار العميل يملأ آخر قناة مسجلة إن توفرت، وقد لا تكون القناة الحالية؛ يمكن تعديلها يدوياً. بعض أسباب الرفض غير مسجلة في هذه النسخة. الأحداث المشتركة تخص ECM وقد يشارك فيه عملاء آخرون؛ إرسال CW لا يثبت ظهور الصورة.</p>");
+    tcp_writestr(&tcpbuf, sock, "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><title>متابعة عميل</title><style>body{background:#151b22;color:#ddd;font:16px sans-serif;margin:2em}input,select,button{padding:.5em;margin:.3em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #555;padding:.5em;text-align:right}code{direction:ltr;display:inline-block}</style></head><body><h1>متابعة CCcam</h1><p>جلسة واحدة مشتركة للمشرفين؛ البدء يستبدل الجلسة السابقة، وإعادة تحميل الإعدادات توقفها. تبدأ المتابعة للطلبات الجديدة فقط. اختيار العميل يملأ آخر قناة مسجلة إن توفرت، وقد لا تكون القناة الحالية؛ يمكن تعديلها يدوياً. بعض أسباب الرفض غير مسجلة في هذه النسخة. أحداث الكاش على مستوى القناة فقط، وقد تخص طلبات عملاء آخرين؛ تطابق CAID وSID لا يثبت تطابق الطلب أو Provider، و000000 قد تعني أن المصدر لم يرسله. الأحداث المشتركة تخص ECM وقد يشارك فيه عملاء آخرون؛ إرسال CW لا يثبت ظهور الصورة.</p>");
     snprintf(out, sizeof(out), "<form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='start'><label>العميل <select name='client' required onchange='traceChoose(this)'><option value='' disabled%s>اختر عميلاً</option>", trace_csrf, snap->active ? "" : " selected");
     tcp_writestr(&tcpbuf, sock, out);
     {
@@ -7903,20 +8056,33 @@ static void http_send_user_trace(int sock, http_request *req)
         if (truncated) tcp_writestr(&tcpbuf, sock, "<option disabled>القائمة محدودة بأول 4096 عميل</option>");
         if (!options) tcp_writestr(&tcpbuf, sock, "<option disabled>تعذر تحميل العملاء</option>");
     }
-    snprintf(out, sizeof(out), "</select></label><label>CAID <input name='caid' required maxlength='4' value='%04X'></label><label>Provider <input name='provid' required maxlength='6' value='%06X'></label><label>SID <input name='sid' required maxlength='4' value='%04X'></label><button type='submit'>بدء متابعة جديدة</button></form><form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='stop'><button type='submit'>إيقاف</button></form>", snap->active ? snap->target.caid : 0, snap->active ? snap->target.provider : 0, snap->active ? snap->target.sid : 0, trace_csrf);
+    snprintf(out, sizeof(out), "</select></label><label>نطاق المراقبة <select name='mode' onchange='traceMode(this)'><option value='single'%s>قناة واحدة</option><option value='all'%s>كل قنوات العميل</option></select></label><label>CAID <input name='caid' maxlength='4' value='%04X'></label><label>Provider <input name='provid' maxlength='6' value='%06X'></label><label>SID <input name='sid' maxlength='4' value='%04X'></label><button type='submit'>بدء متابعة جديدة</button></form><form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='stop'><button type='submit'>إيقاف</button></form>", snap->target.all_channels ? "" : " selected", snap->target.all_channels ? " selected" : "", snap->active ? snap->target.caid : 0, snap->active ? snap->target.provider : 0, snap->active ? snap->target.sid : 0, trace_csrf);
     tcp_writestr(&tcpbuf, sock, out);
-    snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | القناة: <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><table><tr><th>الوقت</th><th>المحاولة</th><th>الحدث</th><th>النطاق</th><th>المصدر (نوع / ID داخلي)</th><th>المدة ms</th><th>التفاصيل</th></tr>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
+    snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
     tcp_writestr(&tcpbuf, sock, out);
+    tcp_writestr(&tcpbuf, sock, "<details><summary>كيف أقرأ أدلة الكاش؟</summary><p>عند امتلاء Consensus: used عدد الخانات المستعملة من الإجمالي، held خانات تنتظر انتهاء النافذة، overdue خانات محتجزة تجاوزت النافذة، reclaimable خانات غير محتجزة يمكن إعادة استخدامها، oldest hold عمر أقدم حجز وwindow مدة النافذة. الخانات التي ليست held هي سجلات غير محتجزة محفوظة مؤقتاً. هذه حالة الجدول العام عند الحدث، لا هوية أصحاب الخانات ولا سببًا مثبتًا لفشل هذا العميل.</p><p>في أحداث الدورة: incoming الدورة التي وصلت إلى مسار الفحص، وقد تكون محفوظة من أول رد عند انتهاء Consensus؛ expected المتوقعة في سجل الكاش وassessed الدورة التي قيّمها الفلتر. no marker تعني عدم وجود علامة دورة معروفة في هذا المسار؛ previous CW يبين توفر CW سابقة للمقارنة، وليس صحتها. اختلاف الدورة لا يثبت وحده أن المصدر خبيث أو أن الصورة لن تظهر.</p></details>");
+    snprintf(out, sizeof(out), "<p>ردود CSP قصيرة جدًا لا تكفي لقراءة القناة: %llu خلال جلسة المتابعة، على مستوى السيرفر كله؛ لا يمكن نسبتها لهذا العميل أو قناته. أحداث CSP المرفوضة ذات الترويسة غير المتحقق منها تعرض قناة يدّعيها المرسل فقط، دون CW أو إثبات طلب العميل.</p>", (unsigned long long)snap->csp_unattributed_short);
+    tcp_writestr(&tcpbuf, sock, out);
+    trace_summary_write(&tcpbuf, sock, snap);
+    tcp_writestr(&tcpbuf, sock, "<table><tr><th>الوقت</th><th>المحاولة</th><th>القناة</th><th>بصمة ECM غير فريدة</th><th>الحدث</th><th>النطاق</th><th>المصدر (نوع / ID داخلي)</th><th>المدة ms</th><th>التفاصيل</th><th>CW</th></tr>");
     for (i = 0; i < snap->count; ++i) {
         struct user_trace_event *e = &snap->events[i];
-        char safe[768], timestr[32];
+        char safe[768], timestr[32], attempt[32], elapsed[32], cw_html[160] = "—";
         time_t timestamp = e->timestamp;
+        if (e->shared == 2) { strcpy(attempt, "—"); strcpy(elapsed, "—"); }
+        else { snprintf(attempt, sizeof(attempt), "%llu", (unsigned long long)e->attempt); snprintf(elapsed, sizeof(elapsed), "%u", e->elapsed_ms); }
         html_esc(safe, sizeof(safe), e->detail);
         mcs_format_local_time(timestr, sizeof(timestr), timestamp, "%H:%M:%S");
-        snprintf(out, sizeof(out), "<tr><td>%s</td><td>%llu</td><td>%s</td><td>%s</td><td>%d / %d</td><td>%u</td><td>%s</td></tr>", timestr, (unsigned long long)e->attempt, trace_type_name(e->type), e->shared ? "ECM مشترك" : "العميل", e->source_type, e->source_id, e->elapsed_ms, safe);
+        if (e->has_cw) {
+            char hex[33]; size_t j;
+            for (j = 0; j < 16; ++j) snprintf(hex + j * 2, 3, "%02X", e->cw[j]);
+            snprintf(cw_html, sizeof(cw_html), "<details data-event='%llu'><summary>إظهار CW</summary><code>%s</code></details>", (unsigned long long)e->sequence, hex);
+        }
+        snprintf(out, sizeof(out), "<tr><td>%s</td><td>%s</td><td><code>%04X:%06X:%04X</code></td><td><code>%08X</code></td><td>%s</td><td>%s</td><td>%d / %d</td><td>%s</td><td>%s%s%s</td><td>%s</td></tr>", timestr, attempt, e->caid, e->provider, e->sid, e->ecm_hash, trace_type_name(e->type), e->shared == 2 ? "قناة فقط، ليس ربط عميل" : (e->shared ? "ECM مشترك" : "العميل"), e->source_type, e->source_id, elapsed, trace_detail_ar(e->detail), *trace_detail_ar(e->detail) ? " — " : "", safe, cw_html);
         tcp_writestr(&tcpbuf, sock, out);
     }
-    tcp_writestr(&tcpbuf, sock, "</table></section><p><a href='/user-trace'>تحديث يدوي</a> | <a href='/'>الرئيسية</a></p><script>function traceChoose(s){const o=s.options[s.selectedIndex];const c=o.dataset.caid,p=o.dataset.provid,i=o.dataset.sid;document.querySelector('[name=caid]').value=c&&c!='0000'?c:'';document.querySelector('[name=provid]').value=p||'000000';document.querySelector('[name=sid]').value=i&&i!='0000'?i:'';}setInterval(async function(){try{const r=await fetch('/user-trace',{cache:'no-store'});if(!r.ok)return;const doc=new DOMParser().parseFromString(await r.text(),'text/html');const n=doc.getElementById('trace-data');if(n)document.getElementById('trace-data').innerHTML=n.innerHTML;}catch(e){}},5000);</script></body></html>");
+    tcp_writestr(&tcpbuf, sock, "</table>");
+    tcp_writestr(&tcpbuf, sock, "</section><p><a href='/user-trace'>تحديث يدوي</a> | <a href='/'>الرئيسية</a></p><script>function traceMode(s){for(const n of ['caid','provid','sid'])document.querySelector('[name='+n+']').disabled=s.value==='all';}traceMode(document.querySelector('[name=mode]'));function traceChoose(s){const o=s.options[s.selectedIndex];const c=o.dataset.caid,p=o.dataset.provid,i=o.dataset.sid;document.querySelector('[name=caid]').value=c&&c!='0000'?c:'';document.querySelector('[name=provid]').value=p||'000000';document.querySelector('[name=sid]').value=i&&i!='0000'?i:'';}setInterval(async function(){try{const r=await fetch('/user-trace',{cache:'no-store'});if(!r.ok)return;const doc=new DOMParser().parseFromString(await r.text(),'text/html');const n=doc.getElementById('trace-data');if(n){const open=Array.from(document.querySelectorAll('#trace-data details[open]')).map(x=>x.dataset.event);const box=document.getElementById('trace-data');box.innerHTML=n.innerHTML;box.querySelectorAll('details').forEach(x=>{if(open.includes(x.dataset.event))x.open=true;});}}catch(e){}},5000);</script></body></html>");
     tcp_flush(&tcpbuf, sock);
     free(snap);
 }

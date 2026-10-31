@@ -580,7 +580,7 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 			// ACCEPTED
 			pthread_mutex_lock(&prg.lockecm); //###
 			// Search for ECM
-			ECM_DATA *ecm = search_ecmdata_any(cs, ecmdata,  ecmlen, sid, caid); // dont get failed ecm request from cache
+			ECM_DATA *ecm = search_ecmdata_any(cs, ecmdata,  ecmlen, sid, caid, provid); // dont get failed ecm request from cache
 			/* TASK R31 (D82) -- receiver attestation tap, mirroring
 			 * srv-newcamd's: this client's too-soon re-ask after a
 			 * delivered key is one receiver's vote on the BYTES;

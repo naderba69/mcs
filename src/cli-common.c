@@ -77,7 +77,7 @@ void disconnect_srv(struct server_data *srv)
 	if (!srv->cacheex_mode)
 #endif
 	{
-		if (srv->busy) ecm_setsrvflag(srv->ecm.request, srv->id, ECM_SRV_EXCLUDE);
+		if (srv->busy && srv->ecm.request) ecm_setsrvflag(srv->ecm.request, srv->id, ECM_SRV_EXCLUDE);
 		pthread_mutex_lock( &srv->lock );
 		free_cardlist(srv->card);
 		srv->card = NULL;

@@ -34,12 +34,14 @@
  * request of the window. Consensus arbitrates ONE request; the R4 ladder
  * is the cross-request memory.
  *
- * The table is small, fixed and tick-driven: 64 slots, entries die by
- * window expiry, a full table reclaims expired slots and otherwise fails
- * open (CWC_DELIVER with no votes recorded). Availability first, always.
+ * The table is small, fixed and tick-driven: 256 slots, held entries are popped by
+ * window expiry, non-held entries can be reclaimed after their last activity exceeds the
+ * current window; otherwise it fails open (CWC_DELIVER with no votes recorded). Availability first, always.
  */
 #ifndef CWCONSENSUS_H
 #define CWCONSENSUS_H
+
+#define CWC_CAPACITY 256 /* bounded; power of two */
 
 #define CWC_DELIVER 0
 #define CWC_HOLD    1
@@ -53,6 +55,7 @@ struct cwconsensus_hold {
 	uint8_t  tag;
 	uint8_t  cw[16];
 	int      peerid;
+	int      cycle; /* declared cycle from the first held vote */
 };
 
 void cwconsensus_init(void);
@@ -85,6 +88,31 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 			uint8_t tag, const uint8_t *cw, int peerid,
 			int weight, uint32_t now_ms, uint32_t window_ms,
 			const uint8_t **loser_cw);
+
+/* Query the candidate's live vote counts; caller must hold the cache lock.
+ * Distinct peer IDs are not necessarily independent sources. */
+int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t hash,
+                            uint8_t tag, const uint8_t *cw, uint32_t now_ms,
+                            uint32_t window_ms, int *distinct, int *weight);
+
+/* Read-only check for a stored candidate still owned by the expiry walker.
+ * Caller holds the cache lock; a hold is never expired by this query. */
+int cwconsensus_is_held(uint16_t caid, uint16_t sid, uint32_t hash,
+                        uint8_t tag, const uint8_t *cw);
+
+/* Snapshot under the cache lock; held includes overdue holds, and retained
+ * means non-held entries. These counts do not attribute entries to a client. */
+struct cwconsensus_capacity {
+    int used, capacity, held, overdue, reclaimable;
+    uint32_t oldest_hold_ms;
+};
+void cwconsensus_capacity(uint32_t now_ms, uint32_t window_ms,
+                          struct cwconsensus_capacity *out);
+
+/* Preserve the first voter's wire-cycle declaration while a key is held.
+ * Called under the same lock as verdict/expiry; does not record a new vote. */
+void cwconsensus_hold_cycle(uint16_t caid, uint16_t sid, uint32_t hash,
+                            uint8_t tag, const uint8_t *cw, int peerid, int cycle);
 
 /* Pop ONE hold whose window expired (holding slots only -- lost or
  * delivered slots never come back). Returns 1 when out was filled. */

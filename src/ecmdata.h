@@ -1,14 +1,17 @@
 #define MAX_ECM_DATA 9000
 #define TIME_ECMALIVE 15000
 
-#if __x86_64__ || __ppc64__
-#define dcwcmp8(cw1, cw2) ( *((uint64_t*)(cw1))==*((uint64_t*)(cw2)) )
-#define dcwcmp16(cw1, cw2) (( *((uint64_t*)(cw1))==*((uint64_t*)(cw2)) ) && ( *((uint64_t*)(cw1+8))==*((uint64_t*)(cw2+8)) ))
-#else
-#define dcwcmp8(cw1, cw2) (( *((uint32_t*)(cw1))==*((uint32_t*)(cw2)) ) && ( *((uint32_t*)(cw1+4))==*((uint32_t*)(cw2+4)) ))
-#define dcwcmp16(cw1, cw2) (( *((uint32_t*)(cw1))==*((uint32_t*)(cw2)) ) && ( *((uint32_t*)(cw1+4))==*((uint32_t*)(cw2+4)) ) && ( *((uint32_t*)(cw1+8))==*((uint32_t*)(cw2+8)) ) && ( *((uint32_t*)(cw1+12))==*((uint32_t*)(cw2+12)) ))
-#endif
-
+/* CWs often reside in packed objects or byte buffers. Compare bytes rather
+ * than dereferencing potentially unaligned and aliasing integer pointers. */
+#include <string.h>
+static inline int dcwcmp8(const void *a, const void *b)
+{
+    return memcmp(a, b, 8) == 0;
+}
+static inline int dcwcmp16(const void *a, const void *b)
+{
+    return memcmp(a, b, 16) == 0;
+}
 
 #define ECM_SRV_REQUEST     0
 #define ECM_SRV_REPLY_GOOD  1
@@ -59,6 +62,7 @@ struct ecm_request {
 	int ecmlen;
 	uint8_t ecm[MAX_ECM_SIZE];
 	uint32_t hash;
+	uint64_t lifetime_id; /* Nonzero per allocation/reuse, independent of monitoring. */
 	uint64_t trace_instance; /* Assigned lazily while lockecm is held. */
 #ifdef CACHEEX
 	unsigned char ecmd5[16]; //MD5_DIGEST_LENGTH];
@@ -134,7 +138,7 @@ uint16_t ecm_getchid( uint8_t *ecm, int ecmlen, uint16_t caid ); /* R25: bounded
 
 //struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ecmlen, unsigned short sid, unsigned short caid, unsigned int provid);
 struct ecm_request *search_ecmdata_dcw( uint8_t *ecm, int ecmlen, unsigned short sid);
-struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm, int ecmlen, unsigned short sid, unsigned short caid);
+struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm, int ecmlen, unsigned short sid, unsigned short caid, uint32_t provid);
 struct ecm_request *search_ecmdata_byhash( uint16_t caid, uint16_t sid,uint32_t hash );
 struct ecm_request *search_ecmdata_byecmd5( uint16_t caid, uint32_t provid, uint8_t ecmd5[16] );
 

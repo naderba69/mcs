@@ -36,6 +36,8 @@ int main(void)
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x11111111,0x80), K1, 101, 1, 1000, 400, &loser);
 	chk(v==CWC_HOLD, "first key one voter holds", v);
 	chk(cwconsensus_holds()==1, "hold counted", (long)cwconsensus_holds());
+	chk(cwconsensus_is_held(CH(0x1884,0x64,0x11111111,0x80), K1), "held candidate is visible to cache FIND", 0);
+	chk(!cwconsensus_is_held(CH(0x1884,0x64,0x11111111,0x81), K1), "different tag is not held", 0);
 	/* same peer again: still one DISTINCT voter */
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x11111111,0x80), K1, 101, 1, 1100, 400, &loser);
 	chk(v==CWC_HOLD, "re-push from the same peer is still one vote", v);
@@ -43,6 +45,17 @@ int main(void)
 	/* -- 2. second distinct voter: early unanimous delivery -- */
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x11111111,0x80), K1, 202, 1, 1200, 400, &loser);
 	chk(v==CWC_DELIVER, "second distinct voter delivers early", v);
+	chk(!cwconsensus_is_held(CH(0x1884,0x64,0x11111111,0x80), K1), "delivered candidate no longer held", 0);
+	{
+	  int distinct = -1, weight = -1;
+	  chk(cwconsensus_vote_counts(CH(0x1884,0x64,0x11111111,0x80), K1, 1200, 400, &distinct, &weight)==1,
+	      "vote report locates candidate", distinct);
+	  chk(distinct==2 && weight==2, "repeat voter counted once", distinct);
+	  chk(cwconsensus_vote_counts(CH(0x1884,0x64,0x11111111,0x80), K1, 1501, 400, &distinct, &weight)==1 && distinct==1 && weight==1,
+	      "vote report excludes expired voter", distinct);
+	  chk(cwconsensus_vote_counts(CH(0x1884,0x64,0x11111111,0x80), K2, 1200, 400, &distinct, &weight)==0 && distinct==0 && weight==0,
+	      "untracked candidate has no known agreement", distinct);
+	}
 	/* and the released hold is not popped by the walk */
 	{ struct cwconsensus_hold h;
 	  chk(cwconsensus_expired(&h, 1300, 400)==0, "delivered hold is not re-released", 0); }
@@ -52,6 +65,7 @@ int main(void)
 	cwconsensus_verdict(CH(0x1884,0x64,0x22222222,0x80), K1, 101, 1, 1000, 400, &loser);
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x22222222,0x80), K2, 202, 1, 1050, 400, &loser);
 	chk(v==CWC_REFUSE, "equal-weight later key is refused", v);
+	chk(loser==NULL, "timing-only refusal provides no weighted-loss evidence", loser != NULL);
 	/* sticky: the loser cannot sneak back within the window */
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x22222222,0x80), K2, 202, 1, 1100, 400, &loser);
 	chk(v==CWC_REFUSE, "the timing loser stays refused (sticky node)", v);
@@ -67,6 +81,7 @@ int main(void)
 	v = cwconsensus_verdict(CH(0x1884,0x64,0x33333333,0x80), K2, 999, 0, 1100, 400, &loser);
 	chk(v==CWC_REFUSE, "the convicted key stays refused", v);
 	chk(cwconsensus_refusals()==1, "refusal counted once for the winner path", (long)cwconsensus_refusals());
+	chk(loser==NULL, "sticky refusal alone does not prove this voter cast a losing vote", loser != NULL);
 
 	/* -- 5. majority beats timing: two voters beat one earlier -- */
 	cwconsensus_init();
@@ -78,12 +93,17 @@ int main(void)
 	/* -- 6. window expiry releases the hold with the right fields -- */
 	cwconsensus_init();
 	cwconsensus_verdict(CH(0x1884,0x65,0x55555555,0x80), K1, 101, 1, 1000, 400, &loser);
+	/* A later peer's declaration must not replace the first held vote. */
+	cwconsensus_hold_cycle(CH(0x1884,0x65,0x55555555,0x80), K1, 202, 2);
+	cwconsensus_hold_cycle(CH(0x1884,0x65,0x55555555,0x80), K1, 101, 1);
+	cwconsensus_hold_cycle(CH(0x1884,0x65,0x55555555,0x80), K1, 101, 2);
 	{ struct cwconsensus_hold h;
 	  chk(cwconsensus_expired(&h, 1200, 400)==0, "no release before the window", 0);
 	  chk(cwconsensus_expired(&h, 1500, 400)==1, "the hold pops at window expiry", 1);
 	  chk(h.caid==0x1884 && h.sid==0x65 && h.hash==0x55555555 && h.peerid==101,
 	      "the release carries the channel and first voter", h.sid);
 	  chk(!memcmp(h.cw, K1, 16), "the release carries the held bytes", h.cw[15]);
+	  chk(h.cycle==1, "first held declaration survives expiry", h.cycle);
 	  chk(cwconsensus_expired(&h, 1600, 400)==0, "a popped hold never pops twice", 0);
 	  chk(cwconsensus_releases()==1, "release counted", (long)cwconsensus_releases()); }
 
@@ -122,13 +142,13 @@ int main(void)
 	/* -- 11. fail-open: exhausting the table still delivers -- */
 	cwconsensus_init();
 	{ int i, holds = 0;
-	  for (i = 0; i < 200; i++) {
+	  for (i = 0; i < CWC_CAPACITY + 136; i++) {
 		uint8_t k[16]; uint32_t h = 0xA0000000u + (uint32_t)i * 0x1000u;
 		memcpy(k, K1, 16); k[0] = (uint8_t)i;
 		if (cwconsensus_verdict(CH(0x1884,(uint16_t)(0x80+i),h,0x80), k, 900+i, 1, 1000, 400, &loser)==CWC_HOLD)
 			holds++;
 	  }
-	  chk(holds>=64, "the table held at least a full pass of requests", holds); }
+	  chk(holds==CWC_CAPACITY, "the table holds capacity then fails open", holds); }
 
 	/* -- 12. TASK R29 (D80): SOURCES raises the corroboration bar -- */
 	cwconsensus_init();
@@ -159,6 +179,85 @@ int main(void)
 	v = cwconsensus_verdict(CH(0x1884,0x64,0xAAAA0003,0x80), K1, 202, 1, 1010, 400, &loser);
 	chk(v==CWC_DELIVER, "SOURCES back to 2: second voter delivers (D62 stock)", v);
 	cwconsensus_set_min_sources(2);
+
+	/* A still-held oldest entry must not hide a different reclaimable entry.
+	 * No held entry may be stolen, even when its deadline has passed. */
+	cwconsensus_init();
+	cwconsensus_set_min_sources(2);
+	cwconsensus_verdict(CH(0x1884,1,1,0x80), K1, 1, 1, 1000, 400, &loser);
+	{ int i;
+	  for (i = 2; i <= CWC_CAPACITY; ++i) {
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 1, 1, 2000, 400, &loser);
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 2001, 400, &loser);
+	  }
+	  v = cwconsensus_verdict(CH(0x1884,CWC_CAPACITY+1,CWC_CAPACITY+1,0x80), K1, 1, 1, 62002, 400, &loser);
+	  chk(v == CWC_HOLD, "reclaim expired non-held entry even when oldest is held", v);
+	  { struct cwconsensus_hold h = {0};
+	    chk(cwconsensus_expired(&h, 62002, 400) && h.sid == 1,
+	        "oldest pending hold is preserved for expiry", h.sid);
+	  }
+	}
+
+	/* Capacity is a global snapshot, not evidence about an individual ECM. */
+	cwconsensus_init();
+	{ int i; struct cwconsensus_capacity cap;
+	  for (i = 1; i <= CWC_CAPACITY; ++i) {
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 1, 1, 1000, 400, &loser);
+	    if (i > CWC_CAPACITY/2) cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 1001, 400, &loser);
+	  }
+	  cwconsensus_capacity(2000, 400, &cap);
+	  chk(cap.capacity==CWC_CAPACITY && cap.used==CWC_CAPACITY && cap.held==CWC_CAPACITY/2 && cap.overdue==CWC_CAPACITY/2 &&
+	      cap.reclaimable==CWC_CAPACITY/2 && cap.oldest_hold_ms==1000, "capacity distinguishes overdue holds and retained entries", cap.held);
+	  v = cwconsensus_verdict(CH(0x1884,CWC_CAPACITY+1,CWC_CAPACITY+1,0x80), K1, 1, 1, 2000, 400, &loser);
+	  chk(v==CWC_HOLD, "expired completed slot is reclaimed before fail-open", v);
+	  cwconsensus_capacity(62002, 400, &cap);
+	  chk(cap.held==CWC_CAPACITY/2+1 && cap.reclaimable==CWC_CAPACITY/2-1, "capacity reports reclaimable non-held entries", cap.reclaimable);
+	}
+	cwconsensus_init();
+	cwconsensus_verdict(CH(0x1884,1,1,0x80), K1, 1, 1, 0xfffffff0u, 400, &loser);
+	{ struct cwconsensus_capacity cap;
+	  cwconsensus_capacity(0x20, 400, &cap);
+	  chk(cap.held==1 && cap.overdue==0 && cap.oldest_hold_ms==48, "capacity handles tick wrap", cap.oldest_hold_ms);
+	}
+
+	/* A stale lost candidate must start a fresh window; an active loss sticks. */
+	cwconsensus_init();
+	cwconsensus_verdict(CH(0x1884,0x1136,123,0x80), K2, 1, 0, 1000, 600, &loser);
+	cwconsensus_verdict(CH(0x1884,0x1136,123,0x80), K1, 2, 1, 1100, 600, &loser);
+	v = cwconsensus_verdict(CH(0x1884,0x1136,123,0x80), K2, 3, 1, 1200, 600, &loser);
+	chk(v==CWC_REFUSE, "active conviction remains sticky", v);
+	v = cwconsensus_verdict(CH(0x1884,0x1136,123,0x80), K2, 3, 1, 62000, 600, &loser);
+	chk(v==CWC_HOLD && loser==NULL, "stale conviction starts a new window", v);
+
+	/* Recently active non-held entries must not be reclaimed based on birth. */
+	cwconsensus_init();
+	{ int i; struct cwconsensus_capacity cap;
+	  for (i=1; i<=CWC_CAPACITY; i++) {
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 1, 1, 1000, 600, &loser);
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 1100, 600, &loser);
+	    cwconsensus_verdict(CH(0x1884,(uint16_t)i,(uint32_t)i,0x80), K1, 2, 1, 1600, 600, &loser);
+	  }
+	  cwconsensus_capacity(1700, 600, &cap);
+	  chk(cap.reclaimable==0, "recent activity protects completed slot", cap.reclaimable);
+	  v=cwconsensus_verdict(CH(0x1884,CWC_CAPACITY+1,CWC_CAPACITY+1,0x80), K1, 1, 1, 1700, 600, &loser);
+	  chk(v==CWC_DELIVER, "fully active table still fails open", v);
+	  cwconsensus_capacity(2200, 600, &cap);
+	  chk(cap.reclaimable==0, "boundary remains inside window", cap.reclaimable);
+	  cwconsensus_capacity(2201, 600, &cap);
+	  chk(cap.reclaimable==CWC_CAPACITY, "idle window makes completed slots reclaimable", cap.reclaimable);
+	  v=cwconsensus_verdict(CH(0x1884,CWC_CAPACITY+1,CWC_CAPACITY+1,0x80), K1, 1, 1, 2201, 600, &loser);
+	  chk(v==CWC_HOLD, "fresh candidate uses reclaimed slot", v);
+	}
+
+	cwconsensus_init();
+	cwconsensus_verdict(CH(0x1884,1,1,0x80), K1, 1, 1, 0xfffffff0u, 400, &loser);
+	cwconsensus_verdict(CH(0x1884,1,1,0x80), K1, 2, 1, 0xfffffff1u, 400, &loser);
+	{ struct cwconsensus_capacity cap;
+	  cwconsensus_capacity(0x20u, 400, &cap);
+	  chk(cap.reclaimable==0, "completed slot stays live across tick wrap", cap.reclaimable);
+	  cwconsensus_capacity(0x183u, 400, &cap);
+	  chk(cap.reclaimable==1, "completed slot expires across tick wrap", cap.reclaimable);
+	}
 
 	printf("\n== %d/%d passed, %d failed ==\n", checks - fails, checks, fails);
 	return fails ? 1 : 0;

@@ -58,6 +58,7 @@ int dcw_on_badlist(uint8_t *data) { (void)data; return 0; }
 #define dcw_pattern_fake dcw_pattern_fake_stats
 #define acceptDCW_impl acceptDCW_impl_stats
 #define acceptDCW_pattern acceptDCW_pattern_stats
+#define acceptDCW_pattern_reason acceptDCW_pattern_reason_stats
 #define dcw_on_failure dcw_on_failure_stats
 #define dcw_on_success dcw_on_success_stats
 #define dcw_needs_emergency dcw_needs_emergency_stats
@@ -77,6 +78,7 @@ int dcw_on_badlist(uint8_t *data) { (void)data; return 0; }
 #undef dcw_pattern_fake
 #undef acceptDCW_impl
 #undef acceptDCW_pattern
+#undef acceptDCW_pattern_reason
 #undef dcw_on_failure
 #undef dcw_on_success
 #undef dcw_needs_emergency
@@ -96,6 +98,7 @@ int dcw_on_badlist(uint8_t *data) { (void)data; return 0; }
 #define dcw_pattern_fake dcw_pattern_fake_base
 #define acceptDCW_impl acceptDCW_impl_base
 #define acceptDCW_pattern acceptDCW_pattern_base
+#define acceptDCW_pattern_reason acceptDCW_pattern_reason_base
 #define dcw_on_failure dcw_on_failure_base
 #define dcw_on_success dcw_on_success_base
 #define dcw_needs_emergency dcw_needs_emergency_base
@@ -114,6 +117,7 @@ int dcw_on_badlist(uint8_t *data) { (void)data; return 0; }
 #undef dcw_pattern_fake
 #undef acceptDCW_impl
 #undef acceptDCW_pattern
+#undef acceptDCW_pattern_reason
 #undef dcw_on_failure
 #undef dcw_on_success
 #undef dcw_needs_emergency

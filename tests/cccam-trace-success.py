@@ -16,6 +16,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 
 ROOT = Path(__file__).resolve().parent.parent
 BINARY = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "bin/multics.x64"
@@ -59,6 +60,14 @@ def stop(child):
 def main():
     if not BINARY.is_file():
         raise RuntimeError("binary not found: " + str(BINARY))
+    mode = os.environ.get("MCS_TEST_RESPONSE", "full")
+    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "zero", "repeatbytes", "pattern", "badlist", "excluded1884", "enforced1884")
+    caid = "1884" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884") else "09BD"
+    sid = "1136" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884") else "014A"
+    invalid_modes = ("zero", "repeatbytes", "pattern", "badlist")
+    if mode in invalid_modes: caid, sid = "1884", "1136"
+    tag = os.environ.get("MCS_TEST_TAG", "0x80")
+    assert tag in ("0x80", "0x81")
     with tempfile.TemporaryDirectory(prefix="mcs-trace-success-") as folder:
         tmp = Path(folder)
         cc, nc = tmp / "ccdcw", tmp / "ncserver"
@@ -75,12 +84,34 @@ def main():
         cfg = tmp / "isolated.cfg"
         cfg.write_text(f"HTTP PORT: {http}\nHTTP USER: test\nHTTP PASS: isolated\n"
                        f"TELNET PORT: 0\nCCCAM PORT: {cccam}\nF: traceuser tracepass\n"
-                       f"N: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n\n"
-                       f"[ isolated ]\nCAID: 1884\nPROVIDERS: 0\nPORT: {newcamd}\n"
-                       "DCW TIMEOUT: 6000\nUSER: traceuser tracepass\n", encoding="utf-8")
+                       f"N: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n"
+                       + ("BAD-DCW: 01 02 03 06 04 05 06 0F 07 08 09 18 0A 0B 0C 21\n" if mode == "badlist" else "")
+                       + f"\n[ isolated ]\nCAID: {caid}\nPROVIDERS: 0\nPORT: {newcamd}\n"
+                       + ("DCW TIMEOUT: 1000\n" if mode == "late" else "DCW TIMEOUT: 3000\n") + "DCW HALFNULLED: YES\n"
+                       + ("DCW SWAP: NO\n" if mode == "wronghalf" else "DCW SWAP: YES\n")
+                       +
+                       "ENABLE SKIPCWC: YES\n"
+                       + ("DCWFILTER PATTERN: ON\n" if mode == "pattern" else "DCWFILTER PATTERN: OFF\n")
+                       + ("DCWFILTER REPEAT: ON\n" if mode == "repeatbytes" else "")
+                       + (f"DCWFILTER CHECKSUM: OFF\nDCW SKIPCWC_EXCLUDE_SIDS_ACTIVE: YES\nDCW SKIPCWC_EXCLUDE_SIDLIST: {sid if mode != 'enforced1884' else '9999'}\n" if mode in ("excluded", "excluded1884", "enforced1884") else "")
+                       + ("RETRY NEWCAMD: 1\n" if mode == "retry" else "")
+                       + ("DCW MINTIME: 800\n" if mode.startswith("mintime-") else "")
+                       + "USER: traceuser tracepass\n", encoding="utf-8")
         with (tmp / "peer.log").open("w+") as peerlog, (tmp / "server.log").open("w+") as serverlog:
-            env = dict(os.environ, NS_DELAYS="60")
-            peer = subprocess.Popen([str(nc), str(card), "0102030405060708091011121314", "1884", "000000"],
+            env = dict(os.environ, NS_DELAYS="1200" if mode == "mintime-slow" else "60")
+            for name in ("NS_HALF_CW", "NS_BAD_CHECKSUM", "NS_NEGATIVE", "NS_OPPOSITE_HALF", "NS_NEGATIVE_FIRST"):
+                env.pop(name, None)
+            env.pop("NS_CW_SEQUENCE", None)
+            if mode == "zero": env["NS_CW_SEQUENCE"] = "00" * 16
+            if mode == "repeatbytes": env["NS_CW_SEQUENCE"] = "0505050F0405060F070809180A0B0C21"
+            if mode == "pattern": env["NS_CW_SEQUENCE"] = "010203060405060F010203060405060F"
+            if mode == "badlist": env["NS_CW_SEQUENCE"] = "010203060405060F070809180A0B0C21"
+            if mode not in ("full", "late", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884") + invalid_modes: env["NS_HALF_CW"] = "1"
+            if mode in ("bad", "excluded", "excluded1884", "enforced1884"): env["NS_BAD_CHECKSUM"] = "1"
+            if mode == "negative": env["NS_NEGATIVE"] = "1"
+            if mode == "retry": env["NS_NEGATIVE_FIRST"] = "1"
+            if mode in ("swap", "wronghalf"): env["NS_OPPOSITE_HALF"] = "1"
+            peer = subprocess.Popen([str(nc), str(card), "0102030405060708091011121314", caid, "000000"],
                                     cwd=tmp, env=env, stdout=peerlog, stderr=subprocess.STDOUT)
             server = None
             try:
@@ -100,23 +131,89 @@ def main():
                     req = urllib.request.Request(url, data=data, headers={"Authorization": auth})
                     with urllib.request.urlopen(req, timeout=5) as response:
                         return response.read().decode("utf-8")
+                try:
+                    urllib.request.urlopen(url, timeout=5)
+                    raise AssertionError("unauthenticated trace access succeeded")
+                except urllib.error.HTTPError as exc:
+                    assert exc.code in (401, 403)
                 page = request()
                 token = re.search("name='csrf' value='([a-f0-9]{64})'", page)
                 client = re.search("<option value='(\\d+)'[^>]*>traceuser", page)
                 assert token and client, "trace form not found"
                 form = {"csrf": token.group(1), "action": "start", "client": client.group(1),
-                        "caid": "1884", "provid": "000000", "sid": "1136"}
+                        "caid": caid, "provid": "000000", "sid": sid}
+                if os.environ.get("MCS_TRACE_ALL") == "1":
+                    form = {"csrf": token.group(1), "action": "start", "client": client.group(1), "mode": "all"}
                 request(urllib.parse.urlencode(form).encode())
                 result = subprocess.run([str(cc), "127.0.0.1", str(cccam), "traceuser", "tracepass",
-                                         "1884", "1136", "0x80"], capture_output=True,
+                                         caid, sid, tag], capture_output=True,
                                         text=True, timeout=25, check=True)
-                assert "ECM1 tag=80 DCW" in result.stdout, result.stdout
+                expected = "TIMEOUT" if mode in ("late", "recycled") else ("DCW" if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884") else "NOK")
+                assert "ECM1 tag=" + tag[2:].upper() + " " + expected in result.stdout, result.stdout
                 page = request()
                 assert "استلام ECM" in page and "ECM sent to server" in page
-                assert "CW response sent; picture not verified" in page
+                assert "cache lookup invoked; pipe delivery and result not confirmed" in page
+                assert "حركة كاش" in page
+                if mode in ("full", "late", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache"): assert "Newcamd CW response; validity not determined" in page
+                if mode in ("half", "bad", "excluded", "swap", "wronghalf", "retry", "non09half"): assert "Newcamd CW response; zero half present; validity not determined" in page
+                if mode == "mintime-fast":
+                    match = re.search(r"CW rejected by DCW MINTIME; (\d+) ms since dispatch at processing; threshold (\d+) ms", page)
+                    assert match and 0 <= int(match.group(1)) < 800 and int(match.group(2)) == 800, page
+                    assert "رُفضت CW بحد DCW MINTIME عند المعالجة" in page
+                if mode in ("mintime-slow", "mintime-local", "mintime-cache"): assert "CW rejected by DCW MINTIME;" not in page
+                if mode in ("bad", "enforced1884"): assert "Newcamd CW rejected: checksum validation failed" in page
+                reasons = {"zero": "null-word validation failed", "repeatbytes": "repeated-byte validation failed", "pattern": "enabled pattern validation", "badlist": "operator BAD-DCW list"}
+                if mode in invalid_modes:
+                    assert "Newcamd CW rejected: " + reasons[mode] in page
+                    assert "CW response sent; picture not verified" not in page
+                if mode in ("negative", "retry"): assert "Newcamd negative response; retry may follow" in page
+                if mode == "retry": assert "Newcamd retry send reported success" in page
+                if mode == "non09half":
+                    assert "Newcamd CW passed initial validation; further gates remain" in page
+                    reason = "CW rejected: zero half not allowed for CAID family"
+                    if os.environ.get("MCS_TEST_QUEUE_TRACE") in ("zero", "different"):
+                        assert reason not in page
+                    else:
+                        assert reason in page
+                if mode == "wronghalf": assert "CW rejected: half does not match ECM cycle and swap disabled" in page
+                if expected == "DCW":
+                    assert "Newcamd CW passed initial validation; further gates remain" in page
+                    assert "CW response sent; picture not verified" in page
+                elif mode == "recycled":
+                    assert "Newcamd CW passed initial validation; further gates remain" in page
+                    assert "CW response sent; picture not verified" not in page
+                elif mode == "late":
+                    assert "Newcamd CW passed initial validation; further gates remain" in page
+                    assert "CW committed; client dispatch skipped after DCW timeout" in page
+                    assert "CW response sent; picture not verified" not in page
+                    assert "decode failed; detailed reason unavailable" not in page
+                else: assert "decode failed; detailed reason unavailable" in page
                 assert "ECM مشترك" in page
+                assert "source response " in page
+                assert f"{caid}:000000:{sid}" in page
+                if mode in ("full", "half"):
+                    # Fixture key only: ensure both source and client rows carry
+                    # the actual same key, not merely a display placeholder.
+                    key = [0x30 + ((int(sid, 16) + i * 13) & 0x3F) for i in range(16)]
+                    for q in range(4): key[q * 4 + 3] = sum(key[q * 4:q * 4 + 3]) & 0xFF
+                    if mode == "half":
+                        if tag == "0x81": key[:8] = [0] * 8
+                        else: key[8:] = [0] * 8
+                    encoded = "".join(f"{x:02X}" for x in key)
+                    assert page.count(encoded) >= 2
+                if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884"):
+                    assert page.count("<summary>إظهار CW</summary>") >= 2
+                elif mode in ("bad", "wronghalf", "late", "non09half", "recycled", "mintime-fast", "enforced1884") + invalid_modes:
+                    assert page.count("<summary>إظهار CW</summary>") == 1
+                else:
+                    assert "<summary>إظهار CW</summary>" not in page
                 assert server.poll() is None
-                print("PASS: CCcam request, upstream dispatch and CW response traced")
+                # Starting a new session must not expose events or CW from the old one.
+                request(urllib.parse.urlencode(form).encode())
+                cleared = request()
+                assert "<summary>إظهار CW</summary>" not in cleared
+                assert "Newcamd CW response" not in cleared
+                print("PASS: CCcam/Newcamd trace mode=" + mode)
             finally:
                 if server is not None:
                     stop(server)

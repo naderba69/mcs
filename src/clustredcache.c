@@ -1,46 +1,34 @@
 
 #include "common.h"
+#include "user-trace.h"
 #include "cafamily.h"	/* TASK R36 (D92) */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include <stdlib.h>
 
-void stringtohtml(char *src, char *dest)
+/* Return 0 rather than storing or acknowledging an incomplete HTML escape. */
+static int stringtohtml(const char *src, char *dest, size_t capacity)
 {
-	while ( *src )
-	{
-		if ( *src=='<' ) {
-			*dest = '&'; dest++;
-			*dest = 'l'; dest++;
-			*dest = 't'; dest++;
-			*dest = ';'; dest++;
+	size_t used = 0;
+	if (!capacity) return 0;
+	while (*src) {
+		const char *replacement = NULL;
+		size_t len = 1;
+		switch (*src) {
+		case '<': replacement = "&lt;"; break;
+		case '>': replacement = "&gt;"; break;
+		case '&': replacement = "&amp;"; break;
+		case '"': replacement = "&quot;"; break;
+		default: break;
 		}
-		else if ( *src=='>' ) {
-			*dest = '&'; dest++;
-			*dest = 'g'; dest++;
-			*dest = 't'; dest++;
-			*dest = ';'; dest++;
-		}
-		else if ( *src=='&' ) {
-			*dest = '&'; dest++;
-			*dest = 'a'; dest++;
-			*dest = 'm'; dest++;
-			*dest = 'p'; dest++;
-			*dest = ';'; dest++;
-		}
-		else if ( *src=='"' ) {
-			*dest = '&'; dest++;
-			*dest = 'q'; dest++;
-			*dest = 'u'; dest++;
-			*dest = 'o'; dest++;
-			*dest = 't'; dest++;
-			*dest = ';'; dest++;
-		}
-		else {
-			*dest = *src; dest++;
-		}
+		if (replacement) len = strlen(replacement);
+		if (len >= capacity - used) { dest[0] = 0; return 0; }
+		if (replacement) memcpy(dest + used, replacement, len);
+		else dest[used] = *src;
+		used += len;
 		src++;
 	}
-	*dest = 0;
+	dest[used] = 0;
+	return 1;
 }
 
 /*
@@ -301,6 +289,9 @@ typedef enum { NO_CYCLE=0, CW0CYCLE=1, CW1CYCLE=2} cwcycle_t;
 #define DCW_CHECKED  0x04
 #define DCW_SKIP     0x08
 #define DCW_SENT     0x10
+/* Explicitly passed source gates for serving peers; not evidence of picture. */
+#define DCW_PEER_READY 0x20
+#define DCW_LOCAL_SOURCE 0x40
 
 struct cw_cache_data {
 	struct cw_cache_data *next;
@@ -336,6 +327,12 @@ struct __attribute__ ((__packed__)) cache_data {
 	struct cw_cache_data *cwdata;
 
 	ECM_DATA *ecm;
+	/* A local request's numeric provider, distinct from the cache entry's
+	 * provider (which incoming messages may overwrite or leave unknown).
+	 * This association lasts until the entry is recycled, including after
+	 * its waiter finishes. It does not authenticate the provider or the CW. */
+	uint8_t local_provider_set;
+	uint32_t local_provider;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -436,6 +433,29 @@ struct cache_data **getcachetabbycaid(unsigned short caid)
 #include "cache_purge.h"
 
 
+/* A locally attached provider is evidence of a numeric conflict, not proof
+ * of a CSP CW's origin. Unknown associations retain the historical behavior. */
+static int cache_local_providers_conflict(const struct cache_data *a,
+                                          const struct cache_data *b)
+{
+    return a->local_provider_set && b->local_provider_set &&
+           a->local_provider != b->local_provider;
+}
+
+/* Cache timestamps are 32-bit milliseconds. Compare elapsed time rather than
+ * absolute deadlines, which wrap at startup and every ~49.7 days. The cache
+ * lifetime and filter window are far below half the counter range. */
+static int cache_time_expired(uint32_t now, uint32_t then, uint32_t lifetime)
+{
+    return (uint32_t)(now - then) > lifetime;
+}
+
+static int cache_time_older_than(uint32_t request, uint32_t entry, uint32_t window)
+{
+    uint32_t elapsed = request - entry;
+    return elapsed <= INT32_MAX && elapsed > window;
+}
+
 struct cache_data *cache_new( struct cache_data *newdata )
 {
 	int index = newdata->sid&MAX_CACHE_INDEX;
@@ -476,7 +496,7 @@ struct cache_data *cache_new( struct cache_data *newdata )
 	}
 	else {
 		new = cachetab[index]->prev;
-		if ( (new->recvtime+cfg.cache.alivetime) < ticks ) {
+		if ( cache_time_expired(ticks, new->recvtime, cfg.cache.alivetime) ) {
 			// cache is dead, add data to this one without allocating new data
 			// free old dcw
 			struct cw_cache_data *cwdata = new->cwdata;
@@ -533,7 +553,7 @@ struct cache_data *cache_fetch( struct cache_data *thereq )
 	struct cache_data *pcache = cachetab[index];
 	uint32_t ticks = GetTickCount();
 	while (pcache) {
-		if ( (pcache->recvtime+cfg.cache.alivetime) < ticks ) return NULL;
+		if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) return NULL;
 		if ( (pcache->hash==thereq->hash)&&(pcache->sid==thereq->sid) )
 			if ( (pcache->tag==thereq->tag) || !pcache->tag || !thereq->tag ) return pcache;
 		pcache = pcache->next;
@@ -750,6 +770,7 @@ static void cwlog_deliver(int peerid, uint32_t caid, uint32_t provid,
 void pipe_cache2ecm_find_failed(struct cache_data *pcache)
 {
 	uint8_t buf[48];
+	user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid, pcache->hash, 0, "cache lookup: no existing entry; peer response may still arrive", NULL);
 	int len = put_cache2ecm(PIPE_CACHE_FIND_FAILED, buf, pcache, NULL, 0, 0);
 	pipe_send( prg.pipe.ecm[1], buf, len);
 }
@@ -778,6 +799,7 @@ void pipe_cache2ecm_find_success(struct cache_data *pcache, uint8_t *cw, int pee
 		if ( dcwcmp16(cwd->cw, cw) ) { cwmark = cwd->cwcycle; break; }
 		cwd = cwd->next;
 	}
+	user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid, pcache->hash, peerid, "cache forwarded CW to ECM pipe; delivery not confirmed", cw);
 	int len = put_cache2ecm(PIPE_CACHE_FIND_SUCCESS, buf, pcache, cw, peerid, cwmark);
 	pipe_send( prg.pipe.ecm[1], buf, len);
 }
@@ -917,10 +939,11 @@ void pipe_cache_reply( ECM_DATA *ecm, struct cardserver_data *cs)
 {
 	uint8_t buf[64];
 	int len;
-	if (ecm->dcwstatus==STAT_DCW_SUCCESS)
-		len = put_ecm2cache(PIPE_CACHE_REPLY, buf, ecm, cs->option.onid, ecm->cw);
-	else
-		len = put_ecm2cache(PIPE_CACHE_REPLY, buf, ecm, cs->option.onid, NULL);
+	if (ecm->dcwstatus!=STAT_DCW_SUCCESS) return;
+	len = put_ecm2cache(PIPE_CACHE_REPLY, buf, ecm, cs->option.onid, ecm->cw);
+	/* Snapshot the origin with the CW: the ECM object can be recycled before
+	 * this asynchronous pipe message is processed. */
+	buf[len++] = (ecm->dcwsrctype == DCW_SOURCE_CACHE) ? 1 : 0;
 	pipe_send( prg.pipe.cache[1], buf, len);
 }
 
@@ -953,7 +976,9 @@ void sendtoip( int handle, uint32_t ip, int port, unsigned char *buf, int len)
 
 void sendtopeer( struct cachepeer_data *peer, unsigned char *buf, int len)
 {
-
+	/* Disabled means disabled in both directions, even if a stale ping is
+	 * positive or another sender bypasses cache_check_peers(). */
+	if (IS_DISABLED(peer->flags)) return;
 	if (peer->host->ip && peer->port) {
 		struct sockaddr_in si_other;
 		int slen=sizeof(si_other);
@@ -1029,8 +1054,8 @@ int peer_card_binarysearch( struct cachepeer_data *peer, uint16_t caid, uint32_t
 	/*
 	 * TASK 3.17. The comparison is peer_cards_find(). It never reads
 	 * cards[nbcards]. On this packed struct that slot is nbcards itself,
-	 * so a 1024-card list must not treat the count as a card. Signed
-	 * comparison is unchanged.
+	 * so a 1024-card list must not treat the count as a card. Search order
+	 * matches the unsigned ordering used when the card list is received.
 	 */
 	return peer_cards_find(peer->cards, peer->nbcards, caid, provid);
 }
@@ -1041,7 +1066,7 @@ int peer_acceptcard( struct cachepeer_data *peer, uint16_t caid, uint32_t provid
 
 	/* No callers. A full list has no zero sentinel; a miss is not accept. */
 	if ( peer->cards[0] ) {
-		int caprov = (caid<<16) | provid;
+		uint32_t caprov = ((uint32_t)caid << 16) | provid;
 		if (!peer_cards_listed(peer->cards, peer->nbcards, caprov)) return 0;
 	}
 	if ( peer->sharelimits[0].caid!=0xffff ) {
@@ -1079,7 +1104,7 @@ static void peerrep_event(struct cachepeer_data *peer, const char *reason)
 			peer->host->name, peer->port,
 			st==PEERREP_STAGE_DISTRUST?"DISTRUST":(st==PEERREP_STAGE_ISOLATE?"ISOLATE":"BAN"),
 			reason, pr_cons[st]);
-		if (st==PEERREP_STAGE_BAN) peer->flags |= FLAG_DISABLE;
+		if (st==PEERREP_STAGE_BAN) { peer->flags |= FLAG_DISABLE; peer->ping = 0; }
 	}
 }
 
@@ -1416,11 +1441,12 @@ int cache_fetch_goodcw( struct cache_data *thereq, uint8_t cw[16], cwcycle_t *cw
 	if (!cachetab) return 0;
 	struct cache_data *pcache = cachetab[index];
 	struct cache_data *result = NULL;
-	uint32_t ticks = GetTickCount() - cfg.cache.alivetime;
+	uint32_t ticks = GetTickCount();
 	while (pcache) {
-		if ( (pcache->recvtime+cfg.cache.filtertime)<thereq->recvtime) {
-			if ( pcache->recvtime < ticks ) break;
-			if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) ) // need provider XXX
+		if ( cache_time_older_than(thereq->recvtime, pcache->recvtime, cfg.cache.filtertime)) {
+			if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
+			if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) )
+			if ( !cache_local_providers_conflict(pcache, thereq) )
 			if ( !pcache->provid || !thereq->provid || (pcache->provid==thereq->provid) ) // csp luck of provid
 			if ( pcache->tag && (pcache->tag!=thereq->tag) ) { // old oscam cacheex luck of ecmtag
 				struct cw_cache_data *cwdata = pcache->cwdata;
@@ -1478,18 +1504,22 @@ int cache_fetch_goodcw( struct cache_data *thereq, uint8_t cw[16], cwcycle_t *cw
 
 
 // search for same cw in cache
-int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash, uint16_t sid, uint8_t cw[16], int cwpart )
+int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash, uint16_t sid, uint32_t provid, uint8_t cw[16], int cwpart )
 {
 	int index = sid&MAX_CACHE_INDEX;
 	struct cache_data **cachetab = getcachetabbycaid(caid);
 	/* TASK 3.4: no table for this CAID (allocation failed) -- nothing cached. */
 	if (!cachetab) return 0;
 	struct cache_data *pcache = cachetab[index];
-	uint32_t ticks = GetTickCount() - cfg.cache.alivetime;
+	uint32_t ticks = GetTickCount();
 	while (pcache) {
-		if ( (pcache->recvtime+cfg.cache.filtertime)<recvtime) {
-			if ( pcache->recvtime < ticks ) break;
-			if ( (pcache->sid==sid)&&(pcache->hash!=hash)&&(pcache->tag!=tag) ) { // ??? maybe find same dcw for different providers
+		if ( cache_time_older_than(recvtime, pcache->recvtime, cfg.cache.filtertime)) {
+			if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
+			/* A local entry for another numeric provider is not evidence that
+			 * this request repeated a CW. CSP-only entries remain governed by
+			 * the existing rule: their provider identity is unavailable. */
+			if ( (pcache->sid==sid)&&(pcache->hash!=hash)&&(pcache->tag!=tag) &&
+			     (!pcache->local_provider_set || pcache->local_provider==provid) ) {
 				struct cw_cache_data *cwdata = pcache->cwdata;
 				while (cwdata) {
 					switch (cwpart) {
@@ -1543,12 +1573,11 @@ struct cache_data *cache_fetch_goodcw2( struct cache_data *thereq, uint8_t cw[16
 	if (!cachetab) return NULL;
 	struct cache_data *pcache = cachetab[index];
 	struct cache_data *result = NULL;
-	uint32_t ticks = GetTickCount() - cfg.cache.alivetime;
+	uint32_t ticks = GetTickCount();
 	while (pcache) {
-		if ( pcache->recvtime < ticks ) break;
+		if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
 		if ( pcache->flags&CACHE_FLAG_SENDPIPE )
-		if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) ) // need provider XXX
-		//if ( !pcache->provid || !thereq->provid || (pcache->provid!=thereq->provid) )
+		if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) )
 		if ( pcache->tag && (pcache->tag==thereq->tag) )
 		if ( pcache->cwcycle!=NO_CYCLE )
 		if ( !isnullDCW(pcache->prevcw) )
@@ -1557,6 +1586,19 @@ struct cache_data *cache_fetch_goodcw2( struct cache_data *thereq, uint8_t cw[16
 			if (  ( (pcache->cwcycle==CW1CYCLE) && dcwcmp8(pcache->prevcw,cw) && !similarcw(pcache->prevcw+8,cw+8) ) ||
 				( (pcache->cwcycle==CW0CYCLE) && !similarcw(pcache->prevcw,cw) && dcwcmp8(pcache->prevcw+8,cw+8) )  ) {
 
+				if (cache_local_providers_conflict(pcache, thereq)) {
+					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+					    pcache->hash, peerid, "cache provider collision: different local provider; conflicting operation skipped", NULL);
+				} else if (cfg.cache.consensus || cfg.cache.threshold > 1 ||
+				           cfg.cache.gate_cwcheck > 1 ||
+				           (pcache->ecm && pcache->ecm->cs &&
+				            pcache->ecm->cs->option.excheck > 1)) {
+					/* This CW is not in the target entry (iscwincache above).
+					 * Source-entry votes/arrivals cannot establish the target's
+					 * confirmation policy. Let its ordinary lookup continue. */
+					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+					    pcache->hash, peerid, "cache relay deferred: target confirmation not established", NULL);
+				} else {
 				pipe_cache2ecm_find_success(pcache, cw, peerid);
 
 #ifdef TESTCHANNEL
@@ -1571,7 +1613,7 @@ struct cache_data *cache_fetch_goodcw2( struct cache_data *thereq, uint8_t cw[16
 						thereq->caid, thereq->provid, thereq->sid, thereq->tag, thereq->hash );
 				}
 #endif
-
+				}
 			}
 		}
 		pcache = pcache->next;
@@ -1601,12 +1643,12 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 	if (!cachetab) return NULL;
 	struct cache_data *pcache = cachetab[index];
 	struct cache_data *result = NULL;
-	uint32_t ticks = GetTickCount() - cfg.cache.alivetime;
+	uint32_t ticks = GetTickCount();
 	while (pcache) {
-		if ( pcache->recvtime < ticks ) break;
+		if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
 		if ( pcache->flags&CACHE_FLAG_SENDPIPE )
 		if (pcache->sid!=thereq->sid)
-		if ( (pcache->hash==thereq->hash) ) // need provider XXX
+		if ( (pcache->hash==thereq->hash) )
 		if ( pcache->tag && (pcache->tag==thereq->tag) )
 		if ( pcache->cwcycle!=NO_CYCLE )
 		if ( !isnullDCW(pcache->prevcw) )
@@ -1615,6 +1657,19 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 			if (  ( (pcache->cwcycle==CW1CYCLE) && dcwcmp8(pcache->prevcw,cw) && !similarcw(pcache->prevcw+8,cw+8) ) ||
 				( (pcache->cwcycle==CW0CYCLE) && !similarcw(pcache->prevcw,cw) && dcwcmp8(pcache->prevcw+8,cw+8) )  ) {
 
+				if (cache_local_providers_conflict(pcache, thereq)) {
+					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+					    pcache->hash, peerid, "cache provider collision: different local provider; conflicting operation skipped", NULL);
+				} else if (cfg.cache.consensus || cfg.cache.threshold > 1 ||
+				           cfg.cache.gate_cwcheck > 1 ||
+				           (pcache->ecm && pcache->ecm->cs &&
+				            pcache->ecm->cs->option.excheck > 1)) {
+					/* This CW is not in the target entry (iscwincache above).
+					 * Source-entry votes/arrivals cannot establish the target's
+					 * confirmation policy. Let its ordinary lookup continue. */
+					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+					    pcache->hash, peerid, "cache relay deferred: target confirmation not established", NULL);
+				} else {
 				pipe_cache2ecm_find_success(pcache, cw, peerid);
 
 #ifdef TESTCHANNEL
@@ -1629,7 +1684,7 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 						thereq->caid, thereq->provid, thereq->sid, thereq->tag, thereq->hash );
 				}
 #endif
-
+				}
 			}
 		}
 		pcache = pcache->next;
@@ -1643,311 +1698,17 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 // 0: nothing to do
 // 1: dcw set
 // 2: dcw set & sent to pipe
-int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int peerid )
+/* Run the same post-consensus cycle/family gates for both immediately
+ * corroborated and window-expired CWs. Caller holds prg.lockcache. */
+static int cache_after_consensus(struct cache_data *req, struct cache_data *pcache,
+                                 struct cw_cache_data *cwdata, uint8_t cw[16],
+                                 cwcycle_t cwcycle, int peerid)
 {
-	/*
-	 * TASK 3.15 — the waiting ECM's profile, if it has one. No waiter
-	 * means the global gate, which is what an unsolicited push saw
-	 * before. A profile that inherits also sees the global gate.
-	 *
-	 * TASK R1 — the exchange gates. Everything arriving from the TCP
-	 * cache-exchange family (cccam/camd35/cs378x cacheex peers, both
-	 * directions; never CSP and never a card server) can now be gated
-	 * per profile: LOCAL_ONLY drops unsolicited pushes before the cache
-	 * entry is even created, BLOCK_FAKE_CW forces the deterministic r82a
-	 * content tests, CWCHECK raises a confirmation floor. CSP is
-	 * deliberately out of scope (it has FILTER/THRESHOLD/cacheguard);
-	 * unarmed profiles behave exactly as before, instruction for
-	 * instruction.
-	 */
-	int cex_exchange;
-	int cex_gate_fake, cex_gate_check;
-	int piped = 0;   /* TASK R11 (D65): did THIS call pipe to a waiter? */
-	{
-		struct cache_data *pend = cache_fetch(req);
-		struct cardserver_data *pcs = (pend && pend->ecm) ? pend->ecm->cs : NULL;
-		int has_waiter = (pend && pend->ecm) ? 1 : 0;
-		cex_exchange = cex_is_exchange(peerid);
-		int gate_local = cfg.cache.gate_localonly;
-		cex_gate_fake  = cfg.cache.gate_blockfake;
-		cex_gate_check = cfg.cache.gate_cwcheck;
-		if (pcs) {
-			if (pcs->option.fexblockfake) cex_gate_fake = 1;
-			if (pcs->option.excheck > cex_gate_check) cex_gate_check = pcs->option.excheck;
-		}
-		/* LOCAL_ONLY: an exchange push with no waiting local ECM never
-		 * seeds the cache -- returned BEFORE cache_new(), so nothing is
-		 * stored, nothing is served later, and the key cannot pre-poison
-		 * a future request. */
-		if ( cex_localonly_drop(gate_local, cex_exchange, has_waiter) ) {
-#ifdef MCS_DCWSTATS
-			DCWSTATS_REJECT(DCW_REJ_CEXLOCAL);
-			cwlog_refuse(DCW_REJ_CEXLOCAL, peerid, req->caid, req->provid, req->sid, cw);
-#endif
-			debugf(getdbgflag(DBG_CACHE,0,0), " [CACHEEX GATE] LOCAL_ONLY: unsolicited push dropped ch %04x:%06x:%04x\n", req->caid, req->provid, req->sid);
-			return -1;
-		}
-		if ( !acceptDCW_profile_ca_sid(cw, pcs, req->caid, req->sid) ) {
-		/*
-		 * TASK 2.4 -- the blind spot this closes, found by running the live
-		 * target and watching nothing arrive.
-		 *
-		 * Every evidence hook in this project (TASK 1.8's structural scan,
-		 * 2.2's entropy and collision scan, 2.4's plausibility scan) is placed
-		 * in setdcw.c ABOVE the acceptDCW() gate, precisely so that the key
-		 * most worth examining -- the one about to be discarded -- is examined
-		 * anyway. For a key that arrives from a card server that holds, because
-		 * srv-newcamd.c calls ecm_setdcw() and setdcw.c does the gating.
-		 *
-		 * A key that arrives THROUGH THE CACHE does not: this function gates
-		 * first and returns -1, so the key never reaches setdcw.c and no layer
-		 * ever sees it. Measured live: four forged keys from a cache peer, four
-		 * replies, zero deliveries and a stats line reading
-		 * `0 full, 0 one-group` -- the layer was blind, not quiet.
-		 *
-		 * The call is on the REJECTING path only, so a key that passes is
-		 * counted exactly once, where it is delivered. The source attribution is
-		 * the cache's own: (DCW_SOURCE_CACHE, peerid), the same pair
-		 * ecm_setdcw() uses a few lines below, so GR1 holds as before.
-		 */
-		cwp_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
-			 GetTickCount());
-		cm_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
-		        GetTickCount());
-#ifdef MCS_DCWSTATS
-		/* TASK R11 (D65): the specific test (checksum/null/repeat/
-		 * badlist) is counted inside dcw.c; the ring row carries the
-		 * channel and the peer, which dcw.c cannot see here. */
-		cwlog_refuse(CWLOG_R_PROFILE, peerid, req->caid, req->provid, req->sid, cw);
-#endif
-		return -1;
-	}
-		/* TASK R1 — BLOCK_FAKE_CW: the two deterministic r82a content
-		 * tests, forced for exchange arrivals when the gate is armed.
-		 * The rejected key gets the same evidence treatment as a
-		 * profile-gate rejection (the TASK 2.4 doctrine: the key most
-		 * worth examining is the one about to be discarded). */
-		if ( cex_fake_reject(cex_gate_fake, cex_exchange,
-		                     checksumDCW(cw) && !isbadDCW(cw)) ) {
-#ifdef MCS_DCWSTATS
-			DCWSTATS_REJECT(DCW_REJ_CEXFAKE);
-			cwlog_refuse(DCW_REJ_CEXFAKE, peerid, req->caid, req->provid, req->sid, cw);
-#endif
-			{ struct cachepeer_data *pr_peer = getpeerbyid(peerid); /* TASK R4 (D58) */
-			  if (pr_peer) peerrep_event(pr_peer, "cacheex-fake-cw"); }
-			cwp_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
-			         GetTickCount());
-			cm_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
-			        GetTickCount());
-			debugf(DBG_ERROR, " !!! [CACHEEX GATE] BLOCK_FAKE_CW: fake cw from exchange peer (%x|%d) ch %04x:%06x:%04x\n",
-				peerid & PEER_ORIGIN_FLAGS, peerid & PEER_ID_MASK,
-				req->caid, req->provid, req->sid);
-			return -1;
-		}
-	}
-
-	/*
-	 * TASK 2.6 -- negative memory gate. A key that a definitive proof (the
-	 * ledger's dispute-plus-client-failure, or a reuse proof) has convicted
-	 * never enters the cache again: no storage, no peer-agreement count, no
-	 * delivery -- to this client or any other. Placed AFTER the plausibility
-	 * note on purpose, so 2.4's counting of refused keys is unchanged, and
-	 * BEFORE the entry lookup, so a refused key costs nothing at all. The
-	 * gate only answers "are these bytes remembered poison for this
-	 * channel"; every score and every disable remains the proof's job.
-	 */
-	if ( cwn_gate(cw, req->caid, req->provid, req->sid, GetTickCount()) ) {
-#ifdef MCS_DCWSTATS
-		cwlog_refuse(CWLOG_R_CONVICTED, peerid, req->caid, req->provid, req->sid, cw);
-#endif
-		return DCW_ERROR;
-	}
-
-	/*
-	 * TASK R30 (D81) -- attestation gate. A key that independent clients
-	 * filed by re-asking too soon after the same delivered bytes gets
-	 * exactly the negative-memory treatment -- refused before storage,
-	 * agreement counting or delivery -- except that the filing EXPIRES
-	 * (CWATTEST_TTL_MS): attestation is strong evidence, not a GR3
-	 * proof. No-op unless CACHE ATTEST is armed.
-	 */
-	if ( attest_gate(cw, req->caid, req->provid, req->sid, GetTickCount()) ) {
-#ifdef MCS_DCWSTATS
-		cwlog_refuse(CWLOG_R_CONVICTED, peerid, req->caid, req->provid, req->sid, cw);
-#endif
-		return DCW_ERROR;
-	}
-
-	// Search for Cache data
-	struct cw_cache_data *cwdata = NULL;
-	struct cache_data *pcache = cache_fetch( req );
-	if (pcache==NULL) pcache = cache_new( req );
-	else {
-		if (!pcache->tag) pcache->tag = req->tag; // set tag if not set (coming from cahceex)
-		if (!pcache->provid && req->provid) pcache->provid = req->provid; // set provid if not set (coming from csp)
-		// check for dcw
-		cwdata = pcache->cwdata;
-		while (cwdata) {
-			if ( dcwcmp16(cwdata->cw, cw) ) break;
-			cwdata = cwdata->next;
-		}
-	}
-	/* TASK 3.4: neither a fetch nor a new entry was possible (allocation
-	 * failed). The report is dropped this round -- the key is not stored and
-	 * not counted -- which is the same outcome a cache entry past its alive
-	 * time already produces; the peers' own retry brings it back. */
-	if (!pcache) return DCW_ERROR;
-
-	/*
-	 * TASK 2.5 -- what the peer OFFERED, judged against the half the pending
-	 * ECM declared (pcache->cwcycle, written by the ECM thread's FIND from the
-	 * channel's own rule). The observed marker is the peer's own declaration
-	 * on the wire -- buf[29] for forwarding CSP peers, always NO_CYCLE for
-	 * cache-ex -- sanitised to the three wire values; a fresh entry (no
-	 * pending ECM) has cwcycle NO_CYCLE, so the observation lands UNJUDGED
-	 * instead of inventing an expectation. The note happens BEFORE any gate
-	 * below: a contradiction is evidence about the peer whether or not the
-	 * existing Check Cycle gate eats the key. It cannot change anything here
-	 * -- it counts and, at most, writes one line per window (GR3: evidence,
-	 * never an accusation).
-	 */
-	ccy_note(DCW_SOURCE_CACHE, peerid, req->caid, req->provid, req->sid,
-	         GetTickCount(), CWCY_AT_RECV,
-	         pcache->cwcycle, cwcy_observed((int)cwcycle));
-
-	// add new if not found
-	if (!cwdata) {
-		cwdata = malloc( sizeof(struct cw_cache_data) );
-		/* TASK 3.4: the agreement record for this key could not be extended;
-		 * dropping the report keeps the counters honest (no phantom peer was
-		 * counted, no key was delivered on a bookkeeping failure). */
-		if (!cwdata) return DCW_ERROR;
-		memset( cwdata, 0, sizeof(struct cw_cache_data) );
-		memcpy(cwdata->cw, cw, 16);
-		cwdata->status = 0;
-		cwdata->cwcycle = NO_CYCLE;
-		cwdata->peerid = peerid;
-		cwdata->next = pcache->cwdata;
-		pcache->cwdata = cwdata;
-	}
-	cwdata->nbpeers++;
-
-	if (cwdata->status&DCW_ERROR) return DCW_ERROR;
-
-	// TEST for min Peers
-	/*
-	 * TASK 1.11a — was `nbpeers != cfg.cache.threshold`.
-	 *
-	 * `!=` is not a minimum. With the default threshold of 1 it behaves like
-	 * one, so the bug is invisible in a default install, but `CACHE THRESHOLD: 2`
-	 * accepted a CW on exactly the second peer and rejected it for the third and
-	 * every peer after that. The comparison is now a real floor; see
-	 * cache_threshold.h for the full argument and test_cache_threshold.c for the
-	 * cases.
-	 */
-	if ( !cache_threshold_reached(cwdata->nbpeers, cfg.cache.threshold) ) {
-#ifdef MCS_DCWSTATS
-		/* TASK R11 (D65): the stock skip, now visible per key. Never
-		 * fires at the default threshold of 1. */
-		cwlog_refuse(CWLOG_R_THRESHOLD, peerid, req->caid, req->provid, req->sid, cw);
-#endif
-		return DCW_ERROR | DCW_SKIP;
-	}
-
-	/* TASK R1 — CWCHECK: an exchange arrival waits for confirmations.
-	 * The same CW (the existing nbpeers arrival counter, any cache
-	 * source) must cross the floor before it is served; until then the
-	 * normal DCW TIMEOUT flow to real servers is untouched. Placed
-	 * exactly at the stock threshold site, with the stock SKIP result:
-	 * a held key is not an error event, it is an unconfirmed one. */
-	if ( cex_check_below_floor(cex_gate_check, cfg.cache.threshold,
-	                           cex_exchange, cwdata->nbpeers) ) {
-#ifdef MCS_DCWSTATS
-		DCWSTATS_REJECT(DCW_REJ_CEXCONF);
-		cwlog_refuse(DCW_REJ_CEXCONF, peerid, req->caid, req->provid, req->sid, cw);
-#endif
-		debugf(getdbgflag(DBG_CACHE,0,0), " [CACHEEX GATE] CWCHECK: holding cw, %d/%d confirmations ch %04x:%06x:%04x\n",
-			cwdata->nbpeers,
-			cex_gate_check > (int)cfg.cache.threshold ? cex_gate_check : (int)cfg.cache.threshold,
-			req->caid, req->provid, req->sid);
-		return DCW_ERROR | DCW_SKIP;
-	}
-
-	/*
-	 * TASK R8 (D62) -- the consensus verdict. Armed by CACHE CONSENSUS: ON,
-	 * this is the point where a structurally clean key still has to answer
-	 * for WHO vouches for it. HOLD = stock CWCHECK's skip shape (the key is
-	 * stored, nothing delivers, the window walk or a second distinct voter
-	 * resumes it); REFUSE = lost a weighted decision, node dead + counter +
-	 * ladder event. OFF (default) = zero cost, zero lines, stock byte for
-	 * byte. CSP/unknown senders vote with full weight: they are the other
-	 * layers' problem (FILTER/THRESHOLD/cacheguard), as documented in D62.
-	 */
-	if (cfg.cache.consensus) {
-		/* TASK R29 (D80): apply the operator's corroboration
-		 * threshold (0/unset = engine default 2). Cheap enough to
-		 * restate per arrival; a config reload takes effect on the
-		 * very next push. */
-		cwconsensus_set_min_sources(cfg.cache.consensus_sources >= 2
-					    ? cfg.cache.consensus_sources : 2);
-		int cw_weight = 1;
-		{
-			struct cachepeer_data *vc_peer = getpeerbyid(peerid);
-			if ( vc_peer && (peerrep_stage(vc_peer->host->ip, vc_peer->port) >= 1) )
-				cw_weight = 0; /* already distrusted: the vote counts nothing */
-		}
-		{
-			uint32_t cwin = (uint32_t)cfg.cache.consensus_window;
-			const uint8_t *cwl = NULL;
-			int cv;
-			if (cwin < 100) cwin = 100;
-			if (cwin > 2000) cwin = 2000;
-			cv = cwconsensus_verdict(req->caid, req->sid, req->hash, req->tag,
-			                         cw, peerid, cw_weight, GetTickCount(),
-			                         cwin, &cwl);
-			if ( cv==CWC_HOLD ) {
-#ifdef MCS_DCWSTATS
-				cwlog_hold(peerid, req->caid, req->provid, req->sid, cw);
-#endif
-				debugf(getdbgflag(DBG_CACHE,0,0),
-					" [CONSENSUS] holding cw for corroboration (%d distinct so far) ch %04x:%06x:%04x\n",
-					1, req->caid, req->provid, req->sid);
-				return DCW_ERROR | DCW_SKIP;
-			}
-			if ( cv==CWC_REFUSE ) {
-#ifdef MCS_DCWSTATS
-				DCWSTATS_REJECT(DCW_REJ_CONSENSUS);
-				cwlog_refuse(DCW_REJ_CONSENSUS, peerid, req->caid, req->provid, req->sid, cw);
-#endif
-				{
-					struct cachepeer_data *rl_peer = getpeerbyid(peerid);
-					if (rl_peer) peerrep_event(rl_peer, "consensus-mismatch");
-				}
-				cwdata->status |= DCW_ERROR;
-				debugf(getdbgflag(DBG_CACHE,0,0),
-					" [CONSENSUS] cw refused: lost the weighted decision for ch %04x:%06x:%04x (peer %d)\n",
-					req->caid, req->provid, req->sid, peerid & PEER_ID_MASK);
-				return cwdata->status;
-			}
-			if ( cwl ) {
-				/* won against a HELD loser: kill its node so the
-				 * window walk can never release it later */
-				struct cw_cache_data *clw = pcache->cwdata;
-				while (clw) {
-					if ( dcwcmp16(clw->cw, cwl) ) { clw->status |= DCW_ERROR; break; }
-					clw = clw->next;
-				}
-				debugf(getdbgflag(DBG_CACHE,0,0),
-					" [CONSENSUS] cw delivered on the weighted decision for ch %04x:%06x:%04x\n",
-					req->caid, req->provid, req->sid);
-			}
-		}
-	}
-
-	// ACCEPTED
-	if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
-	if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, peerid);
-
+    int piped = 0;
+    cwcycle_t incoming_cycle = cwcycle;
+    uint8_t previous_status = cwdata->status;
+    cwcycle_t previous_cycle = cwdata->cwcycle;
+    uint32_t previous_peerid = cwdata->peerid;
 	// Half Nulled CW
 	char nullcw[8] = "\0\0\0\0\0\0\0\0";
 	if ( !dcwcmp8(cw,nullcw) && !dcwcmp8(cw+8,nullcw) ) {
@@ -1959,6 +1720,11 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 				cwdata->status |= DCW_CYCLE;
 				cwdata->cwcycle = pcache->cwcycle;
 				cwdata->peerid = peerid;
+				cwdata->status |= DCW_PEER_READY;
+				/* The source entry passed its cycle gate; only now may it
+				 * be considered for the optional cross-entry relays. */
+				if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
+				if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, peerid);
 				if ( (pcache->flags&CACHE_FLAG_SENDPIPE) && !(cwdata->status&DCW_SENT) ) {
 					pipe_cache2ecm_find_success(pcache, cw, peerid);
 					piped = 1;   /* TASK R11 (D65) */
@@ -1972,7 +1738,15 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			cwdata->status |= cache_fetch_goodcw(pcache, cw, &cwcycle);
 			cwdata->cwcycle = cwcycle;
 			cwdata->peerid = peerid;
-			if (!(cwdata->status&DCW_CYCLE)) return cwdata->status; //XXX
+			if (!(cwdata->status&DCW_CYCLE)) {
+				char detail[128];
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache not forwarded: filter did not establish cycle", cw);
+				snprintf(detail, sizeof(detail), "cache cycle context: incoming=%s; expected=%s; previous CW=%s",
+				         cwcy_str((int)incoming_cycle), cwcy_str((int)pcache->cwcycle),
+				         isnullDCW(pcache->prevcw) ? "absent" : "present");
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
+				return cwdata->status | DCW_ERROR | DCW_SKIP;
+			}
 		}
 		else {
 			// update new dcw
@@ -2035,12 +1809,25 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			 * based refusals (half-nulled non-NDS) and the consensus
 			 * convictions keep their node marks: those judge the bytes.
 			 */
-			return cwdata->status;
+			{
+				char detail[128];
+				snprintf(detail, sizeof(detail), "cache cycle mismatch: expected=%s; assessed=%s; incoming=%s",
+				         cwcy_str((int)pcache->cwcycle), cwcy_str((int)cwcycle), cwcy_str((int)incoming_cycle));
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
+			}
+			/* A rejected declaration must not make a new stored candidate
+			 * look cycle-approved to a later FIND or peer request. Preserve
+			 * any prior accepted declaration for these same CW bytes. */
+			cwdata->status = (cwdata->status & ~DCW_CYCLE) | (previous_status & DCW_CYCLE);
+			cwdata->cwcycle = previous_cycle;
+			cwdata->peerid = previous_peerid;
+			return cwdata->status | DCW_ERROR | DCW_SKIP;
 		}
 	}
 	else {
 		// half nulled cw: exit if non-nds
 		if ( !ca_halfnull_ok(req->caid) ) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: half-null not allowed for CAID family", cw);
 			cwdata->status |= DCW_ERROR;
 			return cwdata->status;
 		}
@@ -2052,6 +1839,12 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		cwdata->cwcycle = cwcycle;
 		cwdata->peerid = peerid; // CSP CACHE
 	}
+
+	cwdata->status |= DCW_PEER_READY;
+	/* Do not relay a source candidate that its own cycle/family gate
+	 * rejected. This is after the final gate on the normal path. */
+	if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
+	if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, peerid);
 
 	if ( (pcache->flags&CACHE_FLAG_SENDPIPE) && !(cwdata->status&DCW_SENT) ) {
 		cwdata->status |= DCW_SENT;
@@ -2095,6 +1888,372 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	return cwdata->status;
 }
 
+int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int peerid )
+{
+	/*
+	 * TASK 3.15 — the waiting ECM's profile, if it has one. No waiter
+	 * means the global gate, which is what an unsolicited push saw
+	 * before. A profile that inherits also sees the global gate.
+	 *
+	 * TASK R1 — the exchange gates. Everything arriving from the TCP
+	 * cache-exchange family (cccam/camd35/cs378x cacheex peers, both
+	 * directions; never CSP and never a card server) can now be gated
+	 * per profile: LOCAL_ONLY drops unsolicited pushes before the cache
+	 * entry is even created, BLOCK_FAKE_CW forces the deterministic r82a
+	 * content tests, CWCHECK raises a confirmation floor. CSP is
+	 * deliberately out of scope (it has FILTER/THRESHOLD/cacheguard);
+	 * unarmed profiles behave exactly as before, instruction for
+	 * instruction.
+	 */
+	int cex_exchange;
+	int cex_gate_fake, cex_gate_check;
+	user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache CW entered validation; decision pending", cw);
+	{
+		struct cache_data *pend = cache_fetch(req);
+		struct cardserver_data *pcs = (pend && pend->ecm) ? pend->ecm->cs : NULL;
+		int has_waiter = (pend && pend->ecm) ? 1 : 0;
+		cex_exchange = cex_is_exchange(peerid);
+		int gate_local = cfg.cache.gate_localonly;
+		cex_gate_fake  = cfg.cache.gate_blockfake;
+		cex_gate_check = cfg.cache.gate_cwcheck;
+		if (pcs) {
+			if (pcs->option.fexblockfake) cex_gate_fake = 1;
+			if (pcs->option.excheck > cex_gate_check) cex_gate_check = pcs->option.excheck;
+		}
+		/* LOCAL_ONLY: an exchange push with no waiting local ECM never
+		 * seeds the cache -- returned BEFORE cache_new(), so nothing is
+		 * stored, nothing is served later, and the key cannot pre-poison
+		 * a future request. */
+		if ( cex_localonly_drop(gate_local, cex_exchange, has_waiter) ) {
+			user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: CacheEX local-only gate", cw);
+#ifdef MCS_DCWSTATS
+			DCWSTATS_REJECT(DCW_REJ_CEXLOCAL);
+			cwlog_refuse(DCW_REJ_CEXLOCAL, peerid, req->caid, req->provid, req->sid, cw);
+#endif
+			debugf(getdbgflag(DBG_CACHE,0,0), " [CACHEEX GATE] LOCAL_ONLY: unsolicited push dropped ch %04x:%06x:%04x\n", req->caid, req->provid, req->sid);
+			return -1;
+		}
+		int validation_reason = DCW_VALID;
+		if ( !acceptDCW_profile_ca_sid_reason(cw, pcs, req->caid, req->sid, &validation_reason) ) {
+		const char *why = "cache rejected: profile CW validation; specific check unknown";
+		switch (validation_reason) {
+		case DCW_INVALID_CHECKSUM: why = "cache rejected: profile CW checksum validation failed"; break;
+		case DCW_INVALID_NULL: why = "cache rejected: profile CW null-word validation failed"; break;
+		case DCW_INVALID_REPEAT: why = "cache rejected: profile CW repeated-byte validation failed"; break;
+		case DCW_INVALID_BADLIST: why = "cache rejected: profile CW operator BAD-DCW list"; break;
+		case DCW_INVALID_PATTERN: why = "cache rejected: profile CW enabled pattern validation"; break;
+		default: break;
+		}
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, why, cw);
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+		    pcs ? "cache CW validation policy: attached ECM profile" : "cache CW validation policy: global; no attached ECM profile", cw);
+		/*
+		 * TASK 2.4 -- the blind spot this closes, found by running the live
+		 * target and watching nothing arrive.
+		 *
+		 * Every evidence hook in this project (TASK 1.8's structural scan,
+		 * 2.2's entropy and collision scan, 2.4's plausibility scan) is placed
+		 * in setdcw.c ABOVE the acceptDCW() gate, precisely so that the key
+		 * most worth examining -- the one about to be discarded -- is examined
+		 * anyway. For a key that arrives from a card server that holds, because
+		 * srv-newcamd.c calls ecm_setdcw() and setdcw.c does the gating.
+		 *
+		 * A key that arrives THROUGH THE CACHE does not: this function gates
+		 * first and returns -1, so the key never reaches setdcw.c and no layer
+		 * ever sees it. Measured live: four forged keys from a cache peer, four
+		 * replies, zero deliveries and a stats line reading
+		 * `0 full, 0 one-group` -- the layer was blind, not quiet.
+		 *
+		 * The call is on the REJECTING path only, so a key that passes is
+		 * counted exactly once, where it is delivered. The source attribution is
+		 * the cache's own: (DCW_SOURCE_CACHE, peerid), the same pair
+		 * ecm_setdcw() uses a few lines below, so GR1 holds as before.
+		 */
+		cwp_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
+			 GetTickCount());
+		cm_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
+		        GetTickCount());
+#ifdef MCS_DCWSTATS
+		/* TASK R11 (D65): the specific test (checksum/null/repeat/
+		 * badlist) is counted inside dcw.c; the ring row carries the
+		 * channel and the peer, which dcw.c cannot see here. */
+		cwlog_refuse(CWLOG_R_PROFILE, peerid, req->caid, req->provid, req->sid, cw);
+#endif
+		return -1;
+	}
+		/* TASK R1 — BLOCK_FAKE_CW: the two deterministic r82a content
+		 * tests, forced for exchange arrivals when the gate is armed.
+		 * The rejected key gets the same evidence treatment as a
+		 * profile-gate rejection (the TASK 2.4 doctrine: the key most
+		 * worth examining is the one about to be discarded). */
+		if ( cex_fake_reject(cex_gate_fake, cex_exchange,
+		                     checksumDCW(cw) && !isbadDCW(cw)) ) {
+            user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+                "cache rejected: CacheEX BLOCK_FAKE_CW gate", cw);
+#ifdef MCS_DCWSTATS
+			DCWSTATS_REJECT(DCW_REJ_CEXFAKE);
+			cwlog_refuse(DCW_REJ_CEXFAKE, peerid, req->caid, req->provid, req->sid, cw);
+#endif
+			{ struct cachepeer_data *pr_peer = getpeerbyid(peerid); /* TASK R4 (D58) */
+			  if (pr_peer) peerrep_event(pr_peer, "cacheex-fake-cw"); }
+			cwp_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
+			         GetTickCount());
+			cm_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
+			        GetTickCount());
+			debugf(DBG_ERROR, " !!! [CACHEEX GATE] BLOCK_FAKE_CW: fake cw from exchange peer (%x|%d) ch %04x:%06x:%04x\n",
+				peerid & PEER_ORIGIN_FLAGS, peerid & PEER_ID_MASK,
+				req->caid, req->provid, req->sid);
+			return -1;
+		}
+	}
+
+	/*
+	 * TASK 2.6 -- negative memory gate. A key that a definitive proof (the
+	 * ledger's dispute-plus-client-failure, or a reuse proof) has convicted
+	 * never enters the cache again: no storage, no peer-agreement count, no
+	 * delivery -- to this client or any other. Placed AFTER the plausibility
+	 * note on purpose, so 2.4's counting of refused keys is unchanged, and
+	 * BEFORE the entry lookup, so a refused key costs nothing at all. The
+	 * gate only answers "are these bytes remembered poison for this
+	 * channel"; every score and every disable remains the proof's job.
+	 */
+	if ( cwn_gate(cw, req->caid, req->provid, req->sid, GetTickCount()) ) {
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: negative memory gate", cw);
+#ifdef MCS_DCWSTATS
+		cwlog_refuse(CWLOG_R_CONVICTED, peerid, req->caid, req->provid, req->sid, cw);
+#endif
+		return DCW_ERROR;
+	}
+
+	/*
+	 * TASK R30 (D81) -- attestation gate. A key that independent clients
+	 * filed by re-asking too soon after the same delivered bytes gets
+	 * exactly the negative-memory treatment -- refused before storage,
+	 * agreement counting or delivery -- except that the filing EXPIRES
+	 * (CWATTEST_TTL_MS): attestation is strong evidence, not a GR3
+	 * proof. No-op unless CACHE ATTEST is armed.
+	 */
+	if ( attest_gate(cw, req->caid, req->provid, req->sid, GetTickCount()) ) {
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: attestation gate", cw);
+#ifdef MCS_DCWSTATS
+		cwlog_refuse(CWLOG_R_CONVICTED, peerid, req->caid, req->provid, req->sid, cw);
+#endif
+		return DCW_ERROR;
+	}
+
+	// Search for Cache data
+	struct cw_cache_data *cwdata = NULL;
+	struct cache_data *pcache = cache_fetch( req );
+	if (pcache==NULL) pcache = cache_new( req );
+	else {
+		if (!pcache->tag) pcache->tag = req->tag; // set tag if not set (coming from cahceex)
+		if (!pcache->provid && req->provid) pcache->provid = req->provid; // set provid if not set (coming from csp)
+		// check for dcw
+		cwdata = pcache->cwdata;
+		while (cwdata) {
+			if ( dcwcmp16(cwdata->cw, cw) ) break;
+			cwdata = cwdata->next;
+		}
+	}
+	/* TASK 3.4: neither a fetch nor a new entry was possible (allocation
+	 * failed). The report is dropped this round -- the key is not stored and
+	 * not counted -- which is the same outcome a cache entry past its alive
+	 * time already produces; the peers' own retry brings it back. */
+	if (!pcache) {
+        user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+            "cache rejected: cache entry unavailable", cw);
+        return DCW_ERROR;
+    }
+
+	/*
+	 * TASK 2.5 -- what the peer OFFERED, judged against the half the pending
+	 * ECM declared (pcache->cwcycle, written by the ECM thread's FIND from the
+	 * channel's own rule). The observed marker is the peer's own declaration
+	 * on the wire -- buf[29] for forwarding CSP peers, always NO_CYCLE for
+	 * cache-ex -- sanitised to the three wire values; a fresh entry (no
+	 * pending ECM) has cwcycle NO_CYCLE, so the observation lands UNJUDGED
+	 * instead of inventing an expectation. The note happens BEFORE any gate
+	 * below: a contradiction is evidence about the peer whether or not the
+	 * existing Check Cycle gate eats the key. It cannot change anything here
+	 * -- it counts and, at most, writes one line per window (GR3: evidence,
+	 * never an accusation).
+	 */
+	ccy_note(DCW_SOURCE_CACHE, peerid, req->caid, req->provid, req->sid,
+	         GetTickCount(), CWCY_AT_RECV,
+	         pcache->cwcycle, cwcy_observed((int)cwcycle));
+
+	// add new if not found
+	if (!cwdata) {
+		cwdata = malloc( sizeof(struct cw_cache_data) );
+		/* TASK 3.4: the agreement record for this key could not be extended;
+		 * dropping the report keeps the counters honest (no phantom peer was
+		 * counted, no key was delivered on a bookkeeping failure). */
+		if (!cwdata) {
+            user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+                "cache rejected: CW record allocation failed", cw);
+            return DCW_ERROR;
+        }
+		memset( cwdata, 0, sizeof(struct cw_cache_data) );
+		memcpy(cwdata->cw, cw, 16);
+		cwdata->status = 0;
+		cwdata->cwcycle = NO_CYCLE;
+		cwdata->peerid = peerid;
+		cwdata->next = pcache->cwdata;
+		pcache->cwdata = cwdata;
+	}
+	cwdata->nbpeers++;
+
+	if (cwdata->status&DCW_ERROR) {
+        user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+            "cache rejected: existing CW record marked error; original cause unknown", cw);
+        return DCW_ERROR;
+    }
+
+	// TEST for min Peers
+	/*
+	 * TASK 1.11a — was `nbpeers != cfg.cache.threshold`.
+	 *
+	 * `!=` is not a minimum. With the default threshold of 1 it behaves like
+	 * one, so the bug is invisible in a default install, but `CACHE THRESHOLD: 2`
+	 * accepted a CW on exactly the second peer and rejected it for the third and
+	 * every peer after that. The comparison is now a real floor; see
+	 * cache_threshold.h for the full argument and test_cache_threshold.c for the
+	 * cases.
+	 */
+	if ( !cache_threshold_reached(cwdata->nbpeers, cfg.cache.threshold) ) {
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache held: threshold not reached", cw);
+#ifdef MCS_DCWSTATS
+		/* TASK R11 (D65): the stock skip, now visible per key. Never
+		 * fires at the default threshold of 1. */
+		cwlog_refuse(CWLOG_R_THRESHOLD, peerid, req->caid, req->provid, req->sid, cw);
+#endif
+		return DCW_ERROR | DCW_SKIP;
+	}
+
+	/* TASK R1 — CWCHECK: an exchange arrival waits for confirmations.
+	 * The same CW (the existing nbpeers arrival counter, any cache
+	 * source) must cross the floor before it is served; until then the
+	 * normal DCW TIMEOUT flow to real servers is untouched. Placed
+	 * exactly at the stock threshold site, with the stock SKIP result:
+	 * a held key is not an error event, it is an unconfirmed one. */
+	if ( cex_check_below_floor(cex_gate_check, cfg.cache.threshold,
+	                           cex_exchange, cwdata->nbpeers) ) {
+		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache held: CacheEX confirmation threshold", cw);
+#ifdef MCS_DCWSTATS
+		DCWSTATS_REJECT(DCW_REJ_CEXCONF);
+		cwlog_refuse(DCW_REJ_CEXCONF, peerid, req->caid, req->provid, req->sid, cw);
+#endif
+		debugf(getdbgflag(DBG_CACHE,0,0), " [CACHEEX GATE] CWCHECK: holding cw, %d/%d confirmations ch %04x:%06x:%04x\n",
+			cwdata->nbpeers,
+			cex_gate_check > (int)cfg.cache.threshold ? cex_gate_check : (int)cfg.cache.threshold,
+			req->caid, req->provid, req->sid);
+		return DCW_ERROR | DCW_SKIP;
+	}
+
+	/*
+	 * TASK R8 (D62) -- the consensus verdict. Armed by CACHE CONSENSUS: ON,
+	 * this is the point where a structurally clean key still has to answer
+	 * for WHO vouches for it. HOLD = stock CWCHECK's skip shape (the key is
+	 * stored, nothing delivers, the window walk or a second distinct voter
+	 * resumes it); REFUSE = lost a weighted decision, node dead + counter +
+	 * ladder event. OFF (default) = zero cost, zero lines, stock byte for
+	 * byte. CSP/unknown senders vote with full weight: they are the other
+	 * layers' problem (FILTER/THRESHOLD/cacheguard), as documented in D62.
+	 */
+	if (cfg.cache.consensus) {
+		/* TASK R29 (D80): apply the operator's corroboration
+		 * threshold (0/unset = engine default 2). Cheap enough to
+		 * restate per arrival; a config reload takes effect on the
+		 * very next push. */
+		cwconsensus_set_min_sources(cfg.cache.consensus_sources >= 2
+					    ? cfg.cache.consensus_sources : 2);
+		int cw_weight = 1;
+		{
+			struct cachepeer_data *vc_peer = getpeerbyid(peerid);
+			if ( vc_peer && (peerrep_stage(vc_peer->host->ip, vc_peer->port) >= 1) )
+				cw_weight = 0; /* already distrusted: the vote counts nothing */
+		}
+		{
+			uint32_t cwin = (uint32_t)cfg.cache.consensus_window;
+			const uint8_t *cwl = NULL;
+			int cv;
+			if (cwin < 100) cwin = 100;
+			if (cwin > 2000) cwin = 2000;
+			uint32_t vote_tick = GetTickCount();
+			cv = cwconsensus_verdict(req->caid, req->sid, req->hash, req->tag,
+			                         cw, peerid, cw_weight, vote_tick,
+			                         cwin, &cwl);
+			{
+				int distinct = 0, weight = 0;
+				char detail[128];
+				int known = cwconsensus_vote_counts(req->caid, req->sid, req->hash, req->tag,
+				                                    cw, vote_tick, cwin, &distinct, &weight);
+				if (known) {
+					snprintf(detail, sizeof(detail), "cache consensus vote: verdict=%s; peer IDs=%d; weight=%d; threshold=%d",
+					         cv==CWC_HOLD ? "held" : (cv==CWC_REFUSE ? "refused" : "proceed"),
+					         distinct, weight, cfg.cache.consensus_sources >= 2 ? cfg.cache.consensus_sources : 2);
+				} else {
+					snprintf(detail, sizeof(detail), "cache consensus vote: no candidate slot; verdict=%s; agreement unconfirmed",
+					         cv==CWC_DELIVER ? "proceed" : "other");
+				}
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
+				if (!known) {
+					struct cwconsensus_capacity cap;
+					cwconsensus_capacity(vote_tick, cwin, &cap);
+					snprintf(detail, sizeof(detail), "cache consensus capacity: used=%d/%d; held=%d; overdue=%d; reclaimable=%d; oldest hold=%u ms; window=%u ms",
+					         cap.used, cap.capacity, cap.held, cap.overdue, cap.reclaimable,
+					         cap.oldest_hold_ms, cwin);
+					user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
+				}
+			}
+			if ( cv==CWC_HOLD ) {
+				cwconsensus_hold_cycle(req->caid, req->sid, req->hash, req->tag, cw, peerid, cwcycle);
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache held: consensus awaiting corroboration", cw);
+#ifdef MCS_DCWSTATS
+				cwlog_hold(peerid, req->caid, req->provid, req->sid, cw);
+#endif
+				debugf(getdbgflag(DBG_CACHE,0,0),
+					" [CONSENSUS] holding cw for corroboration ch %04x:%06x:%04x\n",
+					req->caid, req->provid, req->sid);
+				return DCW_ERROR | DCW_SKIP;
+			}
+			if ( cv==CWC_REFUSE ) {
+				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+				    cwl ? "cache rejected: consensus weighted decision" : "cache rejected: consensus decision; weighted loss not established for this arrival", cw);
+#ifdef MCS_DCWSTATS
+				DCWSTATS_REJECT(DCW_REJ_CONSENSUS);
+				cwlog_refuse(DCW_REJ_CONSENSUS, peerid, req->caid, req->provid, req->sid, cw);
+#endif
+				{
+					struct cachepeer_data *rl_peer = getpeerbyid(peerid);
+					/* Only a weighted loss returns conflicting CW evidence. A timing
+					 * tie or sticky refusal does not condemn this sender. */
+					if (rl_peer && cwl) peerrep_event(rl_peer, "consensus-mismatch");
+				}
+				cwdata->status |= DCW_ERROR;
+				debugf(getdbgflag(DBG_CACHE,0,0),
+					" [CONSENSUS] cw refused: lost the weighted decision for ch %04x:%06x:%04x (peer %d)\n",
+					req->caid, req->provid, req->sid, peerid & PEER_ID_MASK);
+				return cwdata->status;
+			}
+			if ( cwl ) {
+				/* won against a HELD loser: kill its node so the
+				 * window walk can never release it later */
+				struct cw_cache_data *clw = pcache->cwdata;
+				while (clw) {
+					if ( dcwcmp16(clw->cw, cwl) ) { clw->status |= DCW_ERROR; break; }
+					clw = clw->next;
+				}
+				debugf(getdbgflag(DBG_CACHE,0,0),
+					" [CONSENSUS] cw delivered on the weighted decision for ch %04x:%06x:%04x\n",
+					req->caid, req->provid, req->sid);
+			}
+		}
+	}
+
+	return cache_after_consensus(req, pcache, cwdata, cw, cwcycle, peerid);
+}
+
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2130,6 +2289,39 @@ void *cache_queue_thread(void *param);
 
 #endif /* CACHE_QUEUE */
 
+/* The first 12 bytes of a CSP reply contain only an untrusted claimed
+ * channel and fingerprint. Never attach these drops to a client or CW. */
+static void cache_trace_csp_drop(const unsigned char *buf, int len, int peerid,
+                                 const char *reason)
+{
+    char detail[128];
+    uint32_t hash;
+    if (len < 12) {
+        user_trace_note_short_csp_reply();
+        return;
+    }
+    hash = ((uint32_t)buf[8] << 24) | ((uint32_t)buf[9] << 16) |
+           ((uint32_t)buf[10] << 8) | (uint32_t)buf[11];
+    snprintf(detail, sizeof(detail), "CSP reply dropped: %s; length=%d; header unverified", reason, len);
+    user_trace_cache_observation((uint16_t)((buf[6]<<8)|buf[7]), 0,
+        (uint16_t)((buf[2]<<8)|buf[3]), hash, peerid, detail, NULL);
+}
+
+/* Apply the same stored-candidate policy to ordinary CSP requests and
+ * resend requests. The caller holds lockcache. This says only that a stored
+ * candidate passed the applicable cache gates, not that it produces picture. */
+static int cache_peer_candidate_eligible(struct cache_data *entry,
+                                         struct cw_cache_data *candidate)
+{
+    if (candidate->status & DCW_ERROR) return 0;
+    if (!(candidate->status & DCW_PEER_READY)) return 0;
+    if (candidate->nbpeers < cfg.cache.threshold &&
+        !((candidate->status & DCW_LOCAL_SOURCE) && cfg.cache.threshold <= 1)) return 0;
+    if (cfg.cache.consensus && cwconsensus_is_held(entry->caid, entry->sid,
+            entry->hash, entry->tag, candidate->cw)) return 0;
+    return 1;
+}
+
 void cache_recvmsg(struct cacheserver_data *cache)
 {
 	unsigned int recv_ip;
@@ -2154,7 +2346,11 @@ void cache_recvmsg(struct cacheserver_data *cache)
 #else
 	int received = recvfrom( cache->handle, buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
 #endif
-	if ( (received<2)||(received>512) ) return;
+	if ( (received<2)||(received>512) ) {
+        if (received > 0 && buf[0] == TYPE_REPLY)
+            cache_trace_csp_drop(buf, received, 0, received > 512 ? "oversized datagram" : "incomplete header");
+        return;
+    }
 	memcpy( &recv_ip, &si_other.sin_addr, 4);
 	recv_port = ntohs(si_other.sin_port);
 
@@ -2171,6 +2367,8 @@ void cache_recvmsg(struct cacheserver_data *cache)
 		int cgmin = cg_minlen( buf[0] );
 		if ( received < cgmin ) {
 			cg_note_short( buf[0], received, recv_ip, recv_port );
+            if (buf[0] == TYPE_REPLY)
+                cache_trace_csp_drop(buf, received, 0, "incomplete integrity header");
 			return;
 		}
 	}
@@ -2215,10 +2413,16 @@ void cache_recvmsg(struct cacheserver_data *cache)
 					if ( cfg.cache.forward || ((peer->ismultics)&&(peer->protocol&BIT_CACHE_HACK)) )
 					if ( pcache->cwdata && !(pcache->flags&CACHE_FLAG_SENDPIPE) ) {
 						struct cw_cache_data *cwdata = pcache->cwdata;
+						int peer_defer_noted = 0;
 						while (cwdata) {
-							if (!(cwdata->status&DCW_ERROR)) {
+							if (cache_peer_candidate_eligible(pcache, cwdata)) {
 								cache_send_reply( pcache, peer, cwdata->cw);
 								if (cfg.cache.forward) peer->sentrep++;
+							} else if (!peer_defer_noted) {
+								user_trace_cache_observation(pcache->caid, pcache->provid,
+								    pcache->sid, pcache->hash, peer->id|PEER_CSP,
+								    "cache peer reply deferred: candidate not approved, held or below threshold", NULL);
+								peer_defer_noted = 1;
 							}
 							cwdata = cwdata->next;
 						}
@@ -2233,14 +2437,22 @@ void cache_recvmsg(struct cacheserver_data *cache)
 		case TYPE_REPLY:
 			// Check Peer
 			peer = getpeerbyaddr(cache, recv_ip,recv_port);
-			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
+			if (!peer) {
+                cg_note_unknown(buf[0], recv_ip, recv_port);
+                cache_trace_csp_drop(buf, received, 0, "unknown sender");
+                break;
+            }
 			// Check Status
-			if (IS_DISABLED(peer->flags)) break;
+			if (IS_DISABLED(peer->flags)) {
+                cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, "configured peer disabled");
+                break;
+            }
 			/* TASK R4 (D58): an isolated peer's push is dropped unprocessed
 			 * -- but the arrival itself still counts: after confirmed
 			 * contradictions, choosing to keep pushing is the peer's own
 			 * escalation (reason push-while-isolated). Off = never speaks. */
 			if ( !peerrep_push_ok(peer->host->ip, peer->port) ) {
+                cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, "peer reputation isolation");
 				peerrep_event(peer, "push-while-isolated");
 				debugf(getdbgflag(DBG_CACHE,0,peer->id),
 					" [PEER REP] push from %s:%u dropped unprocessed\n",
@@ -2248,7 +2460,10 @@ void cache_recvmsg(struct cacheserver_data *cache)
 				break;
 			}
 			// Check Integrity
-			if (buf[12]!=buf[1]) break;
+			if (buf[12]!=buf[1]) {
+                cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, "integrity tag mismatch");
+                break;
+            }
 			// SetUp Request
 			req.tag = buf[1];
 			req.sid = (buf[2]<<8) | buf[3];
@@ -2346,8 +2561,14 @@ void cache_recvmsg(struct cacheserver_data *cache)
 							}
 						}
 #endif
-				}
-			}
+				} else {
+                    cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, "incomplete CW payload");
+                }
+			} else {
+                const char *why = ((req.tag & 0xfe) != 0x80) ? "invalid ECM tag" :
+                    (!req.caid || !req.hash || !req.sid) ? "missing channel or hash" : "CAID not allowed by cache";
+                cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, why);
+            }
 
 			pthread_mutex_unlock( &prg.lockcache );
 			break;
@@ -2373,14 +2594,20 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			// Check Cache Request
 			if ( cache_check(&req) ) {
 				struct cache_data *pcache = cache_fetch( &req );
-				if (pcache!=NULL) {
+				if (pcache!=NULL && !(pcache->flags&CACHE_FLAG_SENDPIPE)) {
 					buf[4] = TYPE_REPLY;
 					buf[16] = buf[5];
 					struct cw_cache_data *cwdata = pcache->cwdata;
+					int peer_defer_noted = 0;
 					while (cwdata) {
-						if (!(cwdata->status&DCW_ERROR)) {
+						if (cache_peer_candidate_eligible(pcache, cwdata)) {
 							memcpy( buf+17, cwdata->cw, 16);
 							sendtopeer( peer, buf+4, 29);
+						} else if (!peer_defer_noted) {
+							user_trace_cache_observation(pcache->caid, pcache->provid,
+							    pcache->sid, pcache->hash, peer->id|PEER_CSP,
+							    "cache peer reply deferred: candidate not approved, held or below threshold", NULL);
+							peer_defer_noted = 1;
 						}
 						cwdata = cwdata->next;
 					}
@@ -2541,6 +2768,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			int peerid = (buf[4]<<8) | buf[5];
 			while (peer) {
 				if ( (peer->host->ip==recv_ip)&&(peer->id==peerid) ) {
+					if (IS_DISABLED(peer->flags)) break;
 					peer->protocol = 0;
 					peer->recvport = recv_port;
 					peer->lastpingrecv = GetTickCount();
@@ -2560,6 +2788,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 									peer->host->name, peer->port);
 							}
 						}
+						if (IS_DISABLED(peer->flags)) { peer->ping = 0; break; }
 						peer->ping = peer->lastpingrecv-peer->lastpingsent;
 						//ipeer_update(cache);
 					}
@@ -2578,6 +2807,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 					peer = cache->peer;
 					while (peer) {
 						if ( (peer->host->ip==recv_ip)&&(peer->id==peerid) ) {
+							if (IS_DISABLED(peer->flags)) break;
 							// Check for private new cache
 							uint8_t k[4]; k[0] = cache->port>>8; k[1] = cache->port; k[2]=peer->port>>8; k[3]=peer->port; 
 							fase( k, peer->crc);
@@ -2599,6 +2829,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 											peer->host->name, peer->port);
 									}
 								}
+								if (IS_DISABLED(peer->flags)) { peer->ping = 0; break; }
 								peer->ping = peer->lastpingrecv-peer->lastpingsent;
 								//ipeer_update(cache);
 							}
@@ -2615,7 +2846,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 								int i;
 								for (i=0; i<100; i++) {
 									if (peer->sharelimits[i].caid==0xffff) break;
-									uint32_t caprov = (peer->sharelimits[i].caid<<16)|(peer->sharelimits[i].provid);
+									uint32_t caprov = ((uint32_t)peer->sharelimits[i].caid << 16)|(peer->sharelimits[i].provid);
  									buf[pos] = caprov>>24;
  									buf[pos+1] = caprov>>16;
  									buf[pos+2] = caprov>>8;
@@ -2639,7 +2870,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 									int i;
 									if (cs->option.fallowcache)
 									for (i=0; i<cs->card.nbprov; i++) {
-										uint32_t caprov = (cs->card.caid<<16)|(cs->card.prov[i].id);
+										uint32_t caprov = ((uint32_t)cs->card.caid << 16)|(cs->card.prov[i].id);
  										buf[pos] = caprov>>24;
  										buf[pos+1] = caprov>>16;
  										buf[pos+2] = caprov>>8;
@@ -2669,7 +2900,8 @@ void cache_recvmsg(struct cacheserver_data *cache)
 		case TYPE_CARD_LIST:
 			// Check Peer
 			peer = getpeerbyaddr(cache, recv_ip,recv_port);
-			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
+			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; } /* TASK 2.9 */
+			if (IS_DISABLED(peer->flags)) break;
 			// reset cards
 			int idx = 0;
 			if (buf[1]&1) memset( peer->cards, 0, sizeof(peer->cards) ); 
@@ -2678,7 +2910,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			int totalcards = (received-2)/4;
 			int j=0;
 			while ( (j<totalcards)&&(idx<1024) ){
-				peer->cards[idx] = (buf[2+j*4]<<24)|(buf[3+j*4]<<16)|(buf[4+j*4]<<8)|(buf[5+j*4]);
+				peer->cards[idx] = ((uint32_t)buf[2+j*4]<<24)|((uint32_t)buf[3+j*4]<<16)|((uint32_t)buf[4+j*4]<<8)|buf[5+j*4];
 				j++; idx++;
 			}
 			peer->nbcards = idx;
@@ -2723,15 +2955,18 @@ void cache_recvmsg(struct cacheserver_data *cache)
 		case TYPE_SMS:
 			peer = getpeerbyaddr(cache, recv_ip,recv_port);
 			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
+			if (IS_DISABLED(peer->flags)) break;
 			if (received<6) break;
 			uint32_t hash = (buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
 			buf[received] = 0;
-			//
-			peer_check_messages( peer );
-			// Create data
+			// Reject an oversized escaped message without storing it or sending ACK.
 			struct sms_data *sms = malloc( sizeof(struct sms_data) );
-			stringtohtml( buf+5, sms->msg);
-//			strcpy( sms->msg, (char*)buf+5);
+			if (!sms) break;
+			if (!stringtohtml((const char *)buf+5, sms->msg, sizeof(sms->msg))) {
+				free(sms);
+				break;
+			}
+			peer_check_messages( peer );
 			sms->hash = hash;
 			sms->status = 0; // bit 0 (0:in,1:out) bit 1 (0:unread/unAck, 1:read/ack)
 			sms->rawtime = time(NULL);
@@ -2751,6 +2986,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 		case TYPE_SMS_ACK:
 			peer = getpeerbyaddr(cache, recv_ip,recv_port);
 			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
+			if (IS_DISABLED(peer->flags)) break;
 			if (received!=5) break;
 			if (!peer->sms) break;
 			hash = (buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
@@ -2874,12 +3110,47 @@ static int cachepref_gate(struct cache_data *pcache, struct cw_cache_data *cwdat
 }
 
 
+/* A stored record can have many arrivals while the consensus window still
+ * owns it. FIND must not mistake arrival count for a completed verdict. */
+static int cache_find_consensus_held(struct cache_data *entry,
+                                     struct cw_cache_data *candidate, int *noted)
+{
+    int held = cfg.cache.consensus &&
+        cwconsensus_is_held(entry->caid, entry->sid, entry->hash,
+                            entry->tag, candidate->cw);
+    if (held && !*noted) {
+        user_trace_cache_observation(entry->caid, entry->provid, entry->sid,
+                                     entry->hash, candidate->peerid,
+                                     "cache find deferred: candidate held by consensus", candidate->cw);
+        *noted = 1;
+    }
+    return held;
+}
+
+
+/* A cache key lacks provider identity. Do not reassign an entry associated
+ * with one local provider value to a local request with another value, even
+ * after its original waiter has finished. CSP zero may mean unknown, so this
+ * guards a numeric conflict; it does not prove the identity of any peer CW.
+ * Called only for ECM-to-cache pipe events with lockcache held. */
+static int cache_local_provider_collision(struct cache_data *entry,
+                                          struct cache_data *req)
+{
+    if (entry && entry->local_provider_set && entry->local_provider != req->provid) {
+        user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, 0,
+            "cache provider collision: different local provider; conflicting operation skipped", NULL);
+        return 1;
+    }
+    return 0;
+}
+
 void cache_pipe_recvmsg()
 {
 	uint8_t buf[64];
 	uint8_t cw[16];
 	struct cache_data req;
 	struct cache_data *pcache;
+	int find_hold_noted = 0, find_policy_noted = 0;
 
 	int len =  pipe_recv( prg.pipe.cache[0], buf );
 	if (len<=0) return;
@@ -2897,6 +3168,8 @@ void cache_pipe_recvmsg()
 				 * to the card servers; the find is simply not served. */
 				if (!pcache) break;
 				pcache->ecm = req.ecm;
+				pcache->local_provider_set = 1;
+				pcache->local_provider = req.provid;
 				pcache->cwcycle = req.cwcycle;
 
 #ifdef CACHEEX
@@ -2913,7 +3186,17 @@ void cache_pipe_recvmsg()
 				pipe_cache2ecm_find_failed(pcache);
 			}
 			else {
+				if (cache_local_provider_collision(pcache, &req)) {
+					/* Wake this request's normal cache-miss flow without
+					 * consuming or modifying the other local provider's entry. */
+					uint8_t miss[48];
+					int misslen = put_cache2ecm(PIPE_CACHE_FIND_FAILED, miss, &req, NULL, 0, 0);
+					pipe_send(prg.pipe.ecm[1], miss, misslen);
+					break;
+				}
 				pcache->ecm = req.ecm;
+				pcache->local_provider_set = 1;
+				pcache->local_provider = req.provid;
 				pcache->tag = req.tag; // set tag if not set (coming from cahceex)
 				pcache->provid = req.provid; // set provid if not set (coming from csp)
 				pcache->cwcycle = req.cwcycle;
@@ -2934,7 +3217,8 @@ void cache_pipe_recvmsg()
 					// look for consecutif cw & same cycle
 					struct cw_cache_data *cwdata = pcache->cwdata;
 					while (cwdata) {
-						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) )
+						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) &&
+				     !cache_find_consensus_held(pcache, cwdata, &find_hold_noted) )
 						if ( (cwdata->status&DCW_CYCLE)&&(cwdata->nbpeers>=cfg.cache.threshold) ) {
 							if ( pcache->cwcycle==cwdata->cwcycle ) {
 								if (  ( (pcache->cwcycle==CW1CYCLE) && dcwcmp8(pcache->prevcw,cwdata->cw) && !similarcw(pcache->prevcw+8,cwdata->cw+8) ) ||
@@ -2952,7 +3236,8 @@ void cache_pipe_recvmsg()
 					// look for consecutif cw only
 					cwdata = pcache->cwdata;
 					while (cwdata) {
-						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) )
+						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) &&
+				     !cache_find_consensus_held(pcache, cwdata, &find_hold_noted) )
 						if ( !(cwdata->status&DCW_CYCLE) && (cwdata->nbpeers>=cfg.cache.threshold) ) {
 							if (  ( (pcache->cwcycle==CW1CYCLE) && dcwcmp8(pcache->prevcw,cwdata->cw) && !similarcw(pcache->prevcw+8,cwdata->cw+8) ) ||
 								( (pcache->cwcycle==CW0CYCLE) && !similarcw(pcache->prevcw,cwdata->cw) && dcwcmp8(pcache->prevcw+8,cwdata->cw+8) )  ) {
@@ -2972,7 +3257,8 @@ void cache_pipe_recvmsg()
 					// cached cw with cycle
 					struct cw_cache_data *cwdata = pcache->cwdata;
 					while (cwdata) {
-						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) )
+						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) &&
+				     !cache_find_consensus_held(pcache, cwdata, &find_hold_noted) )
 						if ( (cwdata->status&DCW_CYCLE)&&(cwdata->nbpeers>=cfg.cache.threshold) ) {
 							if ( (pcache->cwcycle==NO_CYCLE)||(pcache->cwcycle==cwdata->cwcycle) ) {
 								if ( cachepref_gate(pcache, cwdata)==CACHEPREF_ALLOW ) {
@@ -2987,12 +3273,25 @@ void cache_pipe_recvmsg()
 					// no cycle for cached cw
 					cwdata = pcache->cwdata;
 					while (cwdata) {
-						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) )
-						if ( !(cwdata->status&DCW_CYCLE) && (cwdata->nbpeers>=5) ) {
+						if ( !(cwdata->status&DCW_ERROR) && !(cwdata->status&DCW_SENT) &&
+				     !cache_find_consensus_held(pcache, cwdata, &find_hold_noted) ) {
+						if (!(cwdata->status & DCW_CYCLE) && !find_policy_noted &&
+						    (cfg.cache.filter || cwdata->nbpeers < cfg.cache.threshold)) {
+							user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+							    pcache->hash, cwdata->peerid,
+							    cfg.cache.filter ? "cache find deferred: cycle not established" :
+							                       "cache find deferred: threshold not reached", cwdata->cw);
+							find_policy_noted = 1;
+						}
+						/* Five arrivals alone do not satisfy an enabled cycle filter
+						 * or an operator threshold greater than five. */
+						if ( !(cwdata->status&DCW_CYCLE) && !cfg.cache.filter &&
+						     cwdata->nbpeers>=5 && cwdata->nbpeers>=cfg.cache.threshold ) {
 							if ( cachepref_gate(pcache, cwdata)==CACHEPREF_ALLOW ) {
 								cwdata->status |= DCW_SENT;
 								pipe_cache2ecm_find_success(pcache, cwdata->cw, cwdata->peerid );
 							}
+						}
 						}
 						cwdata = cwdata->next;
 					}
@@ -3009,6 +3308,7 @@ void cache_pipe_recvmsg()
 			pcache = cache_fetch( &req );
 			if (pcache==NULL) pcache = cache_new( &req );
 			else {
+				if (cache_local_provider_collision(pcache, &req)) break;
 				pcache->tag = req.tag; // set tag if not set (coming from cahceex)
 				pcache->provid = req.provid; // set provid if not set (coming from csp)
 			}
@@ -3016,6 +3316,8 @@ void cache_pipe_recvmsg()
 			 * request to peers is dropped; the ECM's server flow is unchanged. */
 			if (!pcache) break;
 			pcache->ecm = req.ecm;
+			pcache->local_provider_set = 1;
+			pcache->local_provider = req.provid;
 			/* TASK 3.6: same arm guard -- the REQUEST rides the pipe too, and
 			 * its waiter can be answered or failed before the cache thread gets
 			 * here. */
@@ -3029,13 +3331,22 @@ void cache_pipe_recvmsg()
 			break;
 
 
-		case PIPE_CACHE_REPLY:
+		case PIPE_CACHE_REPLY: {
+			int expected = 16 + sizeof(void*) + 16;
+#ifdef CACHEEX
+			expected += 16;
+#endif
+			/* Reject incomplete or unknown provenance rather than attributing
+			 * a cache-sourced key to a local source. */
+			if (len != expected + 1 || buf[expected] > 1) break;
+			int from_cache = buf[expected];
 			get_ecm2cache(buf , &req, cw);
 			//debugf(0, " Get PIPE_CACHE_REPLY: %04x:%06x:%04x:%08x\n", req.caid, req.provid, req.sid, req.hash);
 
 			pcache = cache_fetch( &req );
 			if (pcache==NULL) pcache = cache_new( &req );
 			else {
+				if (cache_local_provider_collision(pcache, &req)) break;
 				pcache->tag = req.tag; // set tag if not set (coming from cahceex)
 				pcache->provid = req.provid; // set provid if not set (coming from csp)
 			}
@@ -3043,6 +3354,8 @@ void cache_pipe_recvmsg()
 			 * failed); it is dropped -- its sender's client was already served
 			 * and nothing else is waiting on it. */
 			if (!pcache) break;
+			pcache->local_provider_set = 1;
+			pcache->local_provider = req.provid;
 			//Check & update DCW
 			struct cw_cache_data *cwdata = pcache->cwdata;
 			while (cwdata) {
@@ -3051,7 +3364,7 @@ void cache_pipe_recvmsg()
 			}
 			// ADD if not found
 			if (!cwdata) {
-				struct cw_cache_data *cwdata = malloc( sizeof(struct cw_cache_data) );
+				cwdata = malloc( sizeof(struct cw_cache_data) );
 				/* TASK 3.4: the remembered copy is skipped; the reply below
 				 * still goes out from the local key. */
 				if (cwdata) {
@@ -3061,17 +3374,32 @@ void cache_pipe_recvmsg()
 					//cwdata->peerid = peerid;
 					cwdata->next = pcache->cwdata;
 					pcache->cwdata = cwdata;
-					if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, 0);
-					if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, 0);
+					if (!from_cache && cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, 0);
+					if (!from_cache && cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, 0);
 				}
 			}
-			//cwdata->status |= DCW_CYCLE;
+			/* A local source has already passed the ECM's own acceptance path.
+			 * Keep that provenance distinct from peer arrival counts. */
+			if (cwdata && !from_cache) cwdata->status |= DCW_PEER_READY | DCW_LOCAL_SOURCE;
 
-			// Send Reply
-			if ( !(pcache->flags&CACHE_FLAG_REPSENT) ) cfg.cache.rep++;
-			pcache->flags |= CACHE_FLAG_REPSENT;
-			cache_send_reply(pcache, NULL, cw);
+			/* A cache-derived CW is not a fresh local-source response. It may
+			 * only bridge to CSP when forwarding is enabled and the existing
+			 * cache candidate passed its own gates; do not invent confirmation
+			 * if the original entry was already recycled. */
+			if (!from_cache || (cfg.cache.forward && cwdata &&
+			    !(cwdata->status & DCW_ERROR) && (cwdata->status & DCW_PEER_READY) &&
+			    cwdata->nbpeers >= cfg.cache.threshold &&
+			    (!cfg.cache.consensus || !cwconsensus_is_held(pcache->caid, pcache->sid,
+			        pcache->hash, pcache->tag, cwdata->cw)))) {
+				if ( !(pcache->flags&CACHE_FLAG_REPSENT) ) cfg.cache.rep++;
+				pcache->flags |= CACHE_FLAG_REPSENT;
+				cache_send_reply(pcache, NULL, cw);
+			} else if (from_cache) {
+				user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+				    pcache->hash, 0, "cache-origin reply not rebroadcast: disabled or candidate unavailable", NULL);
+			}
 			break;
+		}
 
 		case PIPE_CACHE_RESENDREQ:
 			get_ecm2cache(buf , &req, NULL);
@@ -3210,6 +3538,7 @@ void *cache_thread(void *param)
 		 * expired -- a single-source channel loses only the window, never
 		 * the key (each loop pass is one housekeeping tick; the release
 		 * cadence is therefore window + one tick, worst case). */
+		pthread_mutex_lock(&prg.lockcache);
 		while ( cfg.cache.consensus ) {
 			struct cwconsensus_hold cch;
 			struct cache_data creq;
@@ -3225,11 +3554,15 @@ void *cache_thread(void *param)
 				while (chw) {
 					if ( dcwcmp16(chw->cw, cch.cw) ) {
 						if ( !(chw->status & (DCW_SENT|DCW_ERROR)) ) {
-							chw->status |= DCW_SENT;
-							pipe_cache2ecm_find_success(chpc, chw->cw, cch.peerid);
+							/* Expiry only clears consensus; the normal cycle/family
+							 * gates still decide whether the CW may be forwarded. */
+							user_trace_cache_observation(chpc->caid, chpc->provid, chpc->sid, chpc->hash, cch.peerid,
+							    "cache consensus window expired; cycle checks pending", chw->cw);
+							cache_after_consensus(chpc, chpc, chw, chw->cw,
+							                      (cwcycle_t)cch.cycle, cch.peerid);
 							debugf(getdbgflag(DBG_CACHE,0,0),
-								" [CONSENSUS] window expired, single-source cw released ch %04x:%06x:%04x\n",
-								cch.caid, cch.provid, cch.sid);
+								" [CONSENSUS] window expired, CW rechecked ch %04x:%06x:%04x\n",
+								cch.caid, chpc->provid, cch.sid);
 						}
 						break;
 					}
@@ -3237,8 +3570,9 @@ void *cache_thread(void *param)
 				}
 			}
 		}
+		pthread_mutex_unlock(&prg.lockcache);
 
-		int ready = epoll_wait( prg.epoll.cache, evlist, MAX_EPOLL_EVENTS, 1001);
+		int ready = epoll_wait( prg.epoll.cache, evlist, MAX_EPOLL_EVENTS, cfg.cache.consensus ? 100 : 1001);
 		if (ready == -1) {
 			if ( (errno==EINTR)||(errno==EAGAIN) ) {
 				usleep(1000);
@@ -3294,6 +3628,7 @@ void *cache_thread(void *param)
 		}
 
 		/* TASK R8 (D62): the poll flavour's identical release walk. */
+		pthread_mutex_lock(&prg.lockcache);
 		while ( cfg.cache.consensus ) {
 			struct cwconsensus_hold cch;
 			struct cache_data creq;
@@ -3309,11 +3644,15 @@ void *cache_thread(void *param)
 				while (chw) {
 					if ( dcwcmp16(chw->cw, cch.cw) ) {
 						if ( !(chw->status & (DCW_SENT|DCW_ERROR)) ) {
-							chw->status |= DCW_SENT;
-							pipe_cache2ecm_find_success(chpc, chw->cw, cch.peerid);
+							/* Expiry only clears consensus; the normal cycle/family
+							 * gates still decide whether the CW may be forwarded. */
+							user_trace_cache_observation(chpc->caid, chpc->provid, chpc->sid, chpc->hash, cch.peerid,
+							    "cache consensus window expired; cycle checks pending", chw->cw);
+							cache_after_consensus(chpc, chpc, chw, chw->cw,
+							                      (cwcycle_t)cch.cycle, cch.peerid);
 							debugf(getdbgflag(DBG_CACHE,0,0),
-								" [CONSENSUS] window expired, single-source cw released ch %04x:%06x:%04x\n",
-								cch.caid, cch.provid, cch.sid);
+								" [CONSENSUS] window expired, CW rechecked ch %04x:%06x:%04x\n",
+								cch.caid, chpc->provid, cch.sid);
 						}
 						break;
 					}
@@ -3321,6 +3660,7 @@ void *cache_thread(void *param)
 				}
 			}
 		}
+		pthread_mutex_unlock(&prg.lockcache);
 
 		struct pollfd pfd[100];
 		int pfdcount = 0;
@@ -3339,7 +3679,7 @@ void *cache_thread(void *param)
 			cache = cache->next;
 		}
 
-		int retval = poll(pfd, pfdcount, 3001);
+		int retval = poll(pfd, pfdcount, cfg.cache.consensus ? 100 : 3001);
 
 		if ( retval>0 ) {
 #ifndef THREAD_CACHE_PIPE
@@ -3369,7 +3709,7 @@ void *cache_thread(void *param)
 				}
 				cache = cache->next;
 			}
-		} else usleep( 99000 );
+		} else if (retval < 0 || !cfg.cache.consensus) usleep( 99000 );
 	}
 
 	//close(cfg.cache.handle);
@@ -3413,8 +3753,8 @@ void *cache_pipe_thread(void *param)
 #ifdef CACHE_QUEUE
 /*
  * The receive-side half: recvfrom plus the wire range check -- the same
- * two lines the inline path ran first -- then the hand-off. No locks
- * here, ever: that is the whole point of the queue.
+ * range guard the inline path ran first -- then the hand-off. Only
+ * malformed CSP replies may take the diagnostic lock before the queue.
  */
 static void cache_queue_recv(struct cacheserver_data *cache)
 {
@@ -3422,7 +3762,11 @@ static void cache_queue_recv(struct cacheserver_data *cache)
 	struct sockaddr_in si_other;
 	socklen_t slen = sizeof(si_other);
 	int received = recvfrom( cache->handle, buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
-	if ( (received<2)||(received>512) ) return;
+	if ( (received<2)||(received>512) ) {
+        if (received > 0 && buf[0] == TYPE_REPLY)
+            cache_trace_csp_drop(buf, received, 0, received > 512 ? "oversized datagram" : "incomplete header");
+        return;
+    }
 	cq_push(cache, &si_other, buf, received);
 }
 

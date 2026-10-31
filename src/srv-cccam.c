@@ -711,7 +711,7 @@ void cc_senddcw_cli(struct cc_client_data *cli)
 			cc_disconnect_cli( cli );
 			return;
 		}
-		if (ecm->trace_instance) user_trace_client_result(cli->id, ecm->trace_instance, cli->ecm.hash, USER_TRACE_DELIVERED, ecm->dcwsrctype, ecm->dcwsrcid, ticks-cli->ecm.recvtime, "CW response sent; picture not verified");
+		if (ecm->trace_instance) user_trace_client_cw(cli->id, ecm->trace_instance, cli->ecm.hash, ecm->dcwsrctype, ecm->dcwsrcid, ticks-cli->ecm.recvtime, "CW response sent; picture not verified", ecm->cw);
 		cc_encrypt(&cli->sendblock, buf, 16); // additional crypto step
 		debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,ecm->cs->id)," => cw to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->ecm.recvtime);
 	}
@@ -886,7 +886,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			pthread_mutex_lock(&prg.lockecm);
 
 			// Search for ECM
-			ECM_DATA *ecm = search_ecmdata_any(cs, data,  len-17, sid, caid);
+			ECM_DATA *ecm = search_ecmdata_any(cs, data,  len-17, sid, caid, provid);
 			/* TASK R31 (D82) -- receiver attestation tap, mirroring
 			 * srv-newcamd's: this client's too-soon re-ask after a
 			 * delivered key is one receiver's vote on the BYTES;
@@ -997,7 +997,16 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 					ecm->waitcache = 1;
 					ecm->dcwstatus = STAT_DCW_WAITCACHE;
 					ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
+					if (ecm->trace_instance) {
+						char detail[128];
+						snprintf(detail, sizeof(detail), "cache wait policy: initial schedule=%u ms; static=%s; may end early or be rescheduled",
+						         (unsigned)cs->option.cachetimeout, cs->option.cachestatic ? "YES" : "NO");
+						user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE, 0, 0,
+						                        GetTickCount()-ecm->recvtime, detail);
+					}
 					pipe_cache_find(ecm, cs);
+					if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+					    0, 0, GetTickCount()-ecm->recvtime, "cache lookup invoked; pipe delivery and result not confirmed");
 				}
 				else ecm->checktime = 1; // Check NOW
 				pipe_wakeup( prg.pipe.ecm[1] );

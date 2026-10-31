@@ -628,6 +628,42 @@ int main(int argc, char **argv)
 			int ms = d ? atoi(d) : 0;
 			if (ms > 0 && ms <= 5000) usleep((useconds_t)ms * 1000);
 		}
+                /* Test malformed CSP replies without suppressing the real
+                 * reply. These switches are used only by the local fixture. */
+                if (sent == 0 && getenv("CP_TEST_DROP")) {
+                    const char *mode = getenv("CP_TEST_DROP");
+                    unsigned char bad[513];
+                    int n = replen, from = fd;
+                    memset(bad, 0, sizeof(bad));
+                    memcpy(bad, rep, replen);
+                    if (!strcmp(mode, "short8")) n = 8;
+                    else if (!strcmp(mode, "short12")) n = 12;
+                    else if (!strcmp(mode, "short20")) n = 20;
+                    else if (!strcmp(mode, "oversize")) n = 513;
+                    else if (!strcmp(mode, "integrity")) bad[12] ^= 1;
+                    else if (!strcmp(mode, "tag")) bad[1] = bad[12] = 0x70;
+                    else if (!strcmp(mode, "hash")) memset(bad + 8, 0, 4);
+                    else if (!strcmp(mode, "unknown")) from = socket(AF_INET, SOCK_DGRAM, 0);
+                    if (from >= 0) {
+                        sendto(from, bad, n, 0, (struct sockaddr *)&srv, sizeof(srv));
+                        if (from != fd) close(from);
+                    }
+                    usleep(20000);
+                }
+                /* Test-only burst of unrelated channel candidates, used to
+                 * exercise global consensus capacity through the real CSP path. */
+                if (sent == 0 && getenv("CP_TEST_CAPACITY_FILL")) {
+                    int j, count = atoi(getenv("CP_TEST_CAPACITY_FILL"));
+                    if (count < 1 || count > 256) count = 256;
+                    for (j = 0; j < count; ++j) {
+                        unsigned char fill[30];
+                        memcpy(fill, rep, sizeof(fill));
+                        fill[2] = 0x20; fill[3] = (unsigned char)j;
+                        fill[8] = 0x12; fill[9] = 0x34; fill[10] = 0x56; fill[11] = (unsigned char)j;
+                        sendto(fd, fill, replen, 0, (struct sockaddr *)&srv, sizeof(srv));
+                        usleep(1000);
+                    }
+                }
 		sendto(fd, rep, replen, 0, (struct sockaddr *)&srv, sizeof(srv));
 				sent++;
 				printf("PEER: replied CW for ch %04X:%04X sid %04X hash %02X%02X%02X%02X mark %d (%d/%d)\n",

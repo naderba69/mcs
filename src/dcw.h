@@ -33,6 +33,14 @@ int acceptDCW_for_ca(uint8_t *data, uint16_t caid, int checksum_mode,
 int dcw_pattern_fake(uint8_t *data);
 int acceptDCW_pattern(uint8_t *data, uint16_t caid, int checksum_mode,
 		      int repeat_mode, int ca_modern, int pattern_mode);
+/* The actual first failed gate, not a second post-hoc guess. */
+enum dcw_validation_reason {
+    DCW_VALID = 0, DCW_INVALID_CHECKSUM, DCW_INVALID_NULL,
+    DCW_INVALID_REPEAT, DCW_INVALID_BADLIST, DCW_INVALID_PATTERN
+};
+int acceptDCW_pattern_reason(uint8_t *data, uint16_t caid, int checksum_mode,
+                             int repeat_mode, int ca_modern, int pattern_mode,
+                             enum dcw_validation_reason *reason);
 
 /*
  * TASK 3.14 — the documented BAD-DCW list.
