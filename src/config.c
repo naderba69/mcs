@@ -71,6 +71,13 @@
 #include "cacheex_gates.h"	/* TASK R1: CEX_CHECK_MAX for the parser clamp */
 #include "cfgfield.h"	/* TASK 3.8: bounded storage for small credential fields */
 #include "peerrep.h" /* TASK R4 (D58): unconditional -- the ladder exists in both flavours */
+
+/* Not embedded in a packed object: this lock protects profile-validation
+ * snapshots and the global DCW gates while config reload publishes them.
+ * Writers hold no other lock while publishing policy. Readers copy a snapshot
+ * and release the lock before validation or trace work. */
+static pthread_mutex_t profile_validation_lock __attribute__((aligned(8))) = PTHREAD_MUTEX_INITIALIZER;
+
 #ifdef MCS_DCWSTATS
 #include "dcwstats.h"	/* TASK 3.10: dcwstats_on lives here; only a stats build has it */
 #endif
@@ -276,14 +283,14 @@ void init_config(struct config_data *cfg)
 	cfg->newcamd.dcwcheck = 1;
 
 	/*
-	 * TASK 1.10b — explicit defaults matching r82a behaviour. Both filters
-	 * stay ON unless the operator turns one off, so an existing multics.cfg
-	 * is unaffected. Set here rather than only by dcw.c's initialisers so
-	 * that the default is visible next to every other default.
+	 * TASK 1.10b — stage global DCW-filter defaults with this config. The
+	 * active globals are published only after parsing, so reload never exposes
+	 * these temporary defaults to CW workers.
 	 */
-	dcw_filter_checksum = 1;
-	dcw_filter_repeat = 1;
-	dcw_filter_cycle = 0; /* TASK R2: each read restarts disarmed (D56) */
+	cfg->dcw_filters.checksum = 1;
+	cfg->dcw_filters.repeat = 1;
+	cfg->dcw_filters.cycle = 0;   /* TASK R2: default disarmed (D56) */
+	cfg->dcw_filters.pattern = 0; /* TASK R28: fake-shape gate defaults OFF */
 
 	/* TASK R4 (D58): the reputation ladder restarts OFF on every read. */
 	peerrep_defaults();
@@ -1273,10 +1280,10 @@ link_radegast_server:
 					else cardserver->option.dcwfilter_checksum = mode;
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s (profile %s)\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":"CHECKSUM")), on?"ON":"OFF", cardserver->name);
 				} else {
-					if (which==1) dcw_filter_repeat = on;
-					else if (which==2) dcw_filter_cycle = on;
-					else if (which==3) dcw_filter_pattern = on;
-					else dcw_filter_checksum = on;
+					if (which==1) cfg->dcw_filters.repeat = on;
+					else if (which==2) cfg->dcw_filters.cycle = on;
+					else if (which==3) cfg->dcw_filters.pattern = on;
+					else cfg->dcw_filters.checksum = on;
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":"CHECKSUM")), on?"ON":"OFF");
 				}
 			}
@@ -1292,6 +1299,38 @@ link_radegast_server:
 				strcpy(bad, str);
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown DCWFILTER option '%s'\n",file->nbline,iparser-currentline, bad);
 			}
+		}
+
+		/* Exact profile/provider/SID override. No wildcard and no global
+		 * inheritance: malformed input fails closed. */
+		else if (!strcmp(str,"CW_CHECKSUM_EXEMPT")) {
+			int plen, slen, valid = 0;
+			uint32_t prov = 0;
+			uint16_t sid = 0;
+			parse_spaces();
+			if (*iparser == ':' || *iparser == '=') {
+				iparser++;
+				plen = parse_hex(str);
+				if (plen == 6 && *iparser == ':') {
+					prov = (uint32_t)hex2int(str);
+					iparser++;
+					slen = parse_hex(str);
+					if (slen == 4) {
+						sid = (uint16_t)hex2int(str);
+						parse_spaces();
+						valid = sid != 0 && (*iparser == 0 || *iparser == '#' || *iparser == ';');
+					}
+				}
+			}
+			if (cardserver) {
+				cardserver->option.cw_checksum_exempt_active = valid;
+				if (valid) {
+					cardserver->option.cw_checksum_exempt_provider = prov;
+					cardserver->option.cw_checksum_exempt_sid = sid;
+				}
+			}
+			debugf(getdbgflag(DBG_CONFIG,0,0), " config(%d,%d): CW_CHECKSUM_EXEMPT %s\n",
+			       file->nbline, iparser-currentline, valid && cardserver ? "configured" : "invalid or no profile; disabled");
 		}
 
 		/*
@@ -3909,7 +3948,7 @@ link_mgcamd_user:
 						if (!cfg->cache.consensus_window) cfg->cache.consensus_window = 600;
 						if (cfg->cache.consensus_sources<3) cfg->cache.consensus_sources = 3;
 						if (!cfg->cache.attest) cfg->cache.attest = 2;
-						dcw_filter_pattern = 1;
+						cfg->dcw_filters.pattern = 1;
 						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE PROTECTION: STANDARD (consensus 600/3, pattern, attest 2)\n",file->nbline,iparser-currentline);
 					}
 					continue;
@@ -6851,6 +6890,7 @@ void update_cardserver(struct config_data *cfg, struct config_data *newcfg)
 			// card
 			if ( cs_same_card(cs,newcs)==1 ) cs->flags |= FLAG_DISCONNECT;
 			uint8_t buf[sizeof(cs->card)];
+			pthread_mutex_lock(&profile_validation_lock);
 			memcpy( buf, &cs->card, sizeof(cs->card));
 			memcpy( &cs->card, &newcs->card, sizeof(cs->card));
 			memcpy( &newcs->card, buf, sizeof(cs->card));
@@ -6859,6 +6899,7 @@ void update_cardserver(struct config_data *cfg, struct config_data *newcfg)
 			memcpy( cs->ecmlen, newcs->ecmlen, sizeof(cs->ecmlen) );
 			// options
 			memcpy( &cs->option, &newcs->option, sizeof(cs->option) );
+			pthread_mutex_unlock(&profile_validation_lock);
 			update_cardserver_newcamd_clients( cs, newcs );
 			// SIDS
 			cs->sidlist.deny = newcs->sidlist.deny;
@@ -7270,57 +7311,126 @@ int acceptDCW_profile(uint8_t *data, struct cardserver_data *cs)
  * expected), so even an armed profile changes nothing until a real
  * CAID arrives — every pre-R26 caller keeps its exact decision.
  */
-static int acceptDCW_profile_impl(uint8_t *data, struct cardserver_data *cs,
-                                  uint16_t caid, uint16_t sid, enum dcw_validation_reason *reason)
+/* Publish staged global gates as one reload transaction. */
+void dcw_filter_globals_publish(const struct config_data *cfg)
 {
-	int c = DCWFILTER_INHERIT, r = DCWFILTER_INHERIT;
-	int modern = 0, pattern = DCWFILTER_INHERIT;
+    if (!cfg) return;
+    pthread_mutex_lock(&profile_validation_lock);
+    dcw_filter_checksum = cfg->dcw_filters.checksum;
+    dcw_filter_repeat = cfg->dcw_filters.repeat;
+    dcw_filter_cycle = cfg->dcw_filters.cycle;
+    dcw_filter_pattern = cfg->dcw_filters.pattern;
+    pthread_mutex_unlock(&profile_validation_lock);
+}
 
-	if (cs) {
-		c = cs->option.dcwfilter_checksum;
-		r = cs->option.dcwfilter_repeat;
-		modern = cs->option.ca_modern;
-		pattern = cs->option.dcwfilter_pattern;
-		/*
-		 * TASK R36 (D87) -- ENABLE SKIPCWC, the R24-era key that was
-		 * never implemented: on an armed profile, a CW for a gated
-		 * SID must prove its DVB-CSA checksum before it may be
-		 * delivered, so the checksum layer is FORCED (it overrides
-		 * an inherited or explicitly-off DCWFILTER CHECKSUM -- that
-		 * is the point of the key). CA systems whose genuine keys
-		 * carry no checksum bytes (casystem.h) are never forced:
-		 * there the test would reject every genuine key and trade
-		 * fake screens for black ones. With the key off (the
-		 * default) this block is inert and the decision is stock.
-		 */
-		if (cs->option.skipcwc && ca_cw_checksum_expected(caid)) {
-			uint16_t only[SKIPCWC_SID_MAX], excl[SKIPCWC_SID_MAX];
-			memcpy(only, cs->option.skipcwc_only, sizeof(only));
-			memcpy(excl, cs->option.skipcwc_excl, sizeof(excl));
-			if (skipcwc_applies(cs->option.skipcwc,
-					cs->option.skipcwc_only_active, only, cs->option.skipcwc_only_total,
-					cs->option.skipcwc_excl_active, excl, cs->option.skipcwc_excl_total,
-					sid))
-				c = DCWFILTER_ON;
-		}
-	}
-	/* TASK R28 (D79): pattern INHERIT with the global gate OFF (the
-	 * default) keeps this decision identical to pre-R28. */
-        if (reason) return acceptDCW_pattern_reason(data, caid, c, r, modern, pattern, reason);
-	return acceptDCW_pattern(data, caid, c, r, modern, pattern);
+/* Snapshot the global gates under the same lock used by config reload. */
+void dcw_filter_globals_snapshot(int *checksum, int *repeat, int *cycle, int *pattern)
+{
+    pthread_mutex_lock(&profile_validation_lock);
+    if (checksum) *checksum = dcw_filter_checksum;
+    if (repeat) *repeat = dcw_filter_repeat;
+    if (cycle) *cycle = dcw_filter_cycle;
+    if (pattern) *pattern = dcw_filter_pattern;
+    pthread_mutex_unlock(&profile_validation_lock);
+}
+
+int dcw_profile_cycle_enabled(struct cardserver_data *cs)
+{
+    int mode, global_cycle;
+    pthread_mutex_lock(&profile_validation_lock);
+    global_cycle = dcw_filter_cycle;
+    mode = cs ? cs->option.dcwfilter_cycle
+              : (global_cycle ? DCWFILTER_ON : DCWFILTER_INHERIT);
+    pthread_mutex_unlock(&profile_validation_lock);
+    return mode == DCWFILTER_ON || (mode == DCWFILTER_INHERIT && global_cycle);
+}
+
+/* Compute the pre-exemption checksum mode once for decisions and trace. */
+static int profile_checksum_mode(struct cardserver_data *cs, uint16_t caid, uint16_t sid)
+{
+    int mode = cs ? cs->option.dcwfilter_checksum : DCWFILTER_INHERIT;
+    if (cs && cs->option.skipcwc && ca_cw_checksum_expected(caid)) {
+        uint16_t only[SKIPCWC_SID_MAX], excl[SKIPCWC_SID_MAX];
+        memcpy(only, cs->option.skipcwc_only, sizeof(only));
+        memcpy(excl, cs->option.skipcwc_excl, sizeof(excl));
+        if (skipcwc_applies(cs->option.skipcwc,
+                cs->option.skipcwc_only_active, only, cs->option.skipcwc_only_total,
+                cs->option.skipcwc_excl_active, excl, cs->option.skipcwc_excl_total, sid))
+            mode = DCWFILTER_ON;
+    }
+    return mode;
+}
+
+static int acceptDCW_profile_impl(uint8_t *data, struct cardserver_data *cs,
+                                  uint16_t caid, uint16_t sid, uint32_t provid,
+                                  int provider_supplied, enum dcw_validation_reason *reason,
+                                  int *checksum_exemption_used)
+{
+    int c, r, modern, pattern, scoped;
+    int global_checksum, global_repeat, global_pattern;
+    int bypassed = 0, result;
+    pthread_mutex_lock(&profile_validation_lock);
+    c = profile_checksum_mode(cs, caid, sid);
+    r = cs ? cs->option.dcwfilter_repeat : DCWFILTER_INHERIT;
+    modern = cs ? cs->option.ca_modern : 0;
+    pattern = cs ? cs->option.dcwfilter_pattern : DCWFILTER_INHERIT;
+    scoped = provider_supplied && cs && cs->option.cw_checksum_exempt_active &&
+        cs->card.caid == caid && cs->option.cw_checksum_exempt_provider == provid &&
+        cs->option.cw_checksum_exempt_sid == sid;
+    global_checksum = dcw_filter_checksum;
+    global_repeat = dcw_filter_repeat;
+    global_pattern = dcw_filter_pattern;
+    pthread_mutex_unlock(&profile_validation_lock);
+    /* Record the decision from this same policy snapshot, not a later
+     * reevaluation that could observe a different config after reload. */
+    if (scoped) {
+        int originally_enforced = c == DCWFILTER_ON ||
+            (c != DCWFILTER_OFF && global_checksum &&
+             !(modern && !ca_cw_checksum_expected(caid)));
+        bypassed = originally_enforced && !checksumDCW(data);
+        c = DCWFILTER_OFF;
+    }
+    result = acceptDCW_pattern_snapshot(data, caid, c, r, modern, pattern,
+                                        global_checksum, global_repeat, global_pattern,
+                                        reason);
+    if (checksum_exemption_used) *checksum_exemption_used = result && bypassed;
+    return result;
 }
 
 int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs, uint16_t caid, uint16_t sid)
 {
-    return acceptDCW_profile_impl(data, cs, caid, sid, NULL);
+    return acceptDCW_profile_impl(data, cs, caid, sid, 0, 0, NULL, NULL);
 }
 int acceptDCW_profile_ca_sid_reason(uint8_t *data, struct cardserver_data *cs, uint16_t caid,
                                    uint16_t sid, int *reason)
 {
     enum dcw_validation_reason value = DCW_VALID;
-    int result = acceptDCW_profile_impl(data, cs, caid, sid, &value);
+    int result = acceptDCW_profile_impl(data, cs, caid, sid, 0, 0, &value, NULL);
     if (reason) *reason = value;
     return result;
+}
+
+
+int acceptDCW_profile_ecm_trace_reason(uint8_t *data, struct cardserver_data *cs,
+                                       uint16_t caid, uint32_t provid, uint16_t sid,
+                                       int *reason, int *checksum_exemption_used)
+{
+    enum dcw_validation_reason value = DCW_VALID;
+    int result = acceptDCW_profile_impl(data, cs, caid, sid, provid, 1, &value, checksum_exemption_used);
+    if (reason) *reason = value;
+    return result;
+}
+
+int acceptDCW_profile_ecm_reason(uint8_t *data, struct cardserver_data *cs,
+                                 uint16_t caid, uint32_t provid, uint16_t sid, int *reason)
+{
+    return acceptDCW_profile_ecm_trace_reason(data, cs, caid, provid, sid, reason, NULL);
+}
+
+int acceptDCW_profile_ecm(uint8_t *data, struct cardserver_data *cs,
+                          uint16_t caid, uint32_t provid, uint16_t sid)
+{
+    return acceptDCW_profile_ecm_reason(data, cs, caid, provid, sid, NULL);
 }
 
 int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
@@ -7458,6 +7568,9 @@ void reread_config( struct config_data *cfg )
 	update_cache_servers( cfg, &newcfg );
 
 	update_cardserver( cfg, &newcfg );
+	/* Commit all global DCW gates together, after profile policies are staged. */
+	cfg->dcw_filters = newcfg.dcw_filters;
+	dcw_filter_globals_publish(&newcfg);
 
 	cfg->newcamd.clientid = newcfg.newcamd.clientid;
 	cfg->newcamd.dcwcheck = newcfg.newcamd.dcwcheck;

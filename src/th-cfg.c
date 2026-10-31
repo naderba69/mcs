@@ -71,6 +71,7 @@ void *reread_config_thread(void *param)
 
 	init_config(&cfg);
 	read_config(&cfg);
+	dcw_filter_globals_publish(&cfg);
 	dcw_badlist_commit(cfg.bad_dcw);	/* TASK 3.14 — the list is committed */
 	mark_config_ready();			/* TASK 4.1 — main may now look */
 

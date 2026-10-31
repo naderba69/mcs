@@ -286,8 +286,8 @@ void cs_srv_recvmsg(struct server_data *srv)
 					}
 					if (buf[2]==0x10) {
 						// Check for DCW
-						int cw_reason = DCW_VALID;
-						if (!acceptDCW_profile_ca_sid_reason(buf+3, ecm->cs, ecm->caid, ecm->sid, &cw_reason)) {
+						int cw_reason = DCW_VALID, checksum_exemption_used = 0;
+						if (!acceptDCW_profile_ecm_trace_reason(buf+3, ecm->cs, ecm->caid, ecm->provid, ecm->sid, &cw_reason, &checksum_exemption_used)) {
 							const char *why = "Newcamd CW rejected by initial validation; reason unknown";
 							switch (cw_reason) {
 							case DCW_INVALID_CHECKSUM: why = "Newcamd CW rejected: checksum validation failed"; break;
@@ -304,7 +304,9 @@ void cs_srv_recvmsg(struct server_data *srv)
 						}
 						if (user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance)) user_trace_shared_event(ecm->trace_instance, USER_TRACE_VALIDATED,
 						    TYPE_NEWCAMD, srv->id, GetTickCount()-ecm->recvtime,
-						    "Newcamd CW passed initial validation; further gates remain");
+						    checksum_exemption_used
+						        ? "Newcamd CW passed initial checks under scoped checksum exemption; validity and picture unknown"
+						        : "Newcamd CW passed initial validation; further gates remain");
 						srv->ecmok++;
 						srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
 						srv->ecmoktime += srv->lastecmoktime;

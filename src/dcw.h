@@ -41,6 +41,11 @@ enum dcw_validation_reason {
 int acceptDCW_pattern_reason(uint8_t *data, uint16_t caid, int checksum_mode,
                              int repeat_mode, int ca_modern, int pattern_mode,
                              enum dcw_validation_reason *reason);
+/* Use an atomic snapshot of the global gates during concurrent config reload. */
+int acceptDCW_pattern_snapshot(uint8_t *data, uint16_t caid, int checksum_mode,
+                               int repeat_mode, int ca_modern, int pattern_mode,
+                               int global_checksum, int global_repeat, int global_pattern,
+                               enum dcw_validation_reason *reason);
 
 /*
  * TASK 3.14 — the documented BAD-DCW list.

@@ -96,16 +96,15 @@ void camd35_srv_recvmsg(struct server_data *srv)
 				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), wrong length!!!\n",srv->host->name,srv->port);
 				break;
 			}
-			// Check for DCW
-			if (!acceptDCW_profile_ca(buf+24, srv->ecm.request ? srv->ecm.request->cs : NULL, srv->ecm.request ? srv->ecm.request->caid : 0)) {
-				srv->ecmerrdcw++;
-				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), bad dcw!!!\n",srv->host->name,srv->port);
-				break;
-			}
-			// Checl Stored ECM
+			// Check the response against the exact pending ECM profile/channel.
 			ECM_DATA *ecm = srv->ecm.request;
 			if (!ecm) {
 				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), ecm not found!!!\n",srv->host->name,srv->port);
+				break;
+			}
+			if (!acceptDCW_profile_ecm(buf+24, ecm->cs, ecm->caid, ecm->provid, ecm->sid)) {
+				srv->ecmerrdcw++;
+				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), bad dcw!!!\n",srv->host->name,srv->port);
 				break;
 			}
 			//

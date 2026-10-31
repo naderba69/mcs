@@ -7831,6 +7831,9 @@ static const char *trace_detail_ar(const char *detail)
     if (!strncmp(detail, "CCcam CW response;", 18)) return "وصل رد CW من مصدر CCcam؛ لم تُحسم صلاحيته بعد";
     if (!strncmp(detail, "CCcam NOK1 response;", 20)) return "رد مصدر CCcam بـNOK1؛ قد تُعاد المحاولة";
     if (!strncmp(detail, "CCcam NOK2 response;", 20)) return "رد مصدر CCcam بـNOK2؛ قد تُعاد المحاولة";
+    if (!strcmp(detail, "CCcam CW passed initial checks under scoped checksum exemption; validity and picture unknown")) return "اجتازت فحوص CCcam الأولية باستثناء checksum المحدد؛ صلاحية CW والصورة غير معروفتين";
+    if (!strcmp(detail, "Newcamd CW passed initial checks under scoped checksum exemption; validity and picture unknown")) return "اجتازت فحوص Newcamd الأولية باستثناء checksum المحدد؛ صلاحية CW والصورة غير معروفتين";
+    if (!strcmp(detail, "cache CW passed profile checks under scoped checksum exemption; validity and picture unknown")) return "اجتازت CW القادمة من الكاش فحوص البروفايل باستثناء checksum المحدد؛ صلاحيتها والصورة غير معروفتين";
     if (!strcmp(detail, "CCcam CW passed initial validation; further gates remain")) return "اجتازت CW تحقق CCcam الأولي؛ لا تزال فحوص أخرى";
     if (!strcmp(detail, "CCcam malformed CW response: fewer than 16 bytes; source disconnected")) return "رُفض رد CCcam قصير وأُغلق اتصال المصدر";
     if (!strcmp(detail, "CCcam CW rejected: checksum validation failed")) return "رُفضت CW من CCcam: فشل تحقق checksum";

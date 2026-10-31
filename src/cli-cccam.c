@@ -294,8 +294,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 				// Check for DCW
 				/* Match Newcamd and the ECM worker: profile SID policy must
 				 * be evaluated against the actual request, not SID zero. */
-				int cc_reason = DCW_VALID;
-				if (!acceptDCW_profile_ca_sid_reason(dcw, cs, ecm->caid, ecm->sid, &cc_reason)) {
+				int cc_reason = DCW_VALID, checksum_exemption_used = 0;
+				if (!acceptDCW_profile_ecm_trace_reason(dcw, cs, ecm->caid, ecm->provid, ecm->sid, &cc_reason, &checksum_exemption_used)) {
 						const char *why = "CCcam CW rejected by initial validation; reason unknown";
 						switch (cc_reason) {
 						case DCW_INVALID_CHECKSUM: why = "CCcam CW rejected: checksum validation failed"; break;
@@ -322,7 +322,10 @@ void cc_srv_recvmsg(struct server_data *srv)
 
 					if (len >= 20 && user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance))
 						user_trace_shared_event(ecm->trace_instance, USER_TRACE_VALIDATED, TYPE_CCCAM, srv->id,
-						                        GetTickCount()-ecm->recvtime, "CCcam CW passed initial validation; further gates remain");
+						                        GetTickCount()-ecm->recvtime,
+						    checksum_exemption_used
+						        ? "CCcam CW passed initial checks under scoped checksum exemption; validity and picture unknown"
+						        : "CCcam CW passed initial validation; further gates remain");
 					srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
 					srv->ecmoktime += srv->lastecmoktime;
 					srv->ecmok++;

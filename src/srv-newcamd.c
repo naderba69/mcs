@@ -883,7 +883,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						break;
 					}
 					// Check for DCW
-					if (!acceptDCW_profile_ca(&buf[3], ecm->cs, ecm->caid)) {
+					if (!acceptDCW_profile_ecm(&buf[3], ecm->cs, ecm->caid, ecm->provid, ecm->sid)) {
 						debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <!= wrong cw from Client '%s' ch %04x:%06x:%04x\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->lastecmtime);
 						pthread_mutex_unlock(&prg.lockecm);
 						break;

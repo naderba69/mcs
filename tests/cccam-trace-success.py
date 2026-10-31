@@ -61,10 +61,13 @@ def main():
     if not BINARY.is_file():
         raise RuntimeError("binary not found: " + str(BINARY))
     mode = os.environ.get("MCS_TEST_RESPONSE", "full")
-    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "zero", "repeatbytes", "pattern", "badlist", "excluded1884", "enforced1884")
-    caid = "1884" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884") else "09BD"
-    sid = "1136" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884") else "014A"
+    assert mode in ("full", "half", "bad", "negative", "excluded", "swap", "wronghalf", "retry", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "zero", "repeatbytes", "pattern", "badlist", "excluded1884", "enforced1884", "scoped-ok", "scoped-comment", "scoped-good", "scoped-noop", "scoped-wrong-provider", "scoped-wrong-sid", "scoped-malformed", "scoped-last-valid", "scoped-last-invalid")
+    caid = "1884" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884", "scoped-ok", "scoped-comment", "scoped-good", "scoped-noop", "scoped-wrong-provider", "scoped-wrong-sid", "scoped-malformed", "scoped-last-valid", "scoped-last-invalid") else "09BD"
+    sid = "1136" if mode in ("full", "late", "non09half", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884", "scoped-ok", "scoped-comment", "scoped-good", "scoped-noop", "scoped-wrong-provider", "scoped-wrong-sid", "scoped-malformed", "scoped-last-valid", "scoped-last-invalid") else "014A"
     invalid_modes = ("zero", "repeatbytes", "pattern", "badlist")
+    scoped_bad_crc = os.environ.get("MCS_SCOPED_BAD_CRC") == "1"
+    if scoped_bad_crc and (mode not in invalid_modes or os.environ.get("MCS_SCOPED_INVALID") != "1"):
+        raise ValueError("MCS_SCOPED_BAD_CRC requires an invalid mode with MCS_SCOPED_INVALID=1")
     if mode in invalid_modes: caid, sid = "1884", "1136"
     tag = os.environ.get("MCS_TEST_TAG", "0x80")
     assert tag in ("0x80", "0x81")
@@ -82,18 +85,31 @@ def main():
             ports.add(free_port())
         http, cccam, newcamd, card = ports
         cfg = tmp / "isolated.cfg"
+        listed_cw = bytearray.fromhex("010203060405060F070809180A0B0C21")
+        if scoped_bad_crc: listed_cw[11 if tag == "0x81" else 3] ^= 1
+        listed_cw_config = " ".join(f"{byte:02X}" for byte in listed_cw)
         cfg.write_text(f"HTTP PORT: {http}\nHTTP USER: test\nHTTP PASS: isolated\n"
                        f"TELNET PORT: 0\nCCCAM PORT: {cccam}\nF: traceuser tracepass\n"
                        f"N: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n"
-                       + ("BAD-DCW: 01 02 03 06 04 05 06 0F 07 08 09 18 0A 0B 0C 21\n" if mode == "badlist" else "")
+                       + (f"BAD-DCW: {listed_cw_config}\n" if mode == "badlist" else "")
                        + f"\n[ isolated ]\nCAID: {caid}\nPROVIDERS: 0\nPORT: {newcamd}\n"
                        + ("DCW TIMEOUT: 1000\n" if mode == "late" else "DCW TIMEOUT: 3000\n") + "DCW HALFNULLED: YES\n"
                        + ("DCW SWAP: NO\n" if mode == "wronghalf" else "DCW SWAP: YES\n")
                        +
-                       "ENABLE SKIPCWC: YES\n"
+                       ("ENABLE SKIPCWC: NO\nDCWFILTER CHECKSUM: OFF\n" if mode == "scoped-noop" else "ENABLE SKIPCWC: YES\n")
                        + ("DCWFILTER PATTERN: ON\n" if mode == "pattern" else "DCWFILTER PATTERN: OFF\n")
                        + ("DCWFILTER REPEAT: ON\n" if mode == "repeatbytes" else "")
                        + (f"DCWFILTER CHECKSUM: OFF\nDCW SKIPCWC_EXCLUDE_SIDS_ACTIVE: YES\nDCW SKIPCWC_EXCLUDE_SIDLIST: {sid if mode != 'enforced1884' else '9999'}\n" if mode in ("excluded", "excluded1884", "enforced1884") else "")
+                       + ({"scoped-ok": "CW_CHECKSUM_EXEMPT: 000000:1136\n",
+                           "scoped-comment": "CW_CHECKSUM_EXEMPT: 000000:1136 # note\n",
+                           "scoped-good": "CW_CHECKSUM_EXEMPT: 000000:1136\n",
+                           "scoped-noop": "CW_CHECKSUM_EXEMPT: 000000:1136\n",
+                           "scoped-wrong-provider": "CW_CHECKSUM_EXEMPT: 000001:1136\n",
+                           "scoped-wrong-sid": "CW_CHECKSUM_EXEMPT: 000000:9999\n",
+                           "scoped-malformed": "CW_CHECKSUM_EXEMPT: " + os.environ.get("MCS_SCOPED_VALUE", "000000:1136junk") + "\n",
+                           "scoped-last-valid": "CW_CHECKSUM_EXEMPT: 000000:9999\nCW_CHECKSUM_EXEMPT: 000000:1136\n",
+                           "scoped-last-invalid": "CW_CHECKSUM_EXEMPT: 000000:1136\nCW_CHECKSUM_EXEMPT: 000000:1136junk\n"}.get(mode, ""))
+                       + ("CW_CHECKSUM_EXEMPT: 000000:1136\n" if mode in invalid_modes and os.environ.get("MCS_SCOPED_INVALID") == "1" else "")
                        + ("RETRY NEWCAMD: 1\n" if mode == "retry" else "")
                        + ("DCW MINTIME: 800\n" if mode.startswith("mintime-") else "")
                        + "USER: traceuser tracepass\n", encoding="utf-8")
@@ -104,10 +120,11 @@ def main():
             env.pop("NS_CW_SEQUENCE", None)
             if mode == "zero": env["NS_CW_SEQUENCE"] = "00" * 16
             if mode == "repeatbytes": env["NS_CW_SEQUENCE"] = "0505050F0405060F070809180A0B0C21"
-            if mode == "pattern": env["NS_CW_SEQUENCE"] = "010203060405060F010203060405060F"
+            if mode == "pattern": env["NS_CW_SEQUENCE"] = "010203070405060F010203070405060F" if scoped_bad_crc else "010203060405060F010203060405060F"
             if mode == "badlist": env["NS_CW_SEQUENCE"] = "010203060405060F070809180A0B0C21"
-            if mode not in ("full", "late", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884") + invalid_modes: env["NS_HALF_CW"] = "1"
-            if mode in ("bad", "excluded", "excluded1884", "enforced1884"): env["NS_BAD_CHECKSUM"] = "1"
+            if mode not in ("full", "late", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "enforced1884", "scoped-ok", "scoped-comment", "scoped-good", "scoped-noop", "scoped-wrong-provider", "scoped-wrong-sid", "scoped-malformed", "scoped-last-valid", "scoped-last-invalid") + invalid_modes: env["NS_HALF_CW"] = "1"
+            if mode in ("bad", "excluded", "excluded1884", "enforced1884", "scoped-ok", "scoped-comment", "scoped-noop", "scoped-wrong-provider", "scoped-wrong-sid", "scoped-malformed", "scoped-last-valid", "scoped-last-invalid"): env["NS_BAD_CHECKSUM"] = "1"
+            if scoped_bad_crc and mode in ("zero", "repeatbytes", "badlist"): env["NS_BAD_CHECKSUM"] = "1"
             if mode == "negative": env["NS_NEGATIVE"] = "1"
             if mode == "retry": env["NS_NEGATIVE_FIRST"] = "1"
             if mode in ("swap", "wronghalf"): env["NS_OPPOSITE_HALF"] = "1"
@@ -148,7 +165,7 @@ def main():
                 result = subprocess.run([str(cc), "127.0.0.1", str(cccam), "traceuser", "tracepass",
                                          caid, sid, tag], capture_output=True,
                                         text=True, timeout=25, check=True)
-                expected = "TIMEOUT" if mode in ("late", "recycled") else ("DCW" if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884") else "NOK")
+                expected = "TIMEOUT" if mode in ("late", "recycled") else ("DCW" if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "scoped-ok", "scoped-comment", "scoped-good", "scoped-noop", "scoped-last-valid") else "NOK")
                 assert "ECM1 tag=" + tag[2:].upper() + " " + expected in result.stdout, result.stdout
                 page = request()
                 assert "استلام ECM" in page and "ECM sent to server" in page
@@ -161,7 +178,7 @@ def main():
                     assert match and 0 <= int(match.group(1)) < 800 and int(match.group(2)) == 800, page
                     assert "رُفضت CW بحد DCW MINTIME عند المعالجة" in page
                 if mode in ("mintime-slow", "mintime-local", "mintime-cache"): assert "CW rejected by DCW MINTIME;" not in page
-                if mode in ("bad", "enforced1884"): assert "Newcamd CW rejected: checksum validation failed" in page
+                if mode in ("bad", "enforced1884", "scoped-wrong-provider", "scoped-wrong-sid", "scoped-malformed", "scoped-last-invalid"): assert "Newcamd CW rejected: checksum validation failed" in page
                 reasons = {"zero": "null-word validation failed", "repeatbytes": "repeated-byte validation failed", "pattern": "enabled pattern validation", "badlist": "operator BAD-DCW list"}
                 if mode in invalid_modes:
                     assert "Newcamd CW rejected: " + reasons[mode] in page
@@ -177,7 +194,11 @@ def main():
                         assert reason in page
                 if mode == "wronghalf": assert "CW rejected: half does not match ECM cycle and swap disabled" in page
                 if expected == "DCW":
-                    assert "Newcamd CW passed initial validation; further gates remain" in page
+                    if mode in ("scoped-ok", "scoped-comment", "scoped-last-valid"):
+                        assert "Newcamd CW passed initial checks under scoped checksum exemption; validity and picture unknown" in page
+                        assert "صلاحية CW والصورة غير معروفتين" in page
+                    else:
+                        assert "Newcamd CW passed initial validation; further gates remain" in page
                     assert "CW response sent; picture not verified" in page
                 elif mode == "recycled":
                     assert "Newcamd CW passed initial validation; further gates remain" in page
@@ -201,9 +222,9 @@ def main():
                         else: key[8:] = [0] * 8
                     encoded = "".join(f"{x:02X}" for x in key)
                     assert page.count(encoded) >= 2
-                if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884"):
+                if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "scoped-ok", "scoped-comment", "scoped-good", "scoped-noop", "scoped-last-valid"):
                     assert page.count("<summary>إظهار CW</summary>") >= 2
-                elif mode in ("bad", "wronghalf", "late", "non09half", "recycled", "mintime-fast", "enforced1884") + invalid_modes:
+                elif mode in ("bad", "wronghalf", "late", "non09half", "recycled", "mintime-fast", "enforced1884", "scoped-wrong-provider", "scoped-wrong-sid", "scoped-malformed", "scoped-last-invalid") + invalid_modes:
                     assert page.count("<summary>إظهار CW</summary>") == 1
                 else:
                     assert "<summary>إظهار CW</summary>" not in page

@@ -222,9 +222,13 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	 * turned DCWFILTER CHECKSUM off, their bouquet legitimately fails it and
 	 * counting that would penalise a good source on every key.
 	 */
-	dcwstruct_note(&trust_tab,
-		dcwstruct_scan(dcw, dcw_filter_checksum, dcw_filter_repeat),
-		dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+	{
+		int checksum_filter, repeat_filter;
+		dcw_filter_globals_snapshot(&checksum_filter, &repeat_filter, NULL, NULL);
+		dcwstruct_note(&trust_tab,
+			dcwstruct_scan(dcw, checksum_filter, repeat_filter),
+			dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+	}
 
 	/* TASK 2.2 -- entropy and collision forensics (unreachable half; see the active copy). */
 	cwentropy_note(&trust_tab,
@@ -302,7 +306,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 		}
 	}
 
-	if (!acceptDCW_profile_ca_sid(dcw, cs, ecm->caid, ecm->sid)) return;
+	if (!acceptDCW_profile_ecm(dcw, cs, ecm->caid, ecm->provid, ecm->sid)) return;
 
 
 	/*
@@ -852,9 +856,13 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	 * turned DCWFILTER CHECKSUM off, their bouquet legitimately fails it and
 	 * counting that would penalise a good source on every key.
 	 */
-	dcwstruct_note(&trust_tab,
-		dcwstruct_scan(dcw, dcw_filter_checksum, dcw_filter_repeat),
-		dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+	{
+		int checksum_filter, repeat_filter;
+		dcw_filter_globals_snapshot(&checksum_filter, &repeat_filter, NULL, NULL);
+		dcwstruct_note(&trust_tab,
+			dcwstruct_scan(dcw, checksum_filter, repeat_filter),
+			dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+	}
 
 	/*
 	 * TASK 2.2 -- entropy and collision forensics.
@@ -952,7 +960,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 
 	{
         int reason = DCW_VALID;
-        if (!acceptDCW_profile_ca_sid_reason(dcw, cs, ecm->caid, ecm->sid, &reason)) {
+        if (!acceptDCW_profile_ecm_reason(dcw, cs, ecm->caid, ecm->provid, ecm->sid, &reason)) {
             const char *why = "CW rejected by ECM worker profile validation: reason unknown";
             switch (reason) {
             case DCW_INVALID_CHECKSUM: why = "CW rejected by ECM worker profile validation: checksum"; break;
@@ -979,8 +987,10 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	 * that need cycle validation (from ecm-provider-config.h).
 	 */
 	if (srctype == DCW_SOURCE_CACHE && cwmark != 0 && ecm->cw1cycle) {
+		int global_cycle = 0;
+		dcw_filter_globals_snapshot(NULL, NULL, &global_cycle, NULL);
 		/* Check if this CAID needs cycle validation */
-		if (provider_cwcycle_enabled(ecm->caid, ecm->provid) || dcw_filter_cycle) {
+		if (provider_cwcycle_enabled(ecm->caid, ecm->provid) || global_cycle) {
 			extern int checkcycle(uint8_t, uint8_t, uint8_t);
 			extern void checkcycle_mismatch_inc(void);
 			if (!checkcycle(ecm->cw1cycle, ecm->ecm[0], cwmark)) {

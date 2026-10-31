@@ -9,7 +9,7 @@
 #
 # Usage:
 #   make            build          -> x64/multics
-#   make test       8 + 19 unit tests against the real ../src/dcw.c
+#   make test       the full unit/regression suite, including real ../src/dcw.c
 #   make release    -> ../dist/multics-r82a-stock-x64   (stock r82a logic)
 #   make release-stats -> ../bin/multics.x64 (THE fixed delivery name, R34)
 #   make release-stats (detail)
@@ -129,7 +129,7 @@ release-stats:
 # NULL and the first fprintf crashed. The test now mkdirs its directory and
 # guards its fixtures (xopen), so running it right after test_monjson is kept
 # as the standing regression for exactly that folklore.
-test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwconsensus_load x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_thread_create
+test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwconsensus_load x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_thread_create x64/test_scoped_checksum_policy
 	./x64/test_cachequeue
 	@echo
 	./x64/test_cwconsensus
@@ -184,6 +184,7 @@ test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwcons
 	./x64/test_cwfake
 	./x64/test_skipcwc
 	./x64/test_thread_create
+	./x64/test_scoped_checksum_policy
 	./x64/test_cafamily
 	@echo
 	./x64/test_cache_threshold
@@ -343,6 +344,29 @@ x64/test_thread_create: ../tests/thread-create-unaligned.c ../src/threads.c ../s
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu99 -I../src -o $@ ../tests/thread-create-unaligned.c ../src/threads.c -pthread
 
+# TASK 4.3: exercise the profile-aware checksum exception against the real
+# config/DCW implementation. Build an isolated copy of the production objects
+# with the same protocol/layout flags; main.c's entry point is renamed so the
+# policy test's main() can link alongside the real globals and functions.
+SCOPED_OUTPUT = $(OUTPUT)/scoped-policy
+SCOPED_CFLAGS = $(CFLAGS) -std=gnu99 -fgnu89-inline
+SCOPED_POLICY_OBJECTS = $(patsubst $(OUTPUT)/%,$(SCOPED_OUTPUT)/%,$(filter-out $(OUTPUT)/main.o,$(OBJECTS)))
+
+$(SCOPED_OUTPUT):
+	@mkdir -p $@
+
+$(SCOPED_OUTPUT)/safe-time.o: ../src/safe-time.c $(HDRS) | $(SCOPED_OUTPUT)
+	$(CC) -c $(SCOPED_CFLAGS) -fno-pack-struct $< -o $@
+
+$(SCOPED_OUTPUT)/%.o: ../src/%.c $(HDRS) | $(SCOPED_OUTPUT)
+	$(CC) -c $(SCOPED_CFLAGS) $< -o $@
+
+$(SCOPED_OUTPUT)/main-scoped.o: ../src/main.c $(wildcard ../src/*.c) $(HDRS) | $(SCOPED_OUTPUT)
+	$(CC) -c $(SCOPED_CFLAGS) -Dmain=multics_main $< -o $@
+
+x64/test_scoped_checksum_policy: ../tests/scoped-checksum-policy.c $(SCOPED_OUTPUT)/main-scoped.o $(SCOPED_POLICY_OBJECTS)
+	$(CC) -o $@ $(SCOPED_CFLAGS) $^ -lpthread
+
 x64/test_cafamily: test_cafamily.c ../src/cafamily.h
 	$(CC) $(CFLAGS) -o $@ test_cafamily.c
 
@@ -392,7 +416,7 @@ x64/test_cwconsensus_load: ../tests/cwconsensus-load.c ../src/cwconsensus.c ../s
 # upstream checksumDCW()/isbadDCW() rather than owning a second copy of them.
 x64/test_dcwstruct: test_dcwstruct.c ../src/dcw.c ../src/dcw.h ../src/dcwstruct.h
 	@mkdir -p x64
-	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_dcwstruct.c ../src/dcw.c
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -DMCS_SELFTEST -o $@ test_dcwstruct.c ../src/dcw.c
 
 # TASK 2.2: entropy and collision forensics. The header is pure arithmetic over
 # 16 bytes with no dependency on the server at all -- which is why this suite

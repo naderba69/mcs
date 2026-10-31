@@ -1776,10 +1776,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 			 */
 			if ( cwcy_judge(pcache->cwcycle, cwcy_observed((int)cwcycle)) == CWCY_CONTRA ) {
 				struct cardserver_data *cyc_cs = pcache->ecm ? pcache->ecm->cs : NULL;
-				int cyc_mode = cyc_cs ? cyc_cs->option.dcwfilter_cycle
-				                      : (dcw_filter_cycle ? DCWFILTER_ON : DCWFILTER_INHERIT);
-				if ( (cyc_mode==DCWFILTER_ON) ||
-				     (cyc_mode==DCWFILTER_INHERIT && dcw_filter_cycle) ) {
+				if (dcw_profile_cycle_enabled(cyc_cs)) {
 #ifdef MCS_DCWSTATS
 					DCWSTATS_REJECT(DCW_REJ_CYCLE);
 					cwlog_refuse(DCW_REJ_CYCLE, peerid, req->caid, req->provid, req->sid, cw);
@@ -1933,8 +1930,9 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			debugf(getdbgflag(DBG_CACHE,0,0), " [CACHEEX GATE] LOCAL_ONLY: unsolicited push dropped ch %04x:%06x:%04x\n", req->caid, req->provid, req->sid);
 			return -1;
 		}
-		int validation_reason = DCW_VALID;
-		if ( !acceptDCW_profile_ca_sid_reason(cw, pcs, req->caid, req->sid, &validation_reason) ) {
+		int validation_reason = DCW_VALID, checksum_exemption_used = 0;
+		if ( !acceptDCW_profile_ecm_trace_reason(cw, pcs, req->caid, req->provid, req->sid,
+		                                               &validation_reason, &checksum_exemption_used) ) {
 		const char *why = "cache rejected: profile CW validation; specific check unknown";
 		switch (validation_reason) {
 		case DCW_INVALID_CHECKSUM: why = "cache rejected: profile CW checksum validation failed"; break;
@@ -1981,6 +1979,9 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 #endif
 		return -1;
 	}
+		if (checksum_exemption_used)
+			user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+			    "cache CW passed profile checks under scoped checksum exemption; validity and picture unknown", cw);
 		/* TASK R1 — BLOCK_FAKE_CW: the two deterministic r82a content
 		 * tests, forced for exchange arrivals when the gate is armed.
 		 * The rejected key gets the same evidence treatment as a
