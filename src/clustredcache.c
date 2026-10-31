@@ -2659,7 +2659,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 								// Check for extended reply ( Program Name/Version )
 								int index = 13;
 								while (received>index) {
-									if ( (index+buf[index+1]+2)>received ) break;
+									if (!cg_tlv_is_complete(buf, received, index)) break;
 									switch(buf[index]) {
 										case 0x01:
 											if (buf[index+1]<32) { memcpy(peer->program, buf+index+2, buf[index+1]); peer->program[buf[index+1]] = 0; }
@@ -2699,7 +2699,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 						// Check for extended reply ( Program Name/Version )
 						int index = 13;
 						while (received>index) {
-							if ( (index+buf[index+1]+2)>received ) break;
+							if (!cg_tlv_is_complete(buf, received, index)) break;
 							switch(buf[index]) {
 								case 0x01:
 									if (buf[index+1]<32) { memcpy(peer->program, buf+index+2, buf[index+1]); peer->program[buf[index+1]] = 0; }
@@ -2727,7 +2727,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 				// Check for extended reply ( Program Name/Version )
 				int index = 13;
 				while (received>index) {
-					if ( (index+buf[index+1]+2)>received ) break;
+					if (!cg_tlv_is_complete(buf, received, index)) break;
 					switch(buf[index]) {
 						case 0x01:
 							if (buf[index+1]<32) { memcpy(peer->program, buf+index+2, buf[index+1]); peer->program[buf[index+1]] = 0; }

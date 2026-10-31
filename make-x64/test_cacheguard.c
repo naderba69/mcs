@@ -54,6 +54,28 @@ int main(void)
 	      "our own PINGREQ (13), PINGRPL (9) and RESENDREQ (16) always pass");
 	CHECK(cg_minlen(0x10) <= 9, "our own HELLO_ACK (9) always passes");
 
+	/* --- 1b. bounded TYPE_PINGREQ TLVs ----------------------------------- */
+	{
+		uint8_t lone_tag[] = { 0x01 };
+		uint8_t empty_tlv[] = { 0x01, 0x00 };
+		uint8_t complete_tlv[] = { 0x02, 0x03, 'v', '1', 'x' };
+		uint8_t truncated_tlv[] = { 0x02, 0x03, 'v', '1' };
+		CHECK(!cg_tlv_is_complete(lone_tag, 1, 0),
+		      "a lone TLV tag is rejected without reading a length byte");
+		CHECK(cg_tlv_is_complete(empty_tlv, 2, 0),
+		      "a complete zero-length TLV is accepted");
+		CHECK(cg_tlv_is_complete(complete_tlv, 5, 0),
+		      "a TLV whose payload ends at the datagram boundary is accepted");
+		CHECK(!cg_tlv_is_complete(truncated_tlv, 4, 0),
+		      "a TLV with an incomplete payload is rejected");
+		CHECK(!cg_tlv_is_complete(complete_tlv, 5, 4),
+		      "a trailing single tag byte is rejected");
+		CHECK(!cg_tlv_is_complete(complete_tlv, 4, 5),
+		      "an index past the datagram boundary is rejected");
+		CHECK(!cg_tlv_is_complete(NULL, 5, 0),
+		      "a null TLV buffer is rejected");
+	}
+
 	/* --- 2. the window ---------------------------------------------------- */
 	memset(&w, 0, sizeof(w));
 	CHECK(cg_window_event(&w, 1000) == 1, "the first event opens the window and writes");
