@@ -1596,6 +1596,15 @@ struct cache_data *cache_fetch_goodcw2( struct cache_data *thereq, uint8_t cw[16
 				if (cache_local_providers_conflict(pcache, thereq)) {
 					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
 					    pcache->hash, peerid, "cache provider collision: different local provider; conflicting operation skipped", NULL);
+				} else if (cfg.cache.consensus || cfg.cache.threshold > 1 ||
+				           cfg.cache.gate_cwcheck > 1 ||
+				           (pcache->ecm && pcache->ecm->cs &&
+				            pcache->ecm->cs->option.excheck > 1)) {
+					/* This CW is not in the target entry (iscwincache above).
+					 * Source-entry votes/arrivals cannot establish the target's
+					 * confirmation policy. Let its ordinary lookup continue. */
+					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+					    pcache->hash, peerid, "cache relay deferred: target confirmation not established", NULL);
 				} else {
 				pipe_cache2ecm_find_success(pcache, cw, peerid);
 
@@ -1658,6 +1667,15 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 				if (cache_local_providers_conflict(pcache, thereq)) {
 					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
 					    pcache->hash, peerid, "cache provider collision: different local provider; conflicting operation skipped", NULL);
+				} else if (cfg.cache.consensus || cfg.cache.threshold > 1 ||
+				           cfg.cache.gate_cwcheck > 1 ||
+				           (pcache->ecm && pcache->ecm->cs &&
+				            pcache->ecm->cs->option.excheck > 1)) {
+					/* This CW is not in the target entry (iscwincache above).
+					 * Source-entry votes/arrivals cannot establish the target's
+					 * confirmation policy. Let its ordinary lookup continue. */
+					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+					    pcache->hash, peerid, "cache relay deferred: target confirmation not established", NULL);
 				} else {
 				pipe_cache2ecm_find_success(pcache, cw, peerid);
 
@@ -1695,10 +1713,6 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 {
     int piped = 0;
     cwcycle_t incoming_cycle = cwcycle;
-	// ACCEPTED
-	if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
-	if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, peerid);
-
 	// Half Nulled CW
 	char nullcw[8] = "\0\0\0\0\0\0\0\0";
 	if ( !dcwcmp8(cw,nullcw) && !dcwcmp8(cw+8,nullcw) ) {
@@ -1710,6 +1724,10 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 				cwdata->status |= DCW_CYCLE;
 				cwdata->cwcycle = pcache->cwcycle;
 				cwdata->peerid = peerid;
+				/* The source entry passed its cycle gate; only now may it
+				 * be considered for the optional cross-entry relays. */
+				if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
+				if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, peerid);
 				if ( (pcache->flags&CACHE_FLAG_SENDPIPE) && !(cwdata->status&DCW_SENT) ) {
 					pipe_cache2ecm_find_success(pcache, cw, peerid);
 					piped = 1;   /* TASK R11 (D65) */
@@ -1818,6 +1836,11 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 		cwdata->cwcycle = cwcycle;
 		cwdata->peerid = peerid; // CSP CACHE
 	}
+
+	/* Do not relay a source candidate that its own cycle/family gate
+	 * rejected. This is after the final gate on the normal path. */
+	if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
+	if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, peerid);
 
 	if ( (pcache->flags&CACHE_FLAG_SENDPIPE) && !(cwdata->status&DCW_SENT) ) {
 		cwdata->status |= DCW_SENT;
