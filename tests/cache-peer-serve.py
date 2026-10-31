@@ -3,6 +3,8 @@ from pathlib import Path
 import os
 ROOT=Path(__file__).resolve().parents[1]
 binary=Path(sys.argv[1]).resolve(); mode=sys.argv[2]
+kind=sys.argv[3] if len(sys.argv)>3 else 'request'
+assert kind in ('request','resend')
 def port(kind):
  s=socket.socket(socket.AF_INET,kind);s.bind(('127.0.0.1',0)); p=s.getsockname()[1];s.close();return p
 with tempfile.TemporaryDirectory(prefix='mcs-peer-serve-') as d:
@@ -79,7 +81,7 @@ USER: u1 p1
   while True:
    try:peers[1].recvfrom(1024)
    except socket.timeout:break
-  peers[1].sendto(bytes([1])+key,('127.0.0.1',cp));limit=time.monotonic()+.5;got=[]
+  peers[1].sendto((bytes([1])+key if kind=='request' else bytes([5,0,0,0,0])+key),('127.0.0.1',cp));limit=time.monotonic()+.5;got=[]
   while time.monotonic()<limit:
    try:
     data,_=peers[1].recvfrom(1024)
@@ -88,14 +90,14 @@ USER: u1 p1
   if mode not in ('off','local','threshold-pass'):
    page=request(); assert 'cache peer reply deferred: candidate not approved, held or below threshold' in page
    assert 'السبب المحدد غير معروف' in page
-  print('PASS',mode,'peer CW responses',len(got),'trace confirmed',expect)
+  print('PASS',kind,mode,'peer CW responses',len(got),'trace confirmed',expect)
   assert bool(got)==(mode in ('off','local','threshold-pass'))
   if mode=='held':
    deadline=time.monotonic()+5
    while 'cache consensus window expired; cycle checks pending' not in request():
     if time.monotonic()>deadline: raise AssertionError('consensus expiry not observed')
     time.sleep(.05)
-   peers[1].sendto(bytes([1])+key,('127.0.0.1',cp)); deadline=time.monotonic()+1; released=False
+   peers[1].sendto((bytes([1])+key if kind=='request' else bytes([5,0,0,0,0])+key),('127.0.0.1',cp)); deadline=time.monotonic()+1; released=False
    while time.monotonic()<deadline:
     try:
      data,_=peers[1].recvfrom(1024)

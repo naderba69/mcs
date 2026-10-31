@@ -989,7 +989,9 @@ void sendtoip( int handle, uint32_t ip, int port, unsigned char *buf, int len)
 
 void sendtopeer( struct cachepeer_data *peer, unsigned char *buf, int len)
 {
-
+	/* Disabled means disabled in both directions, even if a stale ping is
+	 * positive or another sender bypasses cache_check_peers(). */
+	if (IS_DISABLED(peer->flags)) return;
 	if (peer->host->ip && peer->port) {
 		struct sockaddr_in si_other;
 		int slen=sizeof(si_other);
@@ -1115,7 +1117,7 @@ static void peerrep_event(struct cachepeer_data *peer, const char *reason)
 			peer->host->name, peer->port,
 			st==PEERREP_STAGE_DISTRUST?"DISTRUST":(st==PEERREP_STAGE_ISOLATE?"ISOLATE":"BAN"),
 			reason, pr_cons[st]);
-		if (st==PEERREP_STAGE_BAN) peer->flags |= FLAG_DISABLE;
+		if (st==PEERREP_STAGE_BAN) { peer->flags |= FLAG_DISABLE; peer->ping = 0; }
 	}
 }
 
@@ -2318,6 +2320,21 @@ static void cache_trace_csp_drop(const unsigned char *buf, int len, int peerid,
         (uint16_t)((buf[2]<<8)|buf[3]), hash, peerid, detail, NULL);
 }
 
+/* Apply the same stored-candidate policy to ordinary CSP requests and
+ * resend requests. The caller holds lockcache. This says only that a stored
+ * candidate passed the applicable cache gates, not that it produces picture. */
+static int cache_peer_candidate_eligible(struct cache_data *entry,
+                                         struct cw_cache_data *candidate)
+{
+    if (candidate->status & DCW_ERROR) return 0;
+    if (!(candidate->status & DCW_PEER_READY)) return 0;
+    if (candidate->nbpeers < cfg.cache.threshold &&
+        !((candidate->status & DCW_LOCAL_SOURCE) && cfg.cache.threshold <= 1)) return 0;
+    if (cfg.cache.consensus && cwconsensus_is_held(entry->caid, entry->sid,
+            entry->hash, entry->tag, candidate->cw)) return 0;
+    return 1;
+}
+
 void cache_recvmsg(struct cacheserver_data *cache)
 {
 	unsigned int recv_ip;
@@ -2411,12 +2428,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 						struct cw_cache_data *cwdata = pcache->cwdata;
 						int peer_defer_noted = 0;
 						while (cwdata) {
-							if (!(cwdata->status&DCW_ERROR) &&
-							    (cwdata->status&DCW_PEER_READY) &&
-							    (cwdata->nbpeers >= cfg.cache.threshold ||
-							     ((cwdata->status&DCW_LOCAL_SOURCE) && cfg.cache.threshold <= 1)) &&
-							    (!cfg.cache.consensus || !cwconsensus_is_held(pcache->caid, pcache->sid,
-							        pcache->hash, pcache->tag, cwdata->cw))) {
+							if (cache_peer_candidate_eligible(pcache, cwdata)) {
 								cache_send_reply( pcache, peer, cwdata->cw);
 								if (cfg.cache.forward) peer->sentrep++;
 							} else if (!peer_defer_noted) {
@@ -2595,14 +2607,20 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			// Check Cache Request
 			if ( cache_check(&req) ) {
 				struct cache_data *pcache = cache_fetch( &req );
-				if (pcache!=NULL) {
+				if (pcache!=NULL && !(pcache->flags&CACHE_FLAG_SENDPIPE)) {
 					buf[4] = TYPE_REPLY;
 					buf[16] = buf[5];
 					struct cw_cache_data *cwdata = pcache->cwdata;
+					int peer_defer_noted = 0;
 					while (cwdata) {
-						if (!(cwdata->status&DCW_ERROR)) {
+						if (cache_peer_candidate_eligible(pcache, cwdata)) {
 							memcpy( buf+17, cwdata->cw, 16);
 							sendtopeer( peer, buf+4, 29);
+						} else if (!peer_defer_noted) {
+							user_trace_cache_observation(pcache->caid, pcache->provid,
+							    pcache->sid, pcache->hash, peer->id|PEER_CSP,
+							    "cache peer reply deferred: candidate not approved, held or below threshold", NULL);
+							peer_defer_noted = 1;
 						}
 						cwdata = cwdata->next;
 					}
@@ -2763,6 +2781,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			int peerid = (buf[4]<<8) | buf[5];
 			while (peer) {
 				if ( (peer->host->ip==recv_ip)&&(peer->id==peerid) ) {
+					if (IS_DISABLED(peer->flags)) break;
 					peer->protocol = 0;
 					peer->recvport = recv_port;
 					peer->lastpingrecv = GetTickCount();
@@ -2782,6 +2801,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 									peer->host->name, peer->port);
 							}
 						}
+						if (IS_DISABLED(peer->flags)) { peer->ping = 0; break; }
 						peer->ping = peer->lastpingrecv-peer->lastpingsent;
 						//ipeer_update(cache);
 					}
@@ -2800,6 +2820,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 					peer = cache->peer;
 					while (peer) {
 						if ( (peer->host->ip==recv_ip)&&(peer->id==peerid) ) {
+							if (IS_DISABLED(peer->flags)) break;
 							// Check for private new cache
 							uint8_t k[4]; k[0] = cache->port>>8; k[1] = cache->port; k[2]=peer->port>>8; k[3]=peer->port; 
 							fase( k, peer->crc);
@@ -2821,6 +2842,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 											peer->host->name, peer->port);
 									}
 								}
+								if (IS_DISABLED(peer->flags)) { peer->ping = 0; break; }
 								peer->ping = peer->lastpingrecv-peer->lastpingsent;
 								//ipeer_update(cache);
 							}
@@ -2891,7 +2913,8 @@ void cache_recvmsg(struct cacheserver_data *cache)
 		case TYPE_CARD_LIST:
 			// Check Peer
 			peer = getpeerbyaddr(cache, recv_ip,recv_port);
-			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
+			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; } /* TASK 2.9 */
+			if (IS_DISABLED(peer->flags)) break;
 			// reset cards
 			int idx = 0;
 			if (buf[1]&1) memset( peer->cards, 0, sizeof(peer->cards) ); 

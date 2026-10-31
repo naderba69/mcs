@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-peer-serve-') as d:
   subprocess.run(['cc','-O2','-std=gnu89','-w','-o',str(d/'ncserver'),str(ROOT/'tests/ncserver.c'),str(ROOT/'src/des.c'),str(ROOT/'src/msg-newcamd.c'),str(ROOT/'src/md5.c')],check=True)
  cp=port(socket.SOCK_DGRAM); hp=port(socket.SOCK_STREAM); cc=port(socket.SOCK_STREAM); nc=port(socket.SOCK_STREAM)
  peers=[]
- for _ in range(2):
+ for _ in range(3):
   s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(('127.0.0.1',0));s.settimeout(.15);peers.append(s)
  pp=[s.getsockname()[1] for s in peers]
  cfg=d/'mcs.cfg';cfg.write_text(f'''HTTP PORT: {hp}
@@ -38,6 +38,7 @@ CACHE CONSENSUS WINDOW: 2000
 CACHE CONSENSUS SOURCES: 3
 CACHE PEER: 127.0.0.1:{pp[0]} {{ csp=1 }}
 CACHE PEER: 127.0.0.1:{pp[1]} {{ csp=1; fwd=1 }}
+CACHE PEER: 127.0.0.1:{pp[2]} {{ csp=1 }}
 [test]
 CAID: 1884
 PROVIDERS: 000000
@@ -67,7 +68,7 @@ USER: u1 p1
   # to receive an unsolicited forward.
   import select
   online=set(); deadline=time.monotonic()+14
-  while len(online)<2:
+  while len(online)<3:
    if time.monotonic()>deadline: raise AssertionError(('peer handshake timeout',online,(d/'server.log').read_text()))
    ready,_,_=select.select(peers,[],[],.2)
    for sock in ready:
@@ -91,16 +92,21 @@ USER: u1 p1
   out,_=client.communicate(timeout=8)
   assert 'ECM1 tag=80 DCW' in out, out
   page=request(); assert 'CW response sent; picture not verified' in page
-  # No TYPE_REQUEST is sent. Observe only the automatic forward.
-  limit=time.monotonic()+.8;got=[]
-  while time.monotonic()<limit:
-   try:
-    data,_=peers[1].recvfrom(1024)
-    if len(data)>=29 and data[0]==2 and data[1:12]==key and data[13:29]==cw:got.append(data)
-   except socket.timeout:pass
-  print('PASS cache-origin',mode,'broadcast messages',len(got))
-  assert bool(got)==(mode=='on'), ('cache-origin forwarding policy',mode,got)
-  if mode=='off':
+  # Separate the forwarding peer from a regular peer. The former receives
+  # the 30-byte ingress push; the latter is served by the 29-byte ECM reply.
+  import select
+  deadline=time.monotonic()+1;got={1:[],2:[]}
+  while time.monotonic()<deadline:
+   ready,_,_=select.select([peers[1],peers[2]],[],[],.1)
+   for sock in ready:
+    data,_=sock.recvfrom(1024)
+    if len(data)>=29 and data[0]==2 and data[1:12]==key and data[13:29]==cw:
+     got[1 if sock is peers[1] else 2].append(len(data))
+  print('PASS cache-origin',mode,'forwarding peer',got[1],'ordinary peer',got[2])
+  if mode=='on':
+   assert 30 in got[1] and 29 in got[2], got
+  else:
+   assert not got[1] and not got[2], got
    page=request(); assert 'cache-origin reply not rebroadcast: disabled or candidate unavailable' in page
    assert 'السبب المحدد غير معروف' in page
 
