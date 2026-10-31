@@ -443,6 +443,15 @@ struct cache_data **getcachetabbycaid(unsigned short caid)
 #include "cache_purge.h"
 
 
+/* A locally attached provider is evidence of a numeric conflict, not proof
+ * of a CSP CW's origin. Unknown associations retain the historical behavior. */
+static int cache_local_providers_conflict(const struct cache_data *a,
+                                          const struct cache_data *b)
+{
+    return a->local_provider_set && b->local_provider_set &&
+           a->local_provider != b->local_provider;
+}
+
 /* Cache timestamps are 32-bit milliseconds. Compare elapsed time rather than
  * absolute deadlines, which wrap at startup and every ~49.7 days. The cache
  * lifetime and filter window are far below half the counter range. */
@@ -1443,7 +1452,8 @@ int cache_fetch_goodcw( struct cache_data *thereq, uint8_t cw[16], cwcycle_t *cw
 	while (pcache) {
 		if ( cache_time_older_than(thereq->recvtime, pcache->recvtime, cfg.cache.filtertime)) {
 			if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
-			if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) ) // need provider XXX
+			if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) )
+			if ( !cache_local_providers_conflict(pcache, thereq) )
 			if ( !pcache->provid || !thereq->provid || (pcache->provid==thereq->provid) ) // csp luck of provid
 			if ( pcache->tag && (pcache->tag!=thereq->tag) ) { // old oscam cacheex luck of ecmtag
 				struct cw_cache_data *cwdata = pcache->cwdata;
@@ -1574,8 +1584,7 @@ struct cache_data *cache_fetch_goodcw2( struct cache_data *thereq, uint8_t cw[16
 	while (pcache) {
 		if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
 		if ( pcache->flags&CACHE_FLAG_SENDPIPE )
-		if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) ) // need provider XXX
-		//if ( !pcache->provid || !thereq->provid || (pcache->provid!=thereq->provid) )
+		if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) )
 		if ( pcache->tag && (pcache->tag==thereq->tag) )
 		if ( pcache->cwcycle!=NO_CYCLE )
 		if ( !isnullDCW(pcache->prevcw) )
@@ -1584,6 +1593,10 @@ struct cache_data *cache_fetch_goodcw2( struct cache_data *thereq, uint8_t cw[16
 			if (  ( (pcache->cwcycle==CW1CYCLE) && dcwcmp8(pcache->prevcw,cw) && !similarcw(pcache->prevcw+8,cw+8) ) ||
 				( (pcache->cwcycle==CW0CYCLE) && !similarcw(pcache->prevcw,cw) && dcwcmp8(pcache->prevcw+8,cw+8) )  ) {
 
+				if (cache_local_providers_conflict(pcache, thereq)) {
+					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+					    pcache->hash, peerid, "cache provider collision: different local provider; conflicting operation skipped", NULL);
+				} else {
 				pipe_cache2ecm_find_success(pcache, cw, peerid);
 
 #ifdef TESTCHANNEL
@@ -1598,7 +1611,7 @@ struct cache_data *cache_fetch_goodcw2( struct cache_data *thereq, uint8_t cw[16
 						thereq->caid, thereq->provid, thereq->sid, thereq->tag, thereq->hash );
 				}
 #endif
-
+				}
 			}
 		}
 		pcache = pcache->next;
@@ -1633,7 +1646,7 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 		if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
 		if ( pcache->flags&CACHE_FLAG_SENDPIPE )
 		if (pcache->sid!=thereq->sid)
-		if ( (pcache->hash==thereq->hash) ) // need provider XXX
+		if ( (pcache->hash==thereq->hash) )
 		if ( pcache->tag && (pcache->tag==thereq->tag) )
 		if ( pcache->cwcycle!=NO_CYCLE )
 		if ( !isnullDCW(pcache->prevcw) )
@@ -1642,6 +1655,10 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 			if (  ( (pcache->cwcycle==CW1CYCLE) && dcwcmp8(pcache->prevcw,cw) && !similarcw(pcache->prevcw+8,cw+8) ) ||
 				( (pcache->cwcycle==CW0CYCLE) && !similarcw(pcache->prevcw,cw) && dcwcmp8(pcache->prevcw+8,cw+8) )  ) {
 
+				if (cache_local_providers_conflict(pcache, thereq)) {
+					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+					    pcache->hash, peerid, "cache provider collision: different local provider; conflicting operation skipped", NULL);
+				} else {
 				pipe_cache2ecm_find_success(pcache, cw, peerid);
 
 #ifdef TESTCHANNEL
@@ -1656,7 +1673,7 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 						thereq->caid, thereq->provid, thereq->sid, thereq->tag, thereq->hash );
 				}
 #endif
-
+				}
 			}
 		}
 		pcache = pcache->next;
