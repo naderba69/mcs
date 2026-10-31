@@ -443,6 +443,20 @@ struct cache_data **getcachetabbycaid(unsigned short caid)
 #include "cache_purge.h"
 
 
+/* Cache timestamps are 32-bit milliseconds. Compare elapsed time rather than
+ * absolute deadlines, which wrap at startup and every ~49.7 days. The cache
+ * lifetime and filter window are far below half the counter range. */
+static int cache_time_expired(uint32_t now, uint32_t then, uint32_t lifetime)
+{
+    return (uint32_t)(now - then) > lifetime;
+}
+
+static int cache_time_older_than(uint32_t request, uint32_t entry, uint32_t window)
+{
+    uint32_t elapsed = request - entry;
+    return elapsed <= INT32_MAX && elapsed > window;
+}
+
 struct cache_data *cache_new( struct cache_data *newdata )
 {
 	int index = newdata->sid&MAX_CACHE_INDEX;
@@ -483,7 +497,7 @@ struct cache_data *cache_new( struct cache_data *newdata )
 	}
 	else {
 		new = cachetab[index]->prev;
-		if ( (new->recvtime+cfg.cache.alivetime) < ticks ) {
+		if ( cache_time_expired(ticks, new->recvtime, cfg.cache.alivetime) ) {
 			// cache is dead, add data to this one without allocating new data
 			// free old dcw
 			struct cw_cache_data *cwdata = new->cwdata;
@@ -540,7 +554,7 @@ struct cache_data *cache_fetch( struct cache_data *thereq )
 	struct cache_data *pcache = cachetab[index];
 	uint32_t ticks = GetTickCount();
 	while (pcache) {
-		if ( (pcache->recvtime+cfg.cache.alivetime) < ticks ) return NULL;
+		if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) return NULL;
 		if ( (pcache->hash==thereq->hash)&&(pcache->sid==thereq->sid) )
 			if ( (pcache->tag==thereq->tag) || !pcache->tag || !thereq->tag ) return pcache;
 		pcache = pcache->next;
@@ -1425,10 +1439,10 @@ int cache_fetch_goodcw( struct cache_data *thereq, uint8_t cw[16], cwcycle_t *cw
 	if (!cachetab) return 0;
 	struct cache_data *pcache = cachetab[index];
 	struct cache_data *result = NULL;
-	uint32_t ticks = GetTickCount() - cfg.cache.alivetime;
+	uint32_t ticks = GetTickCount();
 	while (pcache) {
-		if ( (pcache->recvtime+cfg.cache.filtertime)<thereq->recvtime) {
-			if ( pcache->recvtime < ticks ) break;
+		if ( cache_time_older_than(thereq->recvtime, pcache->recvtime, cfg.cache.filtertime)) {
+			if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
 			if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) ) // need provider XXX
 			if ( !pcache->provid || !thereq->provid || (pcache->provid==thereq->provid) ) // csp luck of provid
 			if ( pcache->tag && (pcache->tag!=thereq->tag) ) { // old oscam cacheex luck of ecmtag
@@ -1494,10 +1508,10 @@ int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash
 	/* TASK 3.4: no table for this CAID (allocation failed) -- nothing cached. */
 	if (!cachetab) return 0;
 	struct cache_data *pcache = cachetab[index];
-	uint32_t ticks = GetTickCount() - cfg.cache.alivetime;
+	uint32_t ticks = GetTickCount();
 	while (pcache) {
-		if ( (pcache->recvtime+cfg.cache.filtertime)<recvtime) {
-			if ( pcache->recvtime < ticks ) break;
+		if ( cache_time_older_than(recvtime, pcache->recvtime, cfg.cache.filtertime)) {
+			if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
 			/* A local entry for another numeric provider is not evidence that
 			 * this request repeated a CW. CSP-only entries remain governed by
 			 * the existing rule: their provider identity is unavailable. */
@@ -1556,9 +1570,9 @@ struct cache_data *cache_fetch_goodcw2( struct cache_data *thereq, uint8_t cw[16
 	if (!cachetab) return NULL;
 	struct cache_data *pcache = cachetab[index];
 	struct cache_data *result = NULL;
-	uint32_t ticks = GetTickCount() - cfg.cache.alivetime;
+	uint32_t ticks = GetTickCount();
 	while (pcache) {
-		if ( pcache->recvtime < ticks ) break;
+		if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
 		if ( pcache->flags&CACHE_FLAG_SENDPIPE )
 		if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) ) // need provider XXX
 		//if ( !pcache->provid || !thereq->provid || (pcache->provid!=thereq->provid) )
@@ -1614,9 +1628,9 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 	if (!cachetab) return NULL;
 	struct cache_data *pcache = cachetab[index];
 	struct cache_data *result = NULL;
-	uint32_t ticks = GetTickCount() - cfg.cache.alivetime;
+	uint32_t ticks = GetTickCount();
 	while (pcache) {
-		if ( pcache->recvtime < ticks ) break;
+		if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
 		if ( pcache->flags&CACHE_FLAG_SENDPIPE )
 		if (pcache->sid!=thereq->sid)
 		if ( (pcache->hash==thereq->hash) ) // need provider XXX

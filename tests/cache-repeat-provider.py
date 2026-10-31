@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-provider-identity-') as folder:
  ports=set()
  while len(ports)<6:ports.add(f.free_port())
  http,cccam,newcamd,card,cacheport,peerport=ports
- cacheconfig = f'CACHE PORT: {cacheport}\nCACHE PEER: 127.0.0.1:{peerport} {{ csp=1 }}\nCACHE FILTER: OFF\nCACHE ALIVETIME: 5\nCACHE FILTER TIME: 1\nCACHE THRESHOLD: 0\n' if cache_collision else ''
+ cacheconfig = f'CACHE PORT: {cacheport}\nCACHE PEER: 127.0.0.1:{peerport} {{ csp=1 }}\nCACHE FILTER: OFF\nCACHE FILTER TIME: 1\nCACHE THRESHOLD: 0\n' if cache_collision else ''
  cfg=tmp/'mcs.cfg';cfg.write_text(f'HTTP PORT: {http}\nHTTP USER: test\nHTTP PASS: isolated\nTELNET PORT: 0\nCCCAM PORT: {cccam}\nF: first password\nF: second password\nN: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n{cacheconfig}\n[isolated]\nCAID: 1884\nPROVIDERS: 000000, 000001\nPORT: {newcamd}\nDCW TIMEOUT: 5000\nSERVER TIMEOUT: 4500\nDCW HALFNULLED: YES\nDCW SWAP: YES\n' + ('ENABLE CACHE: YES\nCACHE STATIC: NO\nCACHE TIMEOUT: 1000\n' if cache_collision else '') + 'USER: first password\nUSER: second password\n')
  logs=[];children=[]
  udp=socket.socket(socket.AF_INET,socket.SOCK_DGRAM) if (inject or prefill) else None
@@ -31,6 +31,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-provider-identity-') as folder:
   env=dict(os.environ,NS_DELAYS='60');
   for key in ('NS_HALF_CW','NS_BAD_CHECKSUM','NS_NEGATIVE','NS_NEGATIVE_FIRST','NS_OPPOSITE_HALF','NS_CW_SEQUENCE'):env.pop(key,None)
   peer=launch([str(nc),str(card),'0102030405060708091011121314','1884',first_provid],'peer.log',env);time.sleep(.3)
+  server_started=time.monotonic()
   server=launch(['stdbuf','-oL','-eL',str(BINARY),'-v','-C',str(cfg)],'server.log')
   f.wait_until(lambda:f.connected(cccam),children);f.wait_until(lambda:'login from user' in (tmp/'peer.log').read_text(errors='replace'),children)
   auth='Basic '+base64.b64encode(b'test:isolated').decode();url=f'http://127.0.0.1:{http}/user-trace'
@@ -44,7 +45,6 @@ with tempfile.TemporaryDirectory(prefix='mcs-provider-identity-') as folder:
    ping=bytearray(13);ping[0]=3;ping[11:13]=peerport.to_bytes(2,'big')
    udp.sendto(ping,('127.0.0.1',cacheport))
    udp.recvfrom(128)  # CSP ping reply confirms that the configured peer is recognized
-  time.sleep(5.2) # avoid the separate cache-startup timestamp underflow
   watch('first',first_provid)
   first=launch([str(cc),'127.0.0.1',str(cccam),'first','password','1884','1136','0x80:7'],'first.log',dict(os.environ,CCDCW_PROVID=first_provid,CCDCW_PRINT_CW='1'))
   f.wait_until(lambda:'ECM sent to server' in request(),[peer,server],10)
@@ -68,6 +68,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-provider-identity-') as folder:
   assert expected in page, ('expected '+expected, page)
   assert second.wait(timeout=12)==0
   output=(tmp/'second.log').read_text(errors='replace');page=request()
+  assert time.monotonic()-server_started < 45, 'fixture did not exercise startup window'
   rejected = 'CW rejected by cache repeat check:' in page
   assert 'Newcamd CW response; validity not determined' in page
   if mode == 'same':
