@@ -505,7 +505,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 
 	if (srctype!=DCW_SOURCE_CACHE) {
 		pthread_mutex_lock( &prg.lockcache );
-		int f = cache_check_cw( ecm->recvtime, ecm->ecm[0], ecm->caid, ecm->hash, ecm->sid, dcw, cwpart);
+		int f = cache_check_cw( ecm->recvtime, ecm->ecm[0], ecm->caid, ecm->hash, ecm->sid, ecm->provid, dcw, cwpart);
 		pthread_mutex_unlock( &prg.lockcache );
 		if (!f) {
 			return;
@@ -1101,7 +1101,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 
 	if (srctype!=DCW_SOURCE_CACHE) {
 		pthread_mutex_lock( &prg.lockcache );
-		int f = cache_check_cw( ecm->recvtime, ecm->ecm[0], ecm->caid, ecm->hash, ecm->sid, dcw, cwpart);
+		int f = cache_check_cw( ecm->recvtime, ecm->ecm[0], ecm->caid, ecm->hash, ecm->sid, ecm->provid, dcw, cwpart);
 		pthread_mutex_unlock( &prg.lockcache );
 		if (!f) {
 			if (user_trace_same_instance(trace_at_queue, ecm->trace_instance)) user_trace_shared_event(trace_at_queue, USER_TRACE_REJECTED,

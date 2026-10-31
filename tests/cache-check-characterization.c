@@ -26,11 +26,22 @@ int main(void)
     cfg.cache.alivetime = 45000;
     cfg.cache.filtertime = 10000;
     /* Ten seconds is not enough; one millisecond later the same word is
-     * rejected for an opposite-tag ECM with a different hash. This function
-     * has no provider argument, so it cannot distinguish provider 1 from 2. */
-    assert(cache_check_cw(98000, 0x81, 0x1884, 0x5678, 0x1136, cw, 2) == 1);
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, cw, 2) == 0);
-    assert(cache_check_cw(99000, 0x80, 0x1884, 0x5678, 0x1136, cw, 2) == 1);
-    puts("characterized: cache check rejects an older matching CW even with FILTER NO");
+     * rejected for an opposite-tag ECM with a different hash. Entries with
+     * no local provider association retain the historical conservative rule. */
+    assert(cache_check_cw(98000, 0x81, 0x1884, 0x5678, 0x1136, 2, cw, 2) == 1);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 2, cw, 2) == 0);
+    assert(cache_check_cw(99000, 0x80, 0x1884, 0x5678, 0x1136, 2, cw, 2) == 1);
+    /* Locally associated provider 1 must not reject provider 2, but must
+     * continue rejecting the same older CW for provider 1. Zero is a value,
+     * not a wildcard, in a local association. CSP-only is still ambiguous. */
+    prior.local_provider_set = 1;
+    prior.local_provider = 1;
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 2, cw, 2) == 1);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, cw, 2) == 0);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, cw, 2) == 1);
+    prior.local_provider = 0;
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, cw, 2) == 0);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, cw, 2) == 1);
+    puts("PASS: provider-aware local repeat check; unknown source retains legacy behavior");
     return 0;
 }

@@ -1487,7 +1487,7 @@ int cache_fetch_goodcw( struct cache_data *thereq, uint8_t cw[16], cwcycle_t *cw
 
 
 // search for same cw in cache
-int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash, uint16_t sid, uint8_t cw[16], int cwpart )
+int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash, uint16_t sid, uint32_t provid, uint8_t cw[16], int cwpart )
 {
 	int index = sid&MAX_CACHE_INDEX;
 	struct cache_data **cachetab = getcachetabbycaid(caid);
@@ -1498,7 +1498,11 @@ int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash
 	while (pcache) {
 		if ( (pcache->recvtime+cfg.cache.filtertime)<recvtime) {
 			if ( pcache->recvtime < ticks ) break;
-			if ( (pcache->sid==sid)&&(pcache->hash!=hash)&&(pcache->tag!=tag) ) { // ??? maybe find same dcw for different providers
+			/* A local entry for another numeric provider is not evidence that
+			 * this request repeated a CW. CSP-only entries remain governed by
+			 * the existing rule: their provider identity is unavailable. */
+			if ( (pcache->sid==sid)&&(pcache->hash!=hash)&&(pcache->tag!=tag) &&
+			     (!pcache->local_provider_set || pcache->local_provider==provid) ) {
 				struct cw_cache_data *cwdata = pcache->cwdata;
 				while (cwdata) {
 					switch (cwpart) {
