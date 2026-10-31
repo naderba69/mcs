@@ -43,12 +43,16 @@ typedef unsigned int uint32_t;
 
 int create_thread(pthread_t *tid, threadfn func, void *arg)
 {
-	if (pthread_create (tid, NULL, func, arg) < 0) {
-		fprintf (stderr, "pthread_create error\n");
-		//exit (1);
+	pthread_t created;
+	int result = pthread_create(&created, NULL, func, arg);
+	if (result != 0) {
+		fprintf(stderr, "pthread_create error (%d)\n", result);
 		return 0;
 	}
-	pthread_detach(*tid);
+	/* Some callers keep thread IDs inside packed runtime structs. Keep all
+	 * pthread API accesses aligned; only copy the opaque ID bytes back. */
+	if (tid) memcpy((void *)tid, &created, sizeof(created));
+	pthread_detach(created);
 	return 1;
 }
 
