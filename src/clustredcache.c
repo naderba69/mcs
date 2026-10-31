@@ -5,43 +5,30 @@
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include <stdlib.h>
 
-void stringtohtml(char *src, char *dest)
+/* Return 0 rather than storing or acknowledging an incomplete HTML escape. */
+static int stringtohtml(const char *src, char *dest, size_t capacity)
 {
-	while ( *src )
-	{
-		if ( *src=='<' ) {
-			*dest = '&'; dest++;
-			*dest = 'l'; dest++;
-			*dest = 't'; dest++;
-			*dest = ';'; dest++;
+	size_t used = 0;
+	if (!capacity) return 0;
+	while (*src) {
+		const char *replacement = NULL;
+		size_t len = 1;
+		switch (*src) {
+		case '<': replacement = "&lt;"; break;
+		case '>': replacement = "&gt;"; break;
+		case '&': replacement = "&amp;"; break;
+		case '"': replacement = "&quot;"; break;
+		default: break;
 		}
-		else if ( *src=='>' ) {
-			*dest = '&'; dest++;
-			*dest = 'g'; dest++;
-			*dest = 't'; dest++;
-			*dest = ';'; dest++;
-		}
-		else if ( *src=='&' ) {
-			*dest = '&'; dest++;
-			*dest = 'a'; dest++;
-			*dest = 'm'; dest++;
-			*dest = 'p'; dest++;
-			*dest = ';'; dest++;
-		}
-		else if ( *src=='"' ) {
-			*dest = '&'; dest++;
-			*dest = 'q'; dest++;
-			*dest = 'u'; dest++;
-			*dest = 'o'; dest++;
-			*dest = 't'; dest++;
-			*dest = ';'; dest++;
-		}
-		else {
-			*dest = *src; dest++;
-		}
+		if (replacement) len = strlen(replacement);
+		if (len >= capacity - used) { dest[0] = 0; return 0; }
+		if (replacement) memcpy(dest + used, replacement, len);
+		else dest[used] = *src;
+		used += len;
 		src++;
 	}
-	*dest = 0;
+	dest[used] = 0;
+	return 1;
 }
 
 /*
@@ -2968,15 +2955,18 @@ void cache_recvmsg(struct cacheserver_data *cache)
 		case TYPE_SMS:
 			peer = getpeerbyaddr(cache, recv_ip,recv_port);
 			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
+			if (IS_DISABLED(peer->flags)) break;
 			if (received<6) break;
 			uint32_t hash = (buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
 			buf[received] = 0;
-			//
-			peer_check_messages( peer );
-			// Create data
+			// Reject an oversized escaped message without storing it or sending ACK.
 			struct sms_data *sms = malloc( sizeof(struct sms_data) );
-			stringtohtml( buf+5, sms->msg);
-//			strcpy( sms->msg, (char*)buf+5);
+			if (!sms) break;
+			if (!stringtohtml((const char *)buf+5, sms->msg, sizeof(sms->msg))) {
+				free(sms);
+				break;
+			}
+			peer_check_messages( peer );
 			sms->hash = hash;
 			sms->status = 0; // bit 0 (0:in,1:out) bit 1 (0:unread/unAck, 1:read/ack)
 			sms->rawtime = time(NULL);
@@ -2996,6 +2986,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 		case TYPE_SMS_ACK:
 			peer = getpeerbyaddr(cache, recv_ip,recv_port);
 			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
+			if (IS_DISABLED(peer->flags)) break;
 			if (received!=5) break;
 			if (!peer->sms) break;
 			hash = (buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
