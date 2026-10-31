@@ -9,6 +9,8 @@ from pathlib import Path
 import os
 ROOT=Path(__file__).resolve().parents[1]
 binary=Path(sys.argv[1]).resolve(); mode=sys.argv[2]
+caid=sys.argv[3].upper() if len(sys.argv)>3 else '1884'
+assert caid in ('1884','FFFF')
 def port(kind):
  s=socket.socket(socket.AF_INET,kind);s.bind(('127.0.0.1',0)); p=s.getsockname()[1];s.close();return p
 with tempfile.TemporaryDirectory(prefix='mcs-peer-serve-') as d:
@@ -38,7 +40,7 @@ CACHE CONSENSUS SOURCES: 3
 CACHE PEER: 127.0.0.1:{pp[0]} {{ csp=1 }}
 CACHE PEER: 127.0.0.1:{pp[1]} {{ csp=1; fwd=1 }}
 [test]
-CAID: 1884
+CAID: {caid}
 PROVIDERS: 000000
 PORT: {nc}
 ENABLE CACHE: YES
@@ -48,7 +50,7 @@ CACHE TIMEOUT: 1000
 USER: u1 p1
 ''')
  source_log=(d/'source.log').open('w+');source=None
- if local:source=subprocess.Popen([str(d/'ncserver'),str(card),'0102030405060708091011121314','1884','000000'],cwd=d,stdout=source_log,stderr=subprocess.STDOUT)
+ if local:source=subprocess.Popen([str(d/'ncserver'),str(card),'0102030405060708091011121314',caid,'000000'],cwd=d,stdout=source_log,stderr=subprocess.STDOUT)
  log=(d/'server.log').open('w+');p=subprocess.Popen(['stdbuf','-oL','-eL',str(binary),'-v','-C',str(cfg)],cwd=d,stdout=log,stderr=subprocess.STDOUT)
  try:
   url=f'http://127.0.0.1:{hp}/user-trace'; auth={'Authorization':'Basic '+base64.b64encode(b'test:isolated').decode()}
@@ -62,7 +64,7 @@ USER: u1 p1
     if time.monotonic()>until:raise
     time.sleep(.05)
   token=re.search("name='csrf' value='([a-f0-9]{64})'",page).group(1);cid=re.search("<option value='(\\d+)'[^>]*>traceuser",page).group(1)
-  request(urllib.parse.urlencode({'csrf':token,'action':'start','client':cid,'caid':'1884','provid':'000000','sid':'1136'}).encode())
+  request(urllib.parse.urlencode({'csrf':token,'action':'start','client':cid,'caid':caid,'provid':'000000','sid':'1136'}).encode())
   # Answer the server's own pings: ping>0 and card presence are required
   # to receive an unsolicited forward.
   import select
@@ -74,16 +76,16 @@ USER: u1 p1
     pkt,_=sock.recvfrom(1024)
     if len(pkt)>=9 and pkt[0]==3:
      ack=bytearray(16);ack[0]=0x10 if pkt[1:3]==b'MC' else 4;ack[4:6]=pkt[4:6];sock.sendto(ack,('127.0.0.1',cp))
-     sock.sendto(bytes.fromhex('130118840000'),('127.0.0.1',cp));online.add(sock.fileno())
+     sock.sendto(bytes.fromhex('13010001000018840000ffff0000'),('127.0.0.1',cp));online.add(sock.fileno())
   time.sleep(.3)
-  key=bytes([0x80,0x11,0x36,0,0,0x18,0x84,0x12,0x34,0x56,0x78]);cw=bytes.fromhex('11223366445566ff77889998aabbcc31')
+  key=bytes.fromhex('8011360000'+caid+'12345678');cw=bytes.fromhex('11223366445566ff77889998aabbcc31')
   if local:
    deadline=time.monotonic()+10
    while 'login from user' not in (d/'source.log').read_text(errors='replace'):
     if time.monotonic()>deadline: raise AssertionError('source not connected')
     time.sleep(.05)
-   out=subprocess.run([str(d/'ccdcw'),'127.0.0.1',str(cc),'traceuser','tracepass','1884','1136','0x80:7'],capture_output=True,text=True,timeout=12,env=dict(os.environ,CCDCW_PROVID='000000',CCDCW_PRINT_CW='1'),check=True).stdout
-   cw=bytes.fromhex(re.search(r'CW=([0-9A-F]{32})',out).group(1));key=bytes.fromhex('80113600001884a0dd9a9f');time.sleep(.4)
+   out=subprocess.run([str(d/'ccdcw'),'127.0.0.1',str(cc),'traceuser','tracepass',caid,'1136','0x80:7'],capture_output=True,text=True,timeout=12,env=dict(os.environ,CCDCW_PROVID='000000',CCDCW_PRINT_CW='1'),check=True).stdout
+   cw=bytes.fromhex(re.search(r'CW=([0-9A-F]{32})',out).group(1));key=bytes.fromhex('8011360000'+caid+'a0dd9a9f');time.sleep(.4)
   else: peers[0].sendto(bytes([2])+key+bytes([0x80])+cw,('127.0.0.1',cp))
   expect={'local':'CW response sent; picture not verified','local-forward-off':'CW response sent; picture not verified','local-sendrep-off':'CW response sent; picture not verified','local-threshold':'CW response sent; picture not verified','off':'cache CW entered validation; decision pending','held':'cache held: consensus awaiting corroboration','filter':'cache not forwarded: filter did not establish cycle','threshold':'cache held: threshold not reached','threshold-pass':'cache CW entered validation; decision pending'}[mode]
   deadline=time.monotonic()+2
@@ -99,8 +101,8 @@ USER: u1 p1
     data,_=peers[1].recvfrom(1024)
     if len(data)>=29 and data[0]==2 and data[1:12]==key and data[13:29]==cw:got.append(data)
    except socket.timeout:pass
-  print('PASS automatic broadcast',mode,'messages',len(got))
-  assert bool(got)==(mode in ('off','local','local-threshold','local-forward-off','threshold-pass'))
+  assert bool(got)==(mode in ('off','local','local-threshold','local-forward-off','threshold-pass')), (caid, mode, len(got))
+  print('PASS mixed-card automatic broadcast',caid,mode,'messages',len(got))
 
  finally:
   p.terminate();

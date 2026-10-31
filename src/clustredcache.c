@@ -1067,8 +1067,8 @@ int peer_card_binarysearch( struct cachepeer_data *peer, uint16_t caid, uint32_t
 	/*
 	 * TASK 3.17. The comparison is peer_cards_find(). It never reads
 	 * cards[nbcards]. On this packed struct that slot is nbcards itself,
-	 * so a 1024-card list must not treat the count as a card. Signed
-	 * comparison is unchanged.
+	 * so a 1024-card list must not treat the count as a card. Search order
+	 * matches the unsigned ordering used when the card list is received.
 	 */
 	return peer_cards_find(peer->cards, peer->nbcards, caid, provid);
 }
@@ -1079,7 +1079,7 @@ int peer_acceptcard( struct cachepeer_data *peer, uint16_t caid, uint32_t provid
 
 	/* No callers. A full list has no zero sentinel; a miss is not accept. */
 	if ( peer->cards[0] ) {
-		int caprov = (caid<<16) | provid;
+		uint32_t caprov = ((uint32_t)caid << 16) | provid;
 		if (!peer_cards_listed(peer->cards, peer->nbcards, caprov)) return 0;
 	}
 	if ( peer->sharelimits[0].caid!=0xffff ) {
@@ -2859,7 +2859,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 								int i;
 								for (i=0; i<100; i++) {
 									if (peer->sharelimits[i].caid==0xffff) break;
-									uint32_t caprov = (peer->sharelimits[i].caid<<16)|(peer->sharelimits[i].provid);
+									uint32_t caprov = ((uint32_t)peer->sharelimits[i].caid << 16)|(peer->sharelimits[i].provid);
  									buf[pos] = caprov>>24;
  									buf[pos+1] = caprov>>16;
  									buf[pos+2] = caprov>>8;
@@ -2883,7 +2883,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 									int i;
 									if (cs->option.fallowcache)
 									for (i=0; i<cs->card.nbprov; i++) {
-										uint32_t caprov = (cs->card.caid<<16)|(cs->card.prov[i].id);
+										uint32_t caprov = ((uint32_t)cs->card.caid << 16)|(cs->card.prov[i].id);
  										buf[pos] = caprov>>24;
  										buf[pos+1] = caprov>>16;
  										buf[pos+2] = caprov>>8;
@@ -2923,7 +2923,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			int totalcards = (received-2)/4;
 			int j=0;
 			while ( (j<totalcards)&&(idx<1024) ){
-				peer->cards[idx] = (buf[2+j*4]<<24)|(buf[3+j*4]<<16)|(buf[4+j*4]<<8)|(buf[5+j*4]);
+				peer->cards[idx] = ((uint32_t)buf[2+j*4]<<24)|((uint32_t)buf[3+j*4]<<16)|((uint32_t)buf[4+j*4]<<8)|buf[5+j*4];
 				j++; idx++;
 			}
 			peer->nbcards = idx;
