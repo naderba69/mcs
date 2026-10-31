@@ -61,7 +61,7 @@ USER: u1 p1
   for s in peers:
    ping=bytearray(13);ping[0]=3;ping[11:13]=s.getsockname()[1].to_bytes(2,'big');s.sendto(ping,('127.0.0.1',cp))
   time.sleep(.1)
-  key=bytes([0x80,0x11,0x36,0,0,0x18,0x84,0x12,0x34,0x56,0x78]);cw=bytes.fromhex('11223366445566ff77889998aabbcc31')
+  key=bytes.fromhex('80113600001884'+os.environ.get('CACHE_TEST_HASH','12345678'));cw=bytes.fromhex('11223366445566ff77889998aabbcc31')
   if local:
    deadline=time.monotonic()+10
    while 'login from user' not in (d/'source.log').read_text(errors='replace'):

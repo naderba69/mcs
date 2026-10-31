@@ -68,9 +68,10 @@ void init_ecmdata()
 
 uint32_t hashCode( uint8_t *buf, int count)
 {
-	int h = 0;
+	/* The protocol hash is modulo 2^32; signed overflow is undefined in C. */
+	uint32_t h = 0;
 	int i;
-    for (i = 0; i < count; i++) h = 31*h + buf[i];
+    for (i = 0; i < count; i++) h = 31u*h + buf[i];
     return h;
 }
 

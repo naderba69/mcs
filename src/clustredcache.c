@@ -694,14 +694,14 @@ int get_cache2ecm( uint8_t *buf, struct cache_data *pcache, uint8_t *cw, int *cw
 	pcache->sid = (buf[2]<<8) | buf[3];
 	pcache->onid = (buf[4]<<8) | buf[5];
 	pcache->caid = (buf[6]<<8) | buf[7];
-	pcache->hash = (buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | (buf[11]);
+	pcache->hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | (buf[11]);
 //	memcpy( &(pcache->tag), buf+1, 11);
 	int index = 12;
 	memcpy( &(pcache->ecm), buf+index, sizeof(void*) );
 	//debugf(0, " get_cache2ecm %p\n", pcache->ecm);
 	index += sizeof(void*);
 	if (cw) {
-		int peerid = (buf[index]<<24) | (buf[index+1]<<16) | (buf[index+2]<<8) | (buf[index+3]);
+		int peerid = ((uint32_t)buf[index]<<24) | (buf[index+1]<<16) | (buf[index+2]<<8) | (buf[index+3]);
 		index+=4;
 		memcpy( cw, buf+index, 16);
 		index+=16;
@@ -814,7 +814,7 @@ int get_ecm2cache(uint8_t *buf , struct cache_data *pcache, uint8_t *cw)
 	pcache->sid = (buf[2]<<8) | buf[3];
 	pcache->onid = (buf[4]<<8) | buf[5];
 	pcache->caid = (buf[6]<<8) | buf[7];
-	pcache->hash = (buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | (buf[11]);
+	pcache->hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | (buf[11]);
 	pcache->provid = (buf[12]<<16) | (buf[13]<<8) | (buf[14]);
 	pcache->cwcycle = buf[15];
 	int index = 16;
@@ -2396,7 +2396,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.sid = (buf[2]<<8) | buf[3];
 			req.onid = (buf[4]<<8) | buf[5];
 			req.caid = (buf[6]<<8) | buf[7];
-			req.hash = (buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
+			req.hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
 			req.provid = 0;
 
 			pthread_mutex_lock( &prg.lockcache );
@@ -2469,7 +2469,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.sid = (buf[2]<<8) | buf[3];
 			req.onid = (buf[4]<<8) | buf[5];
 			req.caid = (buf[6]<<8) | buf[7];
-			req.hash = (buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
+			req.hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
 			req.provid = 0;
 
 			pthread_mutex_lock( &prg.lockcache );
@@ -2587,7 +2587,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.sid = (buf[6]<<8) | buf[7];
 			req.onid = (buf[8]<<8) | buf[9];
 			req.caid = (buf[10]<<8) | buf[11];
-			req.hash = (buf[12]<<24) | (buf[13]<<16) | (buf[14]<<8) | buf[15];
+			req.hash = ((uint32_t)buf[12]<<24) | (buf[13]<<16) | (buf[14]<<8) | buf[15];
 			req.provid = 0;
 			//
 			pthread_mutex_lock( &prg.lockcache );
@@ -2957,7 +2957,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
 			if (IS_DISABLED(peer->flags)) break;
 			if (received<6) break;
-			uint32_t hash = (buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
+			uint32_t hash = ((uint32_t)buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
 			buf[received] = 0;
 			// Reject an oversized escaped message without storing it or sending ACK.
 			struct sms_data *sms = malloc( sizeof(struct sms_data) );
@@ -2989,7 +2989,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			if (IS_DISABLED(peer->flags)) break;
 			if (received!=5) break;
 			if (!peer->sms) break;
-			hash = (buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
+			hash = ((uint32_t)buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
 			// Search for data
 			sms = peer->sms;
 			while (sms) {
