@@ -2765,9 +2765,23 @@ void http_send_cache_peer(int sock, http_request *req)
 				if (sms->status&2) color = "green"; else color = "red";
 				sms->status = 2;
 			}
-			//
-			sprintf( http_buf,"<font color=%s><pre>-----[%s]-------\n%s</pre></font>", color, timebuf, sms->msg);
-			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+			// Incoming messages are already escaped by the CSP ingress path.
+			// Locally composed messages are raw text and must be escaped at the
+			// HTML output boundary to prevent stored script injection.
+			char escaped_msg[sizeof(sms->msg) * 6];
+			const char *display_msg = sms->msg;
+			int display_len;
+			if (sms->status & 1) {
+				display_len = html_esc(escaped_msg, (int)sizeof(escaped_msg), sms->msg);
+				if (display_len < 0) { escaped_msg[0] = 0; display_len = 0; }
+				display_msg = escaped_msg;
+			} else {
+				display_len = strlen(display_msg);
+			}
+			snprintf(http_buf, sizeof(http_buf), "<font color=%s><pre>-----[%s]-------\n", color, timebuf);
+			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+			tcp_write(&tcpbuf, sock, display_msg, display_len);
+			tcp_writestr(&tcpbuf, sock, "</pre></font>");
 			sms = sms->next;
 		}
 	}
