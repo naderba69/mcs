@@ -75,7 +75,7 @@ int main(void)
     /* Source rejected by its cycle filter must never reach another entry. */
     { struct cw_cache_data source_cw={0}; int before=sends;
       int result=cache_after_consensus(&incoming,&incoming,&source_cw,cw,NO_CYCLE,7);
-      assert((result&DCW_CYCLE)==0); assert(sends==before); }
+      assert((result&DCW_CYCLE)==0); assert(result&DCW_ERROR); assert(!(source_cw.status&(DCW_PEER_READY|DCW_CYCLE))); assert(sends==before); }
     /* Same source, without the filter: relay remains available. */
     cfg.cache.filter=0;
     { struct cw_cache_data source_cw={0}; int before=sends;
@@ -90,8 +90,14 @@ int main(void)
     /* A contradictory marker must not be relayed either. */
     incoming.cwcycle=CW0CYCLE;
     { struct cw_cache_data source_cw={0}; int before=sends;
-      cache_after_consensus(&incoming,&incoming,&source_cw,cw,CW1CYCLE,7);
-      assert(sends==before); }
+      int result=cache_after_consensus(&incoming,&incoming,&source_cw,cw,CW1CYCLE,7);
+      assert(result&DCW_ERROR); assert(!(source_cw.status&(DCW_PEER_READY|DCW_CYCLE))); assert(sends==before); }
+    /* A bad declaration must not erase an earlier valid cycle. */
+    { struct cw_cache_data source_cw={0}; int before=sends;
+      source_cw.status=DCW_CYCLE|DCW_PEER_READY; source_cw.cwcycle=CW0CYCLE; source_cw.peerid=42;
+      assert(cache_after_consensus(&incoming,&incoming,&source_cw,cw,CW1CYCLE,7)&DCW_ERROR);
+      assert(source_cw.status==(DCW_CYCLE|DCW_PEER_READY));
+      assert(source_cw.cwcycle==CW0CYCLE && source_cw.peerid==42 && sends==before); }
     incoming.cwcycle=NO_CYCLE;
     /* A half-null CW invalid for the 1884 family must not be relayed. */
     { struct cw_cache_data source_cw={0}; int before=sends; uint8_t half[16];

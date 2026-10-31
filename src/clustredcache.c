@@ -302,6 +302,9 @@ typedef enum { NO_CYCLE=0, CW0CYCLE=1, CW1CYCLE=2} cwcycle_t;
 #define DCW_CHECKED  0x04
 #define DCW_SKIP     0x08
 #define DCW_SENT     0x10
+/* Explicitly passed source gates for serving peers; not evidence of picture. */
+#define DCW_PEER_READY 0x20
+#define DCW_LOCAL_SOURCE 0x40
 
 struct cw_cache_data {
 	struct cw_cache_data *next;
@@ -1713,6 +1716,9 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 {
     int piped = 0;
     cwcycle_t incoming_cycle = cwcycle;
+    uint8_t previous_status = cwdata->status;
+    cwcycle_t previous_cycle = cwdata->cwcycle;
+    uint32_t previous_peerid = cwdata->peerid;
 	// Half Nulled CW
 	char nullcw[8] = "\0\0\0\0\0\0\0\0";
 	if ( !dcwcmp8(cw,nullcw) && !dcwcmp8(cw+8,nullcw) ) {
@@ -1724,6 +1730,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 				cwdata->status |= DCW_CYCLE;
 				cwdata->cwcycle = pcache->cwcycle;
 				cwdata->peerid = peerid;
+				cwdata->status |= DCW_PEER_READY;
 				/* The source entry passed its cycle gate; only now may it
 				 * be considered for the optional cross-entry relays. */
 				if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
@@ -1748,7 +1755,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 				         cwcy_str((int)incoming_cycle), cwcy_str((int)pcache->cwcycle),
 				         isnullDCW(pcache->prevcw) ? "absent" : "present");
 				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
-				return cwdata->status;
+				return cwdata->status | DCW_ERROR | DCW_SKIP;
 			}
 		}
 		else {
@@ -1818,7 +1825,13 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 				         cwcy_str((int)pcache->cwcycle), cwcy_str((int)cwcycle), cwcy_str((int)incoming_cycle));
 				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
 			}
-			return cwdata->status;
+			/* A rejected declaration must not make a new stored candidate
+			 * look cycle-approved to a later FIND or peer request. Preserve
+			 * any prior accepted declaration for these same CW bytes. */
+			cwdata->status = (cwdata->status & ~DCW_CYCLE) | (previous_status & DCW_CYCLE);
+			cwdata->cwcycle = previous_cycle;
+			cwdata->peerid = previous_peerid;
+			return cwdata->status | DCW_ERROR | DCW_SKIP;
 		}
 	}
 	else {
@@ -1837,6 +1850,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 		cwdata->peerid = peerid; // CSP CACHE
 	}
 
+	cwdata->status |= DCW_PEER_READY;
 	/* Do not relay a source candidate that its own cycle/family gate
 	 * rejected. This is after the final gate on the normal path. */
 	if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
@@ -2394,10 +2408,21 @@ void cache_recvmsg(struct cacheserver_data *cache)
 					if ( cfg.cache.forward || ((peer->ismultics)&&(peer->protocol&BIT_CACHE_HACK)) )
 					if ( pcache->cwdata && !(pcache->flags&CACHE_FLAG_SENDPIPE) ) {
 						struct cw_cache_data *cwdata = pcache->cwdata;
+						int peer_defer_noted = 0;
 						while (cwdata) {
-							if (!(cwdata->status&DCW_ERROR)) {
+							if (!(cwdata->status&DCW_ERROR) &&
+							    (cwdata->status&DCW_PEER_READY) &&
+							    (cwdata->nbpeers >= cfg.cache.threshold ||
+							     ((cwdata->status&DCW_LOCAL_SOURCE) && cfg.cache.threshold <= 1)) &&
+							    (!cfg.cache.consensus || !cwconsensus_is_held(pcache->caid, pcache->sid,
+							        pcache->hash, pcache->tag, cwdata->cw))) {
 								cache_send_reply( pcache, peer, cwdata->cw);
 								if (cfg.cache.forward) peer->sentrep++;
+							} else if (!peer_defer_noted) {
+								user_trace_cache_observation(pcache->caid, pcache->provid,
+								    pcache->sid, pcache->hash, peer->id|PEER_CSP,
+								    "cache peer reply deferred: candidate not approved, held or below threshold", NULL);
+								peer_defer_noted = 1;
 							}
 							cwdata = cwdata->next;
 						}
@@ -3316,7 +3341,7 @@ void cache_pipe_recvmsg()
 			}
 			// ADD if not found
 			if (!cwdata) {
-				struct cw_cache_data *cwdata = malloc( sizeof(struct cw_cache_data) );
+				cwdata = malloc( sizeof(struct cw_cache_data) );
 				/* TASK 3.4: the remembered copy is skipped; the reply below
 				 * still goes out from the local key. */
 				if (cwdata) {
@@ -3330,7 +3355,9 @@ void cache_pipe_recvmsg()
 					if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, 0);
 				}
 			}
-			//cwdata->status |= DCW_CYCLE;
+			/* A local source has already passed the ECM's own acceptance path.
+			 * Keep that provenance distinct from peer arrival counts. */
+			if (cwdata) cwdata->status |= DCW_PEER_READY | DCW_LOCAL_SOURCE;
 
 			// Send Reply
 			if ( !(pcache->flags&CACHE_FLAG_REPSENT) ) cfg.cache.rep++;
