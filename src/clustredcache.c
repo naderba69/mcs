@@ -952,10 +952,11 @@ void pipe_cache_reply( ECM_DATA *ecm, struct cardserver_data *cs)
 {
 	uint8_t buf[64];
 	int len;
-	if (ecm->dcwstatus==STAT_DCW_SUCCESS)
-		len = put_ecm2cache(PIPE_CACHE_REPLY, buf, ecm, cs->option.onid, ecm->cw);
-	else
-		len = put_ecm2cache(PIPE_CACHE_REPLY, buf, ecm, cs->option.onid, NULL);
+	if (ecm->dcwstatus!=STAT_DCW_SUCCESS) return;
+	len = put_ecm2cache(PIPE_CACHE_REPLY, buf, ecm, cs->option.onid, ecm->cw);
+	/* Snapshot the origin with the CW: the ECM object can be recycled before
+	 * this asynchronous pipe message is processed. */
+	buf[len++] = (ecm->dcwsrctype == DCW_SOURCE_CACHE) ? 1 : 0;
 	pipe_send( prg.pipe.cache[1], buf, len);
 }
 
@@ -3316,7 +3317,15 @@ void cache_pipe_recvmsg()
 			break;
 
 
-		case PIPE_CACHE_REPLY:
+		case PIPE_CACHE_REPLY: {
+			int expected = 16 + sizeof(void*) + 16;
+#ifdef CACHEEX
+			expected += 16;
+#endif
+			/* Reject incomplete or unknown provenance rather than attributing
+			 * a cache-sourced key to a local source. */
+			if (len != expected + 1 || buf[expected] > 1) break;
+			int from_cache = buf[expected];
 			get_ecm2cache(buf , &req, cw);
 			//debugf(0, " Get PIPE_CACHE_REPLY: %04x:%06x:%04x:%08x\n", req.caid, req.provid, req.sid, req.hash);
 
@@ -3351,19 +3360,32 @@ void cache_pipe_recvmsg()
 					//cwdata->peerid = peerid;
 					cwdata->next = pcache->cwdata;
 					pcache->cwdata = cwdata;
-					if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, 0);
-					if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, 0);
+					if (!from_cache && cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, 0);
+					if (!from_cache && cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, 0);
 				}
 			}
 			/* A local source has already passed the ECM's own acceptance path.
 			 * Keep that provenance distinct from peer arrival counts. */
-			if (cwdata) cwdata->status |= DCW_PEER_READY | DCW_LOCAL_SOURCE;
+			if (cwdata && !from_cache) cwdata->status |= DCW_PEER_READY | DCW_LOCAL_SOURCE;
 
-			// Send Reply
-			if ( !(pcache->flags&CACHE_FLAG_REPSENT) ) cfg.cache.rep++;
-			pcache->flags |= CACHE_FLAG_REPSENT;
-			cache_send_reply(pcache, NULL, cw);
+			/* A cache-derived CW is not a fresh local-source response. It may
+			 * only bridge to CSP when forwarding is enabled and the existing
+			 * cache candidate passed its own gates; do not invent confirmation
+			 * if the original entry was already recycled. */
+			if (!from_cache || (cfg.cache.forward && cwdata &&
+			    !(cwdata->status & DCW_ERROR) && (cwdata->status & DCW_PEER_READY) &&
+			    cwdata->nbpeers >= cfg.cache.threshold &&
+			    (!cfg.cache.consensus || !cwconsensus_is_held(pcache->caid, pcache->sid,
+			        pcache->hash, pcache->tag, cwdata->cw)))) {
+				if ( !(pcache->flags&CACHE_FLAG_REPSENT) ) cfg.cache.rep++;
+				pcache->flags |= CACHE_FLAG_REPSENT;
+				cache_send_reply(pcache, NULL, cw);
+			} else if (from_cache) {
+				user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+				    pcache->hash, 0, "cache-origin reply not rebroadcast: disabled or candidate unavailable", NULL);
+			}
 			break;
+		}
 
 		case PIPE_CACHE_RESENDREQ:
 			get_ecm2cache(buf , &req, NULL);
