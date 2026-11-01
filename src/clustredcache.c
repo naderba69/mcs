@@ -2461,6 +2461,61 @@ static int cache_peer_candidate_eligible(struct cache_data *entry,
     return 1;
 }
 
+#ifdef CACHEEX
+/*
+ * A CSP TYPE_REPLY carries no provider. Reuse evidence must therefore inherit
+ * the matched cache record's effective provider scope for every provider-keyed
+ * action. In particular, using req->provid here would file trust under zero
+ * even when cachepref_gate() later looks up the source under the local provider.
+ * The caller reaches this only after the reply passed cache_setdcw(), and holds
+ * lockcache just like the rest of the CSP receive path.
+ */
+static void cache_csp_reuse_check(struct cachepeer_data *peer,
+                                  struct cache_data *req,
+                                  const uint8_t cw[16])
+{
+    struct cache_data *entry;
+    uint32_t now, proof_provider = 0;
+    int proof_provider_known;
+
+    if (!peer || !req || !cw) return;
+    entry = cache_fetch(req);
+    if (!entry) return;
+
+    now = GetTickCount();
+    proof_provider_known = cache_consensus_provider_scope(entry, &proof_provider);
+    if (cwreuse_offer_scoped(&cwreuse_tab, cw, entry->ecmd5, 1,
+                             req->caid, req->sid, proof_provider,
+                             proof_provider_known, now) != CWREUSE_PROOF)
+        return;
+
+    cwreuse_proofs++;
+    /* CSP has no provider field: retain a known local/cache scope, otherwise
+     * keep the conviction in the distinct unknown-provider scope. */
+    cwn_note(DCW_SOURCE_CACHE, peer->id|PEER_CSP, cw, req->caid,
+             proof_provider, proof_provider_known, req->sid, now);
+    trust_record_lk(&trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE,
+                    peer->id|PEER_CSP, req->caid, proof_provider, req->sid, now);
+    trustagg_note_lk(TRUST_EV_PROOF, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
+                     req->caid, now);
+    debugf(DBG_ERROR,
+           " !!! CW REUSE PROOF: same cw for a different ecm on a different service, ch %04x:%06x:%04x from cache peer%d (%s:%d)\n",
+           req->caid, req->provid, req->sid, peer->id, peer->host->name, peer->port);
+
+    if (cache_purge_mark_scoped(&purge_tab, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
+                                req->caid, req->sid, proof_provider,
+                                proof_provider_known, now)) {
+        int npurged = cache_purge_sweep_scoped(&purge_tab, DCW_SOURCE_CACHE,
+                                               peer->id|PEER_CSP, req->caid,
+                                               req->sid, proof_provider,
+                                               proof_provider_known, DCW_ERROR);
+        debugf(DBG_ERROR,
+               " !!! CACHE PURGE: ch %04x:%06x:%04x marked %d cached cw(s) from cache peer%d\n",
+               req->caid, proof_provider, req->sid, npurged, peer->id);
+    }
+}
+#endif
+
 void cache_recvmsg(struct cacheserver_data *cache)
 {
 	unsigned int recv_ip;
@@ -2645,68 +2700,10 @@ void cache_recvmsg(struct cacheserver_data *cache)
 						}
 					}
 #ifdef CACHEEX
-						/*
-						 * TASK 1.3 / 1.5 for the CSP cache path -- the one CW source the six
-						 * cache-exchange sites cannot see.
-						 *
-						 * D11 skipped this path on the grounds that the CSP reply carries no
-						 * ecmd5 and the `req` here is a stack local whose ecmd5 field is
-						 * uninitialised. Both are true of `req`, and neither is true of the cache
-						 * entry: pipe_cache_find() copies ecm->ecmd5 into pcache->ecmd5 in both of
-						 * its branches (:675 and :693) under this same #ifdef. So the identity is
-						 * available after all -- fetched from the entry, never read off `req`.
-						 *
-						 * It is also the RIGHT identity. The six cache-exchange sites offer the
-						 * ecmd5 that arrived on the wire, computed by the sender over its copy of
-						 * the ECM. Offering a locally-computed ecmd5 alongside a wire-computed one
-						 * for the same ECM would make one key look like two, and reuse is the one
-						 * proof GR3 lets act on -- a false proof here is worse than the poisoning
-						 * it is meant to catch. This path uses the local identity only, and CSP
-						 * origins are flagged PEER_CSP, which none of the six sites ever sets, so
-						 * the same CW can never be offered twice under two different identities.
-						 *
-						 * No new locking: prg.lockcache is already held here (:1635), which is
-						 * what cache_purge_sweep() requires and what every other cwreuse_offer()
-						 * call site has. Nothing is added to the ECM thread's hot path.
-						 *
-						 * Same SID is never proof (GR6, enforced inside cwreuse_offer), and the
-						 * purge is scoped to this one channel (GR4).
-						 */
-						{
-							struct cache_data *pc = cache_fetch(&req);
-							if (pc) {
-								uint32_t now = GetTickCount();
-								uint32_t proof_provider = 0;
-								int proof_provider_known = cache_consensus_provider_scope(pc, &proof_provider);
-								if ( cwreuse_offer_scoped( &cwreuse_tab, cw, pc->ecmd5, 1,
-									                    req.caid, req.sid, proof_provider,
-									                    proof_provider_known, now ) == CWREUSE_PROOF ) {
-									cwreuse_proofs++;
-									/* TASK 2.6: the convicted key itself goes into negative
-									 * memory. CSP has no provider field, so preserve a known
-									 * local/cache scope when present; otherwise file it in the
-									 * separate unknown-provider scope. */
-									cwn_note( DCW_SOURCE_CACHE, peer->id|PEER_CSP, cw, req.caid,
-									         proof_provider, proof_provider_known, req.sid, now );
-									trust_record_lk( &trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
-										              req.caid, req.provid, req.sid, now );
-									/* TASK 2.8: the same proof, summed one level coarser. */
-									trustagg_note_lk( TRUST_EV_PROOF, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
-									                  req.caid, now );
-									debugf(DBG_ERROR," !!! CW REUSE PROOF: same cw for a different ecm on a different service, ch %04x:%06x:%04x from cache peer%d (%s:%d)\n",
-										req.caid, req.provid, req.sid, peer->id, peer->host->name, peer->port);
-									if ( cache_purge_mark_scoped( &purge_tab, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
-										        req.caid, req.sid, proof_provider,
-										        proof_provider_known, now ) ) {
-										int npurged = cache_purge_sweep_scoped( &purge_tab, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
-											        req.caid, req.sid, proof_provider,
-											        proof_provider_known, DCW_ERROR );
-										debugf(DBG_ERROR," !!! CACHE PURGE: ch %04x:%06x:%04x marked %d cached cw(s) from cache peer%d\n",
-											req.caid, proof_provider, req.sid, npurged, peer->id);
-									}
-								}
-							}
-						}
+							/* CSP has no provider on the wire. The helper uses the
+						 * provider context of the matched cache entry consistently
+						 * for reuse, trust, negative memory, and purge. */
+							cache_csp_reuse_check(peer, &req, cw);
 #endif
 				} else {
                     cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, "incomplete CW payload");

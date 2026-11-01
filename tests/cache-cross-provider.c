@@ -339,6 +339,63 @@ int main(void)
             table[stored.sid & MAX_CACHE_INDEX]=NULL;
         }
     }
+    /* Exercise the production CSP reuse-proof helper with a providerless wire
+     * request matched to a cache record attached to provider 5. All proof
+     * effects, including trust lookup scope and the purge sweep, must use 5. */
+    {
+        struct cache_data stored={0}, req={0};
+        struct cachepeer_data peer={0};
+        struct host_data host={0};
+        struct cw_cache_data *candidate;
+        uint8_t key[16], ecm_a[16]={0xa1}, ecm_b[16]={0xb2};
+        int idx=0x1002 & MAX_CACHE_INDEX;
+        int status;
+
+        memset(key,0x53,sizeof(key));
+        stored.caid=req.caid=0x1884; stored.sid=req.sid=0x1002;
+        stored.tag=req.tag=0x80; stored.hash=req.hash=0x7a01;
+        stored.recvtime=9000; stored.provid=5; stored.provider_known=1;
+        stored.local_provider_set=1; stored.local_provider=5;
+        memcpy(stored.ecmd5,ecm_b,sizeof(ecm_b));
+        stored.next=stored.prev=&stored;
+        req.provid=0; req.provider_known=0; /* absent on CSP wire */
+        table[idx]=&stored;
+
+        peer.id=9; peer.host=&host; peer.port=12345;
+        cfg.cache.alivetime=45000; cfg.cache.threshold=1;
+        cfg.cache.filter=0; cfg.cache.consensus=0; cfg.cache.attest=0;
+        cfg.cache.gate_localonly=0; cfg.cache.gate_blockfake=0;
+        cfg.cache.gate_cwcheck=0; cfg.cache.dcwcheck2=0;
+        cfg.cache.dcwcheck3=0; cfg.cache.forward=0;
+        cwneg_init(&cwneg_tab); cache_purge_init(&purge_tab);
+        cwreuse_reset(&cwreuse_tab); cwreuse_proofs=0;
+        trust_reset(&trust_tab); trustagg_reset(&trustagg_tab);
+        assert(cwreuse_offer_scoped(&cwreuse_tab,key,ecm_a,1,0x1884,0x1001,
+                                    5,1,9000)==CWREUSE_NONE);
+
+        /* The included production code runs synchronously here; no cache
+         * worker is started in this isolated test process. */
+        status=cache_setdcw(&req,key,NO_CYCLE,PEER_CSP|9);
+        assert(!(status&DCW_ERROR) && stored.cwdata!=NULL);
+        cache_csp_reuse_check(&peer,&req,key);
+
+        assert(cwreuse_proofs==1);
+        assert(trust_score_lk(&trust_tab,DCW_SOURCE_CACHE,PEER_CSP|9,
+                              0x1884,5,0x1002)==TRUST_START-TRUST_PROOF_STEP);
+        assert(trust_score_lk(&trust_tab,DCW_SOURCE_CACHE,PEER_CSP|9,
+                              0x1884,0,0x1002)==-1);
+        assert(cwneg_hit(&cwneg_tab,key,0x1884,5,1,0x1003,10001,NULL)==1);
+        assert(cwneg_hit(&cwneg_tab,key,0x1884,0,1,0x1003,10001,NULL)==0);
+        assert(cache_purge_should_withhold_scoped(&purge_tab,DCW_SOURCE_CACHE,
+                    PEER_CSP|9,0x1884,0x1002,5,1)==1);
+        assert(cache_purge_should_withhold_scoped(&purge_tab,DCW_SOURCE_CACHE,
+                    PEER_CSP|9,0x1884,0x1002,0,0)==0);
+        candidate=stored.cwdata;
+        assert(candidate && (candidate->status&DCW_ERROR));
+        table[idx]=NULL;
+        free(candidate);
+    }
+
     /* Scoped purge walks must not let an unknown-provider proof mark the
      * same numeric-zero channel entry whose provider is explicitly known, or
      * vice versa. Both records share the cache bucket and origin. */
