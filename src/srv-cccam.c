@@ -685,6 +685,7 @@ void cc_senddcw_cli(struct cc_client_data *cli)
 	//
 	cli->lastecm.caid = ecm->caid;
 	cli->lastecm.prov = ecm->provid;
+	cli->lastecm.provider_known = ecm->provider_known;
 	cli->lastecm.sid = ecm->sid;
 	cli->lastecm.hash = ecm->hash;
 	cli->lastecm.tag = ecm->ecm[0];
@@ -902,7 +903,8 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				&& ecm && (ecm->hash==cli->lastecm.hash) && (ecm->ecm[0]==cli->lastecm.tag) ) {
 				if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
 					attest_note( ATTEST_TAG_CCCAM | (uint32_t)cli->id, cli->lastecm.dcw,
-						cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+						cli->lastecm.caid, cli->lastecm.prov,
+						cli->lastecm.provider_known, cli->lastecm.sid,
 						cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
 			}
 			int isnew =  ( ecm==NULL );
@@ -1047,7 +1049,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			if (dcw_hard_reject(cw)) break; /* TASK 3.15: profile gate is cache_setdcw */
 			struct cache_data cacheex;
 			memset(&cacheex, 0, sizeof(cacheex));
-			cacheex.provider_known = 1;
+			cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 			cacheex.caid = (buf[4]<<8) | buf[5];
 			cacheex.provid = (buf[6]<<24) | (buf[7]<<16) | (buf[8]<<8) | buf[9];
 			cacheex.sid = (buf[14]<<8) | buf[15];
@@ -1084,12 +1086,13 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			 * GR3 allows hard action on a genuine reuse proof, but only once the
 			 * detector has been checked against real traffic.
 			 */
-			if ( cwreuse_offer( &cwreuse_tab, cw, cacheex.ecmd5, 1,
-					cacheex.caid, cacheex.sid, cacheex.provid, GetTickCount() ) == CWREUSE_PROOF ) {
+			if ( cwreuse_offer_scoped( &cwreuse_tab, cw, cacheex.ecmd5, 1,
+					cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known,
+					GetTickCount() ) == CWREUSE_PROOF ) {
 				cwreuse_proofs++;
 				/* TASK 2.6: the convicted key itself goes into negative memory,
 				 * so no other source and no fresh entry can ever serve it. */
-				cwn_note( DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id, cw, cacheex.caid, cacheex.provid, cacheex.sid, GetTickCount() );
+				cwn_note( DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id, cw, cacheex.caid, cacheex.provid, cacheex.provider_known, cacheex.sid, GetTickCount() );
 				/*
 				 * TASK 1.4 — a definitive proof scores against the source that
 				 * supplied the key, at GR4 granularity. The srcid keeps its PEER_*
@@ -1119,10 +1122,11 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				 * job, and a false positive that kills a good card is worse than
 				 * the original black screen (GR3).
 				 */
-				if ( cache_purge_mark( &purge_tab, DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id,
-						cacheex.caid, cacheex.sid, cacheex.provid, GetTickCount() ) ) {
-					int npurged = cache_purge_sweep( &purge_tab, DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id,
-						cacheex.caid, cacheex.sid, cacheex.provid, DCW_ERROR );
+				if ( cache_purge_mark_scoped( &purge_tab, DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id,
+						cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known,
+						GetTickCount() ) ) {
+					int npurged = cache_purge_sweep_scoped( &purge_tab, DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id,
+						cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known, DCW_ERROR );
 					/* npurged can be 0: the entry may already be gone, or it may have
 					 * been supplied first by a different peer (cwdata->peerid records
 					 * the FIRST reporter only). Logged either way -- GR8. */

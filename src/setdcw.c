@@ -281,8 +281,8 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	 * whether a client ever suffered for it.
 	 */
 #ifdef CACHEEX
-	ledger_note_delivery(ecm->ecmd5, ecm->hash, ecm->caid, ecm->provid, ecm->sid,
-		dcw, srctype, srcid, GetTickCount());
+	ledger_note_delivery(ecm->ecmd5, ecm->hash, ecm->caid, ecm->provid,
+		ecm->provider_known, ecm->sid, dcw, srctype, srcid, GetTickCount());
 #endif
 
 	/*
@@ -929,8 +929,8 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	 * whether a client ever suffered for it.
 	 */
 #ifdef CACHEEX
-	ledger_note_delivery(ecm->ecmd5, ecm->hash, ecm->caid, ecm->provid, ecm->sid,
-		dcw, srctype, srcid, GetTickCount());
+	ledger_note_delivery(ecm->ecmd5, ecm->hash, ecm->caid, ecm->provid,
+		ecm->provider_known, ecm->sid, dcw, srctype, srcid, GetTickCount());
 #endif
 
 	/*

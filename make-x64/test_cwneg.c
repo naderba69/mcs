@@ -66,12 +66,12 @@ int main(void)
 
 	/* -- 2. mark, dupe, hit -------------------------------------------------- */
 	cwneg_init(&t);
-	CHECK(cwneg_mark(&t, k1, 0x0604, 0x000100, 0x0064, 1, 7, 1000) == 1,
+	CHECK(cwneg_mark(&t, k1, 0x0604, 0x000100, 1, 0x0064, 1, 7, 1000) == 1,
 	      "the first proof files as a fresh mark");
-	CHECK(cwneg_mark(&t, k1, 0x0604, 0x000100, 0x0064, 1, 7, 2000) == 0,
+	CHECK(cwneg_mark(&t, k1, 0x0604, 0x000100, 1, 0x0064, 1, 7, 2000) == 0,
 	      "re-proving the same key is not a fresh mark");
 	CHECK(cwneg_count(&t) == 1, "and it did not occupy a second slot");
-	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000100, 0x0064, 2100, &ev) == 1,
+	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000100, 1, 0x0064, 2100, &ev) == 1,
 	      "the proven key is remembered");
 	CHECK(ev.fired == 1 && ev.hits == 1 && ev.reports == 1,
 	      "the first refusal fires its line");
@@ -79,7 +79,7 @@ int main(void)
 	      "the evidence remembers WHO proved the key");
 	CHECK(ev.age_ms == 1100, "the evidence remembers WHEN the proof was");
 
-	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000100, 0x0064, 2200, &ev) == 1,
+	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000100, 1, 0x0064, 2200, &ev) == 1,
 	      "the second offer is remembered too");
 	CHECK(ev.fired == 0 && ev.hits == 2 && ev.reports == 1,
 	      "and throttled: counted, no second line inside the window");
@@ -89,31 +89,48 @@ int main(void)
 	 * same poison open a second service (the SID changes with every zap, the
 	 * poison does not). One transponder shares one CW stream, so a key that
 	 * failed on one service is dead on all of them. */
-	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000100, 0x0065, 2300, NULL) == 1,
+	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000100, 1, 0x0065, 2300, NULL) == 1,
 	      "the same bytes on another SID of the provider ARE suppressed");
-	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000100, 0xFFFF, 2300, NULL) == 1,
+	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000100, 1, 0xFFFF, 2300, NULL) == 1,
 	      "any SID of the same provider: suppressed");
-	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000200, 0x0064, 2300, NULL) == 0,
+	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000200, 1, 0x0064, 2300, NULL) == 0,
 	      "another provider is a different memory");
-	CHECK(cwneg_hit(&t, k1, 0x0B00, 0x000100, 0x0064, 2300, NULL) == 0,
+	CHECK(cwneg_hit(&t, k1, 0x0B00, 0x000100, 1, 0x0064, 2300, NULL) == 0,
 	      "another CAID is a different memory");
-	CHECK(cwneg_hit(&t, k2, 0x0604, 0x000100, 0x0064, 2300, NULL) == 0,
+	CHECK(cwneg_hit(&t, k2, 0x0604, 0x000100, 1, 0x0064, 2300, NULL) == 0,
 	      "a different key on the same channel is not suppressed");
 	{
 		uint8_t k1b[16];
 		memcpy(k1b, k1, 16);
 		k1b[5] ^= 0x40;
-		CHECK(cwneg_hit(&t, k1b, 0x0604, 0x000100, 0x0064, 2300, NULL) == 0,
+		CHECK(cwneg_hit(&t, k1b, 0x0604, 0x000100, 1, 0x0064, 2300, NULL) == 0,
 		      "one edited byte makes it a different key, not a hit");
 	}
 
 	/* -- 4. window roll ------------------------------------------------------
 	 * The window counts from the last LINE (rep_ticks = 2100), not from the
 	 * mark: one line per key per window, however many refusals happen. */
-	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000100, 0x0064, 2100 + CWNEG_WINDOW, &ev) == 1,
+	CHECK(cwneg_hit(&t, k1, 0x0604, 0x000100, 1, 0x0064, 2100 + CWNEG_WINDOW, &ev) == 1,
 	      "a refusal after the window has rolled fires again");
 	CHECK(ev.fired == 1 && ev.reports == 2 && ev.hits == 5,
 	      "the counters carried over: 5 refusals, 2 lines");
+
+	/* Known provider zero and absent/unknown provider are separate identities.
+	 * Unknown numeric input is canonicalized to zero without gaining identity. */
+	cwneg_init(&t);
+	CHECK(cwneg_mark(&t, k1, 0x0604, 0, 1, 0x0064, 1, 7, 5000) == 1,
+	      "known provider zero files independently");
+	CHECK(cwneg_hit(&t, k1, 0x0604, 0, 0, 0x0064, 5100, NULL) == 0,
+	      "known provider zero does not match unknown scope");
+	CHECK(cwneg_hit(&t, k1, 0x0604, 0, 1, 0x0064, 5100, NULL) == 1,
+	      "known provider zero matches its own scope");
+	CHECK(cwneg_mark(&t, k1, 0x0604, 0xABCDEF, 0, 0x0064, 2, 8, 5200) == 1,
+	      "unknown provider is filed as a distinct scope");
+	CHECK(cwneg_count(&t) == 2, "known zero and unknown occupy separate slots");
+	CHECK(cwneg_hit(&t, k1, 0x0604, 0, 0, 0x0064, 5300, NULL) == 1,
+	      "unknown provider hit ignores untrusted numeric identity");
+	CHECK(cwneg_hit(&t, k1, 0x0604, 0, 1, 0x0064, 5300, NULL) == 1,
+	      "known zero remains intact beside unknown scope");
 
 	/* -- 5. eviction is LRU by last touch ------------------------------------ */
 	{
@@ -122,44 +139,44 @@ int main(void)
 		cwneg_init(&t);
 		for (i = 0; i < CWNEG_SLOTS; i++) {
 			setkey(k, (uint8_t)(0x10 + i));
-			CHECK(cwneg_mark(&t, k, 0x0604, 1, (uint16_t)(0x100 + i), 1, 7, 1000 + (uint32_t)i) == 1,
+			CHECK(cwneg_mark(&t, k, 0x0604, 1, 1, (uint16_t)(0x100 + i), 1, 7, 1000 + (uint32_t)i) == 1,
 			      "a proof files");
 		}
 		CHECK(cwneg_count(&t) == CWNEG_SLOTS, "the table filled");
 		setkey(k, 0x10);   /* slot 0, oldest mark, never touched since */
-		cwneg_hit(&t, k, 0x0604, 1, 0x100, 5000, NULL);   /* touch it: becomes newest */
+		cwneg_hit(&t, k, 0x0604, 1, 1, 0x100, 5000, NULL);   /* touch it: becomes newest */
 		{
 			uint8_t kn[16];
 			setkey(kn, 0xEE);
-			CHECK(cwneg_mark(&t, kn, 0x0604, 1, 0x9999, 1, 7, 6000) == 1,
+			CHECK(cwneg_mark(&t, kn, 0x0604, 1, 1, 0x9999, 1, 7, 6000) == 1,
 			      "a new proof fits a full table (eviction, never refusal)");
 		}
-		CHECK(cwneg_hit(&t, k, 0x0604, 1, 0x100, 6100, NULL) == 1,
+		CHECK(cwneg_hit(&t, k, 0x0604, 1, 1, 0x100, 6100, NULL) == 1,
 		      "the touched key survived the eviction");
 		{
 			uint8_t k1s[16];
 			setkey(k1s, 0x11);   /* slot 1: oldest untouched now */
-			CHECK(cwneg_hit(&t, k1s, 0x0604, 1, 0x101, 6200, NULL) == 0,
+			CHECK(cwneg_hit(&t, k1s, 0x0604, 1, 1, 0x101, 6200, NULL) == 0,
 			      "the least recently touched key was the one evicted");
-			CHECK(cwneg_mark(&t, k1s, 0x0604, 1, 0x101, 1, 9, 6300) == 1,
+			CHECK(cwneg_mark(&t, k1s, 0x0604, 1, 1, 0x101, 1, 9, 6300) == 1,
 			      "and it re-files cleanly when its proof comes again");
 		}
 	}
 
 	/* -- 6. degenerate inputs -------------------------------------------------- */
 	cwneg_init(&t);
-	CHECK(cwneg_mark(NULL, k1, 1, 1, 1, 1, 1, 1) == 0, "no table: no mark");
-	CHECK(cwneg_mark(&t, NULL, 1, 1, 1, 1, 1, 1) == 0, "no key: no mark");
-	CHECK(cwneg_hit(NULL, k1, 1, 1, 1, 1, NULL) == 0, "no table: no hit");
-	CHECK(cwneg_hit(&t, NULL, 1, 1, 1, 1, NULL) == 0, "no key: no hit");
-	CHECK(cwneg_hit(&t, k1, 1, 1, 1, 1, NULL) == 0, "an unknown key is no hit, quietly");
+	CHECK(cwneg_mark(NULL, k1, 1, 1, 1, 1, 1, 1, 1) == 0, "no table: no mark");
+	CHECK(cwneg_mark(&t, NULL, 1, 1, 1, 1, 1, 1, 1) == 0, "no key: no mark");
+	CHECK(cwneg_hit(NULL, k1, 1, 1, 1, 1, 1, NULL) == 0, "no table: no hit");
+	CHECK(cwneg_hit(&t, NULL, 1, 1, 1, 1, 1, NULL) == 0, "no key: no hit");
+	CHECK(cwneg_hit(&t, k1, 1, 1, 1, 1, 1, NULL) == 0, "an unknown key is no hit, quietly");
 	CHECK(cwneg_count(NULL) == 0, "count of no table is 0");
 	{
 		uint8_t z[16];
 		memset(z, 0, 16);
-		CHECK(cwneg_mark(&t, z, 0, 0, 0, 1, 1, 1000) == 1,
+		CHECK(cwneg_mark(&t, z, 0, 0, 1, 0, 1, 1, 1000) == 1,
 		      "an all-zero key can be filed (it is a key like any other)");
-		CHECK(cwneg_hit(&t, z, 0, 0, 0, 1100, NULL) == 1,
+		CHECK(cwneg_hit(&t, z, 0, 0, 1, 0, 1100, NULL) == 1,
 		      "and it is remembered");
 	}
 
@@ -168,8 +185,8 @@ int main(void)
 	{
 		int n;
 		setkey(k3, 0x42);
-		cwneg_mark(&t, k3, 0x0B00, 0x000331, 0x233D, 1, 42, 1000);
-		cwneg_hit(&t, k3, 0x0B00, 0x000331, 0x233D, 26000, &ev);
+		cwneg_mark(&t, k3, 0x0B00, 0x000331, 1, 0x233D, 1, 42, 1000);
+		cwneg_hit(&t, k3, 0x0B00, 0x000331, 1, 0x233D, 26000, &ev);
 		n = cwneg_format(&ev, line, (int)sizeof(line));
 		CHECK(n > 0, "the sentence renders");
 		CHECK(strstr(line, "CW NEGATIVE:") == line, "it names the layer");

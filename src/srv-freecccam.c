@@ -351,6 +351,7 @@ void frcc_senddcw_cli(struct cc_client_data *cli)
 	//
 	cli->lastecm.caid = ecm->caid;
 	cli->lastecm.prov = ecm->provid;
+	cli->lastecm.provider_known = ecm->provider_known;
 	cli->lastecm.sid = ecm->sid;
 	cli->lastecm.hash = ecm->hash;
 	cli->lastecm.tag = ecm->ecm[0];
@@ -474,7 +475,8 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 							&& ecm && (ecm->hash==cli->lastecm.hash) && (ecm->ecm[0]==cli->lastecm.tag) ) {
 							if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
 								attest_note( ATTEST_TAG_FREECCCAM | (uint32_t)cli->id, cli->lastecm.dcw,
-									cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+									cli->lastecm.caid, cli->lastecm.prov,
+									cli->lastecm.provider_known, cli->lastecm.sid,
 									cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
 						}
 						int isnew =  ( ecm==NULL );

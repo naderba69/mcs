@@ -34,8 +34,9 @@
  * WHAT THIS FILE DOES
  *
  * A fixed table of CWNEG_SLOTS slots, keyed on the KEY ITSELF: a 64-bit
- * FNV-1a digest of the 16 bytes, plus the channel (CAID, PROVID, SID) as
- * context. `cwneg_mark()` files a proof; `cwneg_hit()` answers "these bytes
+ * FNV-1a digest of the 16 bytes, plus CAID and a provider identity that keeps
+ * known zero separate from unknown. SID is retained as evidence, not as a key.
+ * `cwneg_mark()` files a proof; `cwneg_hit()` answers "these bytes
  * are proven poison for this channel". The serving gate (cache_setdcw, just
  * above where the entry is looked up) asks once per offered key and refuses
  * a hit before anything is stored, counted as peer agreement, or handed to a
@@ -43,8 +44,10 @@
  *
  * SCOPE DECISIONS, and why they are safe
  *
- *   - Scoped to (CAID, PROVID) and the key bytes, NOT to the SID and NOT to
- *     the ECM hash. Measured live during this task's own target: a poison key
+ *   - Scoped to (CAID, provider scope/value) and the key bytes, NOT to the
+ *     SID and NOT to the ECM hash. Known provider zero and unknown provider
+ *     are separate identities; a legacy zero row remains explicitly ambiguous.
+ *     Measured live during this task's own target: a poison key
  *     proven on service A and re-offered on service B of the same provider
  *     sailed past a SID-scoped memory and opened a second black screen -- the
  *     SID changes with every zap, the poison does not. Real DVB keys are
@@ -86,12 +89,19 @@
 #define CWNEG_SLOTS     128      /* proven-bad keys remembered at once          */
 #define CWNEG_WINDOW    60000u   /* ms: one refusal line per key per window      */
 
+/* Scope values persisted in trustlife snapshots. LEGACY_AMBIGUOUS is only
+ * used when loading a v1 provider-zero row that could not record presence. */
+#define CWNEG_PROVIDER_UNKNOWN          0u
+#define CWNEG_PROVIDER_KNOWN            1u
+#define CWNEG_PROVIDER_LEGACY_AMBIGUOUS 2u
+
 struct cwneg_slot {
 	int      used;
 	uint64_t kdigest;        /* FNV-1a over the 16 key bytes                */
 	uint8_t  key8[8];        /* the key's first half, for the evidence line  */
 	uint16_t caid;
 	uint32_t provid;
+	uint8_t  provider_scope; /* known / unknown; legacy zero may be ambiguous */
 	uint16_t sid;
 	uint8_t  origin_type;    /* who PROVED it (evidence, GR8)               */
 	uint32_t origin_id;
@@ -114,6 +124,7 @@ struct cwneg_ev {
 	uint8_t  key8[8];        /* the key's first half, for the evidence line  */
 	uint16_t caid;
 	uint32_t provid;
+	uint8_t  provider_scope;
 	uint16_t sid;
 	uint8_t  origin_type;
 	uint32_t origin_id;
@@ -169,8 +180,9 @@ static int cwneg_count(const struct cwneg_table *t)
  */
 __attribute__((unused))
 static int cwneg_mark(struct cwneg_table *t, const uint8_t *cw,
-                      uint16_t caid, uint32_t provid, uint16_t sid,
-                      uint8_t origin_type, uint32_t origin_id, uint32_t now)
+                      uint16_t caid, uint32_t provid, int provider_known,
+                      uint16_t sid, uint8_t origin_type, uint32_t origin_id,
+                      uint32_t now)
 {
 	struct cwneg_slot *victim = NULL;
 	uint64_t d;
@@ -178,6 +190,8 @@ static int cwneg_mark(struct cwneg_table *t, const uint8_t *cw,
 	int i, freepos = -1;
 
 	if (!t || !cw) return 0;
+	provider_known = !!provider_known;
+	if (!provider_known) provid = 0;
 	d = cwneg_digest(cw);
 
 	for (i = 0; i < CWNEG_SLOTS; i++) {
@@ -188,7 +202,8 @@ static int cwneg_mark(struct cwneg_table *t, const uint8_t *cw,
 			if (freepos < 0) freepos = i;
 			continue;
 		}
-		if (s->kdigest == d && s->caid == caid && s->provid == provid) {
+		if (s->kdigest == d && s->caid == caid && s->provid == provid &&
+		    s->provider_scope == (uint8_t)provider_known) {
 			s->last_ticks = now;      /* re-proven: still poison */
 			return 0;
 		}
@@ -207,9 +222,10 @@ static int cwneg_mark(struct cwneg_table *t, const uint8_t *cw,
 		s->used        = 1;
 		s->kdigest     = d;
 		memcpy(s->key8, cw, 8);
-		s->caid        = caid;
-		s->provid      = provid;
-		s->sid         = sid;
+		s->caid          = caid;
+		s->provid        = provid;
+		s->provider_scope = (uint8_t)provider_known;
+		s->sid            = sid;
 		s->origin_type = origin_type;
 		s->origin_id   = origin_id;
 		s->mark_ticks  = now;
@@ -226,8 +242,8 @@ static int cwneg_mark(struct cwneg_table *t, const uint8_t *cw,
  */
 __attribute__((unused))
 static int cwneg_hit(struct cwneg_table *t, const uint8_t *cw,
-                     uint16_t caid, uint32_t provid, uint16_t sid,
-                     uint32_t now, struct cwneg_ev *out)
+                     uint16_t caid, uint32_t provid, int provider_known,
+                     uint16_t sid, uint32_t now, struct cwneg_ev *out)
 {
 	struct cwneg_slot *s;
 	uint64_t d;
@@ -235,12 +251,16 @@ static int cwneg_hit(struct cwneg_table *t, const uint8_t *cw,
 
 	if (out) memset(out, 0, sizeof(*out));
 	if (!t || !cw) return 0;
+	provider_known = !!provider_known;
+	if (!provider_known) provid = 0;
 	d = cwneg_digest(cw);
 
 	for (i = 0; i < CWNEG_SLOTS; i++) {
 		s = &t->s[i];
 		if (!s->used) continue;
-		if (s->kdigest == d && s->caid == caid && s->provid == provid) {
+		if (s->kdigest == d && s->caid == caid && s->provid == provid &&
+		    (s->provider_scope == (uint8_t)provider_known ||
+		     (s->provider_scope == CWNEG_PROVIDER_LEGACY_AMBIGUOUS && provid == 0))) {
 			s->hits++;
 			s->last_ticks = now;
 			if (out) {
@@ -254,6 +274,7 @@ static int cwneg_hit(struct cwneg_table *t, const uint8_t *cw,
 				memcpy(out->key8, s->key8, 8);
 				out->caid       = caid;
 				out->provid     = provid;
+				out->provider_scope = s->provider_scope;
 				out->sid        = sid;
 				out->origin_type = s->origin_type;
 				out->origin_id   = s->origin_id;
@@ -273,6 +294,14 @@ static int cwneg_hit(struct cwneg_table *t, const uint8_t *cw,
  * moved and no source was disabled, because the reader must be able to tell a
  * memory from an action (GR8).
  */
+__attribute__((unused))
+static const char *cwneg_provider_scope_name(uint8_t scope)
+{
+	if (scope == CWNEG_PROVIDER_KNOWN) return "known";
+	if (scope == CWNEG_PROVIDER_LEGACY_AMBIGUOUS) return "legacy-ambiguous";
+	return "unknown";
+}
+
 __attribute__((unused))
 static int cwneg_format(const struct cwneg_ev *ev, char *out, int outlen)
 {
@@ -294,11 +323,12 @@ static int cwneg_format(const struct cwneg_ev *ev, char *out, int outlen)
 
 	return snprintf(out, (size_t)outlen,
 		"CW NEGATIVE: ch %04x:%06x:%04x -- key %s.. was proven unable to open its "
-		"picture (proven on source %d/%u, %u s ago) and a cache source offered "
-		"it again: refused before any client, hit #%u for this key. The refusal "
-		"is proof-scoped memory, not a score: nothing was scored and no source "
-		"was disabled",
+		"picture (provider scope %s; proven on source %d/%u, %u s ago) and a "
+		"cache source offered it again: refused before any client, hit #%u for "
+		"this key. The refusal is proof-scoped memory, not a score: nothing was "
+		"scored and no source was disabled",
 		ev->caid, ev->provid, ev->sid, keyhex,
+		cwneg_provider_scope_name(ev->provider_scope),
 		ev->origin_type, ev->origin_id, ev->age_ms / 1000u,
 		ev->hits);
 }
@@ -309,22 +339,24 @@ static int cwneg_format(const struct cwneg_ev *ev, char *out, int outlen)
  * them: nothing is recomputed from half a key, so a restored conviction
  * matches precisely what the original proof convicted. Insertion mirrors
  * cwneg_mark() (free slot, else least-recently-TOUNCHED loses it); an already
- * remembered (digest, CAID, PROVID) just gets its recency touched. The age
- * re-bases onto this boot's tick counter, pinned at 0 when the snapshot is
- * older than the counter (see trust_restore): the conviction stays, which is
- * the whole point of negative memory -- it has no TTL by design (D26), and
- * a restart may not become the cheapest way to launder a proven key.
+ * remembered (digest, CAID, provider scope/value) just gets its recency
+ * touched. The age re-bases onto this boot's tick counter, pinned at 0 when
+ * the snapshot is older than the counter (see trust_restore), so the conviction
+ * stays. Negative memory has no TTL by design (D26); a restart may not become
+ * the cheapest way to launder a proven key.
  */
 __attribute__((unused))
 static int cwneg_restore(struct cwneg_table *t, uint16_t caid, uint32_t provid,
-                         uint64_t kdigest, const uint8_t *key8,
-                         uint32_t age_ms, uint32_t now)
+                         uint8_t provider_scope, uint64_t kdigest,
+                         const uint8_t *key8, uint32_t age_ms, uint32_t now)
 {
 	struct cwneg_slot *victim = NULL;
 	uint32_t oldest = 0;
 	int i, freepos = -1;
 
 	if (!t || !key8 || !kdigest) return 0;
+	if (provider_scope > CWNEG_PROVIDER_LEGACY_AMBIGUOUS) return 0;
+	if (provider_scope != CWNEG_PROVIDER_KNOWN && provid != 0) return 0;
 
 	for (i = 0; i < CWNEG_SLOTS; i++) {
 		struct cwneg_slot *s = &t->s[i];
@@ -334,7 +366,8 @@ static int cwneg_restore(struct cwneg_table *t, uint16_t caid, uint32_t provid,
 			if (freepos < 0) freepos = i;
 			continue;
 		}
-		if (s->kdigest == kdigest && s->caid == caid && s->provid == provid) {
+		if (s->kdigest == kdigest && s->caid == caid && s->provid == provid &&
+		    s->provider_scope == provider_scope) {
 			s->last_ticks = now;   /* already remembered: touch, done */
 			return 0;
 		}
@@ -353,9 +386,10 @@ static int cwneg_restore(struct cwneg_table *t, uint16_t caid, uint32_t provid,
 		s->used       = 1;
 		s->kdigest    = kdigest;
 		memcpy(s->key8, key8, 8);
-		s->caid       = caid;
-		s->provid     = provid;
-		s->mark_ticks = (now > age_ms) ? (now - age_ms) : 0;
+		s->caid          = caid;
+		s->provid        = provid;
+		s->provider_scope = provider_scope;
+		s->mark_ticks    = (now > age_ms) ? (now - age_ms) : 0;
 		s->last_ticks = s->mark_ticks;
 		s->hits       = 0;
 	}

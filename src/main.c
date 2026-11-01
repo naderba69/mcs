@@ -930,16 +930,18 @@ unsigned long cwneg_lines = 0;  /* refusal lines actually written           */
  * stays quiet (the first proof is the evidence, and the line was written).
  */
 static void cwn_note(int srctype, int srcid, const uint8_t *cw,
-                     uint16_t caid, uint32_t provid, uint16_t sid,
-                     uint32_t ticks_now)
+                     uint16_t caid, uint32_t provid, int provider_known,
+                     uint16_t sid, uint32_t ticks_now)
 {
 	char keyhex[17], line[512];
 	int fresh, n;
 
 	if (!cw) return;
+	provider_known = !!provider_known;
+	if (!provider_known) provid = 0;
 
 	pthread_mutex_lock(&cwneg_lock);
-	fresh = cwneg_mark(&cwneg_tab, cw, caid, provid, sid,
+	fresh = cwneg_mark(&cwneg_tab, cw, caid, provid, provider_known, sid,
 	                   (uint8_t)srctype, (uint32_t)srcid, ticks_now);
 	pthread_mutex_unlock(&cwneg_lock);
 	if (!fresh) return;
@@ -955,10 +957,11 @@ static void cwn_note(int srctype, int srcid, const uint8_t *cw,
 		keyhex[16] = 0;
 	}
 	n = snprintf(line, sizeof(line),
-		"CW NEGATIVE MARK: ch %04x:%06x:%04x key %s.. proven unable to open its "
-		"picture on source %d/%u -- it will not be delivered again, to any "
-		"client, from any source (GR3 proof memory; no score, no disable)",
-		caid, provid, sid, keyhex, srctype, (unsigned)srcid);
+		"CW NEGATIVE MARK: ch %04x:%06x:%04x (provider %s) key %s.. proven "
+		"unable to open its picture on source %d/%u -- it will not be delivered "
+		"again, to any client, from any source (GR3 proof memory; no score, no disable)",
+		caid, provid, sid, cwneg_provider_scope_name((uint8_t)provider_known),
+		keyhex, srctype, (unsigned)srcid);
 	if (n > 0)
 		debugf(DBG_ERROR," !!! %s\n", line);
 }
@@ -970,7 +973,7 @@ static void cwn_note(int srctype, int srcid, const uint8_t *cw,
  * one line per key per CWNEG_WINDOW.
  */
 static int cwn_gate(const uint8_t *cw, uint16_t caid, uint32_t provid,
-                    uint16_t sid, uint32_t ticks_now)
+                    int provider_known, uint16_t sid, uint32_t ticks_now)
 {
 	struct cwneg_ev ev;
 	char line[512];
@@ -979,7 +982,8 @@ static int cwn_gate(const uint8_t *cw, uint16_t caid, uint32_t provid,
 	if (!cw) return 0;
 
 	pthread_mutex_lock(&cwneg_lock);
-	hit = cwneg_hit(&cwneg_tab, cw, caid, provid, sid, ticks_now, &ev);
+	hit = cwneg_hit(&cwneg_tab, cw, caid, provid, provider_known, sid,
+	                ticks_now, &ev);
 	if (hit) cwneg_hits++;
 	pthread_mutex_unlock(&cwneg_lock);
 
@@ -1101,8 +1105,8 @@ unsigned long cwattest_lines = 0; /* filing/refusal lines written         */
 
 /* Defined after clustredcache.c (the sweep's DCW_ERROR lives there). */
 static void attest_purge(int srctype, int srcid, const uint8_t *cw,
-                         uint16_t caid, uint32_t provid, uint16_t sid,
-                         uint32_t ticks_now);
+                         uint16_t caid, uint32_t provid, int provider_known,
+                         uint16_t sid, uint32_t ticks_now);
 
 /* TASK R31 (D82): attester namespaces per client protocol, so a
  * connection id from one protocol can never merge with another's
@@ -1129,8 +1133,9 @@ static uint32_t attest_ttl_ms(void)
  * CACHE ATTEST is armed, so the default build is stock.
  */
 static void attest_note(uint32_t clientid, const uint8_t *cw,
-                        uint16_t caid, uint32_t provid, uint16_t sid,
-                        int srctype, int srcid, uint32_t ticks_now)
+                        uint16_t caid, uint32_t provid, int provider_known,
+                        uint16_t sid, int srctype, int srcid,
+                        uint32_t ticks_now)
 {
 	struct cwattest_ev ev;
 	char line[640];
@@ -1141,7 +1146,7 @@ static void attest_note(uint32_t clientid, const uint8_t *cw,
 	if (srctype != DCW_SOURCE_CACHE) return;
 
 	pthread_mutex_lock(&cwattest_lock);
-	cwattest_note(&cwattest_tab, cw, caid, provid, sid,
+	cwattest_note(&cwattest_tab, cw, caid, provid, provider_known, sid,
 	              (uint8_t)srctype, (uint32_t)srcid, clientid,
 	              required, ticks_now, attest_ttl_ms(), &ev);
 	pthread_mutex_unlock(&cwattest_lock);
@@ -1152,7 +1157,7 @@ static void attest_note(uint32_t clientid, const uint8_t *cw,
 	/* The stored entry must stop being served too: purge its origin for
 	 * this channel (attest_purge, defined after clustredcache.c below
 	 * because the sweep's DCW_ERROR lives there). */
-	attest_purge(srctype, srcid, cw, caid, provid, sid, ticks_now);
+	attest_purge(srctype, srcid, cw, caid, provid, provider_known, sid, ticks_now);
 	n = cwattest_format_filed(&ev, required, attest_ttl_ms(),
 	                          line, (int)sizeof(line));
 	if (n > 0) {
@@ -1168,7 +1173,7 @@ static void attest_note(uint32_t clientid, const uint8_t *cw,
  * CACHE ATTEST is not armed.
  */
 static int attest_gate(const uint8_t *cw, uint16_t caid, uint32_t provid,
-                       uint16_t sid, uint32_t ticks_now)
+                       int provider_known, uint16_t sid, uint32_t ticks_now)
 {
 	struct cwattest_hit_ev ev;
 	char line[640];
@@ -1177,7 +1182,7 @@ static int attest_gate(const uint8_t *cw, uint16_t caid, uint32_t provid,
 	if (cfg.cache.attest < 2 || !cw) return 0;
 
 	pthread_mutex_lock(&cwattest_lock);
-	hit = cwattest_hit(&cwattest_tab, cw, caid, provid, sid,
+	hit = cwattest_hit(&cwattest_tab, cw, caid, provid, provider_known, sid,
 	                   ticks_now, attest_ttl_ms(), &ev);
 	if (hit) cwattest_hits++;
 	pthread_mutex_unlock(&cwattest_lock);
@@ -1345,6 +1350,7 @@ static int tl_save(void)
 		memset(&rn[nn], 0, sizeof(rn[nn]));
 		rn[nn].kind = TL_NG;
 		rn[nn].caid = sl->caid;       rn[nn].provid = sl->provid;
+		rn[nn].provider_scope = sl->provider_scope;
 		rn[nn].kdigest = sl->kdigest;
 		memcpy(rn[nn].key8, sl->key8, 8);
 		rn[nn].age_s = (now - sl->last_ticks) / 1000u;
@@ -1355,7 +1361,7 @@ static int tl_save(void)
 	snprintf(tmp, sizeof(tmp), "%s.tmp", trust_persist_file);
 	f = fopen(tmp, "w");
 	if (!f) return -1;
-	fprintf(f, "# multics trust lifecycle v1 -- fine / coarse / negative\n");
+	fprintf(f, "# multics trust lifecycle v2 -- fine / coarse / provider-scoped negative\n");
 	for (i = 0; i < nf; i++) {
 		char line[192];
 		if (tl_format_rec(line, (int)sizeof(line), &rf[i]) > 0) fprintf(f, "%s\n", line);
@@ -1421,8 +1427,9 @@ static void lifecycle_load(void)
 		}
 		else if (r.kind == TL_NG) {
 			pthread_mutex_lock(&cwneg_lock);
-			if (cwneg_restore(&cwneg_tab, r.caid, r.provid, r.kdigest,
-			                  r.key8, r.age_s * 1000u, now))
+			if (cwneg_restore(&cwneg_tab, r.caid, r.provid,
+			                  r.provider_scope, r.kdigest, r.key8,
+			                  r.age_s * 1000u, now))
 				cwneg_marks++;   /* a restored conviction is a filed mark */
 			pthread_mutex_unlock(&cwneg_lock);
 			tl_loaded_neg++;
@@ -1720,9 +1727,11 @@ static void ledger_act(const struct ledger_event *ev, char *tagg, int taggsz)
 		 * anyone again. Same scoping as the purge mark (cache origins only,
 		 * GR1); the card-server side keeps its own rotation machinery.
 		 */
-		cwn_note(accst, accid, ev->cw[acc], ev->caid, ev->provid, ev->sid, ticks);
-		int fresh = cache_purge_mark(&purge_tab, (uint8_t)accst, (uint32_t)accid,
-		                             ev->caid, ev->sid, ev->provid, ticks);
+		cwn_note(accst, accid, ev->cw[acc], ev->caid, ev->provid,
+		         ev->provider_known, ev->sid, ticks);
+		int fresh = cache_purge_mark_scoped(&purge_tab, (uint8_t)accst, (uint32_t)accid,
+		                                    ev->caid, ev->sid, ev->provid,
+		                                    ev->provider_known, ticks);
 		if (fresh)
 			debugf(DBG_ERROR," !!! CACHE PURGE: ch %04x:%06x:%04x marked on source %d/%d -- an independent source produced a different key for the same ecm and the client refused the delivered one\n",
 				ev->caid, ev->provid, ev->sid, accst, accid);
@@ -1738,8 +1747,9 @@ static void ledger_act(const struct ledger_event *ev, char *tagg, int taggsz)
  * the disagreeing key is exactly the one that usually gets thrown away.
  */
 static void ledger_note_delivery(const uint8_t *ecmd5, uint32_t hash,
-                                 uint16_t caid, uint32_t provid, uint16_t sid,
-                                 const uint8_t *cw, int srctype, int srcid,
+                                 uint16_t caid, uint32_t provid, int provider_known,
+                                 uint16_t sid, const uint8_t *cw,
+                                 int srctype, int srcid,
                                  uint32_t ticks)
 {
 	struct ledger_event ev;
@@ -1751,6 +1761,9 @@ static void ledger_note_delivery(const uint8_t *ecmd5, uint32_t hash,
 	pthread_mutex_lock(&trust_lock);
 	rc = ledger_offer(&ledger_tab, ecmd5, hash, caid, provid, sid, cw,
 	                   srctype, srcid, 1, ticks, &ev);
+	/* Presence belongs to this event's exact ECM context; the ledger snapshots
+	 * its numeric channel fields, so supply the parallel presence bit here. */
+	ev.provider_known = (uint8_t)(provider_known || provid != 0);
 	switch (rc) {
 	case LEDGER_AGREE:       ledger_agrees++;       break;
 	case LEDGER_DISPUTE:     ledger_disputes++;     break;
@@ -1784,8 +1797,9 @@ static void ledger_note_delivery(const uint8_t *ecmd5, uint32_t hash,
  * actually delivered, so a timeout is never counted as a failure of anybody.
  */
 static int ledger_note_failure(const uint8_t *ecmd5, uint32_t hash,
-                               uint16_t caid, uint32_t provid, uint16_t sid,
-                               const uint8_t *cw, int srctype, int srcid,
+                               uint16_t caid, uint32_t provid, int provider_known,
+                               uint16_t sid, const uint8_t *cw,
+                               int srctype, int srcid,
                                uint32_t ticks)
 {
 	struct ledger_event ev;
@@ -1797,6 +1811,8 @@ static int ledger_note_failure(const uint8_t *ecmd5, uint32_t hash,
 	pthread_mutex_lock(&trust_lock);
 	rc = ledger_failed(&ledger_tab, ecmd5, hash, caid, provid, sid, cw,
 	                    srctype, srcid, ticks, &ev);
+	/* Match the scope bit to the exact retry context used for this failure. */
+	ev.provider_known = (uint8_t)(provider_known || provid != 0);
 	if (rc == LEDGER_PROOF) {
 		ledger_act(&ev, tagg, (int)sizeof(tagg));
 		ledger_format(&ev, line, (int)sizeof(line));
@@ -2255,17 +2271,17 @@ int pipe_send_cacheex_push_cache(struct cache_data *pcache, uint8_t *cw, uint8_t
  * already released the attestation lock, so no locks ever nest.
  */
 static void attest_purge(int srctype, int srcid, const uint8_t *cw,
-                         uint16_t caid, uint32_t provid, uint16_t sid,
-                         uint32_t ticks_now)
+                         uint16_t caid, uint32_t provid, int provider_known,
+                         uint16_t sid, uint32_t ticks_now)
 {
 	int ninvalid = 0;
 
 	pthread_mutex_lock(&prg.lockcache);
-	if ( cache_purge_mark(&purge_tab, (uint8_t)srctype, (uint32_t)srcid,
-	                      caid, sid, provid, ticks_now) ) {
-		int npurged = cache_purge_sweep(&purge_tab, (uint8_t)srctype,
-		                                (uint32_t)srcid, caid, sid, provid,
-		                                DCW_ERROR);
+	if ( cache_purge_mark_scoped(&purge_tab, (uint8_t)srctype, (uint32_t)srcid,
+	                             caid, sid, provid, provider_known, ticks_now) ) {
+		int npurged = cache_purge_sweep_scoped(&purge_tab, (uint8_t)srctype,
+		                                       (uint32_t)srcid, caid, sid, provid,
+		                                       provider_known, DCW_ERROR);
 		debugf(DBG_ERROR," !!! CACHE PURGE: ch %04x:%06x:%04x marked %d cached cw(s) from source %d/%u (receiver attestation)\n",
 		       caid, provid, sid, npurged, srctype, (unsigned)srcid);
 	}

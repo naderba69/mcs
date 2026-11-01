@@ -156,6 +156,225 @@ int main(void)
         assert(profile_checks==1 && last_profile==NULL && last_profile_provider==0);
         free(entry.cwdata); entry.cwdata=NULL;
     }
+    /* The CSP wire identity is provider-less (numeric zero), but this live
+     * waiter is already attached to provider 5. Evidence from known provider
+     * zero must not be applied to it, and evidence for provider 5 must not be
+     * missed just because the CSP packet itself carries no provider. */
+    {
+        struct cache_data entry={0}, source={0};
+        ECM_DATA waiting={0};
+        struct cardserver_data profile={0};
+        struct cwneg_ev nev;
+        struct cwattest_ev aev;
+        uint8_t offered0[16], offered5[16];
+        unsigned long before;
+        memset(offered0,0x41,sizeof(offered0));
+        memset(offered5,0x42,sizeof(offered5));
+        entry.caid=source.caid=0x1884; entry.sid=source.sid=0x1136;
+        entry.tag=source.tag=0x80; entry.hash=source.hash=0x7171;
+        entry.recvtime=9000; entry.provid=5; entry.provider_known=1;
+        entry.local_provider_set=1; entry.local_provider=5;
+        entry.flags=CACHE_FLAG_SENDPIPE; entry.ecm=&waiting;
+        waiting.dcwstatus=STAT_DCW_WAIT; waiting.cs=&profile;
+        source.provid=0; source.provider_known=0;
+        table[entry.sid & MAX_CACHE_INDEX]=&entry;
+        cfg.cache.threshold=2; cfg.cache.attest=0;
+
+        cwneg_init(&cwneg_tab);
+        cwneg_mark(&cwneg_tab,offered0,entry.caid,0, 1,entry.sid,
+                   DCW_SOURCE_CACHE,1,1000);
+        before=cwneg_hits;
+        assert(cache_setdcw(&source,offered0,NO_CYCLE,PEER_CSP|7)&DCW_ERROR);
+        assert(cwneg_hits==before); /* provider-0 proof cannot cross to known 5 */
+        free(entry.cwdata); entry.cwdata=NULL;
+
+        entry.hash=source.hash=0x7172;
+        cwneg_init(&cwneg_tab);
+        cwneg_mark(&cwneg_tab,offered5,entry.caid,5, 1,entry.sid,
+                   DCW_SOURCE_CACHE,1,1000);
+        before=cwneg_hits;
+        assert(cache_setdcw(&source,offered5,NO_CYCLE,PEER_CSP|7)&DCW_ERROR);
+        assert(cwneg_hits==before+1); /* provider-5 proof is retained for CSP */
+        free(entry.cwdata); entry.cwdata=NULL;
+
+        cwneg_init(&cwneg_tab); /* isolate attestation from earlier hard proof marks */
+        cfg.cache.attest=2;
+        entry.hash=source.hash=0x7173;
+        cwattest_init(&cwattest_tab);
+        cwattest_note(&cwattest_tab,offered0,entry.caid,0, 1,entry.sid,
+                      DCW_SOURCE_CACHE,1,101,2,1000,CWATTEST_TTL_MS,&aev);
+        cwattest_note(&cwattest_tab,offered0,entry.caid,0, 1,entry.sid,
+                      DCW_SOURCE_CACHE,1,102,2,1100,CWATTEST_TTL_MS,&aev);
+        before=cwattest_hits;
+        assert(cache_setdcw(&source,offered0,NO_CYCLE,PEER_CSP|7)&DCW_ERROR);
+        assert(cwattest_hits==before); /* provider-0 filing cannot cross to 5 */
+        free(entry.cwdata); entry.cwdata=NULL;
+
+        entry.hash=source.hash=0x7174;
+        cwattest_init(&cwattest_tab);
+        cwattest_note(&cwattest_tab,offered5,entry.caid,5, 1,entry.sid,
+                      DCW_SOURCE_CACHE,1,101,2,1000,CWATTEST_TTL_MS,&aev);
+        cwattest_note(&cwattest_tab,offered5,entry.caid,5, 1,entry.sid,
+                      DCW_SOURCE_CACHE,1,102,2,1100,CWATTEST_TTL_MS,&aev);
+        before=cwattest_hits;
+        assert(cache_setdcw(&source,offered5,NO_CYCLE,PEER_CSP|7)&DCW_ERROR);
+        assert(cwattest_hits==before+1); /* provider-5 filing is retained */
+        free(entry.cwdata); entry.cwdata=NULL;
+        cfg.cache.attest=0;
+
+        /* Gate scope must distinguish an explicitly-known provider zero from
+         * no provider context, for both hard proof memory and expiring
+         * attestation. */
+        entry.hash=source.hash=0x7175;
+        entry.local_provider_set=1; entry.local_provider=0;
+        entry.provid=0; entry.provider_known=1; entry.flags=0; entry.ecm=NULL;
+        source.provid=0; source.provider_known=0;
+        cwneg_init(&cwneg_tab);
+        cwneg_mark(&cwneg_tab,offered0,entry.caid,0, 0,entry.sid,
+                   DCW_SOURCE_CACHE,1,1000);
+        before=cwneg_hits;
+        assert(cache_setdcw(&source,offered0,NO_CYCLE,PEER_CSP|7)&DCW_ERROR);
+        assert(cwneg_hits==before); /* unknown proof cannot become known zero */
+        free(entry.cwdata); entry.cwdata=NULL;
+
+        entry.hash=source.hash=0x7176;
+        cwneg_init(&cwneg_tab);
+        cwneg_mark(&cwneg_tab,offered0,entry.caid,0, 1,entry.sid,
+                   DCW_SOURCE_CACHE,1,1000);
+        before=cwneg_hits;
+        assert(cache_setdcw(&source,offered0,NO_CYCLE,PEER_CSP|7)&DCW_ERROR);
+        assert(cwneg_hits==before+1); /* known zero matches known zero */
+        free(entry.cwdata); entry.cwdata=NULL;
+
+        cwneg_init(&cwneg_tab); /* isolate attestation from provider-zero proof marks */
+        cfg.cache.attest=2;
+        entry.hash=source.hash=0x7177;
+        cwattest_init(&cwattest_tab);
+        cwattest_note(&cwattest_tab,offered0,entry.caid,0, 0,entry.sid,
+                      DCW_SOURCE_CACHE,1,101,2,1000,CWATTEST_TTL_MS,&aev);
+        cwattest_note(&cwattest_tab,offered0,entry.caid,0, 0,entry.sid,
+                      DCW_SOURCE_CACHE,1,102,2,1100,CWATTEST_TTL_MS,&aev);
+        before=cwattest_hits;
+        assert(cache_setdcw(&source,offered0,NO_CYCLE,PEER_CSP|7)&DCW_ERROR);
+        assert(cwattest_hits==before); /* unknown filing cannot become known zero */
+        free(entry.cwdata); entry.cwdata=NULL;
+
+        entry.hash=source.hash=0x7178;
+        cwattest_init(&cwattest_tab);
+        cwattest_note(&cwattest_tab,offered0,entry.caid,0, 1,entry.sid,
+                      DCW_SOURCE_CACHE,1,101,2,1000,CWATTEST_TTL_MS,&aev);
+        cwattest_note(&cwattest_tab,offered0,entry.caid,0, 1,entry.sid,
+                      DCW_SOURCE_CACHE,1,102,2,1100,CWATTEST_TTL_MS,&aev);
+        before=cwattest_hits;
+        assert(cache_setdcw(&source,offered0,NO_CYCLE,PEER_CSP|7)&DCW_ERROR);
+        assert(cwattest_hits==before+1); /* known-zero filing matches known zero */
+        free(entry.cwdata); entry.cwdata=NULL;
+        cfg.cache.attest=0;
+
+        /* Without a local/metadata provider identity, CSP remains unknown:
+         * it matches unknown evidence but cannot consume known-zero evidence. */
+        entry.hash=source.hash=0x7179;
+        entry.local_provider_set=0; entry.local_provider=0;
+        entry.provid=0; entry.provider_known=0; entry.flags=0; entry.ecm=NULL;
+        cwneg_init(&cwneg_tab);
+        cwneg_mark(&cwneg_tab,offered0,entry.caid,0, 1,entry.sid,
+                   DCW_SOURCE_CACHE,1,1000);
+        before=cwneg_hits;
+        assert(cache_setdcw(&source,offered0,NO_CYCLE,PEER_CSP|7)&DCW_ERROR);
+        assert(cwneg_hits==before);
+        free(entry.cwdata); entry.cwdata=NULL;
+        entry.hash=source.hash=0x717a;
+        cwneg_init(&cwneg_tab);
+        cwneg_mark(&cwneg_tab,offered0,entry.caid,0, 0,entry.sid,
+                   DCW_SOURCE_CACHE,1,1000);
+        before=cwneg_hits;
+        assert(cache_setdcw(&source,offered0,NO_CYCLE,PEER_CSP|7)&DCW_ERROR);
+        assert(cwneg_hits==before+1);
+        free(entry.cwdata); entry.cwdata=NULL;
+    }
+    /* The CSP reuse-proof branch has no provider field on the wire. Its
+     * negative-memory mark must therefore use the cache entry's established
+     * local identity, not the CSP request's numeric zero. */
+    {
+        struct cwreuse_table reuse={0};
+        struct cache_data csp_context={0};
+        uint8_t key[16], ecm_a[16]={1}, ecm_b[16]={2};
+        uint32_t provider=0;
+        int provider_known;
+        memset(key,0x53,sizeof(key));
+        csp_context.local_provider_set=1; csp_context.local_provider=5;
+        provider_known=cache_consensus_provider_scope(&csp_context,&provider);
+        assert(provider_known && provider==5);
+        assert(cwreuse_offer_scoped(&reuse,key,ecm_a,1,0x1884,0x1001,
+                                    provider,provider_known,1000)==CWREUSE_NONE);
+        assert(cwreuse_offer_scoped(&reuse,key,ecm_b,1,0x1884,0x1002,
+                                    provider,provider_known,2000)==CWREUSE_PROOF);
+        cwreuse_reset(&reuse);
+        assert(cwreuse_offer_scoped(&reuse,key,ecm_a,1,0x1884,0x1001,4,1,1000)==CWREUSE_NONE);
+        assert(cwreuse_offer_scoped(&reuse,key,ecm_b,1,0x1884,0x1002,
+                                    provider,provider_known,2000)==CWREUSE_NONE);
+        cwneg_init(&cwneg_tab);
+        cwn_note(DCW_SOURCE_CACHE,PEER_CSP|9,key,0x1884,provider,provider_known,0x1002,2000);
+        assert(cwneg_hit(&cwneg_tab,key,0x1884,5,1,0x1003,2100,NULL)==1);
+        assert(cwneg_hit(&cwneg_tab,key,0x1884,0,1,0x1003,2100,NULL)==0);
+
+        /* CSP's wire provid is zero, but the stored cache record is attached
+         * to provider 5. The reuse proof must sweep that effective local
+         * scope; sweeping numeric wire zero would leave the proven candidate
+         * available to later cache lookups. */
+        {
+            struct cache_data stored={0};
+            struct cw_cache_data candidate={0};
+            struct purge_table purge={0};
+            stored.caid=0x1884; stored.sid=0x1002; stored.provid=provider;
+            stored.provider_known=1; stored.local_provider_set=1;
+            stored.local_provider=provider; stored.next=stored.prev=&stored;
+            stored.cwdata=&candidate; candidate.peerid=PEER_CSP|9;
+            table[stored.sid & MAX_CACHE_INDEX]=&stored;
+            assert(cache_purge_mark_scoped(&purge,DCW_SOURCE_CACHE,PEER_CSP|9,
+                                           stored.caid,stored.sid,provider,1,3000)==1);
+            assert(cache_purge_sweep_scoped(&purge,DCW_SOURCE_CACHE,PEER_CSP|9,
+                                            stored.caid,stored.sid,provider,1,DCW_ERROR)==1);
+            assert(candidate.status & DCW_ERROR);
+            table[stored.sid & MAX_CACHE_INDEX]=NULL;
+        }
+    }
+    /* Scoped purge walks must not let an unknown-provider proof mark the
+     * same numeric-zero channel entry whose provider is explicitly known, or
+     * vice versa. Both records share the cache bucket and origin. */
+    {
+        struct cache_data known_zero={0}, unknown={0};
+        struct cw_cache_data known_cw={0}, unknown_cw={0};
+        struct purge_table purge={0};
+        uint16_t sid=0x1003;
+        int idx=sid & MAX_CACHE_INDEX;
+        known_zero.caid=unknown.caid=0x1884;
+        known_zero.sid=unknown.sid=sid;
+        known_zero.provider_known=1;
+        known_zero.local_provider_set=1; known_zero.local_provider=0;
+        unknown.provid=0; unknown.provider_known=0;
+        known_zero.next=&unknown; known_zero.prev=&unknown;
+        unknown.next=&known_zero; unknown.prev=&known_zero;
+        known_zero.cwdata=&known_cw; unknown.cwdata=&unknown_cw;
+        known_cw.peerid=unknown_cw.peerid=PEER_CSP|11;
+        table[idx]=&known_zero;
+
+        assert(cache_purge_mark_scoped(&purge,DCW_SOURCE_CACHE,PEER_CSP|11,
+                                       0x1884,sid,0,0,4000)==1);
+        assert(cache_purge_sweep_scoped(&purge,DCW_SOURCE_CACHE,PEER_CSP|11,
+                                        0x1884,sid,0,0,DCW_ERROR)==1);
+        assert((unknown_cw.status & DCW_ERROR) && !(known_cw.status & DCW_ERROR));
+
+        cache_purge_init(&purge);
+        known_cw.status=unknown_cw.status=0;
+        assert(cache_purge_mark_scoped(&purge,DCW_SOURCE_CACHE,PEER_CSP|11,
+                                       0x1884,sid,0,1,4100)==1);
+        assert(cache_purge_sweep_scoped(&purge,DCW_SOURCE_CACHE,PEER_CSP|11,
+                                        0x1884,sid,0,1,DCW_ERROR)==1);
+        assert((known_cw.status & DCW_ERROR) && !(unknown_cw.status & DCW_ERROR));
+        table[idx]=NULL;
+    }
+
     cfg.cache.threshold=1;
     target.caid=incoming.caid=0x1884; target.sid=incoming.sid=0x1136;
     target.recvtime=incoming.recvtime=9000;
@@ -231,6 +450,6 @@ int main(void)
     }
     assert(conflicts == 4);
     assert(record_conflicts == 2);
-    puts("PASS: cross-cache relays respect known local and CacheEX provider identities");
+    puts("PASS: cache provider identities isolate CSP, CacheEX, negative-memory, attestation and reuse paths");
     return 0;
 }

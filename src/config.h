@@ -358,6 +358,7 @@ struct __attribute__ ((__packed__)) cs_client_data
 		ECM_DATA *request;
 		uint16_t caid;
 		uint32_t prov;
+		uint8_t provider_known;
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;
@@ -539,6 +540,7 @@ struct __attribute__ ((__packed__)) camd35_client_data { // Connected Client
 		ECM_DATA *request;
 		uint16_t caid;
 		uint32_t prov;
+		uint8_t provider_known;
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;
@@ -1090,6 +1092,7 @@ struct __attribute__ ((__packed__)) cc_client_data { // Connected Client
 		ECM_DATA *request;
 		uint16_t caid;
 		uint32_t prov;
+		uint8_t provider_known;
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;
@@ -1218,6 +1221,7 @@ struct __attribute__ ((__packed__)) mg_client_data
 		ECM_DATA *request;
 		uint16_t caid;
 		uint32_t prov;
+		uint8_t provider_known;
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;

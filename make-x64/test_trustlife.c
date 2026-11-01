@@ -161,30 +161,99 @@ int main(void)
 
 		memset(&r, 0, sizeof(r));
 		r.kind = TL_NG; r.caid = 0x1884; r.provid = 0;
+		r.provider_scope = CWNEG_PROVIDER_KNOWN;
 		r.kdigest = d; memcpy(r.key8, cw, 8); r.age_s = 9;
 		n = tl_format_rec(line, (int)sizeof(line), &r);
-		CHECK(n > 0, "the NG line formats");
-		CHECK(tl_parse_line(line, &q) == 0 && q.kdigest == d && q.key8[0] == 0xA5,
-		      "the NG line round-trips digest and evidence prefix");
+		CHECK(n > 0 && strstr(line, "NG2 ") == line, "the provider-scoped NG2 line formats");
+		CHECK(tl_parse_line(line, &q) == 0 && q.kdigest == d && q.key8[0] == 0xA5
+		      && q.provider_scope == CWNEG_PROVIDER_KNOWN,
+		      "the NG2 line round-trips digest, evidence prefix, and known-zero scope");
 		CHECK(strstr(line, "a54dcabc2530bb10") != NULL,
 		      "the line carries the key's 8-byte evidence prefix in hex");
 
-		CHECK(cwneg_restore(&ng, 0x1884, 0, q.kdigest, q.key8, 9000, 20000) == 1,
+		CHECK(cwneg_restore(&ng, 0x1884, 0, q.provider_scope, q.kdigest, q.key8, 9000, 20000) == 1,
 		      "the conviction restores into the empty table");
-		CHECK(cwneg_hit(&ng, cw, 0x1884, 0, 0x1234, 30000, &ev) == 1,
+		CHECK(cwneg_hit(&ng, cw, 0x1884, 0, 1, 0x1234, 30000, &ev) == 1,
 		      "the ORIGINAL key is refused after the round trip, any sid");
+		CHECK(ev.provider_scope == CWNEG_PROVIDER_KNOWN,
+		      "the restored event retains known provider zero");
+		CHECK(cwneg_hit(&ng, cw, 0x1884, 0, 0, 0x1234, 30000, &ev) == 0,
+		      "known-zero snapshot does not become unknown after restart");
 		{
 			uint8_t other[16];
 			memcpy(other, cw, 16);
 			other[0] ^= 0x40;
-			CHECK(cwneg_hit(&ng, other, 0x1884, 0, 0x1234, 30000, &ev) == 0,
+			CHECK(cwneg_hit(&ng, other, 0x1884, 0, 1, 0x1234, 30000, &ev) == 0,
 			      "a different key is not tarred by it");
-			CHECK(cwneg_hit(&ng, cw, 0x0500, 0, 0x1234, 30000, &ev) == 0,
+			CHECK(cwneg_hit(&ng, cw, 0x0500, 0, 1, 0x1234, 30000, &ev) == 0,
 			      "a different caid is not tarred by it");
 		}
-		CHECK(cwneg_restore(&ng, 0x1884, 0, q.kdigest, q.key8, 9000, 25000) == 0,
+		CHECK(cwneg_restore(&ng, 0x1884, 0, q.provider_scope, q.kdigest, q.key8, 9000, 25000) == 0,
 		      "restoring the same conviction twice touches, not duplicates");
 		CHECK(cwneg_count(&ng) == 1, "and the table holds exactly one conviction");
+	}
+
+	/* NG2 preserves an explicitly unknown scope, while v1's zero provider is
+	 * deliberately restored as legacy-ambiguous so old convictions still work
+	 * for both forms of request instead of silently losing protection. */
+	{
+		uint8_t cw[16] = { 0xA5,0x4D,0xCA,0xBC,0x25,0x30,0xBB,0x10,
+		                   0x6D,0x13,0x2C,0xAC,0xD6,0x23,0x7B,0x74 };
+		struct cwneg_ev ev;
+		char legacy[128], legacy_nonzero[128];
+
+		snprintf(legacy, sizeof(legacy),
+		         "NG 1884 0 %016llx a54dcabc2530bb10 42",
+		         (unsigned long long)cwneg_digest(cw));
+		snprintf(legacy_nonzero, sizeof(legacy_nonzero),
+		         "NG 1884 5 %016llx a54dcabc2530bb10 42",
+		         (unsigned long long)cwneg_digest(cw));
+		memset(&r, 0, sizeof(r));
+		r.kind = TL_NG; r.caid = 0x1884; r.provid = 0;
+		r.provider_scope = CWNEG_PROVIDER_UNKNOWN;
+		r.kdigest = cwneg_digest(cw); memcpy(r.key8, cw, 8); r.age_s = 9;
+		n = tl_format_rec(line, (int)sizeof(line), &r);
+		CHECK(n > 0 && strstr(line, "NG2 1884 0 0 ") == line,
+		      "unknown provider is written explicitly in NG2");
+		CHECK(tl_parse_line(line, &q) == 0 &&
+		      q.provider_scope == CWNEG_PROVIDER_UNKNOWN && q.provid == 0,
+		      "NG2 unknown scope round-trips without becoming known zero");
+		cwneg_init(&ng);
+		CHECK(cwneg_restore(&ng, q.caid, q.provid, q.provider_scope,
+		                    q.kdigest, q.key8, q.age_s * 1000u, 20000) == 1,
+		      "unknown-scope conviction restores");
+		CHECK(cwneg_hit(&ng, cw, 0x1884, 0, 0, 0x1234, 30000, &ev) == 1 &&
+		      ev.provider_scope == CWNEG_PROVIDER_UNKNOWN,
+		      "unknown request finds restored unknown conviction");
+		CHECK(cwneg_hit(&ng, cw, 0x1884, 0, 1, 0x1234, 30000, &ev) == 0,
+		      "restored unknown conviction does not match known zero");
+
+		cwneg_init(&ng);
+		CHECK(tl_parse_line(legacy, &q) == 0 &&
+		      q.provider_scope == CWNEG_PROVIDER_LEGACY_AMBIGUOUS && q.provid == 0,
+		      "legacy NG provider zero parses as ambiguous, not known or unknown");
+		CHECK(cwneg_restore(&ng, q.caid, q.provid, q.provider_scope,
+		                    q.kdigest, q.key8, q.age_s * 1000u, 100000) == 1,
+		      "legacy ambiguous conviction restores");
+		CHECK(cwneg_hit(&ng, cw, 0x1884, 0, 1, 0x1234, 110000, &ev) == 1 &&
+		      ev.provider_scope == CWNEG_PROVIDER_LEGACY_AMBIGUOUS,
+		      "legacy zero-provider conviction still matches known zero");
+		CHECK(cwneg_hit(&ng, cw, 0x1884, 0, 0, 0x1234, 110000, &ev) == 1 &&
+		      ev.provider_scope == CWNEG_PROVIDER_LEGACY_AMBIGUOUS,
+		      "legacy zero-provider conviction still matches unknown scope");
+
+		cwneg_init(&ng);
+		CHECK(tl_parse_line(legacy_nonzero, &q) == 0 && q.provid == 5 &&
+		      q.provider_scope == CWNEG_PROVIDER_KNOWN,
+		      "legacy nonzero provider remains explicitly known");
+		CHECK(cwneg_restore(&ng, q.caid, q.provid, q.provider_scope,
+		                    q.kdigest, q.key8, q.age_s * 1000u, 100000) == 1,
+		      "legacy nonzero conviction restores");
+		CHECK(cwneg_hit(&ng, cw, 0x1884, 5, 1, 0x1234, 110000, &ev) == 1 &&
+		      ev.provider_scope == CWNEG_PROVIDER_KNOWN,
+		      "legacy nonzero conviction remains scoped to its provider");
+		CHECK(cwneg_hit(&ng, cw, 0x1884, 0, 1, 0x1234, 110000, &ev) == 0,
+		      "legacy nonzero conviction does not spill to known zero");
 	}
 
 	/* --- 4. the parse refuses what it cannot validate ---------------------- */
@@ -203,11 +272,15 @@ int main(void)
 			"TF 1 5 1884 0 64 10 2 1 0",        /* zero age                */
 			"TF 1 5 1884 0 64 10 2 1 99999999", /* age beyond 7 days       */
 			"TF 1 5 1884 0 64 10 2 1",          /* truncated               */
+			"TF 1 5 1884 0 64 10 2 1 42 extra", /* trailing field          */
 			"TA 1 5 1884 10 2 1 -3 42",         /* negative ngood          */
 			"NG 1884 0 deadbeefcafe123 a54dcabc2530bb106d132cacd6237b74 42",
 			"NG 1884 0 deadbeefcafe1234 a54dcabc2530bb10zz32cacd6237b74 42",
 			"NG 0 0 deadbeefcafe1234 a54dcabc2530bb106d132cacd6237b74 42",
 			"NG 1884 0 0000000000000000 a54dcabc2530bb106d132cacd6237b74 42",
+			"NG2 1884 5 0 deadbeefcafe1234 a54dcabc2530bb106d132cacd6237b74 42",
+			"NG2 1884 0 3 deadbeefcafe1234 a54dcabc2530bb106d132cacd6237b74 42",
+			"NG2 1884 0 0 deadbeefcafe1234 a54dcabc2530bb106d132cacd6237b74 42 extra",
 		};
 		int i, all_refused = 1;
 		for (i = 0; i < (int)(sizeof(rejects)/sizeof(rejects[0])); i++)

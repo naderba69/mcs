@@ -1986,6 +1986,8 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	int cex_gate_fake, cex_gate_check;
 	int has_waiter;
 	uint32_t validation_provider;
+	uint32_t gate_provider;
+	int gate_provider_known;
 	struct cache_data *pend;
 	struct cardserver_data *pcs;
 	user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache CW entered validation; decision pending", cw);
@@ -2011,6 +2013,17 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			    "cache provider collision: explicit incoming provider conflicts with known cache/local provider; CW refused", cw);
 			return DCW_ERROR;
 		}
+
+		/* Evidence gates use the best identity for the cache entry, not the
+		 * provider-less CSP wire value. An explicit CacheEX/provider value wins;
+		 * otherwise use the cache's known local/metadata scope. With no known
+		 * context, retain the existing unknown-zero scope rather than widening
+		 * the gate to every provider. Keep req->provid untouched for tracing. */
+		gate_provider = req->provid;
+		gate_provider_known = cex_exchange || cache_request_provider_known(req);
+		if (!gate_provider_known)
+			gate_provider_known = cache_consensus_provider_scope(pend, &gate_provider);
+		if (!gate_provider_known) gate_provider = req->provid;
 
 		/* A provider-less CSP reply may be checked against the exact active
 		 * local ECM it answered. Keep req->provid untouched for source tracing:
@@ -2128,7 +2141,8 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 * gate only answers "are these bytes remembered poison for this
 	 * channel"; every score and every disable remains the proof's job.
 	 */
-	if ( cwn_gate(cw, req->caid, req->provid, req->sid, GetTickCount()) ) {
+	if ( cwn_gate(cw, req->caid, gate_provider, gate_provider_known,
+	              req->sid, GetTickCount()) ) {
 		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: negative memory gate", cw);
 #ifdef MCS_DCWSTATS
 		cwlog_refuse(CWLOG_R_CONVICTED, peerid, req->caid, req->provid, req->sid, cw);
@@ -2144,7 +2158,8 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	 * (CWATTEST_TTL_MS): attestation is strong evidence, not a GR3
 	 * proof. No-op unless CACHE ATTEST is armed.
 	 */
-	if ( attest_gate(cw, req->caid, req->provid, req->sid, GetTickCount()) ) {
+	if ( attest_gate(cw, req->caid, gate_provider, gate_provider_known,
+	                 req->sid, GetTickCount()) ) {
 		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: attestation gate", cw);
 #ifdef MCS_DCWSTATS
 		cwlog_refuse(CWLOG_R_CONVICTED, peerid, req->caid, req->provid, req->sid, cw);
@@ -2661,13 +2676,18 @@ void cache_recvmsg(struct cacheserver_data *cache)
 							struct cache_data *pc = cache_fetch(&req);
 							if (pc) {
 								uint32_t now = GetTickCount();
-								if ( cwreuse_offer( &cwreuse_tab, cw, pc->ecmd5, 1,
-									                    req.caid, req.sid, req.provid, now ) == CWREUSE_PROOF ) {
+								uint32_t proof_provider = 0;
+								int proof_provider_known = cache_consensus_provider_scope(pc, &proof_provider);
+								if ( cwreuse_offer_scoped( &cwreuse_tab, cw, pc->ecmd5, 1,
+									                    req.caid, req.sid, proof_provider,
+									                    proof_provider_known, now ) == CWREUSE_PROOF ) {
 									cwreuse_proofs++;
 									/* TASK 2.6: the convicted key itself goes into negative
-									 * memory, so no other source and no fresh entry can ever
-									 * serve it. */
-									cwn_note( DCW_SOURCE_CACHE, peer->id|PEER_CSP, cw, req.caid, req.provid, req.sid, now );
+									 * memory. CSP has no provider field, so preserve a known
+									 * local/cache scope when present; otherwise file it in the
+									 * separate unknown-provider scope. */
+									cwn_note( DCW_SOURCE_CACHE, peer->id|PEER_CSP, cw, req.caid,
+									         proof_provider, proof_provider_known, req.sid, now );
 									trust_record_lk( &trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
 										              req.caid, req.provid, req.sid, now );
 									/* TASK 2.8: the same proof, summed one level coarser. */
@@ -2675,12 +2695,14 @@ void cache_recvmsg(struct cacheserver_data *cache)
 									                  req.caid, now );
 									debugf(DBG_ERROR," !!! CW REUSE PROOF: same cw for a different ecm on a different service, ch %04x:%06x:%04x from cache peer%d (%s:%d)\n",
 										req.caid, req.provid, req.sid, peer->id, peer->host->name, peer->port);
-									if ( cache_purge_mark( &purge_tab, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
-										        req.caid, req.sid, req.provid, now ) ) {
-										int npurged = cache_purge_sweep( &purge_tab, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
-											        req.caid, req.sid, req.provid, DCW_ERROR );
+									if ( cache_purge_mark_scoped( &purge_tab, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
+										        req.caid, req.sid, proof_provider,
+										        proof_provider_known, now ) ) {
+										int npurged = cache_purge_sweep_scoped( &purge_tab, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
+											        req.caid, req.sid, proof_provider,
+											        proof_provider_known, DCW_ERROR );
 										debugf(DBG_ERROR," !!! CACHE PURGE: ch %04x:%06x:%04x marked %d cached cw(s) from cache peer%d\n",
-											req.caid, req.provid, req.sid, npurged, peer->id);
+											req.caid, proof_provider, req.sid, npurged, peer->id);
 									}
 								}
 							}

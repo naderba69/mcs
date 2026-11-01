@@ -586,7 +586,8 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						if (rcls==RETRY_HARD)
 							led_proof = ledger_note_failure(
 								ecm?ecm->ecmd5:0, cli->lastecm.hash,
-								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+								cli->lastecm.caid, cli->lastecm.prov,
+								cli->lastecm.provider_known, cli->lastecm.sid,
 								cli->lastecm.dcw,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks);
 #endif
@@ -641,7 +642,8 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						 */
 						if (rcls==RETRY_HARD && !led_proof)
 							attest_note( ATTEST_TAG_NEWCAMD | (uint32_t)cli->id, cli->lastecm.dcw,
-								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+								cli->lastecm.caid, cli->lastecm.prov,
+								cli->lastecm.provider_known, cli->lastecm.sid,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
 
 						/*
@@ -743,9 +745,10 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 							 * same reasoning TASK 1.5 used for the mark side,
 							 * where the sweep is the only cache-touching part.
 							 */
-							if ( cache_purge_unmark( &purge_tab,
+							if ( cache_purge_unmark_scoped( &purge_tab,
 									cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
-									cli->lastecm.caid, cli->lastecm.sid, cli->lastecm.prov ) ) {
+									cli->lastecm.caid, cli->lastecm.sid,
+									cli->lastecm.prov, cli->lastecm.provider_known ) ) {
 								debugf(DBG_ERROR," !!! CACHE PURGE RELEASE: ch %04x:%06x:%04x mark on source %d/%d lifted, it just delivered a key this client accepted\n",
 									cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
 									(int)cli->lastecm.dcwsrctype, (int)cli->lastecm.dcwsrcid);
@@ -975,6 +978,7 @@ void cs_senddcw_cli(struct cs_client_data *cli)
 
 	cli->lastecm.caid = ecm->caid;
 	cli->lastecm.prov = ecm->provid;
+	cli->lastecm.provider_known = ecm->provider_known;
 	cli->lastecm.sid = ecm->sid;
 	/*
 	 * TASK 1.2 — `lastecm.hash` existed in the struct (config.h:346) but was

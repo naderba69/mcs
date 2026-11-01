@@ -32,10 +32,12 @@
  *
  *   WHAT DOES NOT FADE AND WHAT DOES NOT PERSIST ARE BOTH DELIBERATE.
  *   Negative memory has no TTL (D26): its fade list is empty, and its
- *   snapshot restores the (digest, key8, CAID, PROVID) quadruple exactly as
- *   proven -- nothing recomputed from half a key. Scores are clamped back
- *   into [FLOOR, CEILING] on parse; a line that does not validate is counted
- *   and skipped, never half-applied.
+ *   snapshot restores the (digest, key8, CAID, provider scope/value) identity
+ *   exactly as proven -- nothing recomputed from half a key. Scores are
+ *   clamped back into [FLOOR, CEILING] on parse; invalid lines are counted
+ *   and skipped, never half-applied. Negative-memory snapshots use NG2 to
+ *   retain the provider's known/unknown scope; v1 NG rows remain readable and
+ *   a v1 provider-zero row is restored as legacy-ambiguous.
  *
  * Pure functions only -- the file I/O lives in main.c (tl_save/lifecycle_load)
  * so this header stays unit-testable without a filesystem.
@@ -48,6 +50,7 @@
 #include <string.h>
 #include "trust.h"
 #include "trustagg.h"
+#include "cwneg.h"
 
 #define TL_MAX_AGE_S 604800u   /* a snapshot line older than 7 days is stale */
 
@@ -59,6 +62,7 @@ struct tl_rec {
 	int      srcid;
 	uint16_t caid;
 	uint32_t provid;
+	uint8_t  provider_scope; /* CWNEG_PROVIDER_*; used by TL_NG only */
 	uint16_t sid;
 	int      score;
 	int      nproof;
@@ -85,9 +89,12 @@ static inline int tl_format_rec(char *line, int sz, const struct tl_rec *r)
 			r->srctype, r->srcid, r->caid,
 			r->score, r->nproof, r->nsoft, r->ngood, r->age_s);
 	case TL_NG:
+		if (r->provider_scope > CWNEG_PROVIDER_LEGACY_AMBIGUOUS ||
+		    (r->provider_scope != CWNEG_PROVIDER_KNOWN && r->provid != 0))
+			return -1;
 		return snprintf(line, (size_t)sz,
-			"NG %x %x %016llx %02x%02x%02x%02x%02x%02x%02x%02x %u",
-			r->caid, r->provid,
+			"NG2 %x %x %u %016llx %02x%02x%02x%02x%02x%02x%02x%02x %u",
+			r->caid, r->provid, (unsigned)r->provider_scope,
 			(unsigned long long)r->kdigest,
 			r->key8[0], r->key8[1], r->key8[2], r->key8[3],
 			r->key8[4], r->key8[5], r->key8[6], r->key8[7],
@@ -138,9 +145,10 @@ static inline int tl_parse_line(const char *s, struct tl_rec *r)
 
 	if (!strcmp(kind, "TF")) {
 		unsigned caid, provid, sid;
-		if (sscanf(s + n, "%d %d %x %x %x %d %d %d %u",
+		char extra[2];
+		if (sscanf(s + n, "%d %d %x %x %x %d %d %d %u %1s",
 		           &r->srctype, &r->srcid, &caid, &provid, &sid,
-		           &r->score, &r->nproof, &r->nsoft, &r->age_s) != 9)
+		           &r->score, &r->nproof, &r->nsoft, &r->age_s, extra) != 9)
 			return -1;
 		r->kind = TL_TF;
 		r->caid = (uint16_t)caid; r->provid = provid; r->sid = (uint16_t)sid;
@@ -154,9 +162,11 @@ static inline int tl_parse_line(const char *s, struct tl_rec *r)
 	}
 	if (!strcmp(kind, "TA")) {
 		unsigned caid;
-		if (sscanf(s + n, "%d %d %x %d %d %d %d %u",
+		char extra[2];
+		if (sscanf(s + n, "%d %d %x %d %d %d %d %u %1s",
 		           &r->srctype, &r->srcid, &caid,
-		           &r->score, &r->nproof, &r->nsoft, &r->ngood, &r->age_s) != 8)
+		           &r->score, &r->nproof, &r->nsoft, &r->ngood, &r->age_s,
+		           extra) != 8)
 			return -1;
 		r->kind = TL_TA;
 		r->caid = (uint16_t)caid;
@@ -168,17 +178,31 @@ static inline int tl_parse_line(const char *s, struct tl_rec *r)
 		if (r->age_s == 0 || r->age_s > TL_MAX_AGE_S) return -1;
 		return 0;
 	}
-	if (!strcmp(kind, "NG")) {
-		char d[19], k[17];
-		unsigned caid;
+	if (!strcmp(kind, "NG") || !strcmp(kind, "NG2")) {
+		char d[19], k[17], extra[2];
+		unsigned caid, provid, scope = CWNEG_PROVIDER_KNOWN;
 		uint64_t dig = 0;
 		int i;
-		if (sscanf(s + n, "%x %x %18s %16s %u",
-		           &caid, &r->provid, d, k, &r->age_s) != 5)
-			return -1;
+		if (!strcmp(kind, "NG2")) {
+			if (sscanf(s + n, "%x %x %u %18s %16s %u %1s",
+			           &caid, &provid, &scope, d, k, &r->age_s, extra) != 6)
+				return -1;
+			if (scope > CWNEG_PROVIDER_LEGACY_AMBIGUOUS) return -1;
+		} else {
+			if (sscanf(s + n, "%x %x %18s %16s %u %1s",
+			           &caid, &provid, d, k, &r->age_s, extra) != 5)
+				return -1;
+			/* v1 did not encode presence: preserve its numeric-zero behavior
+			 * as an explicitly ambiguous legacy row. Nonzero is necessarily known. */
+			scope = provid ? CWNEG_PROVIDER_KNOWN
+			               : CWNEG_PROVIDER_LEGACY_AMBIGUOUS;
+		}
 		r->kind = TL_NG;
 		r->caid = (uint16_t)caid;
+		r->provid = provid;
+		r->provider_scope = (uint8_t)scope;
 		if (r->caid == 0 || caid > 0xffff) return -1;
+		if (scope != CWNEG_PROVIDER_KNOWN && provid != 0) return -1;
 		if (r->age_s == 0 || r->age_s > TL_MAX_AGE_S) return -1;
 		if (strlen(d) != 16 || strlen(k) != 16) return -1;
 		for (i = 0; i < 16; i++) {
