@@ -598,26 +598,29 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 							 * count it twice and decay the score as if the source
 							 * had failed twice.
 							 */
-							trust_record_lk( &trust_tab, TRUST_EV_PROOF,
+							trust_record_lk_scoped( &trust_tab, TRUST_EV_PROOF,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
-								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid, ticks );
+								cli->lastecm.caid, cli->lastecm.prov,
+								cli->lastecm.provider_known, cli->lastecm.sid, ticks );
 							/* TASK 2.8: the same event, one level coarser. */
 							trustagg_note_lk( TRUST_EV_PROOF,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
 								cli->lastecm.caid, ticks );
 						}
 						else if (rcls==RETRY_HARD || rcls==RETRY_SOFT) {
-							trust_record_lk( &trust_tab, TRUST_EV_SOFT,
+							trust_record_lk_scoped( &trust_tab, TRUST_EV_SOFT,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
-								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid, ticks );
+								cli->lastecm.caid, cli->lastecm.prov,
+								cli->lastecm.provider_known, cli->lastecm.sid, ticks );
 							trustagg_note_lk( TRUST_EV_SOFT,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
 								cli->lastecm.caid, ticks );
 						}
 						else if (cli->lastecm.status && cli->lastecm.dcwsrctype!=DCW_SOURCE_NONE) {
-							trust_record_lk( &trust_tab, TRUST_EV_GOOD,
+							trust_record_lk_scoped( &trust_tab, TRUST_EV_GOOD,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
-								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid, ticks );
+								cli->lastecm.caid, cli->lastecm.prov,
+								cli->lastecm.provider_known, cli->lastecm.sid, ticks );
 							/* TASK 2.8: GOOD is how a suppressed peer wins its
 							 * requests back -- this tap is the recovery path. */
 							trustagg_note_lk( TRUST_EV_GOOD,

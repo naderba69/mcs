@@ -477,8 +477,9 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 				 * origin flags, because a CSP peer and a cache-exchange client with
 				 * the same id are different sources and must not share a score.
 				 */
-				trust_record_lk( &trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id,
-					cacheex.caid, cacheex.provid, cacheex.sid, GetTickCount() );
+				trust_record_lk_scoped( &trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id,
+					cacheex.caid, cacheex.provid, cacheex.provider_known,
+					cacheex.sid, GetTickCount() );
 				/* TASK 2.8: the same proof, summed one level coarser. */
 				trustagg_note_lk( TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id,
 				                  cacheex.caid, GetTickCount() );

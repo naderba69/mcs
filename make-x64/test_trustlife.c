@@ -135,13 +135,48 @@ int main(void)
 		      "a representable age re-bases exactly: seen at now - age");
 		/* a PEER-flagged srcid must survive byte-exact (GR1/GR4) */
 		r.kind = TL_TF; r.srctype = 1; r.srcid = 65537; r.caid = 0x1884;
-		r.provid = 0; r.sid = 0x64; r.score = 10; r.nproof = 2; r.nsoft = 1; r.age_s = 42;
+		r.provid = 0; r.provider_scope = TRUST_PROVIDER_KNOWN;
+		r.sid = 0x64; r.score = 10; r.nproof = 2; r.nsoft = 1; r.age_s = 42;
 		n = tl_format_rec(line, (int)sizeof(line), &r);
-		CHECK(n > 0 && tl_parse_line(line, &q) == 0, "TF line round-trips");
+		CHECK(n > 0 && strncmp(line, "TF2 ", 4) == 0 &&
+		      tl_parse_line(line, &q) == 0, "TF2 line round-trips");
 		CHECK(q.kind == TL_TF && q.srcid == 65537 && q.caid == 0x1884 &&
-		      q.provid == 0 && q.sid == 0x64 && q.score == 10 &&
-		      q.nproof == 2 && q.nsoft == 1 && q.age_s == 42,
-		      "every TF field survives, flags and zero provid included");
+		      q.provid == 0 && q.provider_scope == TRUST_PROVIDER_KNOWN &&
+		      q.sid == 0x64 && q.score == 10 && q.nproof == 2 &&
+		      q.nsoft == 1 && q.age_s == 42,
+		      "TF2 preserves flags, known-zero scope, score and counters");
+		r.provider_scope = TRUST_PROVIDER_UNKNOWN;
+		n = tl_format_rec(line, (int)sizeof(line), &r);
+		CHECK(n > 0 && tl_parse_line(line, &q) == 0 &&
+		      q.provider_scope == TRUST_PROVIDER_UNKNOWN,
+		      "TF2 also round-trips the distinct unknown-zero scope");
+	}
+	{
+		struct trust_table migrated;
+		const char *legacy_zero = "TF 1 65537 1884 0 64 35 1 0 42";
+		memset(&migrated, 0, sizeof(migrated));
+		CHECK(tl_parse_line(legacy_zero, &q) == 0 &&
+		      q.provider_scope == TRUST_PROVIDER_LEGACY_AMBIGUOUS,
+		      "legacy TF provider-zero rows parse as ambiguous, not falsely known or unknown");
+		CHECK(tl_parse_line("TF 1 65537 1884 5 64 35 1 0 42", &q) == 0 &&
+		      q.provider_scope == TRUST_PROVIDER_KNOWN && q.provid == 5,
+		      "legacy TF nonzero provider rows remain explicitly known");
+		CHECK(tl_parse_line(legacy_zero, &q) == 0,
+		      "legacy zero row can be re-read after the nonzero compatibility check");
+		CHECK(trust_restore_scoped(&migrated, q.srctype, q.srcid, q.caid,
+		                            q.provid, q.provider_scope, q.sid, q.score,
+		                            q.nproof, q.nsoft, q.age_s * 1000u, 50000) == 1,
+		      "legacy TF row restores through the scoped lifecycle path");
+		CHECK(trust_score_scoped(&migrated, 1, 65537, 0x1884, 0, 0, 0x64) == 35 &&
+		      trust_score_scoped(&migrated, 1, 65537, 0x1884, 0, 1, 0x64) == 35,
+		      "old ambiguous evidence remains readable by both zero-provider scopes");
+		trust_record_scoped(&migrated, TRUST_EV_PROOF, 1, 65537, 0x1884,
+		                    0, 0, 0x64, 51000);
+		trust_record_scoped(&migrated, TRUST_EV_PROOF, 1, 65537, 0x1884,
+		                    0, 0, 0x64, 52000);
+		CHECK(trust_score_scoped(&migrated, 1, 65537, 0x1884, 0, 0, 0x64) == TRUST_FLOOR &&
+		      trust_score_scoped(&migrated, 1, 65537, 0x1884, 0, 1, 0x64) == 35,
+		      "new unknown-scope evidence takes precedence without contaminating known-zero");
 	}
 	{
 		r.kind = TL_TA; r.srctype = 1; r.srcid = 65537; r.caid = 0x1884;
@@ -273,6 +308,9 @@ int main(void)
 			"TF 1 5 1884 0 64 10 2 1 99999999", /* age beyond 7 days       */
 			"TF 1 5 1884 0 64 10 2 1",          /* truncated               */
 			"TF 1 5 1884 0 64 10 2 1 42 extra", /* trailing field          */
+			"TF2 1 5 1884 0 3 64 60 0 0 42",   /* invalid provider scope  */
+			"TF2 1 5 1884 5 0 64 60 0 0 42",   /* unknown scope with value */
+			"TF2 1 5 1884 0 0 64 60 0 0 42 extra", /* trailing field       */
 			"TA 1 5 1884 10 2 1 -3 42",         /* negative ngood          */
 			"NG 1884 0 deadbeefcafe123 a54dcabc2530bb106d132cacd6237b74 42",
 			"NG 1884 0 deadbeefcafe1234 a54dcabc2530bb10zz32cacd6237b74 42",

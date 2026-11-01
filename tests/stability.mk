@@ -2132,15 +2132,16 @@ cg: $(CACHEPEER) $(NCCLIENT)
 #
 # THE SCENARIO. One CSP peer, one newcamd profile, and a state file. Phase 1
 # the peer answers honestly twice: standing is written into the fine tier,
-# then it goes idle past TRUST-FADE-GRACE (4 s) and the fade relaxes it, and
-# the next snapshot writes TF lines to disk. Phase 2 the same peer comes back
-# with one fixed poison key: two deliveries, a CW-reuse proof, a negative
-# mark, the third offer refused -- and the snapshot now carries an NG line.
-# Phase 3 the server is RESTARTED (one garbage line appended to the state file
-# first): the loader restores the fine, the coarse and the negative tables,
-# counts the bad line and skips it whole, and the very first fresh offer of
-# the SAME poison key is refused before any client -- the conviction survived
-# the restart that used to launder it.
+# then it goes idle past TRUST-FADE-GRACE (4 s) and the fade relaxes it; the
+# next snapshot writes scoped TF2 lines to disk. Phase 2 the same peer comes
+# back with one fixed poison key: two deliveries, a CW-reuse proof, a negative
+# mark, the third offer refused -- and the snapshot now carries an NG2 line.
+# Phase 3 restarts the server, then replays the poison under a fresh matching
+# known-zero local ECM context (CSP itself has no provider field).
+# One garbage line is appended before startup; the loader restores the fine,
+# coarse and negative tables and skips that bad line whole. The first fresh
+# offer of the SAME poison key under that scope is refused before delivery --
+# the conviction survived the restart that used to launder it.
 # ---------------------------------------------------------------------------
 
 TL_HPORT = 16660
@@ -2221,10 +2222,10 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	if [ "$$nmark" = "1" ]; then \
 	  echo "  [ ok ] phase 2: the reused poison key is proven and filed (one CW NEGATIVE MARK)"; \
 	else echo "[FAIL] $$nmark negative mark line(s), expected exactly 1"; ok=0; fi; \
-	nng=$$(grep -c "^NG " $(TL_STATE) 2>/dev/null); \
+	nng=$$(grep -Ec "^NG2? " $(TL_STATE) 2>/dev/null); \
 	if [ "$${nng:-0}" = "1" ] 2>/dev/null; then \
-	  echo "  [ ok ] the conviction is on disk: exactly one NG line in the state file"; \
-	else echo "[FAIL] $${nng:-0} NG line(s) in $(TL_STATE), expected 1"; ok=0; fi; \
+	  echo "  [ ok ] the conviction is on disk: exactly one NG/NG2 line in the state file"; \
+	else echo "[FAIL] $${nng:-0} NG/NG2 line(s) in $(TL_STATE), expected 1"; ok=0; fi; \
 	sleep 6; \
 	for i in $$(seq 1 20); do grep -q "PHASE1 STATS" .tl-srv.log && break; sleep 0.5; done; \
 	sleep 1; \
@@ -2233,10 +2234,10 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	if [ "$$faded" -ge 1 ] 2>/dev/null; then \
 	  echo "  [ ok ] idle past the grace, the fade relaxed the condemned entries: $$faded move(s)"; \
 	else echo "[FAIL] fade counter is '$$f' -- nothing faded after the grace"; ok=0; fi; \
-	ntf=$$(grep -c "^TF " $(TL_STATE) 2>/dev/null); \
+	ntf=$$(grep -Ec "^TF2? " $(TL_STATE) 2>/dev/null); \
 	if [ "$${ntf:-0}" -ge 1 ] 2>/dev/null; then \
-	  echo "  [ ok ] the fine tier is on disk too: $$ntf TF line(s)"; \
-	else echo "[FAIL] no TF line in $(TL_STATE): the fine tier did not persist"; ok=0; fi; \
+	  echo "  [ ok ] the fine tier is on disk too: $$ntf TF/TF2 line(s)"; \
+	else echo "[FAIL] no TF/TF2 line in $(TL_STATE): the fine tier did not persist"; ok=0; fi; \
 	kill $$srv 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
 	echo "THIS LINE IS NOT A RECORD" >> $(TL_STATE); \
@@ -2265,9 +2266,17 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	  echo "  [ ok ] the stats remember both: 1 negative restored, 1 bad line"; \
 	else echo "[FAIL] lifecycle stats '$$s', expected 1 restored, 1 bad"; ok=0; fi; \
 	kill -9 $$peera 2>/dev/null; sleep 0.5; \
+	rm -f .tl-cli3.log; \
+	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(TL_NPORT) u4 p4 $(TL_KEY) 0 1884 0190 > .tl-cli3.log 2>&1 & \
+	cli3=$$!; \
+	for i in $$(seq 1 20); do grep -q "ecm from client 'u4' ch 1884:000000:0190" .tl-srv.log && break; sleep 0.1; done; \
+	pushhash=$$(grep "ecm from client 'u4' ch 1884:000000:0190" .tl-srv.log | head -1 | sed 's/.*://'); \
+	if printf '%s' "$$pushhash" | grep -Eq '^[[:xdigit:]]{8}$$'; then \
+	  echo "  [ ok ] a matching known-zero ECM is pending for the providerless CSP reply (hash $$pushhash)"; \
+	else echo "[FAIL] could not establish a known-zero ECM hash before the post-restart push"; ok=0; pushhash=11223344; fi; \
 	rm -f .tl-a.log; \
 	env CP_FRESH_KEY=0 CP_FORGED_FRESH_EVERY=0 \
-	    CP_PUSH_HASH=11223344 CP_PUSH_SID=0190 CP_PUSH_CAID=1884 CP_PUSH_TAG=80 \
+	    CP_PUSH_HASH=$$pushhash CP_PUSH_SID=0190 CP_PUSH_CAID=1884 CP_PUSH_TAG=80 \
 	    CP_REPUSH_MS=1500 CP_REPUSH_SAME=1 \
 	    stdbuf -o0 -e0 ./$(CACHEPEER) $(TL_CACHE) $(TL_A) $(TL_POISON) 32 > .tl-a.log 2>&1 & \
 	peera=$$!; \
@@ -2290,9 +2299,9 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	  echo "  [ ok ] no snapshot failure across both runs (fade/snapshots '$$f2')"; \
 	else echo "[FAIL] $$ffail snapshot failure(s)"; ok=0; fi; \
 	if kill -0 $$srv 2>/dev/null; then echo "  [ ok ] server survived"; else echo "[FAIL] the server died"; ok=0; fi; \
-	kill $$srv $$peera 2>/dev/null; \
+	kill $$srv $$peera $$cli3 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
-	kill -9 $$peera 2>/dev/null; \
+	kill -9 $$peera $$cli3 2>/dev/null; \
 	[ "$$ok" = "1" ] || exit 1
 
 # ---------------------------------------------------------------------------

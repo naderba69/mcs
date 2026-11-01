@@ -2090,10 +2090,10 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		 * the cache's own: (DCW_SOURCE_CACHE, peerid), the same pair
 		 * ecm_setdcw() uses a few lines below, so GR1 holds as before.
 		 */
-		cwp_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
-			 GetTickCount());
-		cm_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
-		        GetTickCount());
+		cwp_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, gate_provider,
+		         gate_provider_known, req->sid, GetTickCount());
+		cm_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, gate_provider,
+		        gate_provider_known, req->sid, GetTickCount());
 #ifdef MCS_DCWSTATS
 		/* TASK R11 (D65): the specific test (checksum/null/repeat/
 		 * badlist) is counted inside dcw.c; the ring row carries the
@@ -2120,10 +2120,10 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 #endif
 			{ struct cachepeer_data *pr_peer = getpeerbyid(peerid); /* TASK R4 (D58) */
 			  if (pr_peer) peerrep_event(pr_peer, "cacheex-fake-cw"); }
-			cwp_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
-			         GetTickCount());
-			cm_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, req->provid, req->sid,
-			        GetTickCount());
+			cwp_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, gate_provider,
+			         gate_provider_known, req->sid, GetTickCount());
+			cm_note(DCW_SOURCE_CACHE, peerid, cw, req->caid, gate_provider,
+			        gate_provider_known, req->sid, GetTickCount());
 			debugf(DBG_ERROR, " !!! [CACHEEX GATE] BLOCK_FAKE_CW: fake cw from exchange peer (%x|%d) ch %04x:%06x:%04x\n",
 				peerid & PEER_ORIGIN_FLAGS, peerid & PEER_ID_MASK,
 				req->caid, req->provid, req->sid);
@@ -2494,8 +2494,9 @@ static void cache_csp_reuse_check(struct cachepeer_data *peer,
      * keep the conviction in the distinct unknown-provider scope. */
     cwn_note(DCW_SOURCE_CACHE, peer->id|PEER_CSP, cw, req->caid,
              proof_provider, proof_provider_known, req->sid, now);
-    trust_record_lk(&trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE,
-                    peer->id|PEER_CSP, req->caid, proof_provider, req->sid, now);
+    trust_record_lk_scoped(&trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE,
+                           peer->id|PEER_CSP, req->caid, proof_provider,
+                           proof_provider_known, req->sid, now);
     trustagg_note_lk(TRUST_EV_PROOF, DCW_SOURCE_CACHE, peer->id|PEER_CSP,
                      req->caid, now);
     debugf(DBG_ERROR,
@@ -3217,17 +3218,23 @@ void cache_recvmsg(struct cacheserver_data *cache)
 static int cachepref_gate(struct cache_data *pcache, struct cw_cache_data *cwdata)
 {
 	int score, trusted, crosschecked, allow;
+	uint32_t trust_provider;
+	int trust_provider_known;
 
 	if (!cachepref_enabled) return CACHEPREF_ALLOW;
 
 	/*
 	 * pcache->caid/provid/sid are all set before the CW scan runs, in both the
 	 * cache_new and the cache_fetch branch of PIPE_CACHE_FIND. GR4: the key is
-	 * the full five-part identity, so a peer that is good on one bouquet stays
-	 * good on it even if it is poisoning another.
+	 * the source, CAID, provider scope/value, and SID, so a peer good on one
+	 * bouquet stays good on it even if it is poisoning another.
 	 */
-	score = trust_score_lk(&trust_tab, DCW_SOURCE_CACHE, (int)cwdata->peerid,
-	                       pcache->caid, pcache->provid, pcache->sid);
+	trust_provider = pcache->provid;
+	trust_provider_known = cache_consensus_provider_scope(pcache, &trust_provider);
+	if (!trust_provider_known) trust_provider = pcache->provid;
+	score = trust_score_lk_scoped(&trust_tab, DCW_SOURCE_CACHE, (int)cwdata->peerid,
+	                              pcache->caid, trust_provider,
+	                              trust_provider_known, pcache->sid);
 	trusted = cachepref_trusted(score, TRUST_ACTIONABLE);
 
 	/*

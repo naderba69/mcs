@@ -35,9 +35,11 @@
  *   snapshot restores the (digest, key8, CAID, provider scope/value) identity
  *   exactly as proven -- nothing recomputed from half a key. Scores are
  *   clamped back into [FLOOR, CEILING] on parse; invalid lines are counted
- *   and skipped, never half-applied. Negative-memory snapshots use NG2 to
- *   retain the provider's known/unknown scope; v1 NG rows remain readable and
- *   a v1 provider-zero row is restored as legacy-ambiguous.
+ *   and skipped, never half-applied. Fine trust snapshots use TF2 to retain
+ *   provider presence; old TF rows remain readable, with provider-zero rows
+ *   restored as legacy-ambiguous. Negative memory uses NG2 to retain the
+ *   provider scope; v1 NG rows remain readable, with provider-zero rows
+ *   restored as legacy-ambiguous.
  *
  * Pure functions only -- the file I/O lives in main.c (tl_save/lifecycle_load)
  * so this header stays unit-testable without a filesystem.
@@ -62,7 +64,7 @@ struct tl_rec {
 	int      srcid;
 	uint16_t caid;
 	uint32_t provid;
-	uint8_t  provider_scope; /* CWNEG_PROVIDER_*; used by TL_NG only */
+	uint8_t  provider_scope; /* TRUST_PROVIDER_* for TF2; CWNEG_PROVIDER_* for NG2 */
 	uint16_t sid;
 	int      score;
 	int      nproof;
@@ -79,9 +81,13 @@ static inline int tl_format_rec(char *line, int sz, const struct tl_rec *r)
 	if (!line || sz <= 0 || !r) return -1;
 	switch (r->kind) {
 	case TL_TF:
+		if (r->provider_scope > TRUST_PROVIDER_LEGACY_AMBIGUOUS ||
+		    (r->provider_scope != TRUST_PROVIDER_KNOWN && r->provid != 0))
+			return -1;
 		return snprintf(line, (size_t)sz,
-			"TF %d %d %x %x %x %d %d %d %u",
-			r->srctype, r->srcid, r->caid, r->provid, r->sid,
+			"TF2 %d %d %x %x %u %x %d %d %d %u",
+			r->srctype, r->srcid, r->caid, r->provid,
+			(unsigned)r->provider_scope, r->sid,
 			r->score, r->nproof, r->nsoft, r->age_s);
 	case TL_TA:
 		return snprintf(line, (size_t)sz,
@@ -129,8 +135,9 @@ static inline int tl_hex8(const char *s, uint8_t *out)
  * Strict parse. Anything that does not validate is refused whole -- never
  * half-applied: wrong kind, wrong field count, score outside
  * [TRUST_FLOOR, TRUST_CEILING], a negative counter, a zero source id, a
- * zero caid, a zero digest, an age beyond TL_MAX_AGE_S. Provid may be zero
- * (CSP replies carry none); sid is accepted on TF and ignored elsewhere.
+ * zero caid, a zero digest, an age beyond TL_MAX_AGE_S. Legacy TF records are
+ * accepted; new fine-tier rows use TF2 to preserve provider presence. Sid is
+ * accepted on TF/TF2 and ignored elsewhere.
  * Returns 0 on a good line, -1 on anything else.
  */
 static inline int tl_parse_line(const char *s, struct tl_rec *r)
@@ -143,13 +150,27 @@ static inline int tl_parse_line(const char *s, struct tl_rec *r)
 
 	if (sscanf(s, "%3s %n", kind, &n) != 1) return -1;
 
-	if (!strcmp(kind, "TF")) {
-		unsigned caid, provid, sid;
+	if (!strcmp(kind, "TF") || !strcmp(kind, "TF2")) {
+		unsigned caid, provid, sid, scope;
 		char extra[2];
-		if (sscanf(s + n, "%d %d %x %x %x %d %d %d %u %1s",
-		           &r->srctype, &r->srcid, &caid, &provid, &sid,
-		           &r->score, &r->nproof, &r->nsoft, &r->age_s, extra) != 9)
-			return -1;
+		if (!strcmp(kind, "TF2")) {
+			if (sscanf(s + n, "%d %d %x %x %u %x %d %d %d %u %1s",
+			           &r->srctype, &r->srcid, &caid, &provid, &scope, &sid,
+			           &r->score, &r->nproof, &r->nsoft, &r->age_s, extra) != 10)
+				return -1;
+			if (scope > TRUST_PROVIDER_LEGACY_AMBIGUOUS ||
+			    (scope != TRUST_PROVIDER_KNOWN && provid != 0)) return -1;
+			r->provider_scope = (uint8_t)scope;
+		} else {
+			if (sscanf(s + n, "%d %d %x %x %x %d %d %d %u %1s",
+			           &r->srctype, &r->srcid, &caid, &provid, &sid,
+			           &r->score, &r->nproof, &r->nsoft, &r->age_s, extra) != 9)
+				return -1;
+			/* TF v1 has no presence bit. Preserve its old zero-provider behavior
+			 * explicitly as ambiguous; nonzero provider values are necessarily known. */
+			r->provider_scope = provid ? TRUST_PROVIDER_KNOWN
+			                            : TRUST_PROVIDER_LEGACY_AMBIGUOUS;
+		}
 		r->kind = TL_TF;
 		r->caid = (uint16_t)caid; r->provid = provid; r->sid = (uint16_t)sid;
 		if (r->srctype < 1 || r->srctype > 8) return -1;

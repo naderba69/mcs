@@ -380,10 +380,10 @@ int main(void)
         cache_csp_reuse_check(&peer,&req,key);
 
         assert(cwreuse_proofs==1);
-        assert(trust_score_lk(&trust_tab,DCW_SOURCE_CACHE,PEER_CSP|9,
-                              0x1884,5,0x1002)==TRUST_START-TRUST_PROOF_STEP);
-        assert(trust_score_lk(&trust_tab,DCW_SOURCE_CACHE,PEER_CSP|9,
-                              0x1884,0,0x1002)==-1);
+        assert(trust_score_lk_scoped(&trust_tab,DCW_SOURCE_CACHE,PEER_CSP|9,
+                                     0x1884,5,1,0x1002)==TRUST_START-TRUST_PROOF_STEP);
+        assert(trust_score_lk_scoped(&trust_tab,DCW_SOURCE_CACHE,PEER_CSP|9,
+                                     0x1884,0,0,0x1002)==-1);
         assert(cwneg_hit(&cwneg_tab,key,0x1884,5,1,0x1003,10001,NULL)==1);
         assert(cwneg_hit(&cwneg_tab,key,0x1884,0,1,0x1003,10001,NULL)==0);
         assert(cache_purge_should_withhold_scoped(&purge_tab,DCW_SOURCE_CACHE,
@@ -394,6 +394,40 @@ int main(void)
         assert(candidate && (candidate->status&DCW_ERROR));
         table[idx]=NULL;
         free(candidate);
+    }
+
+    /* The live cachepref_gate() must not turn provider-scope evidence into a
+     * cross-scope defer. Exercise both directions with the real trust wrappers
+     * and a providerless CSP cache hit versus a known numeric-zero hit. */
+    {
+        struct cache_data known_zero={0}, unknown={0};
+        struct cw_cache_data candidate={0};
+        int old_enabled=cachepref_enabled;
+        const int peerid=PEER_CSP|9;
+
+        known_zero.caid=unknown.caid=0x1884;
+        known_zero.sid=unknown.sid=0x1002;
+        known_zero.provider_known=1; known_zero.provid=0;
+        unknown.provider_known=0; unknown.provid=0;
+        candidate.peerid=peerid;
+        cachepref_enabled=1;
+
+        trust_reset(&trust_tab);
+        trust_record_lk_scoped(&trust_tab,TRUST_EV_PROOF,DCW_SOURCE_CACHE,
+                               peerid,0x1884,0,0,0x1002,1000);
+        trust_record_lk_scoped(&trust_tab,TRUST_EV_PROOF,DCW_SOURCE_CACHE,
+                               peerid,0x1884,0,0,0x1002,2000);
+        assert(cachepref_gate(&known_zero,&candidate)==CACHEPREF_ALLOW);
+        assert(cachepref_gate(&unknown,&candidate)==CACHEPREF_DEFER);
+
+        trust_reset(&trust_tab);
+        trust_record_lk_scoped(&trust_tab,TRUST_EV_PROOF,DCW_SOURCE_CACHE,
+                               peerid,0x1884,0,1,0x1002,3000);
+        trust_record_lk_scoped(&trust_tab,TRUST_EV_PROOF,DCW_SOURCE_CACHE,
+                               peerid,0x1884,0,1,0x1002,4000);
+        assert(cachepref_gate(&known_zero,&candidate)==CACHEPREF_DEFER);
+        assert(cachepref_gate(&unknown,&candidate)==CACHEPREF_ALLOW);
+        cachepref_enabled=old_enabled;
     }
 
     /* Scoped purge walks must not let an unknown-provider proof mark the
@@ -507,6 +541,6 @@ int main(void)
     }
     assert(conflicts == 4);
     assert(record_conflicts == 2);
-    puts("PASS: cache provider identities isolate CSP, CacheEX, negative-memory, attestation and reuse paths");
+    puts("PASS: CSP/CacheEX provider scope is isolated across cache preference, trust, negative-memory, attestation, purge and reuse");
     return 0;
 }

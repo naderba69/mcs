@@ -227,7 +227,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 		dcw_filter_globals_snapshot(&checksum_filter, &repeat_filter, NULL, NULL);
 		dcwstruct_note(&trust_tab,
 			dcwstruct_scan(dcw, checksum_filter, repeat_filter),
-			dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+			dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->provider_known, ecm->sid, GetTickCount());
 	}
 
 	/* TASK 2.2 -- entropy and collision forensics (unreachable half; see the active copy). */
@@ -237,7 +237,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 #else
 		0,
 #endif
-		dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+		dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->provider_known, ecm->sid, GetTickCount());
 
 	/*
 	 * TASK 2.4 -- plausibility: how much of the key's shape survives.
@@ -253,7 +253,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	 * Nothing here can reject, delay or alter a delivery: the return value goes
 	 * to a counter and, at most, to one soft trust event.
 	 */
-	cwp_note(srctype, srcid, dcw, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+	cwp_note(srctype, srcid, dcw, ecm->caid, ecm->provid, ecm->provider_known, ecm->sid, GetTickCount());
 	/*
 	 * TASK 2.7 -- the mirror scan, reading no filter gate on purpose: "half 2
 	 * is the complement of half 1" means the same thing whether or not the
@@ -261,7 +261,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	 * checksum layer and is DELIVERED -- this is the only place its story
 	 * gets told.
 	 */
-	cm_note(srctype, srcid, dcw, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+	cm_note(srctype, srcid, dcw, ecm->caid, ecm->provid, ecm->provider_known, ecm->sid, GetTickCount());
 
 
 	/*
@@ -866,7 +866,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		dcw_filter_globals_snapshot(&checksum_filter, &repeat_filter, NULL, NULL);
 		dcwstruct_note(&trust_tab,
 			dcwstruct_scan(dcw, checksum_filter, repeat_filter),
-			dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+			dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->provider_known, ecm->sid, GetTickCount());
 	}
 
 	/*
@@ -888,7 +888,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 #else
 		0,
 #endif
-		dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+		dcw, srctype, srcid, ecm->caid, ecm->provid, ecm->provider_known, ecm->sid, GetTickCount());
 
 	/*
 	 * TASK 2.4 -- plausibility: how much of the key's shape survives.
@@ -904,12 +904,12 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	 * Nothing here can reject, delay or alter a delivery: the return value goes
 	 * to a counter and, at most, to one soft trust event.
 	 */
-	cwp_note(srctype, srcid, dcw, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+	cwp_note(srctype, srcid, dcw, ecm->caid, ecm->provid, ecm->provider_known, ecm->sid, GetTickCount());
 
 	/* TASK 2.7 -- the mirror scan, reading no filter gate on purpose. The
 	 * repaired mirror variant passes the checksum layer and is DELIVERED;
 	 * this is the only place its story gets told. */
-	cm_note(srctype, srcid, dcw, ecm->caid, ecm->provid, ecm->sid, GetTickCount());
+	cm_note(srctype, srcid, dcw, ecm->caid, ecm->provid, ecm->provider_known, ecm->sid, GetTickCount());
 
 
 	/*

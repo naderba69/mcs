@@ -330,7 +330,7 @@ void cs_srv_recvmsg(struct server_data *srv)
 						 */
 						if (srv->lastecmtime)
 							cwtime_note(srv->id, srv->lastecmoktime,
-							            ecm->caid, ecm->provid, ecm->sid);
+							            ecm->caid, ecm->provid, ecm->provider_known, ecm->sid);
 
 						ecm_setsrvflagdcw( ecm, srv->id, ECM_SRV_REPLY_GOOD,buf+3 );
 						uint32_t response_time = GetTickCount()-srv->lastecmtime;
