@@ -23,9 +23,9 @@ struct cw_slot {
 	int      lost;        /* convicted within this window: refuse always */
 	int      holding;     /* delivered nothing yet (release walk owns it) */
 	int      cycle_set, cycle; /* first held voter's declaration */
-	uint16_t caid, sid, provid;
-	uint32_t hash;
-	uint8_t  tag;
+	uint16_t caid, sid;
+	uint32_t provid, hash;
+	uint8_t  provider_known, tag;
 	uint8_t  cw[16];
 	uint32_t first_tick;  /* window birth */
 	uint32_t tick;        /* last arrival */
@@ -53,17 +53,23 @@ static int cwc_fresh(uint32_t now, uint32_t born, uint32_t window)
 	return (int32_t)(now - born) <= (int32_t)window;
 }
 
-static int cwc_slotof(uint16_t caid, uint16_t sid, uint32_t hash, uint8_t tag,
+static int cwc_slotof(uint16_t caid, uint16_t sid, uint32_t provid,
+		      int provider_known, uint32_t hash, uint8_t tag,
 		      const uint8_t *cw)
 {
+	provider_known = !!provider_known;
+	if (!provider_known) provid = 0;
 	uint32_t h = (uint32_t)(caid * 0x9E3779B1u) ^ (hash * 0x85EBCA6Bu)
 		   ^ (uint32_t)(sid << 16) ^ (uint32_t)(tag << 8)
+		   ^ (provid * 0xC2B2AE35u) ^ (provider_known ? 0x27D4EB2Fu : 0)
 		   ^ ((uint32_t)cw[0] | ((uint32_t)cw[15] << 8));
 	int i, start = (int)(h & (CWC_SLOTS - 1));
 	for (i = 0; i < CWC_SLOTS; i++) {
 		struct cw_slot *s = &cwc_tab[(start + i) & (CWC_SLOTS - 1)];
 		if (!s->used) continue;
 		if (s->caid == caid && s->sid == sid && s->hash == hash
+		    && s->provider_known == provider_known
+		    && (!provider_known || s->provid == provid)
 		    && s->tag == tag && !memcmp(s->cw, cw, 16)) return (int)(s - cwc_tab);
 	}
 	return -1;
@@ -79,8 +85,8 @@ static int cwc_weight_sum(struct cw_slot *s, uint32_t now, uint32_t window)
 
 /* best conflicting key on the SAME request: highest weight, then earliest */
 static struct cw_slot *cwc_best_conflict(uint16_t caid, uint16_t sid,
-			uint32_t hash, uint8_t tag, const uint8_t *cw,
-			uint32_t now, uint32_t window)
+			uint32_t provid, int provider_known, uint32_t hash,
+			uint8_t tag, const uint8_t *cw, uint32_t now, uint32_t window)
 {
 	struct cw_slot *best = NULL;
 	int i;
@@ -88,8 +94,9 @@ static struct cw_slot *cwc_best_conflict(uint16_t caid, uint16_t sid,
 		struct cw_slot *s = &cwc_tab[i];
 		if (s->used != CWC_LIVE || s->lost) continue;
 		if (!s->nv) continue;
-		if (s->caid != caid || s->sid != sid || s->hash != hash || s->tag != tag)
-			continue;
+		if (s->caid != caid || s->sid != sid || s->hash != hash || s->tag != tag
+		    || s->provider_known != provider_known
+		    || (provider_known && s->provid != provid)) continue;
 		if (!memcmp(s->cw, cw, 16)) continue;
 		/* presence follows LAST activity (a key that keeps arriving stays
 		 * visible); the corroboration DEADLINE itself stays on first_tick */
@@ -103,14 +110,17 @@ static struct cw_slot *cwc_best_conflict(uint16_t caid, uint16_t sid,
 	return best;
 }
 
-static struct cw_slot *cwc_alloc(uint16_t caid, uint16_t sid, uint16_t provid,
-			uint32_t hash, uint8_t tag, const uint8_t *cw,
-			uint32_t now, uint32_t window)
+static struct cw_slot *cwc_alloc(uint16_t caid, uint16_t sid, uint32_t provid,
+			int provider_known, uint32_t hash, uint8_t tag,
+			const uint8_t *cw, uint32_t now, uint32_t window)
 {
 	int i, start;
 	struct cw_slot *free_slot = NULL, *oldest = NULL;
+	provider_known = !!provider_known;
+	if (!provider_known) provid = 0;
 	start = (int)(((uint32_t)(caid * 0x9E3779B1u) ^ (hash * 0x85EBCA6Bu)
 		     ^ ((uint32_t)sid << 16) ^ ((uint32_t)tag << 8)
+		     ^ (provid * 0xC2B2AE35u) ^ (provider_known ? 0x27D4EB2Fu : 0)
 		     ^ ((uint32_t)cw[0] | ((uint32_t)cw[15] << 8))) & (CWC_SLOTS - 1));
 	for (i = 0; i < CWC_SLOTS; i++) {
 		struct cw_slot *s = &cwc_tab[(start + i) & (CWC_SLOTS - 1)];
@@ -126,6 +136,7 @@ static struct cw_slot *cwc_alloc(uint16_t caid, uint16_t sid, uint16_t provid,
 	memset(free_slot, 0, sizeof(*free_slot));
 	free_slot->used = CWC_LIVE;
 	free_slot->caid = caid; free_slot->sid = sid; free_slot->provid = provid;
+	free_slot->provider_known = (uint8_t)provider_known;
 	free_slot->hash = hash; free_slot->tag = tag;
 	memcpy(free_slot->cw, cw, 16);
 	free_slot->first_tick = now;
@@ -143,12 +154,15 @@ void cwconsensus_set_min_sources(int n)
 	cwc_min_sources = n;
 }
 
-int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
-			uint8_t tag, const uint8_t *cw, int peerid,
-			int weight, uint32_t now_ms, uint32_t window_ms,
+int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t provid,
+			int provider_known, uint32_t hash, uint8_t tag,
+			const uint8_t *cw, int peerid, int weight,
+			uint32_t now_ms, uint32_t window_ms,
 			const uint8_t **loser_cw)
 {
-	int idx = cwc_slotof(caid, sid, hash, tag, cw);
+	provider_known = !!provider_known;
+	if (!provider_known) provid = 0;
+	int idx = cwc_slotof(caid, sid, provid, provider_known, hash, tag, cw);
 	struct cw_slot *s;
 	if (loser_cw) *loser_cw = NULL;
 	cwc_n_votes++;
@@ -162,7 +176,8 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 		idx = -1;
 	}
 	if (idx < 0) {
-		s = cwc_alloc(caid, sid, 0, hash, tag, cw, now_ms, window_ms);
+		s = cwc_alloc(caid, sid, provid, provider_known,
+			      hash, tag, cw, now_ms, window_ms);
 		if (!s) return CWC_DELIVER; /* table exhausted: fail open */
 		idx = (int)(s - cwc_tab);
 	}
@@ -187,7 +202,8 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 	}
 
 	{
-		struct cw_slot *cf = cwc_best_conflict(caid, sid, hash, tag, cw,
+		struct cw_slot *cf = cwc_best_conflict(caid, sid, provid,
+						       provider_known, hash, tag, cw,
 						       now_ms, window_ms);
 		if (!cf) {
 			if (cwc_weight_sum(s, now_ms, window_ms) >= cwc_min_sources) {
@@ -224,15 +240,16 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
 	}
 }
 
-int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t hash,
-                            uint8_t tag, const uint8_t *cw, uint32_t now_ms,
+int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t provid,
+                            int provider_known, uint32_t hash, uint8_t tag,
+                            const uint8_t *cw, uint32_t now_ms,
                             uint32_t window_ms, int *distinct, int *weight)
 {
     int idx, i, count = 0, weighted = 0;
     if (distinct) *distinct = 0;
     if (weight) *weight = 0;
     if (!cw) return 0;
-    idx = cwc_slotof(caid, sid, hash, tag, cw);
+    idx = cwc_slotof(caid, sid, provid, provider_known, hash, tag, cw);
     if (idx < 0) return 0;
     for (i = 0; i < cwc_tab[idx].nv; ++i) {
         struct cw_voter *v = &cwc_tab[idx].v[i];
@@ -246,13 +263,22 @@ int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t hash,
     return 1;
 }
 
-int cwconsensus_is_held(uint16_t caid, uint16_t sid, uint32_t hash,
-                        uint8_t tag, const uint8_t *cw)
+int cwconsensus_is_held(uint16_t caid, uint16_t sid, uint32_t provid,
+                        int provider_known, uint32_t hash, uint8_t tag,
+                        const uint8_t *cw)
 {
     int idx;
     if (!cw) return 0;
-    idx = cwc_slotof(caid, sid, hash, tag, cw);
-    return idx >= 0 && cwc_tab[idx].holding && !cwc_tab[idx].lost;
+    idx = cwc_slotof(caid, sid, provid, provider_known, hash, tag, cw);
+    if (idx >= 0 && cwc_tab[idx].holding && !cwc_tab[idx].lost) return 1;
+    /* An unknown CSP hold cannot corroborate a known provider, but it must
+     * continue blocking this same CW after an entry gains local provider
+     * context. This is a conservative hold, not a cross-scope vote. */
+    if (provider_known) {
+        idx = cwc_slotof(caid, sid, 0, 0, hash, tag, cw);
+        if (idx >= 0 && cwc_tab[idx].holding && !cwc_tab[idx].lost) return 1;
+    }
+    return 0;
 }
 
 void cwconsensus_capacity(uint32_t now_ms, uint32_t window_ms,
@@ -277,10 +303,11 @@ void cwconsensus_capacity(uint32_t now_ms, uint32_t window_ms,
     }
 }
 
-void cwconsensus_hold_cycle(uint16_t caid, uint16_t sid, uint32_t hash,
-                            uint8_t tag, const uint8_t *cw, int peerid, int cycle)
+void cwconsensus_hold_cycle(uint16_t caid, uint16_t sid, uint32_t provid,
+                            int provider_known, uint32_t hash, uint8_t tag,
+                            const uint8_t *cw, int peerid, int cycle)
 {
-    int idx = cwc_slotof(caid, sid, hash, tag, cw);
+    int idx = cwc_slotof(caid, sid, provid, provider_known, hash, tag, cw);
     struct cw_slot *s;
     if (idx < 0) return;
     s = &cwc_tab[idx];
@@ -299,6 +326,7 @@ int cwconsensus_expired(struct cwconsensus_hold *out, uint32_t now_ms,
 		if (s->used != CWC_LIVE || !s->holding || s->lost) continue;
 		if (cwc_fresh(now_ms, s->first_tick, window_ms)) continue;
 		out->caid = s->caid; out->sid = s->sid; out->provid = s->provid;
+		out->provider_known = s->provider_known;
 		out->hash = s->hash; out->tag = s->tag;
 		memcpy(out->cw, s->cw, 16);
 		out->peerid = s->nv ? s->v[0].peerid : 0;

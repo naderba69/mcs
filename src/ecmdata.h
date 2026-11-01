@@ -57,7 +57,8 @@ struct ecm_request {
 	uint32_t lastsendtime; // Last request Time sent to server
 	uint16_t sid;					// Service id
 	uint16_t caid;				// CA id
-	uint32_t provid;				// Provider
+	uint32_t provid;				// Provider value (zero may be absent or explicit)
+	uint8_t provider_known;			// Whether that numeric value was present/derivable
 	uint16_t chid;				// for irdeto
 	int ecmlen;
 	uint8_t ecm[MAX_ECM_SIZE];
@@ -134,12 +135,17 @@ void ecm_addip( ECM_DATA *ecm, unsigned int ip);
 int ecm_checkip(ECM_DATA *ecm, unsigned int ip);
 
 uint32_t ecm_getprovid( uint8_t *ecm, int ecmlen, uint16_t caid ); /* R25: bounded */
+int ecm_getprovid_known( uint8_t *ecm, int ecmlen, uint16_t caid, uint32_t *provid );
 uint16_t ecm_getchid( uint8_t *ecm, int ecmlen, uint16_t caid ); /* R25: bounded */
 
 //struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ecmlen, unsigned short sid, unsigned short caid, unsigned int provid);
 struct ecm_request *search_ecmdata_dcw( uint8_t *ecm, int ecmlen, unsigned short sid,
-                                        unsigned short caid, uint32_t provid);
-struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm, int ecmlen, unsigned short sid, unsigned short caid, uint32_t provid);
+                                        unsigned short caid, uint32_t provid,
+                                        int provider_known);
+struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm,
+                                        int ecmlen, unsigned short sid,
+                                        unsigned short caid, uint32_t provid,
+                                        int provider_known);
 struct ecm_request *search_ecmdata_byhash( uint16_t caid, uint16_t sid,uint32_t hash );
 struct ecm_request *search_ecmdata_byecmd5( uint16_t caid, uint32_t provid, uint8_t ecmd5[16] );
 
@@ -155,7 +161,9 @@ int ecm_getsrvflag(ECM_DATA *ecm, unsigned int srvid);
 
 int ishalfnulledcw( uint8_t dcw[16] );
 
-int ecmdata_check_cw( uint8_t tag, uint32_t hash, unsigned short caid, unsigned int provid , unsigned short sid, uint8_t cw[16], int cwpart );
+int ecmdata_check_cw( uint8_t tag, uint32_t hash, unsigned short caid,
+                       unsigned int provid, int provider_known,
+                       unsigned short sid, uint8_t cw[16], int cwpart );
 
 #ifdef CHECK_NEXTDCW
 

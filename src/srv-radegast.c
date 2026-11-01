@@ -272,6 +272,7 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 					}
 					uint16_t caid = 0;
 					uint32_t provid = 0;
+					int provider_known = 0;
 					unsigned char ecmdata[300];
 					memset(ecmdata, 0, sizeof(ecmdata));
 					int ecmlen = 0;
@@ -303,6 +304,7 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 								if (digit < 0) { malformed = 1; break; }
 								provid = (provid << 4) | (uint32_t)digit;
 							}
+							if (tlv_len > 0) provider_known = 1;
 							break;
 						case 7: // KEYNR (ASCII), not needed
 						case 8: // ECM PROCESS PID, not needed
@@ -319,6 +321,13 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 						rdgd_send_failure(cli);
 						break;
 					}
+					if (!provider_known) {
+						uint32_t extracted_provider = 0;
+						if (ecm_getprovid_known(ecmdata, ecmlen, caid, &extracted_provider)) {
+							provid = extracted_provider;
+							provider_known = 1;
+						}
+					}
 
 					uint8_t cw1cycle = 0;
 					if (!accept_ecm(cs, caid, provid, 0, ecm_getchid(ecmdata, ecmlen, caid), ecmlen, &cw1cycle)) {
@@ -332,7 +341,7 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 					pthread_mutex_lock(&prg.lockecm); //###
 
 					// Search for ECM
-					ECM_DATA *ecm = search_ecmdata_dcw(ecmdata, ecmlen, 0, caid, provid); // key includes the parsed CAID/provider
+					ECM_DATA *ecm = search_ecmdata_dcw(ecmdata, ecmlen, 0, caid, provid, provider_known); // key includes parsed provider presence
 					if (ecm) {
 						ecm->lastrecvtime = GetTickCount();
 						//TODO: Add another card for sending ecm
@@ -342,7 +351,7 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 					}
 					else {
 						// Setup ECM Request for Server(s)
-						ecm = store_ecmdata(cs, ecmdata, ecmlen, 0, caid, provid);
+						ecm = store_ecmdata_known(cs, ecmdata, ecmlen, 0, caid, provid, provider_known);
 						if (!ecm) {
 							cs->ecmdenied++;
 							cli->ecmdenied++;

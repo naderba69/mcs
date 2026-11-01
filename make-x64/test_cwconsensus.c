@@ -19,7 +19,8 @@ static void chk(int ok, const char *what, long got)
 	else printf("  [ ok ] %s\n", what);
 }
 
-#define CH(caid,sid,hash,tag) caid,sid,hash,tag
+#define CH(caid,sid,hash,tag) caid,sid,0,0,hash,tag
+#define CHP(caid,sid,provid,known,hash,tag) caid,sid,provid,known,hash,tag
 static const uint8_t K1[16] = {0x10,0x20,0x30,0x60,0x40,0x50,0x60,0xF0,0x70,0x80,0x90,0x80,0xA0,0xB0,0xC0,0x10};
 static const uint8_t K2[16] = {0x10,0x30,0x20,0x60,0x40,0x50,0x60,0xF0,0x70,0x80,0x90,0x80,0xA0,0xB0,0xC0,0x10};
 static const uint8_t K3[16] = {0x10,0x20,0x30,0x60,0x40,0x50,0x60,0xF0,0x70,0x80,0x90,0x80,0xA0,0xB0,0xC0,0x20};
@@ -179,6 +180,68 @@ int main(void)
 	v = cwconsensus_verdict(CH(0x1884,0x64,0xAAAA0003,0x80), K1, 202, 1, 1010, 400, &loser);
 	chk(v==CWC_DELIVER, "SOURCES back to 2: second voter delivers (D62 stock)", v);
 	cwconsensus_set_min_sources(2);
+
+	/* Provider identity scopes votes and conflicts; numeric zero is still a
+	 * known provider when its known flag is set. */
+	cwconsensus_init();
+	cwconsensus_set_min_sources(2);
+	v = cwconsensus_verdict(CHP(0x1884,0x1136,0x123456,1,0xB0000001,0x80), K1, 101, 1, 1000, 400, &loser);
+	chk(v==CWC_HOLD, "known provider A: first vote holds", v);
+	v = cwconsensus_verdict(CHP(0x1884,0x1136,0x123457,1,0xB0000001,0x80), K1, 202, 1, 1010, 400, &loser);
+	chk(v==CWC_HOLD, "known provider B: same CW is not cross-provider corroboration", v);
+	{ int distinct=0, weight=0;
+	  chk(cwconsensus_vote_counts(0x1884,0x1136,0x123456,1,0xB0000001,0x80,K1,1010,400,&distinct,&weight) && distinct==1 && weight==1,
+	      "provider A vote count is isolated", distinct);
+	  chk(cwconsensus_vote_counts(0x1884,0x1136,0x123457,1,0xB0000001,0x80,K1,1010,400,&distinct,&weight) && distinct==1 && weight==1,
+	      "provider B vote count is isolated", distinct);
+	}
+	v = cwconsensus_verdict(CHP(0x1884,0x1136,0x123456,1,0xB0000001,0x80), K1, 303, 1, 1020, 400, &loser);
+	chk(v==CWC_DELIVER, "provider A delivers after its own second voter", v);
+
+	cwconsensus_init();
+	v = cwconsensus_verdict(CHP(0x1884,0x1136,0x123456,1,0xB0000005,0x80), K1, 101, 1, 1000, 400, &loser);
+	v = cwconsensus_verdict(CHP(0x1884,0x1136,0x123457,1,0xB0000005,0x80), K2, 202, 1, 1010, 400, &loser);
+	chk(v==CWC_HOLD, "contradicting key from another known provider is not a conflict", v);
+	v = cwconsensus_verdict(CHP(0x1884,0x1136,0x123456,1,0xB0000005,0x80), K2, 202, 1, 1020, 400, &loser);
+	chk(v==CWC_REFUSE, "contradiction within the same provider still arbitrates", v);
+
+	/* An unknown-provider hold stays a hold after a known scope appears,
+	 * but cannot donate a vote to that known scope (including provider zero). */
+	cwconsensus_init();
+	cwconsensus_set_min_sources(2);
+	v = cwconsensus_verdict(CHP(0x1884,0x1136,0,0,0xB0000002,0x80), K1, 101, 1, 1000, 400, &loser);
+	chk(v==CWC_HOLD, "unknown provider: first vote holds", v);
+	v = cwconsensus_verdict(CHP(0x1884,0x1136,0,1,0xB0000002,0x80), K1, 202, 1, 1010, 400, &loser);
+	chk(v==CWC_HOLD, "known provider zero does not inherit unknown vote", v);
+	{ int distinct=0, weight=0;
+	  chk(cwconsensus_vote_counts(0x1884,0x1136,0,0,0xB0000002,0x80,K1,1010,400,&distinct,&weight) && distinct==1,
+	      "unknown scope retains its independent vote", distinct);
+	  chk(cwconsensus_vote_counts(0x1884,0x1136,0,1,0xB0000002,0x80,K1,1010,400,&distinct,&weight) && distinct==1,
+	      "known provider zero has its own vote", distinct);
+	}
+	chk(cwconsensus_is_held(0x1884,0x1136,0,1,0xB0000002,0x80,K1),
+	    "known provider zero sees its own hold", 1);
+
+	cwconsensus_init();
+	cwconsensus_set_min_sources(2);
+	v = cwconsensus_verdict(CHP(0x1884,0x1136,0,0,0xB0000003,0x80), K1, 101, 1, 1000, 400, &loser);
+	cwconsensus_verdict(CHP(0x1884,0x1136,0x654321,1,0xB0000003,0x80), K1, 202, 1, 1010, 400, &loser);
+	chk(cwconsensus_is_held(0x1884,0x1136,0x654321,1,0xB0000003,0x80,K1),
+	    "unknown hold continues blocking the same CW after known scope appears", 1);
+	{ struct cwconsensus_hold h = {0};
+	  cwconsensus_hold_cycle(0x1884,0x1136,0,0,0xB0000003,0x80,K1,101,7);
+	  chk(cwconsensus_expired(&h,1501,400) && h.provid==0 && !h.provider_known && h.cycle==7,
+	      "unknown hold expiry preserves unknown provider and cycle", h.provider_known);
+	}
+
+	cwconsensus_init();
+	cwconsensus_set_min_sources(2);
+	v = cwconsensus_verdict(CHP(0x1884,0x1136,0xFFFFFF,1,0xB0000004,0x80), K1, 101, 1, 1000, 400, &loser);
+	cwconsensus_hold_cycle(0x1884,0x1136,0xFFFFFF,1,0xB0000004,0x80,K1,101,9);
+	{ struct cwconsensus_hold h = {0};
+	  chk(v==CWC_HOLD && cwconsensus_expired(&h,1501,400) && h.provid==0xFFFFFF && h.provider_known && h.cycle==9,
+	      "known provider expiry preserves full 24-bit identity", h.provid);
+	}
 
 	/* A still-held oldest entry must not hide a different reclaimable entry.
 	 * No held entry may be stolen, even when its deadline has passed. */

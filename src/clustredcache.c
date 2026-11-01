@@ -473,6 +473,42 @@ static int cache_provider_records_conflict(const struct cache_data *a,
     return 0;
 }
 
+/* Consensus uses the cache record's effective provider scope. A known local
+ * ECM value wins for provider-less CSP; otherwise use explicit cache metadata.
+ * A providerless request and an explicit numeric zero remain distinct. */
+static int cache_consensus_provider_scope(const struct cache_data *entry,
+                                          uint32_t *provider)
+{
+    if (provider) *provider = 0;
+    if (!entry) return 0;
+    if (entry->local_provider_set) {
+        if (provider) *provider = entry->local_provider;
+        return 1;
+    }
+    if (entry->provider_known || entry->provid != 0) {
+        if (provider) *provider = entry->provid;
+        return 1;
+    }
+    return 0;
+}
+
+static int cache_request_provider_known(const struct cache_data *request)
+{
+    return request && (request->provider_known || request->provid != 0);
+}
+
+/* Attach local provider identity without letting an unknown zero erase known
+ * cache metadata or a previous local association. */
+static void cache_attach_local_provider(struct cache_data *entry,
+                                        const struct cache_data *request)
+{
+    if (!entry || !cache_request_provider_known(request)) return;
+    entry->local_provider_set = 1;
+    entry->local_provider = request->provid;
+    entry->provider_known = 1;
+    entry->provid = request->provid;
+}
+
 /* Cache timestamps are 32-bit milliseconds. Compare elapsed time rather than
  * absolute deadlines, which wrap at startup and every ~49.7 days. The cache
  * lifetime and filter window are far below half the counter range. */
@@ -851,8 +887,8 @@ int get_ecm2cache(uint8_t *buf , struct cache_data *pcache, uint8_t *cw)
 	pcache->caid = (buf[6]<<8) | buf[7];
 	pcache->hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | (buf[11]);
 	pcache->provid = (buf[12]<<16) | (buf[13]<<8) | (buf[14]);
-	pcache->provider_known = 1; /* local ECM pipe carries the provider, including zero */
-	pcache->cwcycle = buf[15];
+	pcache->provider_known = !!(buf[15] & 0x80) || pcache->provid != 0;
+	pcache->cwcycle = (cwcycle_t)(buf[15] & 0x7F);
 	int index = 16;
 	//
 	memcpy( &pcache->ecm, buf+index, sizeof(void*) );
@@ -877,9 +913,10 @@ int put_ecm2cache(uint8_t type, uint8_t *buf , ECM_DATA *ecm, uint16_t onid, uin
 	buf[6] = ecm->caid>>8; buf[7] = ecm->caid;
 	buf[8] = ecm->hash>>24; buf[9] = ecm->hash>>16; buf[10] = ecm->hash>>8; buf[11] = ecm->hash;
 	buf[12] = ecm->provid>>16; buf[13] = ecm->provid>>8; buf[14] = ecm->provid;
-	// cwcycle
+	// Reserve the unused high bit for provider presence; cycle values are 0..2.
 	if (!ecm->cw1cycle) buf[15] = NO_CYCLE;
 	else if (ecm->ecm[0]==ecm->cw1cycle) buf[15] = CW1CYCLE; else buf[15] = CW0CYCLE;
+	if (ecm->provider_known || ecm->provid != 0) buf[15] |= 0x80;
 	//
 	int index = 16;
 	memcpy( buf+index, &ecm, sizeof(void*) );
@@ -1539,7 +1576,9 @@ int cache_fetch_goodcw( struct cache_data *thereq, uint8_t cw[16], cwcycle_t *cw
 
 
 // search for same cw in cache
-int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash, uint16_t sid, uint32_t provid, uint8_t cw[16], int cwpart )
+int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash,
+                    uint16_t sid, uint32_t provid, int provider_known,
+                    uint8_t cw[16], int cwpart )
 {
 	int index = sid&MAX_CACHE_INDEX;
 	struct cache_data **cachetab = getcachetabbycaid(caid);
@@ -1550,11 +1589,11 @@ int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash
 	while (pcache) {
 		if ( cache_time_older_than(recvtime, pcache->recvtime, cfg.cache.filtertime)) {
 			if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
-			/* A known local or CacheEX provider that differs from this ECM
-			 * cannot prove that the current source repeated the same channel CW.
-			 * Provider-less CSP entries remain ambiguous and conservative. */
+			/* A conflicting known provider cannot prove that this ECM repeated
+			 * the same channel CW. Unknown provider zero remains ambiguous and
+			 * therefore keeps the conservative duplicate check enabled. */
 			if ( (pcache->sid==sid)&&(pcache->hash!=hash)&&(pcache->tag!=tag) &&
-			     !cache_provider_identity_conflicts(pcache, provid, 1) ) {
+			     !cache_provider_identity_conflicts(pcache, provid, provider_known) ) {
 				struct cw_cache_data *cwdata = pcache->cwdata;
 				while (cwdata) {
 					switch (cwpart) {
@@ -2253,18 +2292,22 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		{
 			uint32_t cwin = (uint32_t)cfg.cache.consensus_window;
 			const uint8_t *cwl = NULL;
+			uint32_t consensus_provider = 0;
+			int consensus_provider_known = cache_consensus_provider_scope(pcache, &consensus_provider);
 			int cv;
 			if (cwin < 100) cwin = 100;
 			if (cwin > 2000) cwin = 2000;
 			uint32_t vote_tick = GetTickCount();
-			cv = cwconsensus_verdict(req->caid, req->sid, req->hash, req->tag,
-			                         cw, peerid, cw_weight, vote_tick,
-			                         cwin, &cwl);
+			cv = cwconsensus_verdict(req->caid, req->sid, consensus_provider,
+			                         consensus_provider_known, req->hash, req->tag,
+			                         cw, peerid, cw_weight, vote_tick, cwin, &cwl);
 			{
 				int distinct = 0, weight = 0;
 				char detail[128];
-				int known = cwconsensus_vote_counts(req->caid, req->sid, req->hash, req->tag,
-				                                    cw, vote_tick, cwin, &distinct, &weight);
+				int known = cwconsensus_vote_counts(req->caid, req->sid, consensus_provider,
+				                                    consensus_provider_known, req->hash,
+				                                    req->tag, cw, vote_tick, cwin,
+				                                    &distinct, &weight);
 				if (known) {
 					snprintf(detail, sizeof(detail), "cache consensus vote: verdict=%s; peer IDs=%d; weight=%d; threshold=%d",
 					         cv==CWC_HOLD ? "held" : (cv==CWC_REFUSE ? "refused" : "proceed"),
@@ -2284,7 +2327,9 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 				}
 			}
 			if ( cv==CWC_HOLD ) {
-				cwconsensus_hold_cycle(req->caid, req->sid, req->hash, req->tag, cw, peerid, cwcycle);
+				cwconsensus_hold_cycle(req->caid, req->sid, consensus_provider,
+				                        consensus_provider_known, req->hash,
+				                        req->tag, cw, peerid, cwcycle);
 				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache held: consensus awaiting corroboration", cw);
 #ifdef MCS_DCWSTATS
 				cwlog_hold(peerid, req->caid, req->provid, req->sid, cw);
@@ -2390,12 +2435,14 @@ static void cache_trace_csp_drop(const unsigned char *buf, int len, int peerid,
 static int cache_peer_candidate_eligible(struct cache_data *entry,
                                          struct cw_cache_data *candidate)
 {
+    uint32_t provider = 0;
+    int provider_known = cache_consensus_provider_scope(entry, &provider);
     if (candidate->status & DCW_ERROR) return 0;
     if (!(candidate->status & DCW_PEER_READY)) return 0;
     if (candidate->nbpeers < cfg.cache.threshold &&
         !((candidate->status & DCW_LOCAL_SOURCE) && cfg.cache.threshold <= 1)) return 0;
     if (cfg.cache.consensus && cwconsensus_is_held(entry->caid, entry->sid,
-            entry->hash, entry->tag, candidate->cw)) return 0;
+            provider, provider_known, entry->hash, entry->tag, candidate->cw)) return 0;
     return 1;
 }
 
@@ -3194,9 +3241,11 @@ static int cachepref_gate(struct cache_data *pcache, struct cw_cache_data *cwdat
 static int cache_find_consensus_held(struct cache_data *entry,
                                      struct cw_cache_data *candidate, int *noted)
 {
+    uint32_t provider = 0;
+    int provider_known = cache_consensus_provider_scope(entry, &provider);
     int held = cfg.cache.consensus &&
-        cwconsensus_is_held(entry->caid, entry->sid, entry->hash,
-                            entry->tag, candidate->cw);
+        cwconsensus_is_held(entry->caid, entry->sid, provider, provider_known,
+                            entry->hash, entry->tag, candidate->cw);
     if (held && !*noted) {
         user_trace_cache_observation(entry->caid, entry->provid, entry->sid,
                                      entry->hash, candidate->peerid,
@@ -3208,14 +3257,13 @@ static int cache_find_consensus_held(struct cache_data *entry,
 
 
 /* A cache key lacks provider identity. Do not reassign an entry associated
- * with one local provider value to a local request with another value, even
- * after its original waiter has finished. CSP zero may mean unknown, so this
- * guards a numeric conflict; it does not prove the identity of any peer CW.
+ * with one known local provider value to another known value, even after its
+ * waiter finishes. An unknown local zero cannot establish a collision.
  * Called only for ECM-to-cache pipe events with lockcache held. */
 static int cache_local_provider_collision(struct cache_data *entry,
                                           struct cache_data *req)
 {
-    if (!entry || !req) return 0;
+    if (!entry || !cache_request_provider_known(req)) return 0;
     if (entry->local_provider_set && entry->local_provider != req->provid) {
         user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, 0,
             "cache provider collision: different local provider; conflicting operation skipped", NULL);
@@ -3253,9 +3301,7 @@ void cache_pipe_recvmsg()
 				 * to the card servers; the find is simply not served. */
 				if (!pcache) break;
 				pcache->ecm = req.ecm;
-				pcache->local_provider_set = 1;
-				pcache->local_provider = req.provid;
-				pcache->provider_known = 1;
+				cache_attach_local_provider(pcache, &req);
 				pcache->cwcycle = req.cwcycle;
 
 #ifdef CACHEEX
@@ -3281,13 +3327,9 @@ void cache_pipe_recvmsg()
 					break;
 				}
 				pcache->ecm = req.ecm;
-				pcache->local_provider_set = 1;
-				pcache->local_provider = req.provid;
-				pcache->provider_known = 1;
-				pcache->tag = req.tag; // set tag if not set (coming from cahceex)
-				pcache->provid = req.provid; // set provid if not set (coming from csp)
+				cache_attach_local_provider(pcache, &req);
+				pcache->tag = req.tag; // set tag if not set (coming from cache)
 				pcache->cwcycle = req.cwcycle;
-				pcache->provid = req.provid;
 #ifdef CACHEEX
 				if (len==16+sizeof(void*)+16+16) memcpy( pcache->prevcw, req.prevcw, 16);
 				memcpy( pcache->ecmd5, req.ecmd5, 16 );
@@ -3396,16 +3438,13 @@ void cache_pipe_recvmsg()
 			if (pcache==NULL) pcache = cache_new( &req );
 			else {
 				if (cache_local_provider_collision(pcache, &req)) break;
-				pcache->tag = req.tag; // set tag if not set (coming from cahceex)
-				pcache->provid = req.provid; // set provid if not set (coming from csp)
+				pcache->tag = req.tag; // set tag if not set (coming from cache)
 			}
 			/* TASK 3.4: no entry could be made (allocation failed) -- the
 			 * request to peers is dropped; the ECM's server flow is unchanged. */
 			if (!pcache) break;
 			pcache->ecm = req.ecm;
-			pcache->local_provider_set = 1;
-			pcache->local_provider = req.provid;
-			pcache->provider_known = 1;
+			cache_attach_local_provider(pcache, &req);
 			/* TASK 3.6: same arm guard -- the REQUEST rides the pipe too, and
 			 * its waiter can be answered or failed before the cache thread gets
 			 * here. */
@@ -3435,16 +3474,15 @@ void cache_pipe_recvmsg()
 			if (pcache==NULL) pcache = cache_new( &req );
 			else {
 				if (cache_local_provider_collision(pcache, &req)) break;
-				pcache->tag = req.tag; // set tag if not set (coming from cahceex)
-				pcache->provid = req.provid; // set provid if not set (coming from csp)
+				pcache->tag = req.tag; // set tag if not set (coming from cache)
 			}
 			/* TASK 3.4: the key has nowhere to be remembered (allocation
 			 * failed); it is dropped -- its sender's client was already served
 			 * and nothing else is waiting on it. */
 			if (!pcache) break;
-			pcache->local_provider_set = 1;
-			pcache->local_provider = req.provid;
-			pcache->provider_known = 1;
+			cache_attach_local_provider(pcache, &req);
+			uint32_t consensus_provider = 0;
+			int consensus_provider_known = cache_consensus_provider_scope(pcache, &consensus_provider);
 			//Check & update DCW
 			struct cw_cache_data *cwdata = pcache->cwdata;
 			while (cwdata) {
@@ -3479,7 +3517,8 @@ void cache_pipe_recvmsg()
 			    !(cwdata->status & DCW_ERROR) && (cwdata->status & DCW_PEER_READY) &&
 			    cwdata->nbpeers >= cfg.cache.threshold &&
 			    (!cfg.cache.consensus || !cwconsensus_is_held(pcache->caid, pcache->sid,
-			        pcache->hash, pcache->tag, cwdata->cw)))) {
+			        consensus_provider, consensus_provider_known, pcache->hash,
+			        pcache->tag, cwdata->cw)))) {
 				if ( !(pcache->flags&CACHE_FLAG_REPSENT) ) cfg.cache.rep++;
 				pcache->flags |= CACHE_FLAG_REPSENT;
 				cache_send_reply(pcache, NULL, cw);

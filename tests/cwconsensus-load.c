@@ -22,8 +22,8 @@ int main(void)
         int verdict;
         while (cwconsensus_expired(&out, now, 600)) { }
         verdict = cwconsensus_verdict(0x1884, (uint16_t)(1+i%4000),
-                                      (uint32_t)i+1, 0x80, cw, i%7+1, 1,
-                                      now, 600, &loser);
+                                      0, 0, (uint32_t)i+1, 0x80, cw,
+                                      i%7+1, 1, now, 600, &loser);
         if (verdict == CWC_HOLD) ++held;
         else if (verdict == CWC_DELIVER) ++proceeded;
         else ++refused;

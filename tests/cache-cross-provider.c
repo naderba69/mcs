@@ -23,23 +23,27 @@ int peerrep_note(uint32_t ip,uint16_t port,const char *reason) { (void)ip;(void)
 void peerrep_save(void) {}
 int peerrep_stage(uint32_t ip,uint16_t port) { (void)ip;(void)port;return 0; }
 void cwconsensus_set_min_sources(int n) { (void)n; }
-int cwconsensus_verdict(uint16_t caid,uint16_t sid,uint32_t hash,uint8_t tag,
-                        const uint8_t *cw,int peerid,int weight,uint32_t now,uint32_t window,
-                        const uint8_t **loser)
-{ (void)caid;(void)sid;(void)hash;(void)tag;(void)cw;(void)peerid;(void)weight;(void)now;(void)window;
+int cwconsensus_verdict(uint16_t caid,uint16_t sid,uint32_t provid,int provider_known,
+                        uint32_t hash,uint8_t tag,const uint8_t *cw,int peerid,int weight,
+                        uint32_t now,uint32_t window,const uint8_t **loser)
+{ (void)caid;(void)sid;(void)provid;(void)provider_known;(void)hash;(void)tag;(void)cw;
+  (void)peerid;(void)weight;(void)now;(void)window;
   if (loser) *loser=NULL; return CWC_DELIVER; }
-int cwconsensus_vote_counts(uint16_t caid,uint16_t sid,uint32_t hash,uint8_t tag,
-                            const uint8_t *cw,uint32_t now,uint32_t window,
-                            int *distinct,int *weight)
-{ (void)caid;(void)sid;(void)hash;(void)tag;(void)cw;(void)now;(void)window;
+int cwconsensus_vote_counts(uint16_t caid,uint16_t sid,uint32_t provid,int provider_known,
+                            uint32_t hash,uint8_t tag,const uint8_t *cw,uint32_t now,
+                            uint32_t window,int *distinct,int *weight)
+{ (void)caid;(void)sid;(void)provid;(void)provider_known;(void)hash;(void)tag;
+  (void)cw;(void)now;(void)window;
   if (distinct) *distinct=0; if (weight) *weight=0; return 0; }
-int cwconsensus_is_held(uint16_t caid,uint16_t sid,uint32_t hash,uint8_t tag,const uint8_t *cw)
-{ (void)caid;(void)sid;(void)hash;(void)tag;(void)cw;return 0; }
+int cwconsensus_is_held(uint16_t caid,uint16_t sid,uint32_t provid,int provider_known,
+                        uint32_t hash,uint8_t tag,const uint8_t *cw)
+{ (void)caid;(void)sid;(void)provid;(void)provider_known;(void)hash;(void)tag;(void)cw;return 0; }
 void cwconsensus_capacity(uint32_t now,uint32_t window,struct cwconsensus_capacity *out)
 { (void)now;(void)window;memset(out,0,sizeof(*out)); }
-void cwconsensus_hold_cycle(uint16_t caid,uint16_t sid,uint32_t hash,uint8_t tag,
-                            const uint8_t *cw,int peerid,int cycle)
-{ (void)caid;(void)sid;(void)hash;(void)tag;(void)cw;(void)peerid;(void)cycle; }
+void cwconsensus_hold_cycle(uint16_t caid,uint16_t sid,uint32_t provid,int provider_known,
+                            uint32_t hash,uint8_t tag,const uint8_t *cw,int peerid,int cycle)
+{ (void)caid;(void)sid;(void)provid;(void)provider_known;(void)hash;(void)tag;
+  (void)cw;(void)peerid;(void)cycle; }
 void user_trace_cache_observation(uint16_t a,uint32_t b,uint16_t c,uint32_t d,int e,const char *f,const uint8_t g[16])
 { (void)a;(void)b;(void)c;(void)d;(void)e;
   if (!strcmp(f,"cache forwarded CW to ECM pipe; delivery not confirmed")) sends++;
@@ -57,6 +61,44 @@ int main(void)
     struct cache_data target = {0}, incoming = {0};
     uint8_t cw[16];
     assert(table);
+    {
+        uint8_t wire[64];
+        uint32_t scope_provider=99;
+        int wire_len, expected_wire_len=16+(int)sizeof(void*);
+        struct cache_data decoded={0}, scope={0}, existing={0}, incoming={0};
+#ifdef CACHEEX
+        expected_wire_len += 16;
+#endif
+        ECM_DATA local={0};
+
+        local.ecm[0]=0x80; local.sid=0x1136; local.caid=0x1884;
+        local.hash=0x12345678; local.provid=0; local.cw1cycle=0x80;
+        local.provider_known=1;
+        wire_len=put_ecm2cache(PIPE_CACHE_FIND,wire,&local,0,NULL);
+        get_ecm2cache(wire,&decoded,NULL);
+        assert(wire_len==expected_wire_len && decoded.provider_known &&
+               decoded.provid==0 && decoded.cwcycle==CW1CYCLE);
+
+        local.provider_known=0; local.cw1cycle=0;
+        wire_len=put_ecm2cache(PIPE_CACHE_FIND,wire,&local,0,NULL);
+        get_ecm2cache(wire,&decoded,NULL);
+        assert(!decoded.provider_known && decoded.provid==0 && decoded.cwcycle==NO_CYCLE);
+
+        assert(!cache_consensus_provider_scope(&scope,&scope_provider) && scope_provider==0);
+        scope.provider_known=1; scope.provid=0;
+        assert(cache_consensus_provider_scope(&scope,&scope_provider) && scope_provider==0);
+        scope.local_provider_set=1; scope.local_provider=0x123456;
+        assert(cache_consensus_provider_scope(&scope,&scope_provider) && scope_provider==0x123456);
+
+        existing.provider_known=1; existing.provid=5;
+        incoming.provid=0; incoming.provider_known=0;
+        assert(!cache_local_provider_collision(&existing,&incoming));
+        cache_attach_local_provider(&existing,&incoming);
+        assert(existing.provider_known && existing.provid==5 && !existing.local_provider_set);
+        incoming.provider_known=1;
+        assert(cache_local_provider_collision(&existing,&incoming));
+        conflicts=0; /* Ignore the helper's intentional trace in later totals. */
+    }
     { int fds[2]; assert(pipe(fds) == 0); prg.pipe.ecm[0]=fds[0]; prg.pipe.ecm[1]=fds[1]; }
     cfg.cache.alivetime=45000;
     cfg.cache.threshold=2;

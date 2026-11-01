@@ -26,6 +26,7 @@ static void set_request(struct ecm_request *request, const uint8_t *ecm,
     request->sid = sid;
     request->caid = caid;
     request->provid = provid;
+    request->provider_known = provid != 0;
     request->recvtime = recvtime;
     request->hash = hashCode((uint8_t *)ecm + 3, ecmlen - 3);
     request->dcwstatus = STAT_DCW_WAIT;
@@ -45,14 +46,21 @@ int main(void)
     first.next = first.prev = &first;
     ecmdata = &first;
 
-    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, provid) == &first);
-    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid + 1, provid) == NULL);
-    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, provid + 1) == NULL);
-    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid + 1, caid, provid) == NULL);
-    assert(search_ecmdata_dcw(ecm, 2, sid, caid, provid) == NULL);
+    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, provid, 1) == &first);
+    first.provid=0; first.provider_known=0;
+    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, 0, 0) == &first);
+    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, 0, 1) == NULL);
+    first.provider_known=1;
+    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, 0, 1) == &first);
+    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, 0, 0) == NULL);
+    first.provid=provid;
+    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid + 1, provid, 1) == NULL);
+    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, provid + 1, 1) == NULL);
+    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid + 1, caid, provid, 1) == NULL);
+    assert(search_ecmdata_dcw(ecm, 2, sid, caid, provid, 1) == NULL);
 
     first.dcwstatus = STAT_DCW_FAILED;
-    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, provid) == NULL);
+    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, provid, 1) == NULL);
 
     /* Expired entries are skipped, not treated as the end of the ring. */
     set_request(&first, ecm, (int)sizeof(ecm), sid, caid, provid, 0);
@@ -63,14 +71,14 @@ int main(void)
     second.prev = &first;
     ecmdata = &first;
     fake_ticks = 20000;
-    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, provid) == &second);
+    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, provid, 1) == &second);
 
     /* The unsigned elapsed-time check remains valid across tick wrap. */
     first.next = first.prev = &first;
     set_request(&first, ecm, (int)sizeof(ecm), sid, caid, provid, UINT32_MAX - 5U);
     ecmdata = &first;
     fake_ticks = 5;
-    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, provid) == &first);
+    assert(search_ecmdata_dcw(ecm, (int)sizeof(ecm), sid, caid, provid, 1) == &first);
 
     puts("PASS: Radegast duplicate lookup includes CAID/provider and handles expiry safely");
     return 0;

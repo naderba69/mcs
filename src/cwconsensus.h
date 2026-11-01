@@ -5,11 +5,13 @@
  * perfect fakes sailed through and FIRST ARRIVAL won the client. This
  * module adds the missing question: what do the OTHER witnesses say?
  *
- * One tally per (channel, ecmd5, cw) records DISTINCT voters (a flood of
- * re-pushes from one peer is still one vote -- stock nbpeers counted
- * arrivals, so one eager liar defeated CACHE THRESHOLD). Voters carry a
- * WEIGHT: the caller feeds 0 for a peer already at distrust on the R4
- * ladder, 1 otherwise -- so reputation, not timing, decides conflicts.
+ * One tally per (channel, known-provider scope, request hash/tag, cw) records
+ * DISTINCT voters (a flood of re-pushes from one peer is still one vote --
+ * stock nbpeers counted arrivals, so one eager liar defeated CACHE THRESHOLD).
+ * Provider-less CSP votes occupy an unknown scope and cannot corroborate or
+ * conflict with a known numeric provider. Voters carry a WEIGHT: the caller
+ * feeds 0 for a peer already at distrust on the R4 ladder, 1 otherwise -- so
+ * reputation, not timing, decides conflicts.
  *
  * Verdict contract (see cwconsensus_verdict):
  *   CWC_DELIVER -- no objection; caller delivers as stock would.
@@ -50,7 +52,8 @@
 struct cwconsensus_hold {
 	uint16_t caid;
 	uint16_t sid;
-	uint16_t provid;
+	uint32_t provid;
+	uint8_t  provider_known;
 	uint32_t hash;
 	uint8_t  tag;
 	uint8_t  cw[16];
@@ -84,21 +87,26 @@ void cwconsensus_set_min_sources(int n);
  * the losing key's bytes when this arrival WON against a held/earlier
  * conflict, so the caller can neutralize the loser's stored node.
  */
-int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t hash,
-			uint8_t tag, const uint8_t *cw, int peerid,
-			int weight, uint32_t now_ms, uint32_t window_ms,
-			const uint8_t **loser_cw);
+int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t provid,
+                        int provider_known, uint32_t hash, uint8_t tag,
+                        const uint8_t *cw, int peerid, int weight,
+                        uint32_t now_ms, uint32_t window_ms,
+                        const uint8_t **loser_cw);
 
 /* Query the candidate's live vote counts; caller must hold the cache lock.
  * Distinct peer IDs are not necessarily independent sources. */
-int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t hash,
-                            uint8_t tag, const uint8_t *cw, uint32_t now_ms,
+int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t provid,
+                            int provider_known, uint32_t hash, uint8_t tag,
+                            const uint8_t *cw, uint32_t now_ms,
                             uint32_t window_ms, int *distinct, int *weight);
 
 /* Read-only check for a stored candidate still owned by the expiry walker.
+ * An unknown-provider hold also blocks release of the same CW under a known
+ * scope until expiry; it never contributes a vote or conflict across scopes.
  * Caller holds the cache lock; a hold is never expired by this query. */
-int cwconsensus_is_held(uint16_t caid, uint16_t sid, uint32_t hash,
-                        uint8_t tag, const uint8_t *cw);
+int cwconsensus_is_held(uint16_t caid, uint16_t sid, uint32_t provid,
+                        int provider_known, uint32_t hash, uint8_t tag,
+                        const uint8_t *cw);
 
 /* Snapshot under the cache lock; held includes overdue holds, and retained
  * means non-held entries. These counts do not attribute entries to a client. */
@@ -111,8 +119,9 @@ void cwconsensus_capacity(uint32_t now_ms, uint32_t window_ms,
 
 /* Preserve the first voter's wire-cycle declaration while a key is held.
  * Called under the same lock as verdict/expiry; does not record a new vote. */
-void cwconsensus_hold_cycle(uint16_t caid, uint16_t sid, uint32_t hash,
-                            uint8_t tag, const uint8_t *cw, int peerid, int cycle);
+void cwconsensus_hold_cycle(uint16_t caid, uint16_t sid, uint32_t provid,
+                            int provider_known, uint32_t hash, uint8_t tag,
+                            const uint8_t *cw, int peerid, int cycle);
 
 /* Pop ONE hold whose window expired (holding slots only -- lost or
  * delivered slots never come back). Returns 1 when out was filled. */
