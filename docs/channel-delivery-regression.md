@@ -24,7 +24,9 @@ inactive, so some invalid words that only these heuristics would detect may
 pass. They must not be represented as active protection. Other paths and
 policies can still reject or delay words and require separate investigation.
 
-Checks: x64 forced build with no warnings, repeated-CW end-to-end regression,
-isolated CCcam success/failure and trace tests, crypto known-answer ASan/UBSan,
-trace core, log-viewer regression and the `make-x64` unit suite. No real
-provider or production deployment was tested.
+Checks: x64 build and `make-x64` unit suite completed successfully; the build
+still emits existing compatibility/compiler warnings (`-fpermissive` for C and
+unrecognized `-Wno-return-mismatch`, among others). Also ran the repeated-CW
+end-to-end regression, isolated CCcam success/failure and trace tests, crypto
+known-answer ASan/UBSan, trace core and log-viewer regression. No real provider
+or production deployment was tested.

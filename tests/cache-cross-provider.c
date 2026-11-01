@@ -4,7 +4,7 @@
 #undef main
 #include <assert.h>
 
-static int sends, conflicts, source_conflicts, profile_checks;
+static int sends, conflicts, source_conflicts, profile_checks, record_conflicts;
 static uint32_t last_profile_provider;
 static struct cardserver_data *last_profile;
 struct cafamily_tab cafamily_tab;
@@ -45,6 +45,7 @@ void user_trace_cache_observation(uint16_t a,uint32_t b,uint16_t c,uint32_t d,in
   if (!strcmp(f,"cache forwarded CW to ECM pipe; delivery not confirmed")) sends++;
   if (!strcmp(f,"cache provider collision: different local provider; conflicting operation skipped")) { assert(g == NULL); conflicts++; }
   if (!strcmp(f,"cache provider collision: explicit cached provider differs from local request; conflicting operation skipped")) { assert(g == NULL); conflicts++; }
+  if (!strcmp(f,"cache provider collision: known numeric providers differ; cross-cache relay skipped")) { assert(g == NULL); record_conflicts++; }
   if (!strcmp(f,"cache provider collision: explicit incoming provider conflicts with known cache/local provider; CW refused")) { source_conflicts++; }
 }
 int isnullDCW(uint8_t *cw) { uint8_t z[16]={0}; return !memcmp(cw,z,16); }
@@ -139,6 +140,26 @@ int main(void)
     incoming.local_provider_set=1; target.local_provider=1;
     cache_fetch_goodcw3(&incoming,cw,7); assert(sends==5); /* reverse */
     target.local_provider_set=0; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==6);
+    /* Explicit CacheEX metadata must be compared even without local waiter
+     * associations; a known zero is not an unknown-provider wildcard. */
+    target.local_provider_set=incoming.local_provider_set=0;
+    target.provider_known=incoming.provider_known=1;
+    target.provid=0; incoming.provid=1;
+    target.sid=incoming.sid=0x1136; target.hash=1; incoming.hash=2;
+    target.tag=incoming.tag=0x80; target.cwdata=NULL;
+    cache_fetch_goodcw2(&incoming,cw,7);
+    assert(sends==6 && record_conflicts==1);
+    incoming.provid=0; incoming.provider_known=0;
+    cache_fetch_goodcw2(&incoming,cw,7); assert(sends==7); /* unknown remains ambiguous */
+    incoming.provider_known=1;
+    cache_fetch_goodcw2(&incoming,cw,7); assert(sends==8); /* explicit zero matches */
+
+    target.sid=0x1536; incoming.sid=0x1136;
+    target.hash=incoming.hash=2; target.provid=1; incoming.provid=0;
+    cache_fetch_goodcw3(&incoming,cw,7);
+    assert(sends==8 && record_conflicts==2);
+    incoming.provid=1; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==9);
+
     /* The older-cycle walker must not reject based on a known other provider. */
     {
         struct cw_cache_data stored = {0}; cwcycle_t cycle = NO_CYCLE;
@@ -146,6 +167,8 @@ int main(void)
         target.sid=incoming.sid=0x1136; target.hash=1; incoming.hash=2;
         target.tag=0x80; incoming.tag=0x81; target.recvtime=1000;
         incoming.recvtime=9000; cfg.cache.filtertime=1000; target.cwdata=&stored;
+        target.provider_known=incoming.provider_known=0;
+        target.provid=incoming.provid=0;
         target.local_provider=0; target.local_provider_set=1;
         incoming.local_provider_set=1; incoming.local_provider=1;
         assert(cache_fetch_goodcw(&incoming,cw,&cycle)==0);
@@ -153,8 +176,19 @@ int main(void)
         assert(cache_fetch_goodcw(&incoming,cw,&cycle)==DCW_ERROR);
         incoming.local_provider_set=0;
         assert(cache_fetch_goodcw(&incoming,cw,&cycle)==DCW_ERROR);
+
+        /* The old-cycle walker must also keep distinct explicit CacheEX
+         * providers separate, while preserving unknown CSP compatibility. */
+        target.local_provider_set=0; target.provider_known=1; target.provid=0;
+        incoming.provider_known=1; incoming.provid=1;
+        assert(cache_fetch_goodcw(&incoming,cw,&cycle)==0);
+        incoming.provid=0;
+        assert(cache_fetch_goodcw(&incoming,cw,&cycle)==DCW_ERROR);
+        incoming.provider_known=0;
+        assert(cache_fetch_goodcw(&incoming,cw,&cycle)==DCW_ERROR);
     }
     assert(conflicts == 4);
-    puts("PASS: cross-cache relays respect known local provider conflicts");
+    assert(record_conflicts == 2);
+    puts("PASS: cross-cache relays respect known local and CacheEX provider identities");
     return 0;
 }

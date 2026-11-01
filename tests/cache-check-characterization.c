@@ -1,4 +1,4 @@
-/* Characterize (not endorse) the existing cache_check_cw rejection rule.
+/* Regression coverage for provider-aware cache_check_cw decisions.
  * Includes the actual production implementation. Build with the x64 options
  * from src/Makefile plus -ffunction-sections -fdata-sections and --gc-sections.
  * This is an isolated deterministic test, not a production configuration. */
@@ -21,15 +21,15 @@ int main(void)
     assert(table);
     memset(cw, 0x51, sizeof(cw));
     memcpy(stored.cw, cw, sizeof(cw));
-    prior.sid = 0x1136; prior.provid = 1; prior.tag = 0x80;
+    prior.caid = 0x1884; prior.sid = 0x1136; prior.provid = 0; prior.tag = 0x80;
     prior.hash = 0x1234; prior.recvtime = 88000; prior.cwdata = &stored;
     table[prior.sid & MAX_CACHE_INDEX] = &prior;
     cfg.cache.filter = 0;
     cfg.cache.alivetime = 45000;
     cfg.cache.filtertime = 10000;
     /* Ten seconds is not enough; one millisecond later the same word is
-     * rejected for an opposite-tag ECM with a different hash. Entries with
-     * no local provider association retain the historical conservative rule. */
+     * conservatively rejected for an opposite-tag ECM with a different hash
+     * when the CSP entry has no provider identity. */
     assert(cache_check_cw(98000, 0x81, 0x1884, 0x5678, 0x1136, 2, cw, 2) == 1);
     assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 2, cw, 2) == 0);
     assert(cache_check_cw(99000, 0x80, 0x1884, 0x5678, 0x1136, 2, cw, 2) == 1);
@@ -42,6 +42,14 @@ int main(void)
     assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, cw, 2) == 0);
     assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, cw, 2) == 1);
     prior.local_provider = 0;
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, cw, 2) == 0);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, cw, 2) == 1);
+    /* Explicit CacheEX metadata is also provider-scoped, including zero. */
+    prior.local_provider_set = 0;
+    prior.provider_known = 1; prior.provid = 1;
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 2, cw, 2) == 1);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, cw, 2) == 0);
+    prior.provid = 0;
     assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, cw, 2) == 0);
     assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, cw, 2) == 1);
     /* Startup: now is below the 45s lifetime, but the old entry is live. */

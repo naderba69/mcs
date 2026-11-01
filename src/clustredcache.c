@@ -444,11 +444,9 @@ static int cache_local_providers_conflict(const struct cache_data *a,
            a->local_provider != b->local_provider;
 }
 
-/* A provider on an incoming CacheEX record is explicit metadata, unlike the
- * provider-less CSP wire key (zero). Never let a known local or cache-entry
- * provider be overwritten by a different explicit value. `provider_known`
- * distinguishes a real local numeric zero from a peer protocol that carries
- * no provider at all. */
+/* An explicit provider value is distinct from a provider-less CSP wire key
+ * whose numeric field is zero. Never treat a differing known local/cache value
+ * as equivalent; `provider_known` distinguishes a real zero from no metadata. */
 static int cache_provider_identity_conflicts(const struct cache_data *entry,
                                              uint32_t provider,
                                              int provider_known)
@@ -456,6 +454,23 @@ static int cache_provider_identity_conflicts(const struct cache_data *entry,
     if (!entry || !provider_known) return 0;
     if (entry->local_provider_set && entry->local_provider != provider) return 1;
     return (entry->provider_known || entry->provid != 0) && entry->provid != provider;
+}
+
+/* Compare every provider value that is actually known on both cache records.
+ * Unknown CSP metadata remains ambiguous and preserves the old wildcard rule;
+ * an explicit zero, however, is a real numeric value and must match. */
+static int cache_provider_records_conflict(const struct cache_data *a,
+                                           const struct cache_data *b)
+{
+    if (!a || !b) return 0;
+    if (cache_local_providers_conflict(a, b)) return 1;
+    if (cache_provider_identity_conflicts(a, b->local_provider, b->local_provider_set)) return 1;
+    if (cache_provider_identity_conflicts(a, b->provid,
+                                          b->provider_known || b->provid != 0)) return 1;
+    if (cache_provider_identity_conflicts(b, a->local_provider, a->local_provider_set)) return 1;
+    if (cache_provider_identity_conflicts(b, a->provid,
+                                          a->provider_known || a->provid != 0)) return 1;
+    return 0;
 }
 
 /* Cache timestamps are 32-bit milliseconds. Compare elapsed time rather than
@@ -1467,8 +1482,7 @@ int cache_fetch_goodcw( struct cache_data *thereq, uint8_t cw[16], cwcycle_t *cw
 		if ( cache_time_older_than(thereq->recvtime, pcache->recvtime, cfg.cache.filtertime)) {
 			if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
 			if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) )
-			if ( !cache_local_providers_conflict(pcache, thereq) )
-			if ( !pcache->provid || !thereq->provid || (pcache->provid==thereq->provid) ) // csp luck of provid
+			if ( !cache_provider_records_conflict(pcache, thereq) )
 			if ( pcache->tag && (pcache->tag!=thereq->tag) ) { // old oscam cacheex luck of ecmtag
 				struct cw_cache_data *cwdata = pcache->cwdata;
 				while (cwdata) {
@@ -1536,11 +1550,11 @@ int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash
 	while (pcache) {
 		if ( cache_time_older_than(recvtime, pcache->recvtime, cfg.cache.filtertime)) {
 			if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
-			/* A local entry for another numeric provider is not evidence that
-			 * this request repeated a CW. CSP-only entries remain governed by
-			 * the existing rule: their provider identity is unavailable. */
+			/* A known local or CacheEX provider that differs from this ECM
+			 * cannot prove that the current source repeated the same channel CW.
+			 * Provider-less CSP entries remain ambiguous and conservative. */
 			if ( (pcache->sid==sid)&&(pcache->hash!=hash)&&(pcache->tag!=tag) &&
-			     (!pcache->local_provider_set || pcache->local_provider==provid) ) {
+			     !cache_provider_identity_conflicts(pcache, provid, 1) ) {
 				struct cw_cache_data *cwdata = pcache->cwdata;
 				while (cwdata) {
 					switch (cwpart) {
@@ -1610,6 +1624,9 @@ struct cache_data *cache_fetch_goodcw2( struct cache_data *thereq, uint8_t cw[16
 				if (cache_local_providers_conflict(pcache, thereq)) {
 					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
 					    pcache->hash, peerid, "cache provider collision: different local provider; conflicting operation skipped", NULL);
+				} else if (cache_provider_records_conflict(pcache, thereq)) {
+					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+					    pcache->hash, peerid, "cache provider collision: known numeric providers differ; cross-cache relay skipped", NULL);
 				} else if (cfg.cache.consensus || cfg.cache.threshold > 1 ||
 				           cfg.cache.gate_cwcheck > 1 ||
 				           (pcache->ecm && pcache->ecm->cs &&
@@ -1681,6 +1698,9 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 				if (cache_local_providers_conflict(pcache, thereq)) {
 					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
 					    pcache->hash, peerid, "cache provider collision: different local provider; conflicting operation skipped", NULL);
+				} else if (cache_provider_records_conflict(pcache, thereq)) {
+					user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid,
+					    pcache->hash, peerid, "cache provider collision: known numeric providers differ; cross-cache relay skipped", NULL);
 				} else if (cfg.cache.consensus || cfg.cache.threshold > 1 ||
 				           cfg.cache.gate_cwcheck > 1 ||
 				           (pcache->ecm && pcache->ecm->cs &&

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Isolated characterization of the current production cache-check behavior.
+# Isolated production-code test for cross-cache provider identity guards.
 set -eu
 cd "$(dirname "$0")/.."
 tmp=$(mktemp -d)

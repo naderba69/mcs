@@ -7,6 +7,7 @@
 static int sends, conflicts, deferred;
 struct cafamily_tab cafamily_tab;
 int dcw_filter_cycle;
+int dcw_profile_cycle_enabled(struct cardserver_data *cs) { (void)cs; return 0; }
 int peerrep_note(uint32_t ip,uint16_t port,const char *reason) { (void)ip;(void)port;(void)reason;return 0; }
 void peerrep_save(void) {}
 uint64_t GetTickCount(void) { return 10000; }

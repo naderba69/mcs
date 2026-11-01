@@ -1,5 +1,5 @@
 #!/bin/sh
-# Isolated characterization of the current production cache-check behavior.
+# Isolated regression test for provider-aware production cache-check behavior.
 set -eu
 cd "$(dirname "$0")/.."
 tmp=$(mktemp -d)
