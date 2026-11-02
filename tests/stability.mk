@@ -5300,7 +5300,7 @@ sc: .ncclient.bin .cachepeer.bin $(NCSERVER)
 # line the parser actually reads; the R24 file named systems that
 # exist nowhere in the tree). This target boots the real file and
 # asserts: the shield lines are parsed, HTTP answers, and every one
-# of the 71 profile ports actually listens. Interleaved -v output
+# of the 72 profile ports actually listens. Interleaved -v output
 # makes log-line counting meaningless (it undercounts), so the
 # ports are probed with real connections instead. The test rewrites only the
 # four global HTTP/Telnet lines in a temporary copy; the shipped file is intact.
