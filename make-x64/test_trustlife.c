@@ -170,6 +170,26 @@ int main(void)
 		CHECK(trust_score_scoped(&migrated, 1, 65537, 0x1884, 0, 0, 0x64) == 35 &&
 		      trust_score_scoped(&migrated, 1, 65537, 0x1884, 0, 1, 0x64) == 35,
 		      "old ambiguous evidence remains readable by both zero-provider scopes");
+		{
+			struct trust_table resaved;
+			r.kind = TL_TF; r.srctype = q.srctype; r.srcid = q.srcid;
+			r.caid = q.caid; r.provid = q.provid;
+			r.provider_scope = q.provider_scope; r.sid = q.sid;
+			r.score = q.score; r.nproof = q.nproof; r.nsoft = q.nsoft;
+			r.age_s = q.age_s;
+			n = tl_format_rec(line, (int)sizeof(line), &r);
+			CHECK(n > 0 && strncmp(line, "TF2 ", 4) == 0 &&
+			      tl_parse_line(line, &q) == 0 &&
+			      q.provider_scope == TRUST_PROVIDER_LEGACY_AMBIGUOUS,
+			      "a legacy zero-provider TF row re-saves as ambiguous TF2");
+			memset(&resaved, 0, sizeof(resaved));
+			CHECK(trust_restore_scoped(&resaved, q.srctype, q.srcid, q.caid,
+			                            q.provid, q.provider_scope, q.sid, q.score,
+			                            q.nproof, q.nsoft, q.age_s * 1000u, 50000) == 1 &&
+			      trust_score_scoped(&resaved, 1, 65537, 0x1884, 0, 0, 0x64) == 35 &&
+			      trust_score_scoped(&resaved, 1, 65537, 0x1884, 0, 1, 0x64) == 35,
+			      "reloaded ambiguous TF2 remains visible to both zero-provider scopes");
+		}
 		trust_record_scoped(&migrated, TRUST_EV_PROOF, 1, 65537, 0x1884,
 		                    0, 0, 0x64, 51000);
 		trust_record_scoped(&migrated, TRUST_EV_PROOF, 1, 65537, 0x1884,
