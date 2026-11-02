@@ -2137,11 +2137,11 @@ cg: $(CACHEPEER) $(NCCLIENT)
 # back with one fixed poison key: two deliveries, a CW-reuse proof, a negative
 # mark, the third offer refused -- and the snapshot now carries an NG2 line.
 # Phase 3 restarts the server, then replays the poison under a fresh matching
-# known-zero local ECM context (CSP itself has no provider field).
-# One garbage line is appended before startup; the loader restores the fine,
-# coarse and negative tables and skips that bad line whole. The first fresh
-# offer of the SAME poison key under that scope is refused before delivery --
-# the conviction survived the restart that used to launder it.
+# known-zero local ECM context (CSP itself has no provider field). A legacy TF
+# provider-zero row and one garbage line are added before startup; the loader
+# restores the legacy row as ambiguous, skips the garbage, and the next snapshot
+# re-emits that row as TF2 without losing the ambiguity. The first fresh offer
+# of the SAME poison key under its known-zero scope is refused before delivery.
 # ---------------------------------------------------------------------------
 
 TL_HPORT = 16660
@@ -2240,6 +2240,7 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	else echo "[FAIL] no TF/TF2 line in $(TL_STATE): the fine tier did not persist"; ok=0; fi; \
 	kill $$srv 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
+	printf 'TF 1 65537 1884 0 64 35 1 0 42\n' >> $(TL_STATE); \
 	echo "THIS LINE IS NOT A RECORD" >> $(TL_STATE); \
 	rm -f .tl-srv.log; \
 	stdbuf -o0 -e0 $(BIN) -C $(TL_CFG) -v > .tl-srv.log 2>&1 & \
@@ -2260,11 +2261,12 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	  && echo "  [ ok ] the garbage line was refused whole and counted, nothing half-applied" \
 	  || { echo "[FAIL] the bad line was not counted as unusable"; ok=0; }; \
 	s=$$(life_stats); \
+	nfine=$$(echo $$s | cut -d' ' -f1); \
 	nrest=$$(echo $$s | cut -d' ' -f3); \
 	nbad=$$(echo $$s | cut -d' ' -f4); \
-	if [ "$$nrest" = "1" ] && [ "$$nbad" = "1" ]; then \
-	  echo "  [ ok ] the stats remember both: 1 negative restored, 1 bad line"; \
-	else echo "[FAIL] lifecycle stats '$$s', expected 1 restored, 1 bad"; ok=0; fi; \
+	if [ "$$nfine" = "3" ] && [ "$$nrest" = "1" ] && [ "$$nbad" = "1" ]; then \
+	  echo "  [ ok ] stats show 3 fine rows (including legacy TF), 1 negative restored and 1 bad line"; \
+	else echo "[FAIL] lifecycle stats '$$s', expected 3 fine, 1 restored, 1 bad"; ok=0; fi; \
 	kill -9 $$peera 2>/dev/null; sleep 0.5; \
 	rm -f .tl-cli3.log; \
 	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(TL_NPORT) u4 p4 $(TL_KEY) 0 1884 0190 > .tl-cli3.log 2>&1 & \
@@ -2286,6 +2288,10 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	if [ "$$nref2" -ge 1 ]; then \
 	  echo "  [ ok ] the first fresh offer of the same poison is refused at ingest after the restart"; \
 	else echo "[FAIL] $$nref2 refusal line(s) after restart, expected >= 1"; ok=0; fi; \
+	for i in $$(seq 1 20); do grep -Eq '^TF2 1 65537 1884 0 2 64 [0-9]+ 1 0 [1-9][0-9]*$$' $(TL_STATE) && break; sleep 0.5; done; \
+	if grep -Eq '^TF2 1 65537 1884 0 2 64 [0-9]+ 1 0 [1-9][0-9]*$$' $(TL_STATE); then \
+	  echo "  [ ok ] periodic snapshot kept legacy TF provider-zero scope ambiguous in TF2"; \
+	else echo "[FAIL] restored legacy TF row was not re-emitted as ambiguous TF2"; ok=0; fi; \
 	grep -q "CW NEGATIVE MARK" .tl-srv.log \
 	  && { echo "[FAIL] a second mark was filed -- the restore duplicated the conviction"; ok=0; } \
 	  || echo "  [ ok ] and it is the restored conviction biting, not a new one: no second mark"; \
