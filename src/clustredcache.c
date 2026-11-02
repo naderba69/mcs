@@ -395,9 +395,10 @@ struct cache_data **getcachetabbycaid(unsigned short caid)
 	struct cache_list *newdata = malloc( sizeof(struct cache_list) );
 	/*
 	 * TASK 3.4 -- allocation can fail, and every caller dereferences the
-	 * returned table. The node and the 1024-slot table (~88 KB per CAID) are
-	 * checked here, once, at the only place they are born: on failure the
-	 * table for this CAID simply does not exist yet, the caller drops the one
+	 * returned table. The node and the 1024-slot table are checked here, once,
+	 * at the only place they are born (~94 KiB per table in this x64 CACHEEX
+	 * build). On failure, the table for this CAID simply does not exist yet;
+	 * the caller drops the one
 	 * request it was holding (GR9: nothing blocks, nothing queues), and the
 	 * next request retries the allocation. The node is linked into cachelist
 	 * only after its table exists, so a half-built node can never be found
@@ -1590,8 +1591,9 @@ int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash
 		if ( cache_time_older_than(recvtime, pcache->recvtime, cfg.cache.filtertime)) {
 			if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
 			/* A conflicting known provider cannot prove that this ECM repeated
-			 * the same channel CW. Unknown provider zero remains ambiguous and
-			 * therefore keeps the conservative duplicate check enabled. */
+			 * the same channel key. Unknown provider zero remains ambiguous, so
+			 * the conservative half-key checks stay enabled. A complete 16-byte
+			 * repeat is allowed below: one valid key can span multiple ECMs. */
 			if ( (pcache->sid==sid)&&(pcache->hash!=hash)&&(pcache->tag!=tag) &&
 			     !cache_provider_identity_conflicts(pcache, provid, provider_known) ) {
 				struct cw_cache_data *cwdata = pcache->cwdata;
@@ -1606,7 +1608,10 @@ int cache_check_cw( uint32_t recvtime, uint8_t tag, uint16_t caid, uint32_t hash
 							if ( dcwcmp8(cwdata->cw+8,cw+8) ) return 0;
 							break;
 						case 2:
-							if ( dcwcmp16(cwdata->cw,cw) ) return 0;
+							/* A complete CW can remain valid across several ECMs in
+							 * one crypto period. Its exact repetition is not evidence
+							 * of a stale answer; checkfreeze_setdcw() follows the same
+							 * rule. Keep the half-key checks above for cwpart 0/1. */
 							break;
 					}
 					cwdata = cwdata->next;

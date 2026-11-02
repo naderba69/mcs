@@ -1,4 +1,4 @@
-/* Regression coverage for provider-aware cache_check_cw decisions.
+/* Regression coverage for cache_check_cw provider scope and repeat semantics.
  * Includes the actual production implementation. Build with the x64 options
  * from src/Makefile plus -ffunction-sections -fdata-sections and --gc-sections.
  * This is an isolated deterministic test, not a production configuration. */
@@ -17,60 +17,66 @@ int main(void)
     struct cache_data **table = getcachetabbycaid(0x1884);
     struct cache_data prior = {0};
     struct cw_cache_data stored = {0};
-    uint8_t cw[16];
+    uint8_t full_cw[16], half_cw[16];
     assert(table);
-    memset(cw, 0x51, sizeof(cw));
-    memcpy(stored.cw, cw, sizeof(cw));
+    memset(full_cw, 0x51, sizeof(full_cw));
+    memset(half_cw, 0x51, 8);
+    memset(half_cw + 8, 0, 8);
+    memcpy(stored.cw, full_cw, sizeof(full_cw));
     prior.caid = 0x1884; prior.sid = 0x1136; prior.provid = 0; prior.tag = 0x80;
     prior.hash = 0x1234; prior.recvtime = 88000; prior.cwdata = &stored;
     table[prior.sid & MAX_CACHE_INDEX] = &prior;
     cfg.cache.filter = 0;
     cfg.cache.alivetime = 45000;
     cfg.cache.filtertime = 10000;
-    /* Ten seconds is not enough; one millisecond later the same word is
-     * conservatively rejected for an opposite-tag ECM with a different hash
-     * when the CSP entry has no provider identity. */
-    assert(cache_check_cw(98000, 0x81, 0x1884, 0x5678, 0x1136, 2, 1, cw, 2) == 1);
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 2, 1, cw, 2) == 0);
-    assert(cache_check_cw(99000, 0x80, 0x1884, 0x5678, 0x1136, 2, 1, cw, 2) == 1);
+    /* A complete CW can legitimately repeat across ECMs in one key period;
+     * full-word equality alone must not reject the next request. */
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, 0, full_cw, 2) == 1);
+    /* Partial half-key reuse remains conservative: ten seconds is not enough,
+     * while an opposite-tag ECM 11 seconds later is rejected when the older
+     * CSP entry has no provider identity. */
+    assert(cache_check_cw(98000, 0x81, 0x1884, 0x5678, 0x1136, 2, 1, half_cw, 0) == 1);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 2, 1, half_cw, 0) == 0);
+    assert(cache_check_cw(99000, 0x80, 0x1884, 0x5678, 0x1136, 2, 1, half_cw, 0) == 1);
     /* Locally associated provider 1 must not reject provider 2, but must
      * continue rejecting the same older CW for provider 1. Zero is a value,
      * not a wildcard, in a local association. CSP-only is still ambiguous. */
     prior.local_provider_set = 1;
     prior.local_provider = 1;
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 2, 1, cw, 2) == 1);
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, 1, cw, 2) == 0);
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, cw, 2) == 1);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, 1, full_cw, 2) == 1);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 2, 1, half_cw, 0) == 1);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, 1, half_cw, 0) == 0);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, half_cw, 0) == 1);
     prior.local_provider = 0;
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, cw, 2) == 0);
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, 1, cw, 2) == 1);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, half_cw, 0) == 0);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, 1, half_cw, 0) == 1);
     /* Explicit CacheEX metadata is also provider-scoped, including zero. */
     prior.local_provider_set = 0;
     prior.provider_known = 1; prior.provid = 1;
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 2, 1, cw, 2) == 1);
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, 1, cw, 2) == 0);
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, 0, cw, 2) == 0);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 2, 1, half_cw, 0) == 1);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, 1, half_cw, 0) == 0);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, 0, half_cw, 0) == 0);
     /* Unknown zero is ambiguous and keeps the duplicate check; explicit
      * zero differs from provider 1 and does not inherit its duplicate. */
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, cw, 2) == 1);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, half_cw, 0) == 1);
     prior.provid = 0;
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, cw, 2) == 0);
-    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, 1, cw, 2) == 1);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, half_cw, 0) == 0);
+    assert(cache_check_cw(99000, 0x81, 0x1884, 0x5678, 0x1136, 1, 1, half_cw, 0) == 1);
     /* Startup: now is below the 45s lifetime, but the old entry is live. */
     clock_ms = 3000; prior.recvtime = 1000; prior.local_provider = 0;
     cfg.cache.filtertime = 1000;
-    assert(cache_check_cw(3000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, cw, 2) == 0);
+    assert(cache_check_cw(3000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, half_cw, 0) == 0);
     /* Wrap across 2^32 milliseconds: a live old entry remains visible. */
     clock_ms = 2000; prior.recvtime = UINT32_MAX - 1999;
-    assert(cache_check_cw(2000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, cw, 2) == 0);
+    assert(cache_check_cw(2000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, half_cw, 0) == 0);
     /* Entry newer than the request is not an old cycle, even across wrap. */
     clock_ms = 2000; prior.recvtime = 1000;
-    assert(cache_check_cw(UINT32_MAX - 100, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, cw, 2) == 1);
+    assert(cache_check_cw(UINT32_MAX - 100, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, half_cw, 0) == 1);
     /* Exact lifetime is still live; the following millisecond is expired. */
     prior.recvtime = 1000; clock_ms = 46000;
-    assert(cache_check_cw(45000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, cw, 2) == 0);
+    assert(cache_check_cw(45000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, half_cw, 0) == 0);
     clock_ms = 46001;
-    assert(cache_check_cw(45000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, cw, 2) == 1);
+    assert(cache_check_cw(45000, 0x81, 0x1884, 0x5678, 0x1136, 0, 1, half_cw, 0) == 1);
     /* The ordinary lookup shares the same wrap-safe expiry semantics. */
     {
         struct cache_data req = {0};
@@ -84,9 +90,9 @@ int main(void)
         req.hash = 0x5678; req.tag = 0x81; req.recvtime = 3000;
         req.provid = prior.provid; cwcycle_t cycle = NO_CYCLE;
         prior.recvtime = 1000; clock_ms = 3000;
-        assert(cache_fetch_goodcw(&req, cw, &cycle) == DCW_ERROR);
+        assert(cache_fetch_goodcw(&req, full_cw, &cycle) == DCW_ERROR);
         prior.recvtime = UINT32_MAX - 1999; req.recvtime = 2000; clock_ms = 2000;
-        assert(cache_fetch_goodcw(&req, cw, &cycle) == DCW_ERROR);
+        assert(cache_fetch_goodcw(&req, full_cw, &cycle) == DCW_ERROR);
     }
     /* Recycling must neither reuse a live pre-wrap entry nor keep it forever. */
     {
