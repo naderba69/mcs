@@ -11,7 +11,7 @@ static struct user_trace_event events[USER_TRACE_CAPACITY];
 struct shared_link { uint64_t attempt, instance; uint32_t hash; };
 static struct shared_link links[USER_TRACE_MAX_LINKS];
 static uint64_t generation, next_attempt, next_sequence, overwritten, dropped_links, dropped_events;
-static uint64_t next_instance;
+static uint64_t next_instance, csp_unattributed_short;
 static size_t next_index, count;
 static int active;
 
@@ -32,6 +32,15 @@ static void append_locked(struct user_trace_event *event)
             if (links[i].attempt && links[i].attempt == events[next_index].attempt) {
                 memset(&links[i], 0, sizeof(links[i]));
                 ++dropped_links;
+            }
+        }
+    }
+    if (event->type != USER_TRACE_RECEIVED) {
+        for (i = 0; i < count; ++i) {
+            size_t idx = (next_index + USER_TRACE_CAPACITY - count + i) % USER_TRACE_CAPACITY;
+            if (events[idx].type == USER_TRACE_RECEIVED && events[idx].attempt == event->attempt) {
+                event->caid = events[idx].caid; event->provider = events[idx].provider;
+                event->sid = events[idx].sid; break;
             }
         }
     }
@@ -60,7 +69,9 @@ uint64_t user_trace_start(const struct user_trace_target *new_target)
     target = *new_target;
     result = increment_nonzero(&generation);
     next_attempt = next_sequence = overwritten = dropped_links = dropped_events = 0;
+    csp_unattributed_short = 0;
     memset(links, 0, sizeof(links));
+    memset(events, 0, sizeof(events));
     next_index = count = 0;
     active = 1;
     pthread_mutex_unlock(&trace_lock);
@@ -78,8 +89,8 @@ int user_trace_matches(uint32_t client_id, uint16_t caid, uint32_t provider, uin
 {
     int matched;
     pthread_mutex_lock(&trace_lock);
-    matched = active && client_id == target.client_id && caid == target.caid &&
-              provider == target.provider && sid == target.sid;
+    matched = active && client_id == target.client_id &&
+              (target.all_channels || (caid == target.caid && provider == target.provider && sid == target.sid));
     pthread_mutex_unlock(&trace_lock);
     return matched;
 }
@@ -101,12 +112,13 @@ uint64_t user_trace_begin(uint32_t client_id, uint16_t caid, uint32_t provider,
     uint64_t attempt = 0;
     if (session) *session = 0;
     pthread_mutex_lock(&trace_lock);
-    if (active && client_id == target.client_id && caid == target.caid &&
-        provider == target.provider && sid == target.sid) {
+    if (active && client_id == target.client_id &&
+        (target.all_channels || (caid == target.caid && provider == target.provider && sid == target.sid))) {
         event.attempt = increment_nonzero(&next_attempt);
         event.timestamp = time(NULL);
         event.type = USER_TRACE_RECEIVED;
         event.ecm_hash = hash;
+        event.caid = caid; event.provider = provider; event.sid = sid;
         append_locked(&event);
         attempt = event.attempt;
         if (session) *session = generation;
@@ -200,13 +212,15 @@ done:
     return result;
 }
 
-size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type type,
-                               int source_type, int source_id,
-                               uint32_t elapsed_ms, const char *detail)
+static size_t shared_event(uint64_t instance, enum user_trace_event_type type,
+                           int source_type, int source_id, uint32_t elapsed_ms,
+                           const char *detail, const uint8_t *cw)
 {
     size_t i, recorded = 0;
     if (!instance || (type != USER_TRACE_SENT && type != USER_TRACE_REJECTED &&
-                      type != USER_TRACE_FAILED)) return 0;
+                      type != USER_TRACE_FAILED && type != USER_TRACE_SOURCE_REPLY &&
+                      type != USER_TRACE_VALIDATED && type != USER_TRACE_CACHE &&
+                      type != USER_TRACE_DISPATCH_SKIPPED)) return 0;
     pthread_mutex_lock(&trace_lock);
     if (active) {
         for (i = 0; i < USER_TRACE_MAX_LINKS; ++i) {
@@ -228,6 +242,7 @@ size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type typ
             event.source_type = source_type;
             event.source_id = source_id;
             event.elapsed_ms = elapsed_ms;
+            if (cw) { event.has_cw = 1; memcpy(event.cw, cw, sizeof(event.cw)); }
             if (detail) {
                 strncpy(event.detail, detail, sizeof(event.detail) - 1);
                 event.detail[sizeof(event.detail) - 1] = '\0';
@@ -238,6 +253,18 @@ size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type typ
     }
     pthread_mutex_unlock(&trace_lock);
     return recorded;
+}
+
+size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type type,
+                               int source_type, int source_id, uint32_t elapsed_ms, const char *detail)
+{
+    return shared_event(instance, type, source_type, source_id, elapsed_ms, detail, NULL);
+}
+size_t user_trace_shared_cw(uint64_t instance, int source_type, int source_id,
+                            uint32_t elapsed_ms, const char *detail, const uint8_t cw[16])
+{
+    if (!cw) return 0;
+    return shared_event(instance, USER_TRACE_SOURCE_REPLY, source_type, source_id, elapsed_ms, detail, cw);
 }
 
 void user_trace_unbind_shared(uint64_t session, uint64_t attempt)
@@ -256,9 +283,9 @@ void user_trace_unbind_shared(uint64_t session, uint64_t attempt)
     pthread_mutex_unlock(&trace_lock);
 }
 
-int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
-                             enum user_trace_event_type type, int source_type,
-                             int source_id, uint32_t elapsed_ms, const char *detail)
+static int client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
+                         enum user_trace_event_type type, int source_type,
+                         int source_id, uint32_t elapsed_ms, const char *detail, const uint8_t *cw)
 {
     size_t i, found = USER_TRACE_MAX_LINKS, matches = 0;
     struct user_trace_event event = {0};
@@ -297,6 +324,7 @@ int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t has
     event.source_type = source_type;
     event.source_id = source_id;
     event.elapsed_ms = elapsed_ms;
+    if (cw) { event.has_cw = 1; memcpy(event.cw, cw, sizeof(event.cw)); }
     if (detail) {
         strncpy(event.detail, detail, sizeof(event.detail) - 1);
         event.detail[sizeof(event.detail) - 1] = '\0';
@@ -307,6 +335,63 @@ int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t has
 done:
     pthread_mutex_unlock(&trace_lock);
     return result;
+}
+
+int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
+                             enum user_trace_event_type type, int source_type,
+                             int source_id, uint32_t elapsed_ms, const char *detail)
+{
+    return client_result(client_id, instance, hash, type, source_type, source_id, elapsed_ms, detail, NULL);
+}
+int user_trace_client_cw(uint32_t client_id, uint64_t instance, uint32_t hash,
+                         int source_type, int source_id, uint32_t elapsed_ms,
+                         const char *detail, const uint8_t cw[16])
+{
+    if (!cw) return 0;
+    return client_result(client_id, instance, hash, USER_TRACE_DELIVERED,
+                         source_type, source_id, elapsed_ms, detail, cw);
+}
+
+void user_trace_cache_observation(uint16_t caid, uint32_t provider, uint16_t sid,
+                                  uint32_t hash, int peerid, const char *detail,
+                                  const uint8_t cw[16])
+{
+    struct user_trace_event event = {0};
+    size_t i;
+    int match = 0;
+    pthread_mutex_lock(&trace_lock);
+    if (active && !target.all_channels) {
+        /* CSP replies may omit provider. Do not imply provider identity. */
+        match = target.caid == caid && target.sid == sid;
+    } else if (active) {
+        /* In all-channel mode, show only channels already observed for the
+         * selected client, not unrelated server-wide cache traffic. */
+        for (i = 0; i < count; ++i) {
+            size_t index = (next_index + USER_TRACE_CAPACITY - count + i) % USER_TRACE_CAPACITY;
+            if (events[index].type == USER_TRACE_RECEIVED &&
+                events[index].caid == caid && events[index].sid == sid) {
+                match = 1; break;
+            }
+        }
+    }
+    if (match) {
+        event.timestamp = time(NULL);
+        event.type = USER_TRACE_CACHE;
+        event.shared = 2; /* channel observation, NOT an ECM/client link */
+        event.caid = caid; event.provider = provider; event.sid = sid;
+        event.ecm_hash = hash; event.source_id = peerid;
+        if (detail) { strncpy(event.detail, detail, sizeof(event.detail)-1); }
+        if (cw) { event.has_cw = 1; memcpy(event.cw, cw, 16); }
+        append_locked(&event);
+    }
+    pthread_mutex_unlock(&trace_lock);
+}
+
+void user_trace_note_short_csp_reply(void)
+{
+    pthread_mutex_lock(&trace_lock);
+    if (active && csp_unattributed_short != UINT64_MAX) ++csp_unattributed_short;
+    pthread_mutex_unlock(&trace_lock);
 }
 
 void user_trace_get_snapshot(struct user_trace_snapshot *out)
@@ -320,6 +405,7 @@ void user_trace_get_snapshot(struct user_trace_snapshot *out)
     out->overwritten = overwritten;
     out->dropped_links = dropped_links;
     out->dropped_events = dropped_events;
+    out->csp_unattributed_short = csp_unattributed_short;
     out->count = count;
     for (i = 0; i < count; ++i) {
         size_t index = (next_index + USER_TRACE_CAPACITY - count + i)
@@ -327,4 +413,43 @@ void user_trace_get_snapshot(struct user_trace_snapshot *out)
         out->events[i] = events[index];
     }
     pthread_mutex_unlock(&trace_lock);
+}
+
+/* A summary reports observations, not causation. Ring loss is session-wide,
+ * so conservatively mark the summary incomplete whenever any loss occurred. */
+void user_trace_summarize(const struct user_trace_snapshot *snap,
+                          struct user_trace_summary *out)
+{
+    size_t i, n;
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    out->received = out->client_result = out->last_ecm_failure = -1;
+    out->last_source_reply = out->last_source_rejection = -1;
+    out->last_cache_lookup = out->last_cache_policy = -1;
+    if (!snap) { out->incomplete = 1; return; }
+    n = snap->count <= USER_TRACE_CAPACITY ? snap->count : USER_TRACE_CAPACITY;
+    out->incomplete = snap->count > USER_TRACE_CAPACITY || snap->overwritten ||
+                      snap->dropped_links || snap->dropped_events;
+    for (i = 0; i < n; ++i) {
+        const struct user_trace_event *e = &snap->events[i];
+        if (e->type == USER_TRACE_RECEIVED && e->attempt && e->session == snap->session) {
+            out->attempt = e->attempt;
+            out->received = (int)i;
+        }
+    }
+    if (out->received < 0) return;
+    for (i = (size_t)out->received + 1; i < n; ++i) {
+        const struct user_trace_event *e = &snap->events[i];
+        if (e->session != snap->session || e->attempt != out->attempt || e->shared == 2) continue;
+        if (!e->shared && (e->type == USER_TRACE_DELIVERED || e->type == USER_TRACE_SEND_FAILED ||
+                           e->type == USER_TRACE_DENIED || e->type == USER_TRACE_FAILED))
+            out->client_result = (int)i;
+        if (e->shared == 1 && e->type == USER_TRACE_FAILED) out->last_ecm_failure = (int)i;
+        if (e->type == USER_TRACE_SOURCE_REPLY) out->last_source_reply = (int)i;
+        if (e->type == USER_TRACE_REJECTED) out->last_source_rejection = (int)i;
+        if (e->type == USER_TRACE_CACHE && !strcmp(e->detail, "cache lookup invoked; pipe delivery and result not confirmed"))
+            out->last_cache_lookup = (int)i;
+        if (e->type == USER_TRACE_CACHE && !strncmp(e->detail, "cache wait policy:", 18))
+            out->last_cache_policy = (int)i;
+    }
 }

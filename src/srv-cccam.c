@@ -685,6 +685,7 @@ void cc_senddcw_cli(struct cc_client_data *cli)
 	//
 	cli->lastecm.caid = ecm->caid;
 	cli->lastecm.prov = ecm->provid;
+	cli->lastecm.provider_known = ecm->provider_known;
 	cli->lastecm.sid = ecm->sid;
 	cli->lastecm.hash = ecm->hash;
 	cli->lastecm.tag = ecm->ecm[0];
@@ -711,7 +712,7 @@ void cc_senddcw_cli(struct cc_client_data *cli)
 			cc_disconnect_cli( cli );
 			return;
 		}
-		if (ecm->trace_instance) user_trace_client_result(cli->id, ecm->trace_instance, cli->ecm.hash, USER_TRACE_DELIVERED, ecm->dcwsrctype, ecm->dcwsrcid, ticks-cli->ecm.recvtime, "CW response sent; picture not verified");
+		if (ecm->trace_instance) user_trace_client_cw(cli->id, ecm->trace_instance, cli->ecm.hash, ecm->dcwsrctype, ecm->dcwsrcid, ticks-cli->ecm.recvtime, "CW response sent; picture not verified", ecm->cw);
 		cc_encrypt(&cli->sendblock, buf, 16); // additional crypto step
 		debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,ecm->cs->id)," => cw to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->ecm.recvtime);
 	}
@@ -886,7 +887,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			pthread_mutex_lock(&prg.lockecm);
 
 			// Search for ECM
-			ECM_DATA *ecm = search_ecmdata_any(cs, data,  len-17, sid, caid);
+			ECM_DATA *ecm = search_ecmdata_any(cs, data,  len-17, sid, caid, provid, 1);
 			/* TASK R31 (D82) -- receiver attestation tap, mirroring
 			 * srv-newcamd's: this client's too-soon re-ask after a
 			 * delivered key is one receiver's vote on the BYTES;
@@ -902,7 +903,8 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				&& ecm && (ecm->hash==cli->lastecm.hash) && (ecm->ecm[0]==cli->lastecm.tag) ) {
 				if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
 					attest_note( ATTEST_TAG_CCCAM | (uint32_t)cli->id, cli->lastecm.dcw,
-						cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+						cli->lastecm.caid, cli->lastecm.prov,
+						cli->lastecm.provider_known, cli->lastecm.sid,
 						cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
 			}
 			int isnew =  ( ecm==NULL );
@@ -974,9 +976,20 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				}
 			}
 			else {
-				cs->ecmaccepted++;
 				// Setup ECM Request for Server(s)
 				ecm = store_ecmdata(cs, data, len-17, sid, caid, provid);
+				if (!ecm) {
+					cs->ecmdenied++;
+					cli->ecmdenied++;
+					if (trace_attempt) {
+						user_trace_add(trace_session, trace_attempt, USER_TRACE_FAILED, trace_hash, 0, 0, 0, "ECM allocation failed; request not queued");
+						user_trace_unbind_shared(trace_session, trace_attempt);
+					}
+					if (!cc_msg_send(cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL)) cc_disconnect_cli(cli);
+					pthread_mutex_unlock(&prg.lockecm);
+					break;
+				}
+				cs->ecmaccepted++;
 				if (trace_attempt) {
 					ecm->trace_instance = user_trace_next_instance();
 					if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
@@ -997,7 +1010,16 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 					ecm->waitcache = 1;
 					ecm->dcwstatus = STAT_DCW_WAITCACHE;
 					ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
+					if (ecm->trace_instance) {
+						char detail[128];
+						snprintf(detail, sizeof(detail), "cache wait policy: initial schedule=%u ms; static=%s; may end early or be rescheduled",
+						         (unsigned)cs->option.cachetimeout, cs->option.cachestatic ? "YES" : "NO");
+						user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE, 0, 0,
+						                        GetTickCount()-ecm->recvtime, detail);
+					}
 					pipe_cache_find(ecm, cs);
+					if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+					    0, 0, GetTickCount()-ecm->recvtime, "cache lookup invoked; pipe delivery and result not confirmed");
 				}
 				else ecm->checktime = 1; // Check NOW
 				pipe_wakeup( prg.pipe.ecm[1] );
@@ -1026,6 +1048,8 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			memcpy( cw, buf+44, 16);
 			if (dcw_hard_reject(cw)) break; /* TASK 3.15: profile gate is cache_setdcw */
 			struct cache_data cacheex;
+			memset(&cacheex, 0, sizeof(cacheex));
+			cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 			cacheex.caid = (buf[4]<<8) | buf[5];
 			cacheex.provid = (buf[6]<<24) | (buf[7]<<16) | (buf[8]<<8) | buf[9];
 			cacheex.sid = (buf[14]<<8) | buf[15];
@@ -1062,20 +1086,22 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			 * GR3 allows hard action on a genuine reuse proof, but only once the
 			 * detector has been checked against real traffic.
 			 */
-			if ( cwreuse_offer( &cwreuse_tab, cw, cacheex.ecmd5, 1,
-					cacheex.caid, cacheex.sid, cacheex.provid, GetTickCount() ) == CWREUSE_PROOF ) {
+			if ( cwreuse_offer_scoped( &cwreuse_tab, cw, cacheex.ecmd5, 1,
+					cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known,
+					GetTickCount() ) == CWREUSE_PROOF ) {
 				cwreuse_proofs++;
 				/* TASK 2.6: the convicted key itself goes into negative memory,
 				 * so no other source and no fresh entry can ever serve it. */
-				cwn_note( DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id, cw, cacheex.caid, cacheex.provid, cacheex.sid, GetTickCount() );
+				cwn_note( DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id, cw, cacheex.caid, cacheex.provid, cacheex.provider_known, cacheex.sid, GetTickCount() );
 				/*
 				 * TASK 1.4 — a definitive proof scores against the source that
 				 * supplied the key, at GR4 granularity. The srcid keeps its PEER_*
 				 * origin flags, because a CSP peer and a cache-exchange client with
 				 * the same id are different sources and must not share a score.
 				 */
-				trust_record_lk( &trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id,
-					cacheex.caid, cacheex.provid, cacheex.sid, GetTickCount() );
+				trust_record_lk_scoped( &trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id,
+					cacheex.caid, cacheex.provid, cacheex.provider_known,
+					cacheex.sid, GetTickCount() );
 				/* TASK 2.8: the same proof, summed one level coarser. */
 				trustagg_note_lk( TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id,
 				                  cacheex.caid, GetTickCount() );
@@ -1097,10 +1123,11 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				 * job, and a false positive that kills a good card is worse than
 				 * the original black screen (GR3).
 				 */
-				if ( cache_purge_mark( &purge_tab, DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id,
-						cacheex.caid, cacheex.sid, cacheex.provid, GetTickCount() ) ) {
-					int npurged = cache_purge_sweep( &purge_tab, DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id,
-						cacheex.caid, cacheex.sid, cacheex.provid, DCW_ERROR );
+				if ( cache_purge_mark_scoped( &purge_tab, DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id,
+						cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known,
+						GetTickCount() ) ) {
+					int npurged = cache_purge_sweep_scoped( &purge_tab, DCW_SOURCE_CACHE, PEER_CCCAM_CLIENT | cli->id,
+						cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known, DCW_ERROR );
 					/* npurged can be 0: the entry may already be gone, or it may have
 					 * been supplied first by a different peer (cwdata->peerid records
 					 * the FIRST reporter only). Logged either way -- GR8. */

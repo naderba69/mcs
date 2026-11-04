@@ -465,7 +465,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 					pthread_mutex_lock(&prg.lockecm); //###
 
 					// Search for ECM
-					ECM_DATA *ecm = search_ecmdata_any(cs, data,  len, clicd.sid, clicd.caid); // dont get failed ecm request from cache
+					ECM_DATA *ecm = search_ecmdata_any(cs, data,  len, clicd.sid, clicd.caid, clicd.provid, 1); // dont get failed ecm request from cache
 					int isnew =  ( ecm==NULL );
 
 					/*
@@ -586,7 +586,8 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						if (rcls==RETRY_HARD)
 							led_proof = ledger_note_failure(
 								ecm?ecm->ecmd5:0, cli->lastecm.hash,
-								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+								cli->lastecm.caid, cli->lastecm.prov,
+								cli->lastecm.provider_known, cli->lastecm.sid,
 								cli->lastecm.dcw,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks);
 #endif
@@ -597,26 +598,29 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 							 * count it twice and decay the score as if the source
 							 * had failed twice.
 							 */
-							trust_record_lk( &trust_tab, TRUST_EV_PROOF,
+							trust_record_lk_scoped( &trust_tab, TRUST_EV_PROOF,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
-								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid, ticks );
+								cli->lastecm.caid, cli->lastecm.prov,
+								cli->lastecm.provider_known, cli->lastecm.sid, ticks );
 							/* TASK 2.8: the same event, one level coarser. */
 							trustagg_note_lk( TRUST_EV_PROOF,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
 								cli->lastecm.caid, ticks );
 						}
 						else if (rcls==RETRY_HARD || rcls==RETRY_SOFT) {
-							trust_record_lk( &trust_tab, TRUST_EV_SOFT,
+							trust_record_lk_scoped( &trust_tab, TRUST_EV_SOFT,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
-								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid, ticks );
+								cli->lastecm.caid, cli->lastecm.prov,
+								cli->lastecm.provider_known, cli->lastecm.sid, ticks );
 							trustagg_note_lk( TRUST_EV_SOFT,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
 								cli->lastecm.caid, ticks );
 						}
 						else if (cli->lastecm.status && cli->lastecm.dcwsrctype!=DCW_SOURCE_NONE) {
-							trust_record_lk( &trust_tab, TRUST_EV_GOOD,
+							trust_record_lk_scoped( &trust_tab, TRUST_EV_GOOD,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
-								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid, ticks );
+								cli->lastecm.caid, cli->lastecm.prov,
+								cli->lastecm.provider_known, cli->lastecm.sid, ticks );
 							/* TASK 2.8: GOOD is how a suppressed peer wins its
 							 * requests back -- this tap is the recovery path. */
 							trustagg_note_lk( TRUST_EV_GOOD,
@@ -641,7 +645,8 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						 */
 						if (rcls==RETRY_HARD && !led_proof)
 							attest_note( ATTEST_TAG_NEWCAMD | (uint32_t)cli->id, cli->lastecm.dcw,
-								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+								cli->lastecm.caid, cli->lastecm.prov,
+								cli->lastecm.provider_known, cli->lastecm.sid,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
 
 						/*
@@ -743,9 +748,10 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 							 * same reasoning TASK 1.5 used for the mark side,
 							 * where the sweep is the only cache-touching part.
 							 */
-							if ( cache_purge_unmark( &purge_tab,
+							if ( cache_purge_unmark_scoped( &purge_tab,
 									cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
-									cli->lastecm.caid, cli->lastecm.sid, cli->lastecm.prov ) ) {
+									cli->lastecm.caid, cli->lastecm.sid,
+									cli->lastecm.prov, cli->lastecm.provider_known ) ) {
 								debugf(DBG_ERROR," !!! CACHE PURGE RELEASE: ch %04x:%06x:%04x mark on source %d/%d lifted, it just delivered a key this client accepted\n",
 									cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
 									(int)cli->lastecm.dcwsrctype, (int)cli->lastecm.dcwsrcid);
@@ -805,9 +811,17 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						}
 					}
 					else {
-						cs->ecmaccepted++;
 						// Setup ECM Request for Server(s)
 						ecm = store_ecmdata(cs, data, len, clicd.sid, clicd.caid, clicd.provid);
+						if (!ecm) {
+							cs->ecmdenied++;
+							cli->ecmdenied++;
+							uint8_t failure[3] = { data[0], 0, 0 };
+							if (!cs_message_send(cli->handle, &clicd, failure, sizeof(failure), cli->sessionkey)) cs_disconnect_cli(cli);
+							pthread_mutex_unlock(&prg.lockecm);
+							break;
+						}
+						cs->ecmaccepted++;
 						cs_store_ecmclient(cs, ecm, cli, clicd.msgid);
 						debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <- ecm from client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,clicd.caid,clicd.provid,clicd.sid,ecm->hash);
 						cli->ecm.busy=1;
@@ -875,7 +889,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						break;
 					}
 					// Check for DCW
-					if (!acceptDCW_profile_ca(&buf[3], ecm->cs, ecm->caid)) {
+					if (!acceptDCW_profile_ecm(&buf[3], ecm->cs, ecm->caid, ecm->provid, ecm->sid)) {
 						debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <!= wrong cw from Client '%s' ch %04x:%06x:%04x\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->lastecmtime);
 						pthread_mutex_unlock(&prg.lockecm);
 						break;
@@ -967,6 +981,7 @@ void cs_senddcw_cli(struct cs_client_data *cli)
 
 	cli->lastecm.caid = ecm->caid;
 	cli->lastecm.prov = ecm->provid;
+	cli->lastecm.provider_known = ecm->provider_known;
 	cli->lastecm.sid = ecm->sid;
 	/*
 	 * TASK 1.2 — `lastecm.hash` existed in the struct (config.h:346) but was

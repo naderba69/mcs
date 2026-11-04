@@ -46,6 +46,14 @@ char *src2string(int srctype, int srcid, char *ret);
 // ECM
 ////////////////////////////////////////////////////////////////////////////////
 
-struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ecmlen, unsigned short sid, unsigned short caid, unsigned int provid);
+/* Returns NULL on allocation failure without modifying ECM rings/counters;
+ * protocol handlers must send a failure response instead of dereferencing it. */
+struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ecmlen,
+                                  unsigned short sid, unsigned short caid, unsigned int provid);
+/* Presence-aware variant for protocols where provider may be absent; the flag
+ * distinguishes explicit numeric zero from an unknown provider. */
+struct ecm_request *store_ecmdata_known(struct cardserver_data *cs,uint8_t *ecm,int ecmlen,
+                                        unsigned short sid, unsigned short caid,
+                                        unsigned int provid, int provider_known);
 
 

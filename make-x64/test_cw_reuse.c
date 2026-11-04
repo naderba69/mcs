@@ -59,17 +59,33 @@ int main(void)
 	check("same CW, different ECM, SAME SID -> NONE (GR6, multi-CHID)",
 		cwreuse_offer(&t, cw_a, md5_2, 1, CAID, 100, PROV, 2000), CWREUSE_NONE);
 
-	/* Same content under a second CAID. */
+	/* A CAID owns its provider namespace; even a different SID in another
+	 * CAID is not enough to convict this source. */
 	cwreuse_reset(&t);
 	cwreuse_offer(&t, cw_a, md5_1, 1, 0x0900, 100, PROV, 1000);
-	check("same CW, different CAID, same SID -> NONE (benign)",
-		cwreuse_offer(&t, cw_a, md5_2, 1, 0x1884, 100, PROV, 2000), CWREUSE_NONE);
+	check("same CW across CAIDs and SIDs -> NONE (separate identity)",
+		cwreuse_offer(&t, cw_a, md5_2, 1, 0x1884, 200, PROV, 2000), CWREUSE_NONE);
 
-	/* Same SID under a second provider. */
+	/* Different providers within the same CAID are separate identities too. */
 	cwreuse_reset(&t);
 	cwreuse_offer(&t, cw_a, md5_1, 1, CAID, 100, 0x000001, 1000);
-	check("same CW, different PROVID, same SID -> NONE",
-		cwreuse_offer(&t, cw_a, md5_2, 1, CAID, 100, 0x000002, 2000), CWREUSE_NONE);
+	check("same CW across providers and SIDs -> NONE",
+		cwreuse_offer(&t, cw_a, md5_2, 1, CAID, 200, 0x000002, 2000), CWREUSE_NONE);
+
+	/* Known provider zero is distinct from an absent provider. The latter is
+	 * retained as its own observation and cannot trigger the known-zero proof. */
+	cwreuse_reset(&t);
+	check("first explicit-zero sighting -> NONE",
+		cwreuse_offer_scoped(&t, cw_a, md5_1, 1, CAID, 100, 0, 1, 1000), CWREUSE_NONE);
+	check("unknown-zero sighting does not match explicit zero",
+		cwreuse_offer_scoped(&t, cw_a, md5_2, 1, CAID, 200, 0, 0, 2000), CWREUSE_NONE);
+	check("explicit zero still proves within its own scope",
+		cwreuse_offer_scoped(&t, cw_a, md5_2, 1, CAID, 200, 0, 1, 2100), CWREUSE_PROOF);
+	cwreuse_reset(&t);
+	check("first unknown-provider sighting -> NONE",
+		cwreuse_offer_scoped(&t, cw_a, md5_1, 1, CAID, 100, 0, 0, 1000), CWREUSE_NONE);
+	check("same unknown scope, different ECM and SID -> PROOF",
+		cwreuse_offer_scoped(&t, cw_a, md5_2, 1, CAID, 200, 0, 0, 2000), CWREUSE_PROOF);
 
 	/* Different CW entirely. */
 	cwreuse_reset(&t);
@@ -142,17 +158,17 @@ int main(void)
 	check("table depth is the documented 64", CWREUSE_TABLE_SIZE, 64);
 	/*
 	 * Pinned so a future field addition cannot silently double the footprint.
-	 * The fields are 16+16+4+4+2+2+1 = 45 bytes. The real server is built with
-	 * -fpack-struct, so it gets exactly 45 and a 2880-byte table; an unpacked
-	 * build pads to 48 and 3072. This test is compiled the same way the server
+	 * The fields are 16+16+4+1+4+2+2+1 = 46 bytes packed. The real server is
+	 * built with -fpack-struct, so it gets exactly 46 and a 2944-byte table; an
+	 * ordinarily aligned build pads to 52 and 3328. This test is compiled the same way the server
 	 * is, so it pins the packed figures -- and the assertion below is written
 	 * against sizeof rather than a remembered constant, so a future flag change
 	 * fails here instead of silently diverging from the binary.
 	 */
-	check("entry has no hidden padding beyond the fields (45 packed / 48 unpacked)",
-	      (int)sizeof(struct cwreuse_entry), 45);
-	check("whole table is 2880 bytes of .bss as the server allocates it",
-	      (int)sizeof(struct cwreuse_table), 2880);
+	check("entry carries exact provider presence (46 packed / 52 unpacked)",
+	      (int)sizeof(struct cwreuse_entry), 46);
+	check("whole scoped table is 2944 bytes of .bss as the server allocates it",
+	      (int)sizeof(struct cwreuse_table), 2944);
 	/* the reuse table is a bare array -- unlike purge_table it has no counters */
 	check("table is exactly slots * entry, no trailing counter or padding",
 	      (int)sizeof(struct cwreuse_table),

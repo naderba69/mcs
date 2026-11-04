@@ -53,4 +53,9 @@ extern int dcw_filter_cycle;
  */
 extern int dcw_filter_pattern;
 
+/* Runtime builds use the config-reload lock for a coherent snapshot. The
+ * standalone DCW unit tests deliberately read their test-owned gate values
+ * directly and do not link config.c. */
+void dcw_filter_globals_snapshot(int *checksum, int *repeat, int *cycle, int *pattern);
+
 #endif /* MCS_DCWFILTER_H */

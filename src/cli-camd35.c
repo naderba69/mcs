@@ -96,16 +96,15 @@ void camd35_srv_recvmsg(struct server_data *srv)
 				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), wrong length!!!\n",srv->host->name,srv->port);
 				break;
 			}
-			// Check for DCW
-			if (!acceptDCW_profile_ca(buf+24, srv->ecm.request ? srv->ecm.request->cs : NULL, srv->ecm.request ? srv->ecm.request->caid : 0)) {
-				srv->ecmerrdcw++;
-				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), bad dcw!!!\n",srv->host->name,srv->port);
-				break;
-			}
-			// Checl Stored ECM
+			// Check the response against the exact pending ECM profile/channel.
 			ECM_DATA *ecm = srv->ecm.request;
 			if (!ecm) {
 				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), ecm not found!!!\n",srv->host->name,srv->port);
+				break;
+			}
+			if (!acceptDCW_profile_ecm(buf+24, ecm->cs, ecm->caid, ecm->provid, ecm->sid)) {
+				srv->ecmerrdcw++;
+				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), bad dcw!!!\n",srv->host->name,srv->port);
 				break;
 			}
 			//
@@ -214,6 +213,8 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			if (dcw_hard_reject(cw)) break; /* TASK 3.15: profile gate is cache_setdcw */
 			//srv->cacheex.totalrep++;
 			struct cache_data cacheex;
+			memset(&cacheex, 0, sizeof(cacheex));
+			cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 			cacheex.sid = (buf[12]<<8)|buf[13];
 			cacheex.caid = (buf[14]<<8)|buf[15];
 			cacheex.provid = (buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];
@@ -250,20 +251,22 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			 * GR3 allows hard action on a genuine reuse proof, but only once the
 			 * detector has been checked against real traffic.
 			 */
-			if ( cwreuse_offer( &cwreuse_tab, cw, cacheex.ecmd5, 1,
-					cacheex.caid, cacheex.sid, cacheex.provid, GetTickCount() ) == CWREUSE_PROOF ) {
+			if ( cwreuse_offer_scoped( &cwreuse_tab, cw, cacheex.ecmd5, 1,
+					cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known,
+					GetTickCount() ) == CWREUSE_PROOF ) {
 				cwreuse_proofs++;
 				/* TASK 2.6: the convicted key itself goes into negative memory,
 				 * so no other source and no fresh entry can ever serve it. */
-				cwn_note( DCW_SOURCE_CACHE, PEER_CACHEEX_SERVER | srv->id, cw, cacheex.caid, cacheex.provid, cacheex.sid, GetTickCount() );
+				cwn_note( DCW_SOURCE_CACHE, PEER_CACHEEX_SERVER | srv->id, cw, cacheex.caid, cacheex.provid, cacheex.provider_known, cacheex.sid, GetTickCount() );
 				/*
 				 * TASK 1.4 — a definitive proof scores against the source that
 				 * supplied the key, at GR4 granularity. The srcid keeps its PEER_*
 				 * origin flags, because a CSP peer and a cache-exchange client with
 				 * the same id are different sources and must not share a score.
 				 */
-				trust_record_lk( &trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CACHEEX_SERVER | srv->id,
-					cacheex.caid, cacheex.provid, cacheex.sid, GetTickCount() );
+				trust_record_lk_scoped( &trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CACHEEX_SERVER | srv->id,
+					cacheex.caid, cacheex.provid, cacheex.provider_known,
+					cacheex.sid, GetTickCount() );
 				/* TASK 2.8: the same proof, summed one level coarser. */
 				trustagg_note_lk( TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CACHEEX_SERVER | srv->id,
 				                  cacheex.caid, GetTickCount() );
@@ -285,10 +288,11 @@ void camd35_srv_recvmsg(struct server_data *srv)
 				 * job, and a false positive that kills a good card is worse than
 				 * the original black screen (GR3).
 				 */
-				if ( cache_purge_mark( &purge_tab, DCW_SOURCE_CACHE, PEER_CACHEEX_SERVER | srv->id,
-						cacheex.caid, cacheex.sid, cacheex.provid, GetTickCount() ) ) {
-					int npurged = cache_purge_sweep( &purge_tab, DCW_SOURCE_CACHE, PEER_CACHEEX_SERVER | srv->id,
-						cacheex.caid, cacheex.sid, cacheex.provid, DCW_ERROR );
+				if ( cache_purge_mark_scoped( &purge_tab, DCW_SOURCE_CACHE, PEER_CACHEEX_SERVER | srv->id,
+						cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known,
+						GetTickCount() ) ) {
+					int npurged = cache_purge_sweep_scoped( &purge_tab, DCW_SOURCE_CACHE, PEER_CACHEEX_SERVER | srv->id,
+						cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known, DCW_ERROR );
 					/* npurged can be 0: the entry may already be gone, or it may have
 					 * been supplied first by a different peer (cwdata->peerid records
 					 * the FIRST reporter only). Logged either way -- GR8. */

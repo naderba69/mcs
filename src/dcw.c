@@ -28,17 +28,19 @@
  * not: every key is dropped, the profile shows a black screen, and the server
  * looks healthy.
  *
- * Both default to 1, so a config file written for r82a behaves identically.
- * They are plain ints rather than `cfg` fields because dcw.c is a standalone
- * translation unit that deliberately does not include config.h — which keeps
- * it unit-testable without dragging the whole server in.
+ * Checksum and repeat both default to 1, so a config file written for r82a
+ * behaves identically. Cycle and pattern use the defaults staged by
+ * init_config(). These remain plain ints rather than `cfg` fields because
+ * dcw.c deliberately does not include config.h. Runtime wrappers obtain a
+ * coherent snapshot through dcw_filter_globals_snapshot(); standalone tests either use their
+ * own gate storage or compile with MCS_SELFTEST and read it directly.
  *
- * A test binary defines MCS_DCWFILTER_NOGLOBALS and supplies its own copy.
+ * A test binary defines MCS_DCWFILTER_NOGLOBALS when it supplies its own copy.
  */
 #ifndef MCS_DCWFILTER_NOGLOBALS
 int dcw_filter_checksum = 1;
 int dcw_filter_repeat   = 1;
-int dcw_filter_cycle    = 1; /* TASK BS (2026-10-26): cycle gate ARMED by default to prevent black screens */
+int dcw_filter_cycle    = 0; /* TASK R2 (D56): matches init_config() default; cycle gate is off */
 int dcw_filter_pattern  = 0; /* TASK R28 (D79): the fake-shape gate starts disarmed */
 #endif
 
@@ -231,10 +233,13 @@ int dcw_pattern_fake(uint8_t *data)
 }
 
 static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
-		     int repeat_mode, int ca_modern, int pattern_mode)
+		     int repeat_mode, int ca_modern, int pattern_mode,
+                     int global_checksum, int global_repeat, int global_pattern,
+                     enum dcw_validation_reason *reason)
 {
-	int checksum = dcw_filter_checksum;
-	int repeat = dcw_filter_repeat;
+	int checksum = global_checksum;
+	int repeat = global_repeat;
+        if (reason) *reason = DCW_VALID;
 
 	/* TASK 3.15 — a profile override replaces the global gate. Any
 	 * other value, including 0, inherits. Null and the BAD-DCW list
@@ -258,18 +263,21 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 		checksum = 0;
 
 	if ( checksum && !checksumDCW(data)) {
+		if (reason) *reason = DCW_INVALID_CHECKSUM;
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_CHECKSUM);
 #endif
 		return 0;
 	}
 	if ( isnullDCW(data) ) {
+		if (reason) *reason = DCW_INVALID_NULL;
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_NULL);
 #endif
 		return 0;
 	}
 	if ( repeat && isbadDCW(data) ) {
+		if (reason) *reason = DCW_INVALID_REPEAT;
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_REPEAT);
 #endif
@@ -281,6 +289,7 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 	 * hit. memcmp, not dcwcmp16: this TU does not include ecmdata.h.
 	 */
 	if ( dcw_on_badlist(data) ) {
+		if (reason) *reason = DCW_INVALID_BADLIST;
 #ifdef MCS_DCWSTATS
 		DCWSTATS_REJECT(DCW_REJ_BADLIST);
 #endif
@@ -295,10 +304,11 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 	 * bit-for-bit the pre-R28 one.
 	 */
 	{
-		int pattern = dcw_filter_pattern;
+		int pattern = global_pattern;
 		if (pattern_mode == DCWFILTER_ON) pattern = 1;
 		else if (pattern_mode == DCWFILTER_OFF) pattern = 0;
 		if (pattern && dcw_pattern_fake(data)) {
+		if (reason) *reason = DCW_INVALID_PATTERN;
 #ifdef MCS_DCWSTATS
 			DCWSTATS_REJECT(DCW_REJ_PATTERN);
 #endif
@@ -314,19 +324,65 @@ static int acceptDCW_impl(uint8_t *data, uint16_t caid, int checksum_mode,
 int acceptDCW_for_ca(uint8_t *data, uint16_t caid, int checksum_mode,
 		     int repeat_mode, int ca_modern)
 {
-	return acceptDCW_impl(data, caid, checksum_mode, repeat_mode,
-			      ca_modern, DCWFILTER_INHERIT);
+	int global_checksum, global_repeat, global_pattern;
+#if defined(MCS_SELFTEST) || defined(MCS_DCWFILTER_NOGLOBALS)
+	/* Standalone tests own these gates and never reload them concurrently. */
+	global_checksum = dcw_filter_checksum;
+	global_repeat = dcw_filter_repeat;
+	global_pattern = dcw_filter_pattern;
+#else
+	dcw_filter_globals_snapshot(&global_checksum, &global_repeat, NULL, &global_pattern);
+#endif
+	return acceptDCW_impl(data, caid, checksum_mode, repeat_mode, ca_modern,
+			      DCWFILTER_INHERIT, global_checksum,
+			      global_repeat, global_pattern, NULL);
 }
 
 /*
  * TASK R28 (D79) — acceptDCW_for_ca plus the per-profile FAKE-shape
  * gate (`DCWFILTER PATTERN:` tristate, see dcwfilter.h).
  */
+int acceptDCW_pattern_snapshot(uint8_t *data, uint16_t caid, int checksum_mode,
+			       int repeat_mode, int ca_modern, int pattern_mode,
+			       int global_checksum, int global_repeat, int global_pattern,
+			       enum dcw_validation_reason *reason)
+{
+	return acceptDCW_impl(data, caid, checksum_mode, repeat_mode, ca_modern,
+			      pattern_mode, global_checksum, global_repeat,
+			      global_pattern, reason);
+}
+
 int acceptDCW_pattern(uint8_t *data, uint16_t caid, int checksum_mode,
 		      int repeat_mode, int ca_modern, int pattern_mode)
 {
-	return acceptDCW_impl(data, caid, checksum_mode, repeat_mode,
-			      ca_modern, pattern_mode);
+	int global_checksum, global_repeat, global_pattern;
+#if defined(MCS_SELFTEST) || defined(MCS_DCWFILTER_NOGLOBALS)
+	global_checksum = dcw_filter_checksum;
+	global_repeat = dcw_filter_repeat;
+	global_pattern = dcw_filter_pattern;
+#else
+	dcw_filter_globals_snapshot(&global_checksum, &global_repeat, NULL, &global_pattern);
+#endif
+	return acceptDCW_pattern_snapshot(data, caid, checksum_mode, repeat_mode,
+				  ca_modern, pattern_mode, global_checksum,
+				  global_repeat, global_pattern, NULL);
+}
+
+int acceptDCW_pattern_reason(uint8_t *data, uint16_t caid, int checksum_mode,
+                             int repeat_mode, int ca_modern, int pattern_mode,
+                             enum dcw_validation_reason *reason)
+{
+    int global_checksum, global_repeat, global_pattern;
+#if defined(MCS_SELFTEST) || defined(MCS_DCWFILTER_NOGLOBALS)
+    global_checksum = dcw_filter_checksum;
+    global_repeat = dcw_filter_repeat;
+    global_pattern = dcw_filter_pattern;
+#else
+    dcw_filter_globals_snapshot(&global_checksum, &global_repeat, NULL, &global_pattern);
+#endif
+    return acceptDCW_pattern_snapshot(data, caid, checksum_mode, repeat_mode,
+                                      ca_modern, pattern_mode, global_checksum,
+                                      global_repeat, global_pattern, reason);
 }
 
 int acceptDCW_for(uint8_t *data, int checksum_mode, int repeat_mode)

@@ -324,6 +324,7 @@ static int run_jobs(const char *host, int port, const char *user,
 				printf("cxpeer: [FAIL] bad cw hex\n"); rc = 1; continue;
 			}
 			if (bad[0] == 'b') { cw[15] = (uint8_t)(cw[15] + 1); } /* checksumDCW breaks */
+			ecm_build(u16sid, ecm);
 			h = ecm_hash(u16sid);
 			memset(payload, 0, sizeof(payload));
 			payload[0] = u16caid >> 8;  payload[1] = u16caid & 0xff;

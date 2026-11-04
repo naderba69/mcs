@@ -10,7 +10,12 @@
  *   TYPE_REPLY    reads buf[12]     -- no length check before the integrity test
  *   TYPE_PINGREQ  reads buf[11..12] -- no length check at all
  *   TYPE_PINGRPL  reads buf[4..5]   -- no length check at all
- *   TYPE_HELLO_ACK reads buf[4..8]  -- no length check at all
+ *   TYPE_HELLO_ACK reads buf[4..8] -- no length check at all
+ *
+ * A second PINGREQ issue was in its optional TLV extension: the loops checked
+ * only that a tag byte remained, then read the following length byte. A
+ * datagram can end after the tag. That read stays inside the 2048-byte local
+ * buffer, but is beyond the received datagram and may observe stale stack data.
  *
  * `received` can be as low as 2 (the only global floor is (received<2)), and
  * everything past it in the 2048-byte stack buffer is UNINITIALISED MEMORY.
@@ -70,6 +75,16 @@ static inline int cg_minlen(uint8_t type)
 	case 0x10: return 9;    /* TYPE_HELLO_ACK -- reads buf[4..8]             */
 	default:   return 2;    /* everything else: the stock global floor      */
 	}
+}
+
+/* A TYPE_PINGREQ extension is a TLV: tag, length, then payload. Check the
+ * datagram boundary before reading the length byte, then validate the complete
+ * payload using subtraction so a partial TLV never reads beyond received. */
+static inline int cg_tlv_is_complete(const uint8_t *buf, int received, int index)
+{
+	if (!buf || received < 0 || index < 0 || index > received) return 0;
+	if (received - index < 2) return 0;
+	return (int)buf[index + 1] <= received - index - 2;
 }
 
 /* Names for the line; unknown types are printed numerically by the caller. */

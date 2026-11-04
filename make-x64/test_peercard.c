@@ -131,32 +131,39 @@ int main(void)
 	}
 	free(cards);
 
-	/* High CAIDs: agreement only. The signed comparison is not changed. */
+	/* The wire card list is sorted unsigned; test both sides of 0x8000. */
 	{
-		uint32_t hi[8];
-		uint16_t samples[4];
-		int s, k;
-		hi[0] = 0x00010000u;
-		hi[1] = 0x18010000u;
-		hi[2] = 0x7FFF0001u;
-		hi[3] = 0x80000000u;
-		hi[4] = 0x80010002u;
-		hi[5] = 0xFFFF0000u;
-		hi[6] = 0xFFFF0003u;
-		hi[7] = 0xFFFFFFFFu;
-		samples[0] = 0x0001;
-		samples[1] = 0x1801;
-		samples[2] = 0x8000;
-		samples[3] = 0xFFFF;
-		disagree = 0;
-		for (s = 0; s < 4; s++) {
-			for (k = 0; k < 4; k++) {
-				if (peer_cards_find(hi, 8, samples[s], (uint32_t)k)
-				    != r82a_find(hi, 8, samples[s], (uint32_t)k))
-					disagree++;
-			}
+		uint32_t hi[8] = { 0x00010000u, 0x18010000u, 0x7FFF0001u,
+		                    0x80000000u, 0x80010002u, 0xFFFF0000u,
+		                    0xFFFF0003u, 0xFFFFFFFFu };
+		check("mixed list lower CAID", peer_cards_find(hi, 8, 0x1801, 0), 1);
+		check("mixed list highest signed-positive", peer_cards_find(hi, 8, 0x7fff, 1), 1);
+		check("mixed list lowest high CAID", peer_cards_find(hi, 8, 0x8000, 0), 1);
+		check("mixed list high CAID/provider", peer_cards_find(hi, 8, 0x8001, 2), 1);
+		check("mixed list FFFF provider zero", peer_cards_find(hi, 8, 0xffff, 0), 1);
+		check("mixed list all bits set", peer_cards_find(hi, 8, 0xffff, 0xffff), 1);
+		check("mixed list missing high CAID", peer_cards_find(hi, 8, 0xfffe, 0), 0);
+		check("mixed list missing high provider", peer_cards_find(hi, 8, 0x8001, 1), 0);
+	}
+
+	/* Full mixed-sign list on an unaligned address: compare every member and
+	 * a neighboring absent provider with the expected membership. */
+	{
+		unsigned char *raw = malloc(1024 * sizeof(uint32_t) + 1);
+		int misses = 0, false_hits = 0, i;
+		if (!raw) return 2;
+		for (i = 0; i < 1024; i++) {
+			uint32_t value = ((uint32_t)i << 22) | (uint32_t)i;
+			memcpy(raw + 1 + i * sizeof(value), &value, sizeof(value));
 		}
-		check("high-CAID answers still match r82a", disagree, 0);
+		for (i = 0; i < 1024; i++) {
+			uint32_t value = ((uint32_t)i << 22) | (uint32_t)i;
+			if (!peer_cards_find(raw + 1, 1024, value >> 16, value & 0xffff)) misses++;
+			if (peer_cards_find(raw + 1, 1024, value >> 16, (value & 0xffff) + 2048)) false_hits++;
+		}
+		check("unaligned full mixed list: all 1024 members", misses, 0);
+		check("unaligned full mixed list: 1024 misses", false_hits, 0);
+		free(raw);
 	}
 
 	/* The named linear scan: a full list with no zero, miss is 0,

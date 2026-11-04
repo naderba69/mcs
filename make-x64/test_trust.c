@@ -171,6 +171,27 @@ int main(void)
 	check("bare srcid 7 is a different identity",
 		trust_score(&t, SRCTYPE, 7, CAID, PROV, SID), -1);
 
+	/* Known-zero and unknown are separate fine-tier identities. */
+	trust_reset(&t);
+	trust_record_scoped(&t, TRUST_EV_PROOF, SRCTYPE, SRCID, CAID, 0, 0, SID, 1000);
+	trust_record_scoped(&t, TRUST_EV_PROOF, SRCTYPE, SRCID, CAID, 0, 0, SID, 2000);
+	check("unknown-zero proof lowers only the unknown-provider score",
+		trust_score_scoped(&t, SRCTYPE, SRCID, CAID, 0, 0, SID), TRUST_FLOOR);
+	check("known-zero does not inherit unknown-provider proof",
+		trust_score_scoped(&t, SRCTYPE, SRCID, CAID, 0, 1, SID), -1);
+	trust_record_scoped(&t, TRUST_EV_NONE, SRCTYPE, SRCID, CAID, 0, 1, SID, 3000);
+	check("known-zero creates an independent neutral entry",
+		trust_score_scoped(&t, SRCTYPE, SRCID, CAID, 0, 1, SID), TRUST_START);
+	check("creating known-zero leaves unknown evidence unchanged",
+		trust_score_scoped(&t, SRCTYPE, SRCID, CAID, 0, 0, SID), TRUST_FLOOR);
+	trust_reset(&t);
+	trust_record_scoped(&t, TRUST_EV_PROOF, SRCTYPE, SRCID, CAID, 0, 1, SID, 4000);
+	trust_record_scoped(&t, TRUST_EV_PROOF, SRCTYPE, SRCID, CAID, 0, 1, SID, 5000);
+	check("known-zero proof lowers only the known-zero score",
+		trust_score_scoped(&t, SRCTYPE, SRCID, CAID, 0, 1, SID), TRUST_FLOOR);
+	check("unknown does not inherit known-zero proof",
+		trust_score_scoped(&t, SRCTYPE, SRCID, CAID, 0, 0, SID), -1);
+
 	/* ---- proof and soft counters are kept, for Phase 2 ---- */
 	trust_reset(&t);
 	trust_record(&t, TRUST_EV_PROOF, SRCTYPE, SRCID, CAID, PROV, SID, 1000);
@@ -210,9 +231,9 @@ int main(void)
 	/* ---- the table is a fixed .bss object, nothing is malloc'd (GR9) ---- */
 	check("table depth", TRUST_TABLE_SIZE, 256);
 	/*
-	 * 36 bytes, not the 24 the header comment originally claimed: 4+4+2+2+4*5
-	 * rounds up to a 4-byte multiple. Pinned exactly so a field addition cannot
-	 * silently grow the footprint.
+	 * The explicit scope and byte-sized used flag occupy the former int used
+	 * slot without growing the 36-byte entry. Pinned so future fields cannot
+	 * silently increase the fixed .bss footprint.
 	 */
 	check("entry is 36 bytes", (int)sizeof(struct trust_entry), 36);
 	check("whole table is 9216 bytes of .bss", (int)sizeof(struct trust_table), 9216);

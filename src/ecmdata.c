@@ -57,6 +57,8 @@ extern struct config_data cfg;
 struct ecm_request *ecmdata = NULL;
 
 int ecmindex = 0;
+/* store_ecmdata is called with lockecm held; never reset on config reload. */
+static uint64_t ecm_lifetime_sequence;
 
 
 void init_ecmdata()
@@ -66,9 +68,10 @@ void init_ecmdata()
 
 uint32_t hashCode( uint8_t *buf, int count)
 {
-	int h = 0;
+	/* The protocol hash is modulo 2^32; signed overflow is undefined in C. */
+	uint32_t h = 0;
 	int i;
-    for (i = 0; i < count; i++) h = 31*h + buf[i];
+    for (i = 0; i < count; i++) h = 31u*h + buf[i];
     return h;
 }
 
@@ -80,16 +83,21 @@ uint8_t checkECMD5(uint8_t *ecmd5)
 	return 0;
 }
 
+int ecm_getprovid_known( uint8_t *ecm, int ecmlen, uint16_t caid, uint32_t *provid )
+{
+	if (provid) *provid = 0;
+	if (!provid) return 0;
+	/* The boolean result is important: zero is a possible extracted numeric
+	 * value, while false means the ECM did not expose a usable provider. */
+	return ca_ecm_provid(ecm, ecmlen, caid, provid);
+}
+
 uint32_t ecm_getprovid( uint8_t *ecm, int ecmlen, uint16_t caid )
 {
 	uint32_t provid = 0;
-	/* TASK R26 (D77): bounded registry extraction (casystem.h).
-	 * For well-formed ECMs of families 01/05/0D the result is the
-	 * r82a one; a short or malformed ECM now yields 0 instead of
-	 * being read past its end. Other families carry no provider
-	 * in the ECM (it is the card's), exactly as stock returned 0. */
-	if (ca_ecm_provid(ecm, ecmlen, caid, &provid)) return provid;
-	return 0;
+	/* Keep the legacy numeric API for callers that only need a value. */
+	ecm_getprovid_known(ecm, ecmlen, caid, &provid);
+	return provid;
 }
 
 uint16_t ecm_getchid( uint8_t *ecm, int ecmlen, uint16_t caid )
@@ -97,6 +105,27 @@ uint16_t ecm_getchid( uint8_t *ecm, int ecmlen, uint16_t caid )
 	/* TASK R26 (D77): bounded form of the r82a Irdeto rule. */
 	return ca_ecm_chid(ecm, ecmlen, caid);
 }
+
+/* Zero is a valid provider value as well as the legacy "not supplied" value.
+ * Compare presence separately; nonzero legacy values are necessarily known. */
+static int ecm_provider_scope_matches(uint32_t provid, int provider_known,
+                                      const struct ecm_request *req)
+{
+	int known = !!provider_known || provid != 0;
+	int req_known;
+	if (!req) return 0;
+	req_known = !!req->provider_known || req->provid != 0;
+	if (known != req_known) return 0;
+	return !known || provid == req->provid;
+}
+
+#ifdef CHECK_NEXTDCW
+static int ecm_same_provider_scope(const struct ecm_request *a,
+                                  const struct ecm_request *b)
+{
+	return a && ecm_provider_scope_matches(a->provid, a->provider_known, b);
+}
+#endif
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -173,7 +202,9 @@ void cs_delecmdata(struct cardserver_data *cs, struct ecm_request *old )
 
 int totalecm = 0;
 
-struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ecmlen, unsigned short sid, unsigned short caid, unsigned int provid)
+struct ecm_request *store_ecmdata_known(struct cardserver_data *cs,uint8_t *ecm,int ecmlen,
+                                         unsigned short sid, unsigned short caid,
+                                         unsigned int provid, int provider_known)
 {
 	struct ecm_request *new;
 	uint32_t ticks = GetTickCount();
@@ -181,8 +212,9 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 	if (!ecmdata) {
 		// nothing so add new
 		//debugf(0," first ecmdata\n");
-		totalecm++;
 		new = malloc( sizeof(struct ecm_request) );
+		if (!new) goto allocation_failed;
+		totalecm++;
 		memset( new, 0,  sizeof(struct ecm_request) );
 		new->next = NULL;
 		new->prev = NULL;
@@ -190,8 +222,9 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 	}
 	else if (!ecmdata->next) {
 		//debugf(0," second ecmdata\n");
-		totalecm++;
 		new = malloc( sizeof(struct ecm_request) );
+		if (!new) goto allocation_failed;
+		totalecm++;
 		memset( new, 0,  sizeof(struct ecm_request) );
 
 		new->prev = ecmdata;
@@ -214,9 +247,10 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 			ecmdata = new; // it becomes the current one			
 		}
 		else { // allocate new data
-			totalecm++;
-			//debugf(0," new ecmdata size = %d\n", totalecm);
+			//debugf(0," new ecmdata size = %d\n", totalecm+1);
 			new = malloc( sizeof(struct ecm_request) );
+			if (!new) goto allocation_failed;
+			totalecm++;
 			memset( new, 0,  sizeof(struct ecm_request) );
 			new->prev = ecmdata->prev;
 			new->next = ecmdata;
@@ -229,6 +263,8 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 		}
 	}
 	cs_addecmdata(cs, new);
+	/* Exhaustion is fail-closed for queued CWs rather than reusing an ID. */
+	new->lifetime_id = ecm_lifetime_sequence == UINT64_MAX ? 0 : ++ecm_lifetime_sequence;
 	//
 	memcpy( new->ecm, ecm, ecmlen);
 	new->cs = cs;
@@ -246,6 +282,7 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 	new->sid = sid;
 	new->caid = caid;
 	new->provid = provid;
+	new->provider_known = !!provider_known || provid != 0;
 //	new->id = ecmindex;
 	memset( &new->server, 0, sizeof(new->server) );
 	new->waitcache = 0;
@@ -258,33 +295,56 @@ struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ec
 	//checkfreeze_storeECM(new);
 #endif
 	return new;
+
+allocation_failed:
+	debugf(DBG_ERROR, " ECM: allocation failed for %04x:%06x:%04x; request not queued\n",
+	       caid, provid, sid);
+	return NULL;
+}
+
+/* Protocol handlers using the legacy entry point have a provider field in
+ * their request envelope, so even numeric zero is explicit. Provider-less
+ * protocols must call store_ecmdata_known() with a false known flag. */
+struct ecm_request *store_ecmdata(struct cardserver_data *cs,uint8_t *ecm,int ecmlen,
+                                  unsigned short sid, unsigned short caid,
+                                  unsigned int provid)
+{
+	return store_ecmdata_known(cs, ecm, ecmlen, sid, caid, provid, 1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // SEARCH FUNCTIONS
 ////////////////////////////////////////////////////////////////////////////////
 
-struct ecm_request *search_ecmdata_dcw( uint8_t *ecm, int ecmlen, unsigned short sid)
+struct ecm_request *search_ecmdata_dcw( uint8_t *ecm, int ecmlen, unsigned short sid,
+                                         unsigned short caid, uint32_t provid,
+                                         int provider_known)
 {
+	if (!ecm || ecmlen < 3) return NULL;
 	uint32_t ticks = GetTickCount();
-	uint32_t hash =  hashCode(ecm+3, ecmlen-3);
+	uint32_t hash = hashCode(ecm+3, ecmlen-3);
 	struct ecm_request *req = ecmdata;
 	while (req) {
-		if ( (req->recvtime+TIME_ECMALIVE) < ticks ) return NULL;
-		if (req->dcwstatus!=STAT_DCW_FAILED)
-		if (hash==req->hash)
-		if (ecm[0]==req->ecm[0])
-		if (ecmlen==req->ecmlen)
-		if (sid==req->sid)
-		if ( !memcmp(ecm+3, req->ecm+3, ecmlen-3) ) return req;
+		if ((uint32_t)(ticks - req->recvtime) <= TIME_ECMALIVE &&
+		    req->dcwstatus != STAT_DCW_FAILED &&
+		    hash == req->hash &&
+		    ecm[0] == req->ecm[0] &&
+		    ecmlen == req->ecmlen &&
+		    sid == req->sid &&
+		    caid == req->caid &&
+		    ecm_provider_scope_matches(provid, provider_known, req) &&
+		    !memcmp(ecm+3, req->ecm+3, ecmlen-3)) return req;
 		req = req->next;
-		if (req==ecmdata) break;
+		if (req == ecmdata) break;
 	}
 	return NULL;
 }
 
 
-struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm, int ecmlen, unsigned short sid, unsigned short caid)
+struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm,
+                                         int ecmlen, unsigned short sid,
+                                         unsigned short caid, uint32_t provid,
+                                         int provider_known)
 {
 	uint32_t hash =  hashCode(ecm+3, ecmlen-3);
 	uint32_t ticks = GetTickCount();
@@ -296,6 +356,9 @@ struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm,
 		if (ecmlen==req->ecmlen)
 		if (sid==req->sid)
 		if (caid==req->caid)
+		/* Same bytes and channel do not equate known provider zero with
+		 * a request whose provider was absent. */
+		if (ecm_provider_scope_matches(provid, provider_known, req))
 		if ( !memcmp(ecm, req->ecm, ecmlen) ) return req;
 
 		req = req->csnext;
@@ -331,7 +394,7 @@ struct ecm_request *search_ecmdata_byecmd5( uint16_t caid, uint32_t provid, uint
 		if ( (req->recvtime+TIME_ECMALIVE) < ticks ) return NULL;
 
 		if (caid==req->caid)
-		if (provid==req->provid)
+		if (ecm_provider_scope_matches(provid, 1, req))
 		if ( !memcmp(ecmd5, req->ecmd5, 16) ) return req;
 
 		req = req->next;
@@ -345,14 +408,16 @@ struct ecm_request *search_ecmdata_byecmd5( uint16_t caid, uint32_t provid, uint
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-int ecmdata_check_cw( uint8_t tag, uint32_t hash, unsigned short caid, unsigned int provid , unsigned short sid, uint8_t cw[16], int cwpart )
+int ecmdata_check_cw( uint8_t tag, uint32_t hash, unsigned short caid,
+                       unsigned int provid, int provider_known,
+                       unsigned short sid, uint8_t cw[16], int cwpart )
 {
 	struct ecm_request *req = ecmdata;
 	while (req) {
 
 		if (req->dcwstatus==STAT_DCW_SUCCESS)
 		if (hash!=req->hash)
-		if (provid==req->provid)
+		if (ecm_provider_scope_matches(provid, provider_known, req))
 		if (caid==req->caid)
 		if (sid==req->sid) {
 			switch (cwpart) {
@@ -556,7 +621,7 @@ void checkfreeze_storeECM(ECM_DATA *ecm)
 		while (oldecm) {
 			if ( (oldecm->recvtime+TIME_ECMALIVE*2) < ticks ) break;
 
-			if ( (oldecm->ecmlen==ecm->ecmlen)&&(oldecm->caid==ecm->caid)&&(oldecm->provid==ecm->provid)&&(oldecm->sid==ecm->sid) ) {
+			if ( (oldecm->ecmlen==ecm->ecmlen)&&(oldecm->caid==ecm->caid)&&ecm_same_provider_scope(oldecm, ecm)&&(oldecm->sid==ecm->sid) ) {
 
 				if ( (oldecm->dcwstatus==STAT_DCW_SUCCESS)&&(oldecm->hash!=ecm->hash)&&(oldecm->ecm[0]!=ecm->ecm[0]) ) {
 					//ecm->lastdecode.request = oldecm;
@@ -607,7 +672,7 @@ void checkfreeze_checkECM( ECM_DATA *ecm, ECM_DATA *oldecm )
 
 	if ( (ecm->recvtime-oldecm->recvtime) > TIME_ECMALIVE*2) return;
 
-	if ( (oldecm->ecmlen==ecm->ecmlen) && (oldecm->caid==ecm->caid) && (oldecm->provid==ecm->provid) && (oldecm->sid==ecm->sid) ) {
+	if ( (oldecm->ecmlen==ecm->ecmlen) && (oldecm->caid==ecm->caid) && ecm_same_provider_scope(oldecm, ecm) && (oldecm->sid==ecm->sid) ) {
 
 		if ( (oldecm->dcwstatus==STAT_DCW_SUCCESS) && (oldecm->ecm[0]!=ecm->ecm[0]) && (oldecm->hash!=ecm->hash) ) {
 			if ( (oldecm->lastdecode.ecm)&&(oldecm->lastdecode.counter>1) ) {

@@ -24,7 +24,7 @@ static void check(const char *what, int got, int want)
 	else { failed++; printf("  [FAIL] %-58s got=%d want=%d\n", what, got, want); }
 }
 
-/* One source identity, reused throughout. GR4's five-part key. */
+/* One source identity, reused throughout. GR4 plus provider presence. */
 #define SRC_TYPE   1        /* DCW_SOURCE_CACHE */
 #define SRC_ID     0x10007  /* PEER_CSP | peer 7 */
 #define SRC_CAID   0x1884
@@ -182,6 +182,50 @@ int main(void)
 	              trust_score(&t, SRC_TYPE, SRC_ID, SRC_CAID, SRC_PROVID, SRC_SID),
 	              TRUST_ACTIONABLE), 1),
 	      CACHEPREF_ALLOW);
+
+	/*
+	 * 4g. The actual cache-pref trust key must distinguish an absent provider
+	 * from an explicit zero. Two proofs in one scope must not make the other
+	 * scope actionable at a zap.
+	 */
+	trust_reset(&t);
+	trust_record_scoped(&t, TRUST_EV_PROOF, SRC_TYPE, SRC_ID, SRC_CAID,
+	                    0, 0, SRC_SID, 7000);
+	trust_record_scoped(&t, TRUST_EV_PROOF, SRC_TYPE, SRC_ID, SRC_CAID,
+	                    0, 0, SRC_SID, 8000);
+	check("unknown-provider proof makes only unknown scope untrusted",
+	      cachepref_trusted(trust_score_scoped(&t, SRC_TYPE, SRC_ID, SRC_CAID,
+	                                           0, 0, SRC_SID), TRUST_ACTIONABLE), 0);
+	check("known-zero remains unseen and trusted",
+	      cachepref_trusted(trust_score_scoped(&t, SRC_TYPE, SRC_ID, SRC_CAID,
+	                                           0, 1, SRC_SID), TRUST_ACTIONABLE), 1);
+	check("unknown-provider untrusted cache hit is deferred",
+	      cachepref_allow(1, cachepref_trusted(
+	              trust_score_scoped(&t, SRC_TYPE, SRC_ID, SRC_CAID, 0, 0, SRC_SID),
+	              TRUST_ACTIONABLE), 0), CACHEPREF_DEFER);
+	check("known-zero cache hit is not deferred by unknown-provider evidence",
+	      cachepref_allow(1, cachepref_trusted(
+	              trust_score_scoped(&t, SRC_TYPE, SRC_ID, SRC_CAID, 0, 1, SRC_SID),
+	              TRUST_ACTIONABLE), 0), CACHEPREF_ALLOW);
+	trust_reset(&t);
+	trust_record_scoped(&t, TRUST_EV_PROOF, SRC_TYPE, SRC_ID, SRC_CAID,
+	                    0, 1, SRC_SID, 9000);
+	trust_record_scoped(&t, TRUST_EV_PROOF, SRC_TYPE, SRC_ID, SRC_CAID,
+	                    0, 1, SRC_SID, 10000);
+	check("known-zero proof makes only known-zero scope untrusted",
+	      cachepref_trusted(trust_score_scoped(&t, SRC_TYPE, SRC_ID, SRC_CAID,
+	                                           0, 1, SRC_SID), TRUST_ACTIONABLE), 0);
+	check("unknown remains trusted after known-zero evidence",
+	      cachepref_trusted(trust_score_scoped(&t, SRC_TYPE, SRC_ID, SRC_CAID,
+	                                           0, 0, SRC_SID), TRUST_ACTIONABLE), 1);
+	check("known-zero untrusted cache hit is deferred",
+	      cachepref_allow(1, cachepref_trusted(
+	              trust_score_scoped(&t, SRC_TYPE, SRC_ID, SRC_CAID, 0, 1, SRC_SID),
+	              TRUST_ACTIONABLE), 0), CACHEPREF_DEFER);
+	check("unknown cache hit is not deferred by known-zero evidence",
+	      cachepref_allow(1, cachepref_trusted(
+	              trust_score_scoped(&t, SRC_TYPE, SRC_ID, SRC_CAID, 0, 0, SRC_SID),
+	              TRUST_ACTIONABLE), 0), CACHEPREF_ALLOW);
 
 	printf("== %d/%d passed, %d failed ==\n", passed, passed + failed, failed);
 	return failed ? 1 : 0;

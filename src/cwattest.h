@@ -26,9 +26,10 @@
  *
  * WHAT THIS FILE DOES
  *
- * A fixed table keyed like cwneg (FNV-1a digest of the 16 bytes +
- * CAID/PROVID; the SID is evidence, never a gate -- see cwneg.h for
- * the measured reason). `cwattest_note()` records one hard-retry
+ * A fixed table keyed like cwneg: FNV-1a digest of the 16 bytes, CAID, and
+ * explicit provider scope/value (known zero differs from unknown). The SID is
+ * evidence, never a gate -- see cwneg.h for the measured reason.
+ * `cwattest_note()` records one hard-retry
  * attestation from one client against the delivered bytes;
  * `cwattest_hit()` answers "these bytes are attested-bad for this
  * channel and the filing has not expired". The ingest gate
@@ -88,6 +89,7 @@ struct cwattest_slot {
 	uint8_t  key8[8];        /* the key's first half, for the evidence line  */
 	uint16_t caid;
 	uint32_t provid;
+	uint8_t  provider_known;
 	uint16_t sid;            /* evidence only (first attested service)       */
 	uint8_t  origin_type;    /* who DELIVERED it (evidence, GR8)             */
 	uint32_t origin_id;
@@ -113,6 +115,7 @@ struct cwattest_ev {
 	uint8_t  key8[8];
 	uint16_t caid;
 	uint32_t provid;
+	uint8_t  provider_known;
 	uint16_t sid;
 	uint8_t  origin_type;
 	uint32_t origin_id;
@@ -124,6 +127,7 @@ struct cwattest_hit_ev {
 	uint8_t  key8[8];
 	uint16_t caid;
 	uint32_t provid;
+	uint8_t  provider_known;
 	uint16_t sid;
 	uint8_t  origin_type;
 	uint32_t origin_id;
@@ -179,8 +183,8 @@ static int cwattest_slot_live(const struct cwattest_slot *s, uint32_t now,
  */
 __attribute__((unused))
 static int cwattest_note(struct cwattest_table *t, const uint8_t *cw,
-                         uint16_t caid, uint32_t provid, uint16_t sid,
-                         uint8_t origin_type, uint32_t origin_id,
+                         uint16_t caid, uint32_t provid, int provider_known,
+                         uint16_t sid, uint8_t origin_type, uint32_t origin_id,
                          uint32_t clientid, int required, uint32_t now,
                          uint32_t ttl_ms, struct cwattest_ev *ev)
 {
@@ -192,6 +196,8 @@ static int cwattest_note(struct cwattest_table *t, const uint8_t *cw,
 	if (ev) memset(ev, 0, sizeof(*ev));
 	if (!t || !cw || required < 2) return 0;
 	if (required > CWATTEST_MAX_CLIENTS) required = CWATTEST_MAX_CLIENTS;
+	provider_known = !!provider_known;
+	if (!provider_known) provid = 0;
 	d = cwattest_digest(cw);
 
 	for (i = 0; i < CWATTEST_SLOTS; i++) {
@@ -203,6 +209,7 @@ static int cwattest_note(struct cwattest_table *t, const uint8_t *cw,
 			continue;
 		}
 		if (s->kdigest == d && s->caid == caid && s->provid == provid &&
+		    s->provider_known == (uint8_t)provider_known &&
 		    cwattest_slot_live(s, now, ttl_ms)) {
 			slot = s;
 			break;
@@ -221,9 +228,10 @@ static int cwattest_note(struct cwattest_table *t, const uint8_t *cw,
 		slot->used        = 1;
 		slot->kdigest     = d;
 		memcpy(slot->key8, cw, 8);
-		slot->caid        = caid;
-		slot->provid      = provid;
-		slot->sid         = sid;
+		slot->caid          = caid;
+		slot->provid        = provid;
+		slot->provider_known = (uint8_t)provider_known;
+		slot->sid            = sid;
 		slot->origin_type = origin_type;
 		slot->origin_id   = origin_id;
 		slot->first_ticks = now;
@@ -247,9 +255,10 @@ static int cwattest_note(struct cwattest_table *t, const uint8_t *cw,
 		ev->distinct    = slot->nclients;
 		ev->filed       = slot->filed_ticks ? 1 : 0;
 		memcpy(ev->key8, slot->key8, 8);
-		ev->caid        = slot->caid;
-		ev->provid      = slot->provid;
-		ev->sid         = slot->sid;
+		ev->caid          = slot->caid;
+		ev->provid        = slot->provid;
+		ev->provider_known = slot->provider_known;
+		ev->sid            = slot->sid;
 		ev->origin_type = slot->origin_type;
 		ev->origin_id   = slot->origin_id;
 	}
@@ -262,8 +271,8 @@ static int cwattest_note(struct cwattest_table *t, const uint8_t *cw,
  */
 __attribute__((unused))
 static int cwattest_hit(struct cwattest_table *t, const uint8_t *cw,
-                        uint16_t caid, uint32_t provid, uint16_t sid,
-                        uint32_t now, uint32_t ttl_ms,
+                        uint16_t caid, uint32_t provid, int provider_known,
+                        uint16_t sid, uint32_t now, uint32_t ttl_ms,
                         struct cwattest_hit_ev *out)
 {
 	struct cwattest_slot *s;
@@ -272,12 +281,15 @@ static int cwattest_hit(struct cwattest_table *t, const uint8_t *cw,
 
 	if (out) memset(out, 0, sizeof(*out));
 	if (!t || !cw) return 0;
+	provider_known = !!provider_known;
+	if (!provider_known) provid = 0;
 	d = cwattest_digest(cw);
 
 	for (i = 0; i < CWATTEST_SLOTS; i++) {
 		s = &t->s[i];
 		if (!s->used || !s->filed_ticks) continue;
 		if (s->kdigest == d && s->caid == caid && s->provid == provid &&
+		    s->provider_known == (uint8_t)provider_known &&
 		    (uint32_t)(now - s->filed_ticks) <= ttl_ms) {
 			s->hits++;
 			s->last_ticks = now;
@@ -291,6 +303,7 @@ static int cwattest_hit(struct cwattest_table *t, const uint8_t *cw,
 				memcpy(out->key8, s->key8, 8);
 				out->caid       = caid;
 				out->provid     = provid;
+				out->provider_known = s->provider_known;
 				out->sid        = sid;
 				out->origin_type = s->origin_type;
 				out->origin_id   = s->origin_id;
@@ -319,6 +332,11 @@ static int cwattest_count(const struct cwattest_table *t, uint32_t now,
 
 /* The filing sentence (GR8): who attested, how many, against whose
  * delivery, and that the filing expires -- attestation, not proof. */
+static const char *cwattest_provider_scope_name(uint8_t provider_known)
+{
+	return provider_known ? "known" : "unknown";
+}
+
 __attribute__((unused))
 static int cwattest_format_filed(const struct cwattest_ev *ev, int required,
                                  uint32_t ttl_ms, char *out, int outlen)
@@ -337,12 +355,13 @@ static int cwattest_format_filed(const struct cwattest_ev *ev, int required,
 	keyhex[16] = 0;
 
 	return snprintf(out, (size_t)outlen,
-		"CW ATTEST FILED: ch %04x:%06x:%04x key %s.. -- %d independent clients "
-		"re-asked too soon after being handed these bytes (delivered on source "
-		"%d/%u); the bytes are filed for %u s and will not be stored or served "
-		"again until the filing lapses (receiver attestation at threshold %d, "
-		"not a GR3 proof: no score moved, no source disabled)",
-		ev->caid, ev->provid, ev->sid, keyhex, ev->distinct,
+		"CW ATTEST FILED: ch %04x:%06x:%04x (provider %s) key %s.. -- %d "
+		"independent clients re-asked too soon after being handed these bytes "
+		"(delivered on source %d/%u); the bytes are filed for %u s and will not "
+		"be stored or served again until the filing lapses (receiver attestation "
+		"at threshold %d, not a GR3 proof: no score moved, no source disabled)",
+		ev->caid, ev->provid, ev->sid,
+		cwattest_provider_scope_name(ev->provider_known), keyhex, ev->distinct,
 		ev->origin_type, ev->origin_id, ttl_ms / 1000u, required);
 }
 
@@ -366,12 +385,13 @@ static int cwattest_format(const struct cwattest_hit_ev *ev, uint32_t ttl_ms,
 	keyhex[16] = 0;
 
 	return snprintf(out, (size_t)outlen,
-		"CW ATTEST: ch %04x:%06x:%04x -- key %s.. was filed by %d independent "
-		"clients' re-asks (delivered on source %d/%u, filed %u s ago, lapses "
-		"at %u s) and a cache source offered it again: refused before any "
-		"client, hit #%u for this key. Attestation memory only: nothing was "
-		"scored and no source was disabled",
-		ev->caid, ev->provid, ev->sid, keyhex, ev->nclients,
+		"CW ATTEST: ch %04x:%06x:%04x (provider %s) -- key %s.. was filed by "
+		"%d independent clients' re-asks (delivered on source %d/%u, filed %u s "
+		"ago, lapses at %u s) and a cache source offered it again: refused "
+		"before any client, hit #%u for this key. Attestation memory only: "
+		"nothing was scored and no source was disabled",
+		ev->caid, ev->provid, ev->sid,
+		cwattest_provider_scope_name(ev->provider_known), keyhex, ev->nclients,
 		ev->origin_type, ev->origin_id, ev->age_ms / 1000u, ttl_ms / 1000u,
 		ev->hits);
 }

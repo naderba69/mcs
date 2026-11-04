@@ -1373,9 +1373,10 @@ per CAID), `cache_new()` (three `cache_data` branches), `cache_setdcw()`
 and PIPE_CACHE_REPLY (`cw_cache_data`) all malloc'd and dereferenced
 without a check. One failed allocation was a SIGSEGV on the cache thread —
 which is the process. Bitten live with a surgical LD_PRELOAD bite
-(`tests/ca-bite.c`, refuses only the 90112-byte table allocation): the
-3.3 binary died with exit 139 on the first honest ECM; the fixed binary
-survives the same bite.
+(`tests/ca-bite.c`): the original 88-byte layout used a 90112-byte table,
+while the current packed layout is 94 bytes (96256 bytes per table). The
+original size-matched bite killed the 3.3 binary with exit 139 on the first
+honest ECM; the fixed binary survives the current-size bite.
 
 **The fix (D34).** Fourteen guards (`TASK 3.4` in the source), one per
 allocation and one per caller. Failure semantics everywhere are the same

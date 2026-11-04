@@ -6,11 +6,11 @@
  * thread, which is the process.
  *
  * The table allocation is malloc(sizeof(struct cache_data)*1024) with
- * sizeof(struct cache_data)=88 in this build (packed; CACHEEX on; cwcycle_t is
- * an enum = 4 bytes), so 88*1024 = 90112. GCC compiles the malloc+memset pair
- * into calloc(90112, 1) -- confirmed in the disassembly of the shipped binary
- * -- which is why this file interposes calloc and matches the TOTAL size.
- * 90112 is requested nowhere else in the tree, so every other allocation
+ * sizeof(struct cache_data)=94 in this x64 CACHEEX build (packed; cwcycle_t is
+ * an enum = 4 bytes), so 94*1024 = 96256. GCC compiles the malloc+memset pair
+ * into calloc(96256, 1) -- confirmed in the current binary's disassembly --
+ * which is why this file interposes calloc and matches the TOTAL size.
+ * 96256 is requested nowhere else in the tree, so every other allocation
  * passes through untouched and the bite proves the cache path specifically,
  * not general OOM behaviour.
  *
@@ -24,7 +24,7 @@
 
 extern void *__libc_malloc(size_t size);
 
-#define CACHE_TABLE_SIZE 90112   /* 88 * 1024, see comment above */
+#define CACHE_TABLE_SIZE 96256   /* 94 * 1024, see comment above */
 
 static unsigned long ca_refused = 0;
 static unsigned long ca_passed  = 0;

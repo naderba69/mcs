@@ -358,6 +358,7 @@ struct __attribute__ ((__packed__)) cs_client_data
 		ECM_DATA *request;
 		uint16_t caid;
 		uint32_t prov;
+		uint8_t provider_known;
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;
@@ -419,6 +420,7 @@ struct __attribute__ ((__packed__)) rdgd_client_data { // Connected Client
 		// Ecm Data
 		uint32_t recvtime; // ECM Receive Time in ms
 		int id;
+		uint8_t request_storage[sizeof(void *)]; // active ECM pointer; access via memcpy (packed struct)
 		//Last Used Share Saved data
 		uint16_t lastcaid;
 		uint32_t lastprov;
@@ -538,6 +540,7 @@ struct __attribute__ ((__packed__)) camd35_client_data { // Connected Client
 		ECM_DATA *request;
 		uint16_t caid;
 		uint32_t prov;
+		uint8_t provider_known;
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;
@@ -736,6 +739,10 @@ struct cardserver_data
 		uint8_t dcwfilter_repeat;
 		uint8_t dcwfilter_cycle; /* TASK R2 (D56): the delivery-time cycle gate */
 		uint8_t dcwfilter_pattern; /* TASK R28 (D79): structural fake gate */
+		/* Explicit exact provider/SID exception; disabled unless parsed. */
+		uint8_t cw_checksum_exempt_active;
+		uint32_t cw_checksum_exempt_provider;
+		uint16_t cw_checksum_exempt_sid;
 		/* TASK R26 (D77): `CA MODERN: ON` — arm the casystem.h
 		 * CW-format rules for this profile's CAID (see dcw.h).
 		 * 0 (the memset default) = stock acceptDCW decision. */
@@ -938,6 +945,7 @@ struct __attribute__ ((__packed__)) server_data
 		int id; // ecm id
 		uint32_t hash; // to check for ecm
 		uint32_t msgid;
+		uint64_t trace_instance_at_send; /* diagnostic ECM lifetime, zero if not traced */
 	} ecm;
 
 	// Last ECM Stat
@@ -1084,6 +1092,7 @@ struct __attribute__ ((__packed__)) cc_client_data { // Connected Client
 		ECM_DATA *request;
 		uint16_t caid;
 		uint32_t prov;
+		uint8_t provider_known;
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;
@@ -1212,6 +1221,7 @@ struct __attribute__ ((__packed__)) mg_client_data
 		ECM_DATA *request;
 		uint16_t caid;
 		uint32_t prov;
+		uint8_t provider_known;
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;
@@ -1282,6 +1292,8 @@ struct dcw_data {
 	uint8_t dcw[16];
 };
 
+struct config_data;
+
 /* TASK 3.14 — copy the committed list into the table acceptDCW reads. */
 void dcw_badlist_commit(struct dcw_data *list);
 
@@ -1291,6 +1303,19 @@ int acceptDCW_profile(uint8_t *data, struct cardserver_data *cs);
  * `CA MODERN` flag and the channel's CAID (casystem.h via dcw.c). */
 int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs,
 			 uint16_t caid, uint16_t sid); /* R36: SID-aware accept (SKIPCWC) */
+int acceptDCW_profile_ca_sid_reason(uint8_t *data, struct cardserver_data *cs,
+                                    uint16_t caid, uint16_t sid, int *reason);
+/* Scoped exception is only evaluated when an actual ECM supplies provider. */
+int acceptDCW_profile_ecm_reason(uint8_t *data, struct cardserver_data *cs,
+                                  uint16_t caid, uint32_t provid, uint16_t sid, int *reason);
+int acceptDCW_profile_ecm(uint8_t *data, struct cardserver_data *cs,
+                          uint16_t caid, uint32_t provid, uint16_t sid);
+int acceptDCW_profile_ecm_trace_reason(uint8_t *data, struct cardserver_data *cs,
+                                       uint16_t caid, uint32_t provid, uint16_t sid,
+                                       int *reason, int *checksum_exemption_used);
+void dcw_filter_globals_publish(const struct config_data *cfg);
+void dcw_filter_globals_snapshot(int *checksum, int *repeat, int *cycle, int *pattern);
+int dcw_profile_cycle_enabled(struct cardserver_data *cs);
 int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
 			 uint16_t caid);
 
@@ -1372,6 +1397,14 @@ struct config_data
 	int cardserverid; // Profiles
 
 	struct dcw_data *bad_dcw;
+	/* Global filter settings are parsed into the pending config, then
+	 * published together so a reload never exposes parser-time defaults. */
+	struct {
+		int checksum;
+		int repeat;
+		int cycle;
+		int pattern;
+	} dcw_filters;
 
 	struct {
 		struct cacheserver_data *server;

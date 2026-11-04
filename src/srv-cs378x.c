@@ -241,6 +241,7 @@ void cs378x_senddcw_cli(struct camd35_client_data *cli)
 	//
 	cli->lastecm.caid = ecm->caid;
 	cli->lastecm.prov = ecm->provid;
+	cli->lastecm.provider_known = ecm->provider_known;
 	cli->lastecm.sid = ecm->sid;
 	cli->lastecm.hash = ecm->hash;
 	cli->lastecm.tag = ecm->ecm[0];
@@ -426,6 +427,8 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 			memcpy( cw, buf+44, 16);
 			if (dcw_hard_reject(cw)) break; /* TASK 3.15: profile gate is cache_setdcw */
 			struct cache_data cacheex;
+			memset(&cacheex, 0, sizeof(cacheex));
+			cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 			cacheex.sid = (buf[12]<<8)|buf[13];
 			cacheex.caid = (buf[14]<<8)|buf[15];
 			cacheex.provid = (buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];
@@ -461,20 +464,22 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 			 * GR3 allows hard action on a genuine reuse proof, but only once the
 			 * detector has been checked against real traffic.
 			 */
-			if ( cwreuse_offer( &cwreuse_tab, cw, cacheex.ecmd5, 1,
-					cacheex.caid, cacheex.sid, cacheex.provid, GetTickCount() ) == CWREUSE_PROOF ) {
+			if ( cwreuse_offer_scoped( &cwreuse_tab, cw, cacheex.ecmd5, 1,
+					cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known,
+					GetTickCount() ) == CWREUSE_PROOF ) {
 				cwreuse_proofs++;
 				/* TASK 2.6: the convicted key itself goes into negative memory,
 				 * so no other source and no fresh entry can ever serve it. */
-				cwn_note( DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id, cw, cacheex.caid, cacheex.provid, cacheex.sid, GetTickCount() );
+				cwn_note( DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id, cw, cacheex.caid, cacheex.provid, cacheex.provider_known, cacheex.sid, GetTickCount() );
 				/*
 				 * TASK 1.4 — a definitive proof scores against the source that
 				 * supplied the key, at GR4 granularity. The srcid keeps its PEER_*
 				 * origin flags, because a CSP peer and a cache-exchange client with
 				 * the same id are different sources and must not share a score.
 				 */
-				trust_record_lk( &trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id,
-					cacheex.caid, cacheex.provid, cacheex.sid, GetTickCount() );
+				trust_record_lk_scoped( &trust_tab, TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id,
+					cacheex.caid, cacheex.provid, cacheex.provider_known,
+					cacheex.sid, GetTickCount() );
 				/* TASK 2.8: the same proof, summed one level coarser. */
 				trustagg_note_lk( TRUST_EV_PROOF, DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id,
 				                  cacheex.caid, GetTickCount() );
@@ -496,10 +501,11 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 				 * job, and a false positive that kills a good card is worse than
 				 * the original black screen (GR3).
 				 */
-				if ( cache_purge_mark( &purge_tab, DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id,
-						cacheex.caid, cacheex.sid, cacheex.provid, GetTickCount() ) ) {
-					int npurged = cache_purge_sweep( &purge_tab, DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id,
-						cacheex.caid, cacheex.sid, cacheex.provid, DCW_ERROR );
+				if ( cache_purge_mark_scoped( &purge_tab, DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id,
+						cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known,
+						GetTickCount() ) ) {
+					int npurged = cache_purge_sweep_scoped( &purge_tab, DCW_SOURCE_CACHE, PEER_CS378X_CLIENT | cli->id,
+						cacheex.caid, cacheex.sid, cacheex.provid, cacheex.provider_known, DCW_ERROR );
 					/* npurged can be 0: the entry may already be gone, or it may have
 					 * been supplied first by a different peer (cwdata->peerid records
 					 * the FIRST reporter only). Logged either way -- GR8. */
@@ -580,7 +586,7 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 			// ACCEPTED
 			pthread_mutex_lock(&prg.lockecm); //###
 			// Search for ECM
-			ECM_DATA *ecm = search_ecmdata_any(cs, ecmdata,  ecmlen, sid, caid); // dont get failed ecm request from cache
+			ECM_DATA *ecm = search_ecmdata_any(cs, ecmdata,  ecmlen, sid, caid, provid, 1); // dont get failed ecm request from cache
 			/* TASK R31 (D82) -- receiver attestation tap, mirroring
 			 * srv-newcamd's: this client's too-soon re-ask after a
 			 * delivered key is one receiver's vote on the BYTES;
@@ -596,7 +602,8 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 				&& ecm && (ecm->hash==cli->lastecm.hash) && (ecm->ecm[0]==cli->lastecm.tag) ) {
 				if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
 					attest_note( ATTEST_TAG_CS378X | (uint32_t)cli->id, cli->lastecm.dcw,
-						cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+						cli->lastecm.caid, cli->lastecm.prov,
+						cli->lastecm.provider_known, cli->lastecm.sid,
 						cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
 			}
 			int isnew =  ( ecm==NULL );
@@ -658,9 +665,18 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 				}
 			}
 			else {
-				cs->ecmaccepted++;
 				// Setup ECM Request for Server(s)
 				ecm = store_ecmdata(cs, ecmdata, ecmlen, sid,caid,provid);
+				if (!ecm) {
+					cs->ecmdenied++;
+					cli->ecmdenied++;
+					buf[4] = 0x44;
+					buf[5] = 0;
+					if (!cs378x_send(cli->handle, &cli->encryptkey, cli->ucrc, buf+4, 20)) cs378x_disconnect_cli(cli);
+					pthread_mutex_unlock(&prg.lockecm);
+					break;
+				}
+				cs->ecmaccepted++;
 				cs378x_store_ecmclient(ecm, cli);
 				cli->ecm.pin = pin;
 				debugf(getdbgflagpro(DBG_CS378X,0,cli->id, cs->id)," <- ecm from cs378x client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,caid,provid,sid, ecm->hash);

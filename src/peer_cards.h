@@ -12,9 +12,8 @@
  *     yh = cards[xh = xm - 1]
  *
  * with no check that the new index was still inside the array. On a list of
- * exactly 1024 that index is the one past the end. The comparisons below are
- * the same signed ones r82a used, so a card the old search accepted is still
- * accepted. What changed is that an index outside [0, n) is never evaluated.
+ * exactly 1024 that index is the one past the end. The search below stays
+ * in bounds and uses the same unsigned ordering as the received card list.
  *
  * A header rather than a function in clustredcache.c because that file is not
  * a translation unit — main.c #includes it — and a header can be tested alone.
@@ -42,11 +41,10 @@ static inline uint32_t peer_card_at(const void *base, int i)
 /*
  * Is (caid, provid) in this peer's list?
  *
- * cards is sorted ascending as unsigned (the TYPE_CARD_LIST writer does that
- * before it publishes nbcards). The search compares those values as signed
- * ints, which is what r82a did. Do not "fix" that here: a high CAID
- * (caid >= 0x8000) would start matching differently, and that is a separate
- * change.
+ * cards is sorted ascending as unsigned by the TYPE_CARD_LIST writer. The
+ * search uses the same ordering, including CAIDs at or above 0x8000. The
+ * 32-bit packed key preserves the existing wire encoding; it cannot represent
+ * CAID and a full 24-bit provider independently when their bits overlap.
  *
  * Returns 1 if the card is in the first min(nbcards, 1024) slots, else 0.
  * nbcards <= 0 is an empty list. A count above 1024 is clamped: the writer
@@ -55,39 +53,21 @@ static inline uint32_t peer_card_at(const void *base, int i)
 static inline int peer_cards_find(const void *cards, int nbcards,
 				  uint16_t caid, uint32_t provid)
 {
-	int n;
-	int xl, xh, xm;
-	int yl, yh, ym;
-	int caprov;
+	int n, lo, hi;
+	uint32_t key;
 
 	if (!cards || nbcards <= 0) return 0;
-	n = nbcards;
-	if (n > PEER_CARDS_MAX) n = PEER_CARDS_MAX;
-	/* Same key expression as r82a. caid is uint16_t, so it promotes to int
-	 * before the shift. That shift is undefined for caid >= 0x8000; leaving
-	 * the expression alone keeps the key identical to the old search. */
-	caprov = (caid << 16) | provid;
-	xl = 0;
-	xh = n - 1;
-	yl = (int)peer_card_at(cards, xl);
-	yh = (int)peer_card_at(cards, xh);
-	while (yl <= caprov && yh >= caprov) {
-		xm = (xl + xh) / 2;
-		if (xm < 0 || xm >= n) return 0;
-		ym = (int)peer_card_at(cards, xm);
-		if (ym < caprov) {
-			xl = xm + 1;
-			if (xl >= n) return 0;
-			yl = (int)peer_card_at(cards, xl);
-		} else if (ym > caprov) {
-			xh = xm - 1;
-			if (xh < 0) return 0;
-			yh = (int)peer_card_at(cards, xh);
-		} else {
-			return 1;
-		}
+	n = nbcards > PEER_CARDS_MAX ? PEER_CARDS_MAX : nbcards;
+	key = ((uint32_t)caid << 16) | provid;
+	lo = 0;
+	hi = n - 1;
+	while (lo <= hi) {
+		int mid = lo + (hi - lo) / 2;
+		uint32_t value = peer_card_at(cards, mid);
+		if (value < key) lo = mid + 1;
+		else if (value > key) hi = mid - 1;
+		else return 1;
 	}
-	if (xl >= 0 && xl < n && peer_card_at(cards, xl) == (uint32_t)caprov) return 1;
 	return 0;
 }
 
@@ -102,7 +82,7 @@ static inline int peer_cards_find(const void *cards, int nbcards,
  *
  * Returns 1 if found, 0 if not.
  */
-static inline int peer_cards_listed(const void *cards, int nbcards, int caprov)
+static inline int peer_cards_listed(const void *cards, int nbcards, uint32_t caprov)
 {
 	int i;
 	int n;
@@ -113,7 +93,7 @@ static inline int peer_cards_listed(const void *cards, int nbcards, int caprov)
 	for (i = 0; i < n; i++) {
 		uint32_t slot = peer_card_at(cards, i);
 		if (!slot) return 0;
-		if (slot == (uint32_t)caprov) return 1;
+		if (slot == caprov) return 1;
 	}
 	return 0;
 }

@@ -28,19 +28,21 @@
  * stops being served — for none of that risk.
  *
  * GR3 (never hard-act on a soft event) is enforced by the CALLER's gate, and this
- * module makes it hard to get wrong: there is no API that marks on a score. The
- * only entry point is cache_purge_mark(), and the only thing that calls it is a
- * definitive proof.
+ * module makes it hard to get wrong: there is no API that marks on a score.
+ * The compatibility API and the explicit scoped API are both called only from
+ * definitive-proof paths; production call sites use cache_purge_mark_scoped().
  *
- * GR4: keyed on (source_type, source_id, caid, provid, sid) — the same key as
- * trust.h, never per-server.
+ * GR4: keyed on (source_type, source_id, CAID, provider scope/value, SID) —
+ * known-zero and unknown are separate; source identity is never per-server.
  *
  * GR9: fixed 64-entry table in .bss. No allocation on the ECM path, no I/O, no
  * unbounded growth.
  *
  * REVERSIBILITY (GR8), and the one honest limit.
- * cache_purge_unmark() lifts a mark, so a source that recovers is not punished
- * forever. Separately, the mark is per-CW, not per-entry: cache_setdcw() zeroes
+ * cache_purge_unmark_scoped() lifts the exact provider-scoped mark, so a source
+ * that recovers is not punished forever. The legacy cache_purge_unmark() cannot
+ * distinguish known-zero from unknown. Separately, the mark is per-CW, not
+ * per-entry: cache_setdcw() zeroes
  * status only when it creates an entry for a *different* CW (:1433), while a
  * re-report of the *same* CW just bumps nbpeers (:1439). That is exactly what is
  * wanted — a good peer reporting the same poisoned CW does not launder it — but
@@ -67,13 +69,14 @@
 /*
  * A source we have proof against, at GR4 granularity.
  * `hits` is not a counter of CWs purged; it is the number of distinct
- * (caid, provid, sid) tuples this source has been marked for, so a log line can
- * say how wide the damage was. It saturates rather than wrapping.
+ * (CAID, provider scope/value, SID) tuples this source has been marked for, so
+ * a log line can say how wide the damage was. It saturates rather than wrapping.
  */
 struct purge_entry {
 	uint32_t srcid;   /* includes PEER_* origin flags — see ORIGIN.md */
 	uint16_t caid;
 	uint32_t provid;
+	uint8_t  provider_known;
 	uint16_t sid;
 	uint8_t  srctype;
 	uint8_t  hits;
@@ -119,28 +122,44 @@ static void cache_purge_init(struct purge_table *t)
 	memset(t, 0, sizeof(*t));
 }
 
+static inline uint8_t cache_purge_scope_known(uint32_t provid, int provider_known)
+{
+	return (uint8_t)(!!provider_known || provid != 0);
+}
+
+static inline uint32_t cache_purge_scope_value(uint32_t provid, int provider_known)
+{
+	return cache_purge_scope_known(provid, provider_known) ? provid : 0;
+}
+
 /*
  * Should a CW supplied by this source, for this channel, be withheld?
  *
  * Returns 1 only when there is a live mark for exactly this
- * (srctype, srcid, caid, provid, sid). Never widens: a mark on SID 100 does not
- * affect SID 101, and a mark on one CAID does not affect another. That is GR4,
- * and widening it here would be how a good channel gets killed by a bad one.
+ * (srctype, srcid, CAID, provider scope/value, SID). Known provider zero and
+ * unknown provider are separate scopes. Never widens: a mark on SID 100 does
+ * not affect SID 101, and a mark on one CAID/provider identity does not affect
+ * another. That is GR4; widening it could kill a good channel because of a bad
+ * one.
  *
  * Returns 0 for an unknown source. "No record" is not "bad" — the same rule
  * trust.h follows by returning -1.
  */
-static int cache_purge_should_withhold_at(const struct purge_table *t,
-                                          uint8_t srctype, uint32_t srcid,
-                                          uint16_t caid, uint16_t sid, uint32_t provid,
-                                          uint32_t ticks_now, uint32_t max_age_ms)
+static int cache_purge_should_withhold_at_scoped(const struct purge_table *t,
+                                                 uint8_t srctype, uint32_t srcid,
+                                                 uint16_t caid, uint16_t sid,
+                                                 uint32_t provid, int provider_known,
+                                                 uint32_t ticks_now, uint32_t max_age_ms)
 {
 	int i;
+	provider_known = cache_purge_scope_known(provid, provider_known);
+	provid = cache_purge_scope_value(provid, provider_known);
 	if (!t) return 0;
 	for (i = 0; i < CACHE_PURGE_SLOTS; i++) {
 		const struct purge_entry *e = &t->e[i];
 		if (!(e->inuse && e->srctype == srctype && e->srcid == srcid &&
-		      e->caid == caid && e->sid == sid && e->provid == provid))
+		      e->caid == caid && e->sid == sid && e->provid == provid &&
+		      e->provider_known == (uint8_t)provider_known))
 			continue;
 		/*
 		 * TASK 1.9 -- SERVICE-BLACKLIST-TIME.
@@ -161,15 +180,37 @@ static int cache_purge_should_withhold_at(const struct purge_table *t,
 	return 0;
 }
 
-/*
- * The default: no age limit. Every existing caller and assertion goes through
- * here, so adding the option changed nothing about what they observe.
- */
+/* Legacy numeric API: nonzero values imply known provider; zero remains
+ * unknown because this interface cannot represent explicit presence. */
+__attribute__((unused))
+static int cache_purge_should_withhold_at(const struct purge_table *t,
+                                          uint8_t srctype, uint32_t srcid,
+                                          uint16_t caid, uint16_t sid, uint32_t provid,
+                                          uint32_t ticks_now, uint32_t max_age_ms)
+{
+	return cache_purge_should_withhold_at_scoped(t, srctype, srcid, caid, sid,
+	                                              provid, provid != 0,
+	                                              ticks_now, max_age_ms);
+}
+
+/* The default: no age limit. */
+static int cache_purge_should_withhold_scoped(const struct purge_table *t,
+                                               uint8_t srctype, uint32_t srcid,
+                                               uint16_t caid, uint16_t sid,
+                                               uint32_t provid, int provider_known)
+{
+	return cache_purge_should_withhold_at_scoped(t, srctype, srcid, caid, sid,
+	                                              provid, provider_known, 0, 0);
+}
+
+/* Compatibility wrapper for callers without an explicit presence bit. */
+__attribute__((unused))
 static int cache_purge_should_withhold(const struct purge_table *t,
                                        uint8_t srctype, uint32_t srcid,
                                        uint16_t caid, uint16_t sid, uint32_t provid)
 {
-	return cache_purge_should_withhold_at(t, srctype, srcid, caid, sid, provid, 0, 0);
+	return cache_purge_should_withhold_scoped(t, srctype, srcid, caid, sid,
+	                                           provid, provid != 0);
 }
 
 /*
@@ -183,21 +224,25 @@ static int cache_purge_should_withhold(const struct purge_table *t,
  * evicting the most-marked source would make a busy server forget exactly the
  * source it has the most evidence against.
  */
-static int cache_purge_mark(struct purge_table *t,
-                            uint8_t srctype, uint32_t srcid,
-                            uint16_t caid, uint16_t sid, uint32_t provid,
-                            uint32_t ticks_now)
+static int cache_purge_mark_scoped(struct purge_table *t,
+                                   uint8_t srctype, uint32_t srcid,
+                                   uint16_t caid, uint16_t sid,
+                                   uint32_t provid, int provider_known,
+                                   uint32_t ticks_now)
 {
 	int i, freepos = -1, victim = -1;
 	uint32_t oldest = 0xFFFFFFFFu;
 
+	provider_known = cache_purge_scope_known(provid, provider_known);
+	provid = cache_purge_scope_value(provid, provider_known);
 	if (!t) return 0;
 
 	for (i = 0; i < CACHE_PURGE_SLOTS; i++) {
 		struct purge_entry *e = &t->e[i];
 		if (e->inuse) {
 			if (e->srctype == srctype && e->srcid == srcid &&
-			    e->caid == caid && e->sid == sid && e->provid == provid) {
+			    e->caid == caid && e->sid == sid && e->provid == provid &&
+			    e->provider_known == (uint8_t)provider_known) {
 				e->ticks = ticks_now;
 				t->marked++;
 				return 0; /* already marked; not a new event */
@@ -220,6 +265,7 @@ static int cache_purge_mark(struct purge_table *t,
 		e->caid    = caid;
 		e->sid     = sid;
 		e->provid  = provid;
+		e->provider_known = (uint8_t)provider_known;
 		e->hits    = fresh ? 1 : (e->hits == 0xFF ? 0xFF : (uint8_t)(e->hits + 1));
 		e->inuse   = 1;
 		e->ticks   = ticks_now;
@@ -228,28 +274,53 @@ static int cache_purge_mark(struct purge_table *t,
 	return 1;
 }
 
+/* Legacy numeric API: nonzero values imply known provider; zero is unknown. */
+__attribute__((unused))
+static int cache_purge_mark(struct purge_table *t,
+                            uint8_t srctype, uint32_t srcid,
+                            uint16_t caid, uint16_t sid, uint32_t provid,
+                            uint32_t ticks_now)
+{
+	return cache_purge_mark_scoped(t, srctype, srcid, caid, sid,
+	                               provid, provid != 0, ticks_now);
+}
+
 /*
  * Lift a mark. Returns 1 if one was actually removed.
  * Used when a source recovers, so GR8's "reversible" is a real operation and
  * not just the mark expiring on its own.
  */
 __attribute__((unused))
-static int cache_purge_unmark(struct purge_table *t,
-                              uint8_t srctype, uint32_t srcid,
-                              uint16_t caid, uint16_t sid, uint32_t provid)
+static int cache_purge_unmark_scoped(struct purge_table *t,
+                                     uint8_t srctype, uint32_t srcid,
+                                     uint16_t caid, uint16_t sid,
+                                     uint32_t provid, int provider_known)
 {
 	int i;
+	provider_known = cache_purge_scope_known(provid, provider_known);
+	provid = cache_purge_scope_value(provid, provider_known);
 	if (!t) return 0;
 	for (i = 0; i < CACHE_PURGE_SLOTS; i++) {
 		struct purge_entry *e = &t->e[i];
 		if (e->inuse && e->srctype == srctype && e->srcid == srcid &&
-		    e->caid == caid && e->sid == sid && e->provid == provid) {
+		    e->caid == caid && e->sid == sid && e->provid == provid &&
+		    e->provider_known == (uint8_t)provider_known) {
 			e->inuse = 0;
 			t->released++;   /* TASK 1.9: a lift by recovery, not by timeout */
 			return 1;
 		}
 	}
 	return 0;
+}
+
+/* Legacy numeric API: nonzero values imply known provider; zero is unknown. */
+__attribute__((unused))
+static int cache_purge_unmark(struct purge_table *t,
+                              uint8_t srctype, uint32_t srcid,
+                              uint16_t caid, uint16_t sid, uint32_t provid)
+{
+	return cache_purge_unmark_scoped(t, srctype, srcid, caid, sid,
+	                                 provid, provid != 0);
 }
 
 /*
@@ -345,17 +416,20 @@ static int cache_purge_count(const struct purge_table *t)
 #endif /* MCS_CACHE_PURGE_H */
 
 #ifdef MCS_CACHE_PURGE_WALK
-__attribute__((unused)) static int cache_purge_sweep(struct purge_table *t,
+__attribute__((unused)) static int cache_purge_sweep_scoped(struct purge_table *t,
                              uint8_t srctype, uint32_t srcid,
                              uint16_t caid, uint16_t sid, uint32_t provid,
-                             uint8_t markbit)
+                             int provider_known, uint8_t markbit)
 {
 	struct cache_data **cachetab;
 	struct cache_data *head, *p;
 	int idx, marked = 0;
 
+	provider_known = cache_purge_scope_known(provid, provider_known);
+	provid = cache_purge_scope_value(provid, provider_known);
 	if (!t) return -1;
-	if (!cache_purge_should_withhold(t, srctype, srcid, caid, sid, provid))
+	if (!cache_purge_should_withhold_scoped(t, srctype, srcid, caid, sid,
+	                                        provid, provider_known))
 		return -1; /* no live mark: refuse to sweep on a non-event */
 
 	cachetab = getcachetabbycaid(caid);
@@ -364,8 +438,8 @@ __attribute__((unused)) static int cache_purge_sweep(struct purge_table *t,
 	/*
 	 * The bucket index is sid & MAX_CACHE_INDEX and nothing else -- PROVID is
 	 * not part of it (clustredcache.c:396, :475, :1185, :1253, :1308 all use
-	 * the same expression). So one bucket holds several PROVIDs and the
-	 * per-entry filter below is what narrows it, not the index.
+	 * the same expression). So one bucket holds several provider identities;
+	 * the per-entry filter below narrows it, including known-zero vs unknown.
 	 */
 	idx = sid & MAX_CACHE_INDEX;
 	head = cachetab[idx];
@@ -373,7 +447,18 @@ __attribute__((unused)) static int cache_purge_sweep(struct purge_table *t,
 
 	p = head;
 	do {
-		if (p->sid == sid && p->provid == provid) {
+		uint32_t entry_provider;
+		int entry_provider_known;
+		if (p->local_provider_set) {
+			entry_provider = p->local_provider;
+			entry_provider_known = 1;
+		} else {
+			entry_provider = p->provid;
+			entry_provider_known = cache_purge_scope_known(p->provid, p->provider_known);
+		}
+		entry_provider = cache_purge_scope_value(entry_provider, entry_provider_known);
+		if (p->sid == sid && entry_provider == provid &&
+		    entry_provider_known == provider_known) {
 			struct cw_cache_data *cwdata = p->cwdata;
 			while (cwdata) {
 				if (cwdata->peerid == srcid && !(cwdata->status & markbit)) {
@@ -387,5 +472,15 @@ __attribute__((unused)) static int cache_purge_sweep(struct purge_table *t,
 	} while (p && p != head);
 
 	return marked;
+}
+
+/* Legacy numeric API: nonzero values imply known provider; zero is unknown. */
+__attribute__((unused)) static int cache_purge_sweep(struct purge_table *t,
+                             uint8_t srctype, uint32_t srcid,
+                             uint16_t caid, uint16_t sid, uint32_t provid,
+                             uint8_t markbit)
+{
+	return cache_purge_sweep_scoped(t, srctype, srcid, caid, sid,
+	                                provid, provid != 0, markbit);
 }
 #endif /* MCS_CACHE_PURGE_WALK */

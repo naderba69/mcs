@@ -19,22 +19,32 @@ int acceptDCW_pattern(uint8_t *data, uint16_t caid, int checksum, int repeat, in
     (void)data; (void)caid; (void)repeat; (void)modern; (void)pattern;
     return checksum;
 }
+int acceptDCW_pattern_reason(uint8_t *data, uint16_t caid, int checksum, int repeat, int modern, int pattern,
+                             enum dcw_validation_reason *reason)
+{
+    if (reason) *reason = DCW_VALID;
+    return acceptDCW_pattern(data, caid, checksum, repeat, modern, pattern);
+}
 int main(void)
 {
     static unsigned char raw[sizeof(struct cardserver_data) + 8] __attribute__((aligned(8)));
     struct cardserver_data *cs = (struct cardserver_data *)(void *)(raw + 1);
     uint8_t cw[16] = {0};
+    int reason = -1;
     cs->option.dcwfilter_checksum = DCWFILTER_OFF;
     cs->option.skipcwc = 1;
     cs->option.skipcwc_only_active = 1;
     cs->option.skipcwc_only[0] = 0x1136;
     cs->option.skipcwc_only_total = 1;
     assert(acceptDCW_profile_ca_sid(cw, cs, 0x1884, 0x1136) == DCWFILTER_ON);
+    assert(acceptDCW_profile_ca_sid_reason(cw, cs, 0x1884, 0x1136, &reason) == DCWFILTER_ON);
+    assert(reason == DCW_VALID);
     assert(acceptDCW_profile_ca_sid(cw, cs, 0x1884, 0x1137) == DCWFILTER_OFF);
     cs->option.skipcwc_excl_active = 1;
     cs->option.skipcwc_excl[0] = 0x1136;
     cs->option.skipcwc_excl_total = 1;
     assert(acceptDCW_profile_ca_sid(cw, cs, 0x1884, 0x1136) == DCWFILTER_OFF);
+    assert(acceptDCW_profile_ca_sid_reason(cw, cs, 0x1884, 0x1136, &reason) == DCWFILTER_OFF);
     cs->option.skipcwc_excl_active = 0;
     assert(acceptDCW_profile_ca_sid(cw, cs, 0x2610, 0x1136) == DCWFILTER_OFF);
     cs->option.skipcwc = 0;

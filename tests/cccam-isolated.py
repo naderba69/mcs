@@ -109,6 +109,21 @@ def run():
                     timeout=25, check=True)
                 assert "cccam login" in other.stdout and "[FAIL]" not in other.stdout
                 assert trace_request().count("استلام ECM") == before, "other client leaked into trace"
+                all_fields = {"csrf": csrf, "action": "start", "client": client_id, "mode": "all"}
+                trace_request(urllib.parse.urlencode(all_fields).encode())
+                item = subprocess.run([str(client), "127.0.0.1", str(cccam), "traceuser", "tracepass",
+                                       "1884", "2201", "0x80", "0x81"], capture_output=True,
+                                      text=True, timeout=30, check=True,
+                                      env=dict(os.environ, CCDCW_NEXT_SID="2202"))
+                assert "cccam login" in item.stdout and "[FAIL]" not in item.stdout, item.stdout
+                page = trace_request()
+                assert "كل القنوات" in page and "1884:000000:2201" in page and "1884:000000:2202" in page
+                before_all = page.count("استلام ECM")
+                other = subprocess.run([str(client), "127.0.0.1", str(cccam), "otheruser", "otherpass",
+                                        "1884", "2203", "0x81"], capture_output=True,
+                                       text=True, timeout=25, check=True)
+                assert "cccam login" in other.stdout
+                assert trace_request().count("استلام ECM") == before_all
                 trace_request(urllib.parse.urlencode({"csrf": csrf, "action": "stop"}).encode())
                 assert "الحالة: متوقفة" in trace_request(), "trace did not stop"
                 trace_request(urllib.parse.urlencode(fields).encode())

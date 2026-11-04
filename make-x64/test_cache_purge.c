@@ -45,7 +45,7 @@ static void t_sizes(void)
 	/* Four counters since TASK 1.9: marked, skipped, released, expired. */
 	CHECK(sizeof(struct purge_table) ==
 	      CACHE_PURGE_SLOTS * sizeof(struct purge_entry) + 4 * sizeof(uint32_t),
-	      "table size is slots * entry + two counters (no hidden padding)");
+	      "table size is slots * entry + four counters (no hidden padding)");
 }
 
 static void t_mark_and_withhold(void)
@@ -88,6 +88,29 @@ static void t_gr4_granularity(void)
 	      "a CSP peer and a cacheex client with the same numeric id do not share a mark");
 	CHECK(cache_purge_should_withhold(&tab, SRV, PEER7, CAID1, SID1, PROV1) == 1,
 	      "the marked one is still withheld");
+}
+
+static void t_provider_scope_is_distinct(void)
+{
+	cache_purge_init(&tab);
+	CHECK(cache_purge_mark_scoped(&tab, SRV, 1, CAID1, SID1, 0, 1, 1000) == 1,
+	      "known provider zero creates its own purge mark");
+	CHECK(cache_purge_mark_scoped(&tab, SRV, 1, CAID1, SID1, 0, 0, 1100) == 1,
+	      "unknown provider zero creates a separate purge mark");
+	CHECK(cache_purge_should_withhold_scoped(&tab, SRV, 1, CAID1, SID1, 0, 1) == 1,
+	      "known-zero scope finds only its exact mark");
+	CHECK(cache_purge_should_withhold_scoped(&tab, SRV, 1, CAID1, SID1, 0, 0) == 1,
+	      "unknown scope finds only its exact mark");
+	CHECK(cache_purge_count(&tab) == 2,
+	      "known zero and unknown remain two bounded identities");
+	CHECK(cache_purge_unmark_scoped(&tab, SRV, 1, CAID1, SID1, 0, 1) == 1,
+	      "recovery lifts the known-zero mark only");
+	CHECK(cache_purge_should_withhold_scoped(&tab, SRV, 1, CAID1, SID1, 0, 1) == 0 &&
+	      cache_purge_should_withhold_scoped(&tab, SRV, 1, CAID1, SID1, 0, 0) == 1,
+	      "lifting known zero leaves unknown-provider mark intact");
+	CHECK(cache_purge_mark_scoped(&tab, SRV, 2, CAID1, SID1, 5, 0, 1200) == 1 &&
+	      cache_purge_should_withhold_scoped(&tab, SRV, 2, CAID1, SID1, 5, 1) == 1,
+	      "nonzero provider remains known even when caller omits presence");
 }
 
 static void t_unmark_is_reversible(void)
@@ -223,6 +246,7 @@ int main(void)
 	t_sizes();
 	t_mark_and_withhold();
 	t_gr4_granularity();
+	t_provider_scope_is_distinct();
 	t_unmark_is_reversible();
 	t_eviction_prefers_free_slots();
 	t_eviction_is_longest_unseen();

@@ -160,6 +160,7 @@ struct ledger_event {
 	uint8_t  ecmd5[16];
 	uint32_t hash;
 	uint32_t provid;
+	uint8_t  provider_known;    /* current event context; not a ledger key */
 	uint16_t caid;
 	uint16_t sid;
 	uint8_t  cw[2][16];         /* slot 0 is always the first key recorded */

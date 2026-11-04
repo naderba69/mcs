@@ -351,6 +351,7 @@ void frcc_senddcw_cli(struct cc_client_data *cli)
 	//
 	cli->lastecm.caid = ecm->caid;
 	cli->lastecm.prov = ecm->provid;
+	cli->lastecm.provider_known = ecm->provider_known;
 	cli->lastecm.sid = ecm->sid;
 	cli->lastecm.hash = ecm->hash;
 	cli->lastecm.tag = ecm->ecm[0];
@@ -458,7 +459,7 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						pthread_mutex_lock(&prg.lockecm);
 	
 						// Search for ECM
-						ECM_DATA *ecm = search_ecmdata_any(cs, data,  len-17, sid, caid); // dont get failed ecm request from cache
+						ECM_DATA *ecm = search_ecmdata_any(cs, data,  len-17, sid, caid, provid, 1); // dont get failed ecm request from cache
 						/* TASK R31 (D82) -- receiver attestation tap, mirroring
 						 * srv-newcamd's: this client's too-soon re-ask after a
 						 * delivered key is one receiver's vote on the BYTES;
@@ -474,7 +475,8 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 							&& ecm && (ecm->hash==cli->lastecm.hash) && (ecm->ecm[0]==cli->lastecm.tag) ) {
 							if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
 								attest_note( ATTEST_TAG_FREECCCAM | (uint32_t)cli->id, cli->lastecm.dcw,
-									cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+									cli->lastecm.caid, cli->lastecm.prov,
+									cli->lastecm.provider_known, cli->lastecm.sid,
 									cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
 						}
 						int isnew =  ( ecm==NULL );
@@ -502,9 +504,16 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 							}
 						}
 						else {
-							cs->ecmaccepted++;
 							// Setup ECM Request for Server(s)
 							ecm = store_ecmdata(cs, data, len-17, sid, caid, provid);
+							if (!ecm) {
+								cs->ecmdenied++;
+								cli->ecmdenied++;
+								if (!cc_msg_send(cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL)) frcc_disconnect_cli(cli);
+								pthread_mutex_unlock(&prg.lockecm);
+								break;
+							}
+							cs->ecmaccepted++;
 							cc_store_ecmclient(ecm, cli);
 							debugf( getdbgflagpro(DBG_CCCAM,0,cli->id,cs->id), " <- ecm from FreeCCcam client(%s) ch %04x:%06x:%04x\n", cli->user,caid,provid,sid);
 							cli->ecm.busy=1;

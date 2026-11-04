@@ -1,10 +1,10 @@
 /*
  * trust.h — TASK 1.4, per-source trust scoring
  *
- * GR4: trust is keyed on `(source_type, source_id, CAID, PROVID, SID)`, never on
- * a server as a whole. A card that is healthy on one bouquet and dead on another
- * has to be scored as two different things, or fixing the second breaks the
- * first.
+ * GR4: trust is keyed on `(source_type, source_id, CAID, provider scope/value,
+ * SID)`, never on a server as a whole. A card that is healthy on one bouquet
+ * and dead on another has to be scored separately, or fixing the second breaks
+ * the first.
  *
  * The source half of that key is the same `(srctype, srcid)` pair that
  * `src2string()` resolves (`main.c:522-624`), so what the dashboard names and
@@ -88,6 +88,16 @@
 #define TRUST_EV_SOFT   2
 #define TRUST_EV_PROOF  3
 
+/* Provider presence is part of the fine-grained identity. Numeric zero may be
+ * an explicit provider or an absent provider; these are independent scopes.
+ * Legacy TF snapshots did not store presence, so their zero-provider rows use
+ * LEGACY_AMBIGUOUS and are read as a compatibility fallback by either scope. */
+enum {
+	TRUST_PROVIDER_UNKNOWN = 0,
+	TRUST_PROVIDER_KNOWN = 1,
+	TRUST_PROVIDER_LEGACY_AMBIGUOUS = 2
+};
+
 struct trust_entry {
 	uint32_t provid;
 	uint32_t lastseen;
@@ -98,75 +108,111 @@ struct trust_entry {
 	int      score;
 	int      nproof;     /* definitive proofs seen; never decayed away */
 	int      nsoft;      /* soft events seen; kept for Phase 2's forensics */
-	int      used;
+	uint8_t  provider_scope;
+	uint8_t  used;
 };
 
 struct trust_table {
 	struct trust_entry e[TRUST_TABLE_SIZE];
 };
 
+static inline uint8_t trust_provider_scope(int provider_known, uint32_t provid)
+{
+	return (provider_known || provid != 0) ? TRUST_PROVIDER_KNOWN
+	                                       : TRUST_PROVIDER_UNKNOWN;
+}
+
 /*
- * Cheap identity hash over the five-part key.
+ * Cheap identity hash over the source, CAID, provider scope/value and SID.
  *
  * Multiplied by odd constants and then folded, because a plain XOR would alias
  * CAID/PROVID/SID triples that differ only by transposition — and real bouquet
- * data is exactly the kind that aliases under XOR.
+ * data is exactly the kind that aliases under XOR. Presence is mixed separately
+ * so an explicit provider zero cannot share the unknown-provider probe chain.
  */
-static inline unsigned trust_index(int srctype, int srcid,
-                                   uint16_t caid, uint32_t provid, uint16_t sid)
+static inline unsigned trust_index_scoped(int srctype, int srcid,
+                                          uint16_t caid, uint32_t provid,
+                                          uint8_t provider_scope, uint16_t sid)
 {
 	uint32_t h = (uint32_t)srctype * 2654435761u;
 	h ^= (uint32_t)srcid * 40503u;
 	h ^= (uint32_t)caid * 2246822519u;
 	h ^= provid * 3266489917u;
-	h ^= (uint32_t)sid * 668265263u;
+	h ^= (uint32_t)provider_scope * 668265263u;
+	h ^= (uint32_t)sid * 374761393u;
 	h ^= h >> 15;
 	return (unsigned)(h % TRUST_TABLE_SIZE);
 }
 
-/*
- * Find the entry for a key, or NULL. Never inserts.
- */
-static inline struct trust_entry *trust_find(struct trust_table *t,
-                                             int srctype, int srcid,
-                                             uint16_t caid, uint32_t provid, uint16_t sid)
+/* Numeric-only compatibility helper: zero means unknown, nonzero is known. */
+static inline unsigned trust_index(int srctype, int srcid,
+                                   uint16_t caid, uint32_t provid, uint16_t sid)
 {
-	unsigned i = trust_index(srctype, srcid, caid, provid, sid);
+	return trust_index_scoped(srctype, srcid, caid, provid,
+	                          trust_provider_scope(0, provid), sid);
+}
+
+/* Exact lookup in one provider scope. Never inserts. */
+static inline struct trust_entry *trust_find_scope(struct trust_table *t,
+                                                   int srctype, int srcid,
+                                                   uint16_t caid, uint32_t provid,
+                                                   uint8_t provider_scope,
+                                                   uint16_t sid)
+{
+	unsigned i = trust_index_scoped(srctype, srcid, caid, provid,
+	                                provider_scope, sid);
 	unsigned probe;
 	for (probe = 0; probe < TRUST_TABLE_SIZE; probe++) {
 		struct trust_entry *e = &t->e[(i + probe) % TRUST_TABLE_SIZE];
 		if (!e->used) return NULL;
 		if (e->srctype == srctype && e->srcid == srcid &&
-		    e->caid == caid && e->provid == provid && e->sid == sid) return e;
+		    e->caid == caid && e->provid == provid && e->sid == sid &&
+		    e->provider_scope == provider_scope) return e;
 	}
 	return NULL;
 }
 
-/*
- * Record one event and return the resulting score.
- *
- * TRUST_EV_NONE returns the current score without writing, which lets the
- * delivery path ask "what do we think of this source?" without paying for a
- * mutation.
- *
- * A source with no entry starts at TRUST_START, created on its first *event*
- * rather than its first sighting, so the table fills with sources that actually
- * have something to say about them.
- *
- * Eviction, when the table is full and the key is new, takes the entry longest
- * unseen. Deliberately not "lowest score": evicting the worst-scored entry would
- * make a busy server forget exactly the sources it has the most evidence
- * against, which is the opposite of what a trust table is for.
- */
-static inline int trust_record(struct trust_table *t, int ev,
-                               int srctype, int srcid,
-                               uint16_t caid, uint32_t provid, uint16_t sid,
-                               uint32_t ticks_now)
+/* Exact presence-aware lookup. Legacy ambiguity is handled by trust_score(). */
+static inline struct trust_entry *trust_find_scoped(struct trust_table *t,
+                                                    int srctype, int srcid,
+                                                    uint16_t caid, uint32_t provid,
+                                                    int provider_known,
+                                                    uint16_t sid)
 {
-	struct trust_entry *e = trust_find(t, srctype, srcid, caid, provid, sid);
+	return trust_find_scope(t, srctype, srcid, caid, provid,
+	                        trust_provider_scope(provider_known, provid), sid);
+}
 
+/*
+ * Numeric-only compatibility lookup. For provider zero, also expose a row
+ * restored from the old, presence-less TF format; the persistence loader uses
+ * trust_find_scoped/trust_score_scoped for new records.
+ */
+static inline struct trust_entry *trust_find(struct trust_table *t,
+                                             int srctype, int srcid,
+                                             uint16_t caid, uint32_t provid, uint16_t sid)
+{
+	uint8_t scope = trust_provider_scope(0, provid);
+	struct trust_entry *e = trust_find_scope(t, srctype, srcid, caid, provid,
+	                                         scope, sid);
+	if (!e && provid == 0)
+		e = trust_find_scope(t, srctype, srcid, caid, provid,
+		                     TRUST_PROVIDER_LEGACY_AMBIGUOUS, sid);
+	return e;
+}
+
+/* Find an exact entry or allocate/evict one using the existing oldest-first rule. */
+static inline struct trust_entry *trust_entry_get_or_create(struct trust_table *t,
+                                                            int srctype, int srcid,
+                                                            uint16_t caid, uint32_t provid,
+                                                            uint8_t provider_scope,
+                                                            uint16_t sid)
+{
+	struct trust_entry *e = trust_find_scope(t, srctype, srcid, caid, provid,
+	                                         provider_scope, sid);
 	if (!e) {
-		unsigned i = trust_index(srctype, srcid, caid, provid, sid);
+		unsigned i = trust_index_scoped(srctype, srcid, caid, provid,
+		                                provider_scope, sid);
 		unsigned probe, oldest = i;
 		uint32_t oldest_at = t->e[i].lastseen;
 
@@ -183,13 +229,31 @@ static inline int trust_record(struct trust_table *t, int ev,
 		e->srcid = srcid;
 		e->caid = caid;
 		e->provid = provid;
+		e->provider_scope = provider_scope;
 		e->sid = sid;
 		e->score = TRUST_START;
 		e->used = 1;
 	}
+	return e;
+}
+
+/*
+ * Record one event in an explicit provider scope and return the resulting score.
+ * TRUST_EV_NONE returns the current score without scoring evidence; as before,
+ * the first event creates an entry at TRUST_START. New records never mutate a
+ * legacy-ambiguous row: they create/refresh the exact scope instead.
+ */
+static inline int trust_record_scoped(struct trust_table *t, int ev,
+                                      int srctype, int srcid,
+                                      uint16_t caid, uint32_t provid,
+                                      int provider_known, uint16_t sid,
+                                      uint32_t ticks_now)
+{
+	uint8_t scope = trust_provider_scope(provider_known, provid);
+	struct trust_entry *e = trust_entry_get_or_create(t, srctype, srcid,
+	                                                  caid, provid, scope, sid);
 
 	e->lastseen = ticks_now;
-
 	if (ev == TRUST_EV_NONE) return e->score;
 
 	if (ev == TRUST_EV_PROOF) {
@@ -205,13 +269,8 @@ static inline int trust_record(struct trust_table *t, int ev,
 	else if (ev == TRUST_EV_GOOD) {
 		/*
 		 * A thirty-second of the way back to the ceiling, but never less than 1.
-		 *
-		 * The minimum matters. Without it the shift reaches 0 at a score of 69
-		 * and the source plateaus there permanently: the ceiling becomes
-		 * unreachable, a source that was penalised can never climb back to where
-		 * a new one starts, and the `nproof`/`nsoft` history stops being reflected
-		 * in the score at all. Verified arithmetically before the test was
-		 * written — the first version of this line had no minimum and stalled.
+		 * The minimum matters: without it the shift reaches 0 at a score of 69,
+		 * so a penalised source can never recover to TRUST_START or the ceiling.
 		 */
 		int step = (TRUST_CEILING - e->score) >> TRUST_GOOD_SHIFT;
 		if (step < 1) step = 1;
@@ -222,17 +281,38 @@ static inline int trust_record(struct trust_table *t, int ev,
 	return e->score;
 }
 
-/*
- * Ask for a score without creating an entry. Returns -1 for a source never seen,
- * which callers must treat as "unknown", not as "bad": a brand new card has done
- * nothing wrong yet and must not start distrusted.
- */
+/* Numeric-only compatibility wrapper: zero means unknown. */
+static inline int trust_record(struct trust_table *t, int ev,
+                               int srctype, int srcid,
+                               uint16_t caid, uint32_t provid, uint16_t sid,
+                               uint32_t ticks_now)
+{
+	return trust_record_scoped(t, ev, srctype, srcid, caid, provid,
+	                           provid != 0, sid, ticks_now);
+}
+
+/* Ask for a score without creating an entry. Returns -1 when unseen. */
+static inline int trust_score_scoped(struct trust_table *t,
+                                     int srctype, int srcid,
+                                     uint16_t caid, uint32_t provid,
+                                     int provider_known, uint16_t sid)
+{
+	uint8_t scope = trust_provider_scope(provider_known, provid);
+	struct trust_entry *e = trust_find_scope(t, srctype, srcid, caid, provid,
+	                                         scope, sid);
+	/* A pre-scope TF zero row remains visible to both zero-provider scopes. */
+	if (!e && provid == 0)
+		e = trust_find_scope(t, srctype, srcid, caid, provid,
+		                     TRUST_PROVIDER_LEGACY_AMBIGUOUS, sid);
+	return e ? e->score : -1;
+}
+
 static inline int trust_score(struct trust_table *t,
                               int srctype, int srcid,
                               uint16_t caid, uint32_t provid, uint16_t sid)
 {
-	struct trust_entry *e = trust_find(t, srctype, srcid, caid, provid, sid);
-	return e ? e->score : -1;
+	return trust_score_scoped(t, srctype, srcid, caid, provid,
+	                          provid != 0, sid);
 }
 
 static inline void trust_reset(struct trust_table *t)
@@ -250,35 +330,18 @@ static inline void trust_reset(struct trust_table *t)
  * pins the entry at 0 -- maximally fresh -- which is the conservative side:
  * the evidence stays alive longer, never dies sooner.
  */
-__attribute__((unused))
-static int trust_restore(struct trust_table *t, int srctype, int srcid,
-                         uint16_t caid, uint32_t provid, uint16_t sid,
-                         int score, int nproof, int nsoft,
-                         uint32_t age_ms, uint32_t now)
+static int trust_restore_scoped(struct trust_table *t, int srctype, int srcid,
+                                uint16_t caid, uint32_t provid,
+                                uint8_t provider_scope, uint16_t sid,
+                                int score, int nproof, int nsoft,
+                                uint32_t age_ms, uint32_t now)
 {
-	struct trust_entry *e = trust_find(t, srctype, srcid, caid, provid, sid);
+	struct trust_entry *e;
 
-	if (!e) {
-		unsigned i = trust_index(srctype, srcid, caid, provid, sid);
-		unsigned probe, oldest = i;
-		uint32_t oldest_at = t->e[i].lastseen;
-
-		for (probe = 0; probe < TRUST_TABLE_SIZE; probe++) {
-			unsigned j = (i + probe) % TRUST_TABLE_SIZE;
-			if (!t->e[j].used) { oldest = j; break; }
-			if ((int32_t)(t->e[j].lastseen - oldest_at) < 0) {
-				oldest = j; oldest_at = t->e[j].lastseen;
-			}
-		}
-		e = &t->e[oldest];
-		memset(e, 0, sizeof(*e));
-		e->srctype = srctype;
-		e->srcid = srcid;
-		e->caid = caid;
-		e->provid = provid;
-		e->sid = sid;
-		e->used = 1;
-	}
+	if (!t || provider_scope > TRUST_PROVIDER_LEGACY_AMBIGUOUS ||
+	    (provider_scope != TRUST_PROVIDER_KNOWN && provid != 0)) return 0;
+	e = trust_entry_get_or_create(t, srctype, srcid, caid, provid,
+	                              provider_scope, sid);
 
 	if (score < TRUST_FLOOR)   score = TRUST_FLOOR;
 	if (score > TRUST_CEILING) score = TRUST_CEILING;
@@ -287,6 +350,18 @@ static int trust_restore(struct trust_table *t, int srctype, int srcid,
 	e->nsoft    = nsoft;
 	e->lastseen = (now > age_ms) ? (now - age_ms) : 0;
 	return 1;
+}
+
+/* Numeric-only compatibility helper: zero is restored as unknown. */
+__attribute__((unused))
+static int trust_restore(struct trust_table *t, int srctype, int srcid,
+                         uint16_t caid, uint32_t provid, uint16_t sid,
+                         int score, int nproof, int nsoft,
+                         uint32_t age_ms, uint32_t now)
+{
+	return trust_restore_scoped(t, srctype, srcid, caid, provid,
+	                            trust_provider_scope(0, provid), sid,
+	                            score, nproof, nsoft, age_ms, now);
 }
 
 #endif /* MCS_TRUST_H */

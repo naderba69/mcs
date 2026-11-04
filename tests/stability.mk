@@ -2132,15 +2132,16 @@ cg: $(CACHEPEER) $(NCCLIENT)
 #
 # THE SCENARIO. One CSP peer, one newcamd profile, and a state file. Phase 1
 # the peer answers honestly twice: standing is written into the fine tier,
-# then it goes idle past TRUST-FADE-GRACE (4 s) and the fade relaxes it, and
-# the next snapshot writes TF lines to disk. Phase 2 the same peer comes back
-# with one fixed poison key: two deliveries, a CW-reuse proof, a negative
-# mark, the third offer refused -- and the snapshot now carries an NG line.
-# Phase 3 the server is RESTARTED (one garbage line appended to the state file
-# first): the loader restores the fine, the coarse and the negative tables,
-# counts the bad line and skips it whole, and the very first fresh offer of
-# the SAME poison key is refused before any client -- the conviction survived
-# the restart that used to launder it.
+# then it goes idle past TRUST-FADE-GRACE (4 s) and the fade relaxes it; the
+# next snapshot writes scoped TF2 lines to disk. Phase 2 the same peer comes
+# back with one fixed poison key: two deliveries, a CW-reuse proof, a negative
+# mark, the third offer refused -- and the snapshot now carries an NG2 line.
+# Phase 3 restarts the server, then replays the poison under a fresh matching
+# known-zero local ECM context (CSP itself has no provider field). A legacy TF
+# provider-zero row and one garbage line are added before startup; the loader
+# restores the legacy row as ambiguous, skips the garbage, and the next snapshot
+# re-emits that row as TF2 without losing the ambiguity. The first fresh offer
+# of the SAME poison key under its known-zero scope is refused before delivery.
 # ---------------------------------------------------------------------------
 
 TL_HPORT = 16660
@@ -2221,10 +2222,10 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	if [ "$$nmark" = "1" ]; then \
 	  echo "  [ ok ] phase 2: the reused poison key is proven and filed (one CW NEGATIVE MARK)"; \
 	else echo "[FAIL] $$nmark negative mark line(s), expected exactly 1"; ok=0; fi; \
-	nng=$$(grep -c "^NG " $(TL_STATE) 2>/dev/null); \
+	nng=$$(grep -Ec "^NG2? " $(TL_STATE) 2>/dev/null); \
 	if [ "$${nng:-0}" = "1" ] 2>/dev/null; then \
-	  echo "  [ ok ] the conviction is on disk: exactly one NG line in the state file"; \
-	else echo "[FAIL] $${nng:-0} NG line(s) in $(TL_STATE), expected 1"; ok=0; fi; \
+	  echo "  [ ok ] the conviction is on disk: exactly one NG/NG2 line in the state file"; \
+	else echo "[FAIL] $${nng:-0} NG/NG2 line(s) in $(TL_STATE), expected 1"; ok=0; fi; \
 	sleep 6; \
 	for i in $$(seq 1 20); do grep -q "PHASE1 STATS" .tl-srv.log && break; sleep 0.5; done; \
 	sleep 1; \
@@ -2233,12 +2234,13 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	if [ "$$faded" -ge 1 ] 2>/dev/null; then \
 	  echo "  [ ok ] idle past the grace, the fade relaxed the condemned entries: $$faded move(s)"; \
 	else echo "[FAIL] fade counter is '$$f' -- nothing faded after the grace"; ok=0; fi; \
-	ntf=$$(grep -c "^TF " $(TL_STATE) 2>/dev/null); \
+	ntf=$$(grep -Ec "^TF2? " $(TL_STATE) 2>/dev/null); \
 	if [ "$${ntf:-0}" -ge 1 ] 2>/dev/null; then \
-	  echo "  [ ok ] the fine tier is on disk too: $$ntf TF line(s)"; \
-	else echo "[FAIL] no TF line in $(TL_STATE): the fine tier did not persist"; ok=0; fi; \
+	  echo "  [ ok ] the fine tier is on disk too: $$ntf TF/TF2 line(s)"; \
+	else echo "[FAIL] no TF/TF2 line in $(TL_STATE): the fine tier did not persist"; ok=0; fi; \
 	kill $$srv 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
+	printf 'TF 1 65537 1884 0 64 35 1 0 42\n' >> $(TL_STATE); \
 	echo "THIS LINE IS NOT A RECORD" >> $(TL_STATE); \
 	rm -f .tl-srv.log; \
 	stdbuf -o0 -e0 $(BIN) -C $(TL_CFG) -v > .tl-srv.log 2>&1 & \
@@ -2259,15 +2261,24 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	  && echo "  [ ok ] the garbage line was refused whole and counted, nothing half-applied" \
 	  || { echo "[FAIL] the bad line was not counted as unusable"; ok=0; }; \
 	s=$$(life_stats); \
+	nfine=$$(echo $$s | cut -d' ' -f1); \
 	nrest=$$(echo $$s | cut -d' ' -f3); \
 	nbad=$$(echo $$s | cut -d' ' -f4); \
-	if [ "$$nrest" = "1" ] && [ "$$nbad" = "1" ]; then \
-	  echo "  [ ok ] the stats remember both: 1 negative restored, 1 bad line"; \
-	else echo "[FAIL] lifecycle stats '$$s', expected 1 restored, 1 bad"; ok=0; fi; \
+	if [ "$$nfine" = "3" ] && [ "$$nrest" = "1" ] && [ "$$nbad" = "1" ]; then \
+	  echo "  [ ok ] stats show 3 fine rows (including legacy TF), 1 negative restored and 1 bad line"; \
+	else echo "[FAIL] lifecycle stats '$$s', expected 3 fine, 1 restored, 1 bad"; ok=0; fi; \
 	kill -9 $$peera 2>/dev/null; sleep 0.5; \
+	rm -f .tl-cli3.log; \
+	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(TL_NPORT) u4 p4 $(TL_KEY) 0 1884 0190 > .tl-cli3.log 2>&1 & \
+	cli3=$$!; \
+	for i in $$(seq 1 20); do grep -q "ecm from client 'u4' ch 1884:000000:0190" .tl-srv.log && break; sleep 0.1; done; \
+	pushhash=$$(grep "ecm from client 'u4' ch 1884:000000:0190" .tl-srv.log | head -1 | sed 's/.*://'); \
+	if printf '%s' "$$pushhash" | grep -Eq '^[[:xdigit:]]{8}$$'; then \
+	  echo "  [ ok ] a matching known-zero ECM is pending for the providerless CSP reply (hash $$pushhash)"; \
+	else echo "[FAIL] could not establish a known-zero ECM hash before the post-restart push"; ok=0; pushhash=11223344; fi; \
 	rm -f .tl-a.log; \
 	env CP_FRESH_KEY=0 CP_FORGED_FRESH_EVERY=0 \
-	    CP_PUSH_HASH=11223344 CP_PUSH_SID=0190 CP_PUSH_CAID=1884 CP_PUSH_TAG=80 \
+	    CP_PUSH_HASH=$$pushhash CP_PUSH_SID=0190 CP_PUSH_CAID=1884 CP_PUSH_TAG=80 \
 	    CP_REPUSH_MS=1500 CP_REPUSH_SAME=1 \
 	    stdbuf -o0 -e0 ./$(CACHEPEER) $(TL_CACHE) $(TL_A) $(TL_POISON) 32 > .tl-a.log 2>&1 & \
 	peera=$$!; \
@@ -2277,6 +2288,10 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	if [ "$$nref2" -ge 1 ]; then \
 	  echo "  [ ok ] the first fresh offer of the same poison is refused at ingest after the restart"; \
 	else echo "[FAIL] $$nref2 refusal line(s) after restart, expected >= 1"; ok=0; fi; \
+	for i in $$(seq 1 20); do grep -Eq '^TF2 1 65537 1884 0 2 64 [0-9]+ 1 0 [1-9][0-9]*$$' $(TL_STATE) && break; sleep 0.5; done; \
+	if grep -Eq '^TF2 1 65537 1884 0 2 64 [0-9]+ 1 0 [1-9][0-9]*$$' $(TL_STATE); then \
+	  echo "  [ ok ] periodic snapshot kept legacy TF provider-zero scope ambiguous in TF2"; \
+	else echo "[FAIL] restored legacy TF row was not re-emitted as ambiguous TF2"; ok=0; fi; \
 	grep -q "CW NEGATIVE MARK" .tl-srv.log \
 	  && { echo "[FAIL] a second mark was filed -- the restore duplicated the conviction"; ok=0; } \
 	  || echo "  [ ok ] and it is the restored conviction biting, not a new one: no second mark"; \
@@ -2290,9 +2305,9 @@ tl: $(CACHEPEER) $(NCCLIENT)
 	  echo "  [ ok ] no snapshot failure across both runs (fade/snapshots '$$f2')"; \
 	else echo "[FAIL] $$ffail snapshot failure(s)"; ok=0; fi; \
 	if kill -0 $$srv 2>/dev/null; then echo "  [ ok ] server survived"; else echo "[FAIL] the server died"; ok=0; fi; \
-	kill $$srv $$peera 2>/dev/null; \
+	kill $$srv $$peera $$cli3 2>/dev/null; \
 	for i in 1 2 3 4 5; do kill -0 $$srv 2>/dev/null || break; kill -9 $$srv 2>/dev/null; sleep 1; done; \
-	kill -9 $$peera 2>/dev/null; \
+	kill -9 $$peera $$cli3 2>/dev/null; \
 	[ "$$ok" = "1" ] || exit 1
 
 # ---------------------------------------------------------------------------
@@ -2547,10 +2562,10 @@ dl:
 # cache_new()/cache_setdcw()/PIPE_CACHE_REPLY allocated their nodes with no
 # NULL checks, and every caller dereferenced the result. One failed
 # allocation -- one -- was a SIGSEGV on the cache thread, which is the
-# process. Bitten pre-fix: LD_PRELOAD refusing exactly the table allocation
-# (calloc(90112): 88-byte packed cache_data x 1024 slots, transformed by GCC
-# from the malloc+memset pair; ca-bite.c) killed the 3.3 binary with exit 139
-# on the first honest client ECM.
+# process. Historical pre-fix bite: the original 88-byte layout requested
+# calloc(90112), and refusing that matching allocation killed the 3.3 binary
+# with exit 139 on the first honest client ECM. The current x64 CACHEEX layout
+# is 94 bytes; ca-bite.c now refuses its matching calloc(96256) allocation.
 #
 # THE FIX. Fourteen guards, one per allocation and one per caller that
 # dereferences what an allocation returned: the table allocator says so once
@@ -4696,10 +4711,13 @@ cn:
 	ok=1; \
 	echo "  [ -- ] P1: consensus OFF, stock first-wins"; \
 	{ printf 'HTTP PORT: $(CN_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(CN_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:16971\nCACHE PEER: 127.0.0.1:16972\n\n[ cn ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CN_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\n\n'; } > $(CN_CFG); \
-	stdbuf -o0 -e0 $(BIN) -C $(CN_CFG) -v > .cn1-srv.log 2>&1 & srv=$$!; sleep 3; \
 	env CP_REPUSH_MS=100 stdbuf -o0 -e0 ./$(CACHEPEER) $(CN_CACHE) 16971 "10302060405060F070809080A0B0C010" 64 > .cn1-f.log 2>&1 & pf=$$!; \
 	env CP_REPUSH_MS=100 stdbuf -o0 -e0 ./$(CACHEPEER) $(CN_CACHE) 16972 "10203060405060F070809080A0B0C010" 64 > .cn1-h.log 2>&1 & ph=$$!; \
-	for i in 1 2 3 4 5 6 7 8 9 10; do grep -q "come Online" .cn1-srv.log && break; sleep 0.5; done; sleep 1; \
+	for i in $$(seq 1 30); do grep -q "PEER: bound" .cn1-f.log && grep -q "PEER: bound" .cn1-h.log && break; sleep 0.1; done; \
+	stdbuf -o0 -e0 $(BIN) -C $(CN_CFG) -v > .cn1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	for i in $$(seq 1 40); do [ "$$(grep -c "come Online" .cn1-srv.log)" -ge 2 ] && break; sleep 0.25; done; \
+	on1=$$(grep -c "come Online" .cn1-srv.log); \
+	if [ "$$on1" -ge 2 ]; then echo "  [ ok ] P1: both cache peers completed the handshake before the ECM"; else echo "[FAIL] P1: only $$on1 of 2 cache peers came online"; ok=0; fi; \
 	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(CN_NPORT) u1 p1 0102030405060708091011121314 0 1884 0x64 > .cn1-cli.log 2>&1; sleep 1; \
 	n1=$$(grep -c "DELIVERED A CONTROL WORD" .cn1-cli.log); \
 	c1=$$(grep -c "CONSENSUS" .cn1-srv.log); \
@@ -4709,22 +4727,28 @@ cn:
 	kill $$srv $$pf $$ph 2>/dev/null; sleep 1; kill -9 $$srv $$pf $$ph 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	echo "  [ -- ] P2: consensus ON, a lone honest peer is held then released"; \
 	{ printf 'HTTP PORT: $(CN_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(CN_CACHE)\nCACHE FILTER: OFF\nCACHE CONSENSUS: ON\nCACHE CONSENSUS WINDOW: 600\nCACHE PEER: 127.0.0.1:16972\n\n[ cn ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CN_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\n\n'; } > $(CN_CFG); \
-	stdbuf -o0 -e0 $(BIN) -C $(CN_CFG) -v > .cn2-srv.log 2>&1 & srv=$$!; sleep 3; \
 	stdbuf -o0 -e0 ./$(CACHEPEER) $(CN_CACHE) 16972 "10203060405060F070809080A0B0C010" 64 > .cn2-h.log 2>&1 & ph=$$!; \
-	for i in 1 2 3 4 5 6 7 8 9 10; do grep -q "come Online" .cn2-srv.log && break; sleep 0.5; done; sleep 1; \
+	for i in $$(seq 1 30); do grep -q "PEER: bound" .cn2-h.log && break; sleep 0.1; done; \
+	stdbuf -o0 -e0 $(BIN) -C $(CN_CFG) -v > .cn2-srv.log 2>&1 & srv=$$!; sleep 3; \
+	for i in $$(seq 1 40); do grep -q "come Online" .cn2-srv.log && break; sleep 0.25; done; \
+	on2=$$(grep -c "come Online" .cn2-srv.log); \
+	if [ "$$on2" -ge 1 ]; then echo "  [ ok ] P2: the cache peer completed the handshake before the ECM"; else echo "[FAIL] P2: the cache peer did not come online"; ok=0; fi; \
 	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(CN_NPORT) u1 p1 0102030405060708091011121314 0 1884 0x65 > .cn2-cli.log 2>&1; sleep 3; \
 	n2=$$(grep -c "DELIVERED A CONTROL WORD" .cn2-cli.log); \
-	h2=$$(grep -c "window expired, single-source cw released" .cn2-srv.log); \
+	h2=$$(grep -c "window expired, CW rechecked" .cn2-srv.log); \
 	if [ "$$n2" = "1" ] && [ "$$h2" -ge 1 ]; then \
 	  echo "  [ ok ] P2: the lone key is held for corroboration, then released by the window"; \
 	else echo "[FAIL] P2 (delivered $$n2, releases $$h2)"; ok=0; fi; \
 	kill $$srv $$ph 2>/dev/null; sleep 1; kill -9 $$srv $$ph 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	echo "  [ -- ] P3/P4: two honest voters deliver early; the late fake never lands"; \
 	{ printf 'HTTP PORT: $(CN_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(CN_CACHE)\nCACHE FILTER: OFF\nCACHE CONSENSUS: ON\nCACHE CONSENSUS WINDOW: 600\nCACHE PEER: 127.0.0.1:16971\nCACHE PEER: 127.0.0.1:16972\nCACHE PEER: 127.0.0.1:16973\n\n[ cn ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(CN_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\nUSER: u2 p1\nUSER: u3 p1\nUSER: u4 p1\n\n'; } > $(CN_CFG); \
-	stdbuf -o0 -e0 $(BIN) -C $(CN_CFG) -v > .cn3-srv.log 2>&1 & srv=$$!; sleep 3; \
 	stdbuf -o0 -e0 ./$(CACHEPEER) $(CN_CACHE) 16972 "10203060405060F070809080A0B0C010" 64 > .cn3-h.log 2>&1 & ph=$$!; \
 	stdbuf -o0 -e0 ./$(CACHEPEER) $(CN_CACHE) 16973 "10203060405060F070809080A0B0C010" 64 > .cn3-h2.log 2>&1 & ph2=$$!; \
-	for i in 1 2 3 4 5 6 7 8 9 10; do grep -q "come Online" .cn3-srv.log && break; sleep 0.5; done; sleep 1; \
+	for i in $$(seq 1 30); do grep -q "PEER: bound" .cn3-h.log && grep -q "PEER: bound" .cn3-h2.log && break; sleep 0.1; done; \
+	stdbuf -o0 -e0 $(BIN) -C $(CN_CFG) -v > .cn3-srv.log 2>&1 & srv=$$!; sleep 3; \
+	for i in $$(seq 1 40); do [ "$$(grep -c "come Online" .cn3-srv.log)" -ge 2 ] && break; sleep 0.25; done; \
+	on3=$$(grep -c "come Online" .cn3-srv.log); \
+	if [ "$$on3" -ge 2 ]; then echo "  [ ok ] P3: both honest peers completed the handshake before the ECM"; else echo "[FAIL] P3: only $$on3 of 2 honest peers came online"; ok=0; fi; \
 	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(CN_NPORT) u1 p1 0102030405060708091011121314 0 1884 0x66 > .cn3-cli.log 2>&1; sleep 2; \
 	n3=$$(grep -c "DELIVERED A CONTROL WORD" .cn3-cli.log); \
 	e3=$$(grep -c "window expired" .cn3-srv.log); \
@@ -4738,9 +4762,10 @@ cn:
 	g4=$$(grep -c "dcw=10203060405060F070809080A0B0C010" .cn4-cli.log); \
 	b4=$$(grep -c "dcw=10302060405060F070809080A0B0C010" .cn4-cli.log); \
 	h4=$$(grep -c "CONSENSUS] holding cw" .cn3-srv.log); \
-	if [ "$$n4" = "1" ] && [ "$$g4" = "1" ] && [ "$$b4" = "0" ] && [ "$$h4" -ge 2 ]; then \
-	  echo "  [ ok ] P4: with the fake listening, the clean key still delivered and the fake never landed"; \
-	else echo "[FAIL] P4 (delivered $$n4 good $$g4 bad $$b4 holds $$h4)"; ok=0; fi; \
+	r4=$$(grep -c "cw refused: lost the weighted decision" .cn3-srv.log); \
+	if [ "$$n4" = "1" ] && [ "$$g4" = "1" ] && [ "$$b4" = "0" ] && [ "$$h4" -ge 2 ] && [ "$$r4" -ge 1 ]; then \
+	  echo "  [ ok ] P4: the clean key delivered and consensus explicitly refused the late fake"; \
+	else echo "[FAIL] P4 (delivered $$n4 good $$g4 bad $$b4 holds $$h4 consensus-refusals $$r4)"; ok=0; fi; \
 	kill $$srv $$pf $$ph $$ph2 2>/dev/null; sleep 1; kill -9 $$srv $$pf $$ph $$ph2 2>/dev/null; pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
 	if [ "$$ok" = "1" ]; then rm -f $(CN_CFG) $(CN_REP) .cn-*.log .cn-cli*.log; else echo "[FAIL] logs kept under tests/.cn-*"; fi; \
 	[ "$$ok" = "1" ] || exit 1
@@ -4800,11 +4825,13 @@ ri: .ncclient.bin .cachepeer.bin
 	@rm -f $(RI_CFG) .ri-srv.log .ri-a.log .ri-b.log .ri-cli.log; \
 	{ printf 'HTTP PORT: $(RI_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: $(RI_TPORT)\nDCW STATS: ON\nCACHE PORT: $(RI_CACHE)\nCACHE FILTER: OFF\n\n[ ri ]\nCAID: 1884\nPROVIDERS: 0\nSID LIST: 0064.81 0065.81\nPORT: $(RI_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nDCWFILTER CYCLE: YES\nUSER: u1 p1\nUSER: u2 p1\n\nCACHE PEER: 127.0.0.1:$(RI_A) { csp=1; fwd=1 }\nCACHE PEER: 127.0.0.1:$(RI_B) { csp=1; fwd=1 }\n'; } > $(RI_CFG); \
 	ok=1; \
-	stdbuf -o0 -e0 $(BIN) -C $(RI_CFG) -v > .ri-srv.log 2>&1 & srv=$$!; \
-	sleep 3; \
 	env CP_CYCLE_MARK=1 CP_ANSWER_DELAY_MS=400 stdbuf -o0 -e0 ./$(CACHEPEER) $(RI_CACHE) $(RI_A) "$(RI_CW1)" 64 > .ri-a.log 2>&1 & pa=$$!; \
 	env CP_CYCLE_MARK=2 stdbuf -o0 -e0 ./$(CACHEPEER) $(RI_CACHE) $(RI_B) "$(RI_CW1)" 64 > .ri-b.log 2>&1 & pb=$$!; \
-	for i in $$(seq 1 30); do [ "$$(grep -c 'come Online' .ri-srv.log)" -ge 2 ] && break; sleep 0.5; done; sleep 1; \
+	for i in $$(seq 1 30); do grep -q "PEER: bound" .ri-a.log && grep -q "PEER: bound" .ri-b.log && break; sleep 0.1; done; \
+	stdbuf -o0 -e0 $(BIN) -C $(RI_CFG) -v > .ri-srv.log 2>&1 & srv=$$!; sleep 3; \
+	for i in $$(seq 1 40); do [ "$$(grep -c 'come Online' .ri-srv.log)" -ge 2 ] && break; sleep 0.25; done; \
+	rion=$$(grep -c 'come Online' .ri-srv.log); \
+	if [ "$$rion" -ge 2 ]; then echo "  [ ok ] P1: both peers completed the handshake before the ECM"; else echo "[FAIL] P1: only $$rion of 2 peers came online"; ok=0; fi; \
 	echo "  [ -- ] P1: the trap -- same key, B's wrong mark answers first, A is +400 ms"; \
 	NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(RI_NPORT) u1 p1 $(RI_KEY) 0 1884 64 > .ri-cli.log 2>&1; \
 	grep -q "DELIVERED A CONTROL WORD" .ri-cli.log || { sleep 2; NC_ECMS=1 timeout 30 ./$(NCCLIENT) 127.0.0.1 $(RI_NPORT) u1 p1 $(RI_KEY) 0 1884 64 >> .ri-cli.log 2>&1; }; \
@@ -4836,9 +4863,11 @@ vl:
 	ok=1; \
 	echo "  [ -- ] P1: a lone honest key is HELD, then DELIVERED by the window"; \
 	{ printf 'HTTP PORT: $(VL_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(VL_CACHE)\nCACHE FILTER: OFF\nCACHE CONSENSUS: ON\nCACHE CONSENSUS WINDOW: 300\nCACHE PEER: 127.0.0.1:$(VL_PEER)\n\n[ vl ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(VL_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\n\n'; } > $(VL_CFG); \
-	stdbuf -o0 -e0 ../bin/multics-r82a-stats-x64 -C $(VL_CFG) -v > .vl1-srv.log 2>&1 & srv=$$!; sleep 3; \
 	stdbuf -o0 -e0 ./$(CACHEPEER) $(VL_CACHE) $(VL_PEER) "$(VL_CLEAN)" 64 > .vl1-h.log 2>&1 & ph=$$!; \
-	for i in $$(seq 1 10); do grep -q "come Online" .vl1-srv.log && break; sleep 0.5; done; sleep 1; \
+	for i in $$(seq 1 30); do grep -q "PEER: bound" .vl1-h.log && break; sleep 0.1; done; \
+	stdbuf -o0 -e0 ../bin/multics-r82a-stats-x64 -C $(VL_CFG) -v > .vl1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	for i in $$(seq 1 40); do grep -q "come Online" .vl1-srv.log && break; sleep 0.25; done; \
+	if grep -q "come Online" .vl1-srv.log; then echo "  [ ok ] P1: cache peer completed the handshake before the ECM"; else echo "[FAIL] P1: cache peer did not come online"; ok=0; fi; \
 	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(VL_NPORT) u1 p1 0102030405060708091011121314 0 1884 0x64 > .vl1-cli.log 2>&1; sleep 3; \
 	page1=$$(curl -s -m 3 -u a:a http://127.0.0.1:$(VL_HPORT)/cwlog); \
 	held1=$$(printf '%s' "$$page1" | grep -c '>held<'); \
@@ -4853,11 +4882,14 @@ vl:
 	kill $$srv $$ph 2>/dev/null; sleep 1; kill -9 $$srv $$ph 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	echo "  [ -- ] P2: the delayed fake loses the weighted decision -> a REFUSED row"; \
 	{ printf 'HTTP PORT: $(VL_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(VL_CACHE)\nCACHE FILTER: OFF\nCACHE CONSENSUS: ON\nCACHE CONSENSUS WINDOW: 300\nCACHE PEER: 127.0.0.1:$(VL_PEER)\nCACHE PEER: 127.0.0.1:16834\nCACHE PEER: 127.0.0.1:16835\n\n[ vl ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(VL_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nUSER: u1 p1\n\n'; } > $(VL_CFG); \
-	stdbuf -o0 -e0 ../bin/multics-r82a-stats-x64 -C $(VL_CFG) -v > .vl2-srv.log 2>&1 & srv=$$!; sleep 3; \
 	env CP_REPUSH_MS=100 stdbuf -o0 -e0 ./$(CACHEPEER) $(VL_CACHE) $(VL_PEER) "$(VL_CLEAN)" 64 > .vl2-h.log 2>&1 & ph=$$!; \
 	env CP_REPUSH_MS=100 stdbuf -o0 -e0 ./$(CACHEPEER) $(VL_CACHE) 16834 "$(VL_CLEAN)" 64 > .vl2-h2.log 2>&1 & ph2=$$!; \
 	env CP_ANSWER_DELAY_MS=400 stdbuf -o0 -e0 ./$(CACHEPEER) $(VL_CACHE) 16835 "$(VL_FAKE)" 64 > .vl2-f.log 2>&1 & pf=$$!; \
-	for i in $$(seq 1 10); do grep -q "come Online" .vl2-srv.log && break; sleep 0.5; done; sleep 1; \
+	for i in $$(seq 1 30); do grep -q "PEER: bound" .vl2-h.log && grep -q "PEER: bound" .vl2-h2.log && grep -q "PEER: bound" .vl2-f.log && break; sleep 0.1; done; \
+	stdbuf -o0 -e0 ../bin/multics-r82a-stats-x64 -C $(VL_CFG) -v > .vl2-srv.log 2>&1 & srv=$$!; sleep 3; \
+	for i in $$(seq 1 40); do [ "$$(grep -c "come Online" .vl2-srv.log)" -ge 3 ] && break; sleep 0.25; done; \
+	on2=$$(grep -c "come Online" .vl2-srv.log); \
+	if [ "$$on2" -ge 3 ]; then echo "  [ ok ] P2: all three cache peers completed the handshake"; else echo "[FAIL] P2: only $$on2 of 3 cache peers came online"; ok=0; fi; \
 	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(VL_NPORT) u1 p1 0102030405060708091011121314 0 1884 0x67 > .vl2-cli.log 2>&1; sleep 3; \
 	page2=$$(curl -s -m 3 -u a:a http://127.0.0.1:$(VL_HPORT)/cwlog); \
 	ref2=$$(printf '%s' "$$page2" | grep -c '>refused<'); \
@@ -4868,9 +4900,11 @@ vl:
 	kill $$srv $$ph $$ph2 $$pf 2>/dev/null; sleep 1; kill -9 $$srv $$ph $$ph2 $$pf 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
 	echo "  [ -- ] P3: 400 fresh-key answers fill the ring to 100/100"; \
 	{ printf 'HTTP PORT: $(VL_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\nDCW STATS: ON\nCACHE PORT: $(VL_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(VL_PEER)\n\n[ vl ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(VL_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 6000\nDCWFILTER CHECKSUM: OFF\nUSER: u1 p1\n\n'; } > $(VL_CFG); \
-	stdbuf -o0 -e0 ../bin/multics-r82a-stats-x64 -C $(VL_CFG) -v > .vl3-srv.log 2>&1 & srv=$$!; sleep 3; \
 	env CP_FRESH_KEY=1 stdbuf -o0 -e0 ./$(CACHEPEER) $(VL_CACHE) $(VL_PEER) "$(VL_CLEAN)" 1000000 > .vl3-h.log 2>&1 & ph=$$!; \
-	for i in $$(seq 1 10); do grep -q "come Online" .vl3-srv.log && break; sleep 0.5; done; sleep 1; \
+	for i in $$(seq 1 30); do grep -q "PEER: bound" .vl3-h.log && break; sleep 0.1; done; \
+	stdbuf -o0 -e0 ../bin/multics-r82a-stats-x64 -C $(VL_CFG) -v > .vl3-srv.log 2>&1 & srv=$$!; sleep 3; \
+	for i in $$(seq 1 40); do grep -q "come Online" .vl3-srv.log && break; sleep 0.25; done; \
+	if grep -q "come Online" .vl3-srv.log; then echo "  [ ok ] P3: cache peer completed the handshake before the flood"; else echo "[FAIL] P3: cache peer did not come online"; ok=0; fi; \
 	timeout 30 env NC_HOP=1 NC_ECMS=400 NC_ECM_GAP_MS=15 ./$(NCCLIENT) 127.0.0.1 $(VL_NPORT) u1 p1 0102030405060708091011121314 0 1884 0x64 > .vl3-cli.log 2>&1; sleep 2; \
 	page3=$$(curl -s -m 3 -u a:a http://127.0.0.1:$(VL_HPORT)/cwlog); \
 	full3=$$(printf '%s' "$$page3" | grep -c '100 / 100'); \
@@ -5029,11 +5063,16 @@ fz: .ncclient.bin .cachepeer.bin
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(FZ_CFG) .fz-*.log; ok=1; \
-	start_fz() { stdbuf -o0 -e0 $(BIN) -C $(FZ_CFG) -v > .fz$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	start_fz() { \
 	  fp=""; i=0; while [ $$i -lt 9 ]; do p=$$((17040 + $$i)); \
 	    stdbuf -o0 -e0 ./$(CACHEPEER) $(FZ_CACHE) $$p "$(FZ_FAKE)" 64 18840000 > .fz$$1-f$$i.log 2>&1 & fp="$$fp $$!"; i=$$((i+1)); done; \
 	  env CP_ANSWER_DELAY_MS=400 stdbuf -o0 -e0 ./$(CACHEPEER) $(FZ_CACHE) 17049 "$(FZ_HONEST)" 64 18840000 > .fz$$1-h.log 2>&1 & hp=$$!; \
-	  sleep 2; \
+	  for i in $$(seq 1 50); do bound=1; for j in 0 1 2 3 4 5 6 7 8; do grep -q "PEER: bound" .fz$$1-f$$j.log || bound=0; done; grep -q "PEER: bound" .fz$$1-h.log || bound=0; [ "$$bound" = "1" ] && break; sleep 0.1; done; \
+	  stdbuf -o0 -e0 $(BIN) -C $(FZ_CFG) -v > .fz$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	  for i in $$(seq 1 40); do [ "$$(grep -c "come Online" .fz$$1-srv.log)" -ge 10 ] && break; sleep 0.25; done; \
+	  online=$$(grep -c "come Online" .fz$$1-srv.log); \
+	  if [ "$$online" -ge 10 ]; then echo "  [ ok ] FZ$$1: all 10 cache peers completed the handshake"; else echo "[FAIL] FZ$$1: only $$online of 10 cache peers came online"; ok=0; fi; \
+	  sleep 1; \
 	  NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 40 ./$(NCCLIENT) 127.0.0.1 $(FZ_NPORT) u1 p1 $(FZ_KEY) 0 1884 64 > .fz$$1-cli.log 2>&1; \
 	  grep -q "DELIVERED A CONTROL WORD" .fz$$1-cli.log || { sleep 2; NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 40 ./$(NCCLIENT) 127.0.0.1 $(FZ_NPORT) u1 p1 $(FZ_KEY) 0 1884 64 >> .fz$$1-cli.log 2>&1; }; \
 	  kill -9 $$fp $$hp 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; }; \
@@ -5086,9 +5125,13 @@ at: .ncclient.bin .cachepeer.bin
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(AT_CFG) .at-*.log; ok=1; \
-	run_at() { stdbuf -o0 -e0 $(BIN) -C $(AT_CFG) -v > .at$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	run_at() { \
 	  stdbuf -o0 -e0 ./$(CACHEPEER) $(AT_CACHE) 17060 "$${AT_PEER_CW:-$(AT_FAKE)}" 64 18840000 > .at$$1-f.log 2>&1 & fp=$$!; \
-	  sleep 2; \
+	  for i in $$(seq 1 30); do grep -q "PEER: bound" .at$$1-f.log && break; sleep 0.1; done; \
+	  stdbuf -o0 -e0 $(BIN) -C $(AT_CFG) -v > .at$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
+	  for i in $$(seq 1 40); do grep -q "come Online" .at$$1-srv.log && break; sleep 0.25; done; \
+	  if grep -q "come Online" .at$$1-srv.log; then echo "  [ ok ] P$$1: cache peer completed the handshake"; else echo "[FAIL] P$$1: cache peer did not come online"; ok=0; fi; \
+	  sleep 1; \
 	  NC_ECMS=3 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u1 p1 $(AT_KEY) 0 1884 64 > .at$$1-c1.log 2>&1; \
 	  NC_ECMS=3 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u2 p2 $(AT_KEY) 0 1884 64 > .at$$1-c2.log 2>&1; \
 	  NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 60 ./$(NCCLIENT) 127.0.0.1 $(AT_NPORT) u3 p3 $(AT_KEY) 0 1884 C8 > .at$$1-c3.log 2>&1; \
@@ -5257,9 +5300,10 @@ sc: .ncclient.bin .cachepeer.bin $(NCSERVER)
 # line the parser actually reads; the R24 file named systems that
 # exist nowhere in the tree). This target boots the real file and
 # asserts: the shield lines are parsed, HTTP answers, and every one
-# of the 71 profile ports actually listens. Interleaved -v output
+# of the 72 profile ports actually listens. Interleaved -v output
 # makes log-line counting meaningless (it undercounts), so the
-# ports are probed with real connections instead.
+# ports are probed with real connections instead. The test rewrites only the
+# four global HTTP/Telnet lines in a temporary copy; the shipped file is intact.
 PROF_HPORT = 17100
 PROF_CFG   = .prof-boot.cfg
 
@@ -5268,7 +5312,11 @@ prof:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
 	@rm -f $(PROF_CFG) .prof-srv.log; ok=1; \
-	{ printf 'HTTP PORT: $(PROF_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n'; cat ../multics-r24-optimized.cfg; } > $(PROF_CFG); \
+	sed -e 's/^HTTP PORT:.*/HTTP PORT: $(PROF_HPORT)/' \
+	    -e 's/^HTTP USER:.*/HTTP USER: a/' \
+	    -e 's/^HTTP PASS:.*/HTTP PASS: a/' \
+	    -e 's/^TELNET PORT:.*/TELNET PORT: 0/' \
+	    ../multics-r24-optimized.cfg > $(PROF_CFG); \
 	stdbuf -o0 -e0 $(BIN) -C $(PROF_CFG) -v > .prof-srv.log 2>&1 & srv=$$!; \
 	code=000; for i in $$(seq 1 30); do \
 	  code=$$(curl -s -m 3 -u a:a -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PROF_HPORT)/ 2>/dev/null); \
@@ -5296,7 +5344,8 @@ prof:
 # flavour fingerprint: the [CACHE QUEUE] stats format string exists
 # only in -DCACHE_QUEUE builds (stock strings: none). The flavour is
 # built on demand; the release target wipes make-x64/x64, so the dev
-# binary is restored right after, keeping the suite order-safe.
+# binary is restored right after, keeping the suite order-safe. The test
+# rewrites only global listener/auth values in a temporary copy of the config.
 QV_BIN   ?= ../bin/multics-r82a-queue-stats-x64
 QV_HPORT = 17150
 QV_CFG   = .qv-boot.cfg
@@ -5308,7 +5357,11 @@ qv:
 	@strings $(QV_BIN) | grep -q "CACHE QUEUE" || { echo "[FAIL] $(QV_BIN) is not a CACHE_QUEUE build"; exit 1; }
 	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
 	@rm -f $(QV_CFG) .qv-srv.log; ok=1; \
-	{ printf 'HTTP PORT: $(QV_HPORT)\nHTTP USER: a\nHTTP PASS: a\nTELNET PORT: 0\n'; cat ../multics-r24-optimized.cfg; } > $(QV_CFG); \
+	sed -e 's/^HTTP PORT:.*/HTTP PORT: $(QV_HPORT)/' \
+	    -e 's/^HTTP USER:.*/HTTP USER: a/' \
+	    -e 's/^HTTP PASS:.*/HTTP PASS: a/' \
+	    -e 's/^TELNET PORT:.*/TELNET PORT: 0/' \
+	    ../multics-r24-optimized.cfg > $(QV_CFG); \
 	stdbuf -o0 -e0 $(QV_BIN) -C $(QV_CFG) -v > .qv-srv.log 2>&1 & srv=$$!; \
 	code=000; for i in $$(seq 1 30); do \
 	  code=$$(curl -s -m 3 -u a:a -o /dev/null -w '%{http_code}' http://127.0.0.1:$(QV_HPORT)/ 2>/dev/null); \
@@ -5329,15 +5382,16 @@ qv:
 #
 # The field report: a CCcam 2.3.2 client watching one channel, four lines
 # answering with the SAME valid key, the server page saying "Decode
-# success" -- and a black screen. The gate was checkfreeze_setdcw(): it
-# refused any control word identical to the last one delivered for the
-# channel, without asking WHICH ECM. A provider repeats its CW across the
-# ECMs of one crypto period (the tag flips 0x80/0x81 every few seconds,
-# the key lives ten or more), so every second ECM of the same period was
-# thrown away -- and the retry threw it away again -- until the DCW
-# timeout. Stock, measured here before the fix: ECM#1 tag 0x80 delivered
-# in 91 ms, ECM#2 tag 0x81 of the same channel NOK after 6005 ms, and so
-# on for every alternating ECM: half the stream never answered.
+# success" -- and a black screen. The original freeze gate,
+# checkfreeze_setdcw(), refused any control word identical to the last one
+# delivered for the channel, without asking WHICH ECM. A provider repeats
+# its CW across the ECMs of one crypto period (the tag flips 0x80/0x81 every
+# few seconds, the key lives ten or more). The threaded worker also had a
+# separate full-word equality veto in cache_check_cw() for a different hash
+# and opposite tag. Both guards must allow a complete repeated CW; partial
+# half-key checks remain conservative. Stock, measured before the original
+# fix: ECM#1 tag 0x80 delivered in 91 ms, ECM#2 tag 0x81 NOK after 6005 ms,
+# and so on for every alternating ECM: half the stream never answered.
 #
 # The rig: a real newcamd card server (ncserver) answers ONE valid key,
 # a real CCcam client (ccdcw) asks four ECMs of one channel, the tag
@@ -5378,7 +5432,8 @@ cf: .ccdcw.bin $(NCSERVER)
 	if grep -q "decode failed to CCcam client" .r41-srv.log; then \
 	  echo "[FAIL] R41: the server logged a decode failure on a key it held"; ok=0; \
 	else echo "  [ ok ] R41: no decode failure for the repeated key (was: 6005 ms timeout on every 2nd ECM)"; fi; \
-	rm -f $(R41_CFG) .r41-ns.log .r41-srv.log .r41-cli.log; \
+	if [ "$$ok" = "1" ]; then rm -f $(R41_CFG) .r41-ns.log .r41-srv.log .r41-cli.log; \
+	else echo "R41 logs retained under tests/.r41-*"; fi; \
 	[ "$$ok" = "1" ]
 
 # TASK R43 (D106) -- a NEW ECM is not a retry.

@@ -22,14 +22,82 @@ static void *worker(void *arg)
 
 int main(void)
 {
-    struct user_trace_target target = {7, 0x1884, 0, 0x1136};
+    struct user_trace_target target = {7, 0x1884, 0, 0x1136, 0};
     uint64_t first, second, session, attempt;
     pthread_t threads[4];
     size_t i;
     char detail[256];
+    {
+        struct user_trace_snapshot synthetic = {0};
+        struct user_trace_summary sum;
+        synthetic.session = 10;
+        synthetic.count = 5;
+        synthetic.events[0].type = USER_TRACE_RECEIVED;
+        synthetic.events[0].session = 10; synthetic.events[0].attempt = 1;
+        synthetic.events[1].type = USER_TRACE_CACHE;
+        synthetic.events[1].session = 10; synthetic.events[1].attempt = 0;
+        synthetic.events[1].shared = 2; /* same channel, NOT same request */
+        strcpy(synthetic.events[1].detail, "cache held: consensus awaiting corroboration");
+        synthetic.events[2].type = USER_TRACE_SOURCE_REPLY;
+        synthetic.events[2].session = 10; synthetic.events[2].attempt = 99;
+        synthetic.events[3].type = USER_TRACE_CACHE;
+        synthetic.events[3].session = 10; synthetic.events[3].attempt = 1; synthetic.events[3].shared = 1;
+        strcpy(synthetic.events[3].detail, "cache wait policy: effective=500 ms; profile=900 ms");
+        synthetic.events[4].type = USER_TRACE_FAILED;
+        synthetic.events[4].session = 10; synthetic.events[4].attempt = 1; synthetic.events[4].shared = 1;
+        user_trace_summarize(&synthetic, &sum);
+        assert(sum.attempt == 1 && sum.received == 0 && sum.last_cache_policy == 3);
+        assert(sum.client_result == -1 && sum.last_source_reply == -1 && sum.last_ecm_failure == 4);
+        assert(!sum.incomplete);
+        synthetic.overwritten = 1; user_trace_summarize(&synthetic, &sum); assert(sum.incomplete);
+        synthetic.events[4].shared = 0; user_trace_summarize(&synthetic, &sum); assert(sum.client_result == 4);
+        synthetic.events[4].type = USER_TRACE_DELIVERED; user_trace_summarize(&synthetic, &sum); assert(sum.client_result == 4);
+        synthetic.events[4].session = 9; user_trace_summarize(&synthetic, &sum); assert(sum.client_result == -1);
+    }
     assert(user_trace_start(NULL) == 0);
+    assert(!user_trace_same_instance(0, 0));
+    assert(!user_trace_same_instance(123, 124));
+    assert(user_trace_same_instance(123, 123));
+    {
+        uint8_t cw[16] = {1,2,3,6,4,5,6,15};
+        uint64_t a, b, id;
+        target.all_channels = 1;
+        first = user_trace_start(&target);
+        assert(user_trace_matches(7, 0x09bd, 0, 0x014a));
+        assert(!user_trace_matches(8, 0x09bd, 0, 0x014a));
+        a = user_trace_begin(7, 0x09bd, 0, 0x014a, 10, &session);
+        b = user_trace_begin(7, 0x1884, 3, 0x1136, 11, &session);
+        assert(a && b && a != b);
+        id = user_trace_next_instance();
+        assert(user_trace_bind_shared(first, a, 10, id));
+        assert(user_trace_shared_cw(id, 1, 9, 20, "CW response", cw) == 1);
+        assert(user_trace_shared_event(id, USER_TRACE_DISPATCH_SKIPPED, 0, 0, 1001, "dispatch skipped") == 1);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 4 && snapshot.events[3].shared);
+        assert(snapshot.events[3].attempt == a && !snapshot.events[3].has_cw);
+        assert(user_trace_client_cw(7, id, 10, 2, 9, 25, "CW sent", cw));
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 5);
+        assert(snapshot.events[2].caid == 0x09bd && snapshot.events[2].sid == 0x014a);
+        assert(snapshot.events[4].caid == 0x09bd && snapshot.events[4].has_cw);
+        assert(!memcmp(snapshot.events[2].cw, cw, 16));
+        assert(!memcmp(snapshot.events[4].cw, cw, 16));
+        assert(snapshot.events[1].caid == 0x1884 && snapshot.events[1].provider == 3);
+        assert(!user_trace_shared_event(id, USER_TRACE_DISPATCH_SKIPPED, 0, 0, 1001, "dispatch skipped"));
+        target.all_channels = 0;
+    }
     first = user_trace_start(&target);
     assert(first);
+    user_trace_note_short_csp_reply();
+    user_trace_get_snapshot(&snapshot);
+    assert(snapshot.csp_unattributed_short == 1 && snapshot.count == 0);
+    user_trace_stop(first);
+    user_trace_note_short_csp_reply();
+    user_trace_get_snapshot(&snapshot);
+    assert(!snapshot.active && snapshot.csp_unattributed_short == 1);
+    first = user_trace_start(&target);
+    user_trace_get_snapshot(&snapshot);
+    assert(snapshot.csp_unattributed_short == 0);
     assert(!user_trace_begin(8, 0x1884, 0, 0x1136, 1, &session) && !session);
     assert(!user_trace_begin(7, 0x1884, 1, 0x1136, 1, &session) && !session);
     attempt = user_trace_begin(7, 0x1884, 0, 0x1136, 123, &session);
@@ -64,6 +132,11 @@ int main(void)
         assert(snapshot.count == 5);
         assert(snapshot.events[3].shared && snapshot.events[3].attempt == a);
         assert(snapshot.events[4].shared && snapshot.events[4].attempt == b);
+        assert(user_trace_shared_event(100, USER_TRACE_SOURCE_REPLY, 1, 8, 12, "source reply") == 2);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.events[snapshot.count - 1].type == USER_TRACE_SOURCE_REPLY);
+        assert(snapshot.events[snapshot.count - 1].attempt == b);
+        assert(!user_trace_shared_event(102, USER_TRACE_SOURCE_REPLY, 1, 8, 12, "wrong instance"));
         user_trace_unbind_shared(second, a);
         assert(user_trace_shared_event(100, USER_TRACE_REJECTED, 2, 8, 15, "rejected") == 1);
         assert(!user_trace_shared_event(102, USER_TRACE_REJECTED, 2, 8, 15, "wrong instance"));
@@ -124,6 +197,30 @@ int main(void)
         user_trace_get_snapshot(&snapshot);
         assert(snapshot.dropped_links == 1 && snapshot.dropped_events == 1);
         assert(snapshot.events[0].attempt == old);
+    }
+    second = user_trace_start(&target);
+    {
+        const uint8_t cw[16] = {1,2,3,6,4,5,6,15,7,8,9,24,10,11,12,33};
+        user_trace_cache_observation(0x1884, 0, 0x1136, 0x1234, 7, "held", cw);
+        user_trace_cache_observation(0x1884, 0, 0x1137, 0x1234, 7, "other channel", cw);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 1 && snapshot.events[0].attempt == 0);
+        assert(snapshot.events[0].shared == 2 && snapshot.events[0].ecm_hash == 0x1234);
+        assert(snapshot.events[0].has_cw && !memcmp(snapshot.events[0].cw, cw, 16));
+        user_trace_stop(second);
+        user_trace_cache_observation(0x1884, 0, 0x1136, 0x1234, 7, "stopped", cw);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 1);
+        target.all_channels = 1;
+        second = user_trace_start(&target);
+        user_trace_cache_observation(0x1884, 0, 0x1136, 0x1234, 7, "no client request", cw);
+        user_trace_get_snapshot(&snapshot); assert(snapshot.count == 0);
+        assert(user_trace_begin(7, 0x1884, 0, 0x1136, 42, &session));
+        user_trace_cache_observation(0x1884, 0, 0x1136, 0x1234, 7, "observed channel", cw);
+        user_trace_cache_observation(0x1884, 0, 0x1137, 0x1234, 7, "unobserved channel", cw);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 2 && snapshot.events[1].shared == 2);
+        target.all_channels = 0;
     }
     second = user_trace_start(&target);
     for (i = 0; i < 4; i++) assert(!pthread_create(&threads[i], NULL, worker, NULL));

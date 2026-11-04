@@ -1645,17 +1645,19 @@ wiring the probe. Harness-side, clamp before sending.
 ## D34 — TASK 3.4, the cache allocation: guard at birth, drop one event (2026-09-26)
 
 **The defect, precisely.** `getcachetabbycaid()` allocated the per-CAID
-cache-list node and its 1024-slot table (~88 KB) with no NULL checks;
+cache-list node and its 1024-slot table (~88 KB in the original 2026-09-26
+layout; ~94 KiB in the current x64 CACHEEX build) with no NULL checks;
 `cache_new()` allocated `cache_data` nodes in three branches, no checks;
 `cache_setdcw()` and the PIPE_CACHE_REPLY handler allocated
 `cw_cache_data`, no checks — and every caller dereferenced the results.
 The cache path is hot and it is the process: one failed allocation was a
 SIGSEGV on the cache thread. Proven, not assumed: an LD_PRELOAD interposer
-(`tests/ca-bite.c`) refusing exactly the table allocation — calloc(90112),
-an 88-byte packed `cache_data` × 1024 slots, the exact form GCC turns the
-malloc+memset pair into (read out of the shipped binary's disassembly) —
-killed the 3.3 binary with exit 139 on the first honest client ECM, and
-the same bite on the fixed binary survives with four bounded
+(`tests/ca-bite.c`) refuses exactly the cache-table allocation. In the
+2026-09-26 88-byte layout that was calloc(90112); the current packed x64
+CACHEEX layout is 94 bytes, so the matching allocation is calloc(96256).
+The original bite matched the then-shipped binary's disassembly and killed
+the 3.3 binary with exit 139 on the first honest client ECM. The current
+size-matched bite makes the fixed binary survive with bounded
 `CACHE: out of memory` lines for two ECMs.
 
 **Decision 1 — guard at birth, drop one event.** Fourteen guards, one per
@@ -3996,6 +3998,8 @@ rig (`checkfreeze` runs only in the CCcam / camd35 server paths, so none of
 the existing newcamd/cache rigs could reach it). New target `tests cf`:
 2/2 ok on the fixed tree, 2 of 4 ECMs answered on the stock tree. Wired
 into `tests all` after `sc`.
+
+**Follow-up, 2026-11-02 — a second gate remained.** During the full-suite rerun, the live R41 target delivered only 2/4 ECMs. The worker path reaches `cache_check_cw()` in `src/clustredcache.c` after DCW STRICT and SSF pass; its `cwpart == 2` case rejected an exact 16-byte match on a different hash/opposite tag, even when the provider was the same. That duplicated the false-positive for a legitimate repeated key. The fix removes only this full-word equality rejection; partial-half checks (`cwpart` 0/1) and provider scoping remain unchanged. After rebuilding, `make -s -C tests cf` delivered all four alternating-tag ECMs with no decode failure, and `cache-check-characterization` now asserts full-word repeat acceptance plus the remaining provider-aware partial checks. This is a synthetic regression proof, not a production stream or picture test.
 
 **Limit of the proof.** The key the card server answers is constant, so the
 rig pins the *repeated-key* half of the defect. The `cwcycle` half-guess a

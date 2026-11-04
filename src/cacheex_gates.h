@@ -88,7 +88,8 @@ static inline int cex_is_exchange(int peerid)
 /*
  * LOCAL_ONLY verdict. Drop when armed, from the exchange family, and
  * there is no waiting local ECM behind the cache entry. `has_waiter`
- * is cache_setdcw's own (pend && pend->ecm) probe -- no new state.
+ * probe: an entry has an ECM, SENDPIPE is armed, and the ECM has not
+ * already succeeded or failed. No new waiter state is added.
  */
 static inline int cex_localonly_drop(int armed, int exchange, int has_waiter)
 {

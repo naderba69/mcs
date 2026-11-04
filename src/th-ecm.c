@@ -178,14 +178,32 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					       ecm->caid, ecm->provid, ecm->sid);
 				}
 				pipe_cache_find(ecm, cs);
+				if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+				    0, 0, ticks-ecm->recvtime, "cache lookup invoked; pipe delivery and result not confirmed");
 				ecm->waitcache = 1;
 				uint32_t cache_timeout = caid_integration_get_cache_timeout(ecm->caid);
+				if (ecm->trace_instance) {
+					char detail[128];
+					snprintf(detail, sizeof(detail), "cache wait policy: ECM thread timeout=%u ms; profile=%u ms; static=%s; wait may end early",
+					         cache_timeout, (unsigned)cs->option.cachetimeout,
+					         cs->option.cachestatic ? "YES" : "NO");
+					user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE, 0, 0,
+					                        ticks-ecm->recvtime, detail);
+				}
 				ecm->checktime = ecm->recvtime + cache_timeout; // wait for cache (CAID-specific)
 			}
 			else ecm->dcwstatus = STAT_DCW_WAIT;
 		}
 		else {
 			uint32_t cache_timeout = caid_integration_get_cache_timeout(ecm->caid);
+			if (ecm->trace_instance) {
+				char detail[128];
+				snprintf(detail, sizeof(detail), "cache wait policy: ECM thread timeout=%u ms; profile=%u ms; static=%s; wait may end early",
+				         cache_timeout, (unsigned)cs->option.cachetimeout,
+				         cs->option.cachestatic ? "YES" : "NO");
+				user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE, 0, 0,
+				                        ticks-ecm->recvtime, detail);
+			}
 			if ( ( (ecm->recvtime+cache_timeout)<=ticks ) ) ecm->dcwstatus = STAT_DCW_WAIT;
 			else {
 				//debugf(" Wait for cache\n");
@@ -236,6 +254,8 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 			// Check for cache request
 			if ( (ecm->cachestatus==ECM_CACHE_NONE) && cs->option.fallowcache && cs->option.cachesendreq ) {
 				pipe_cache_request(ecm,cs);
+				if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+				    0, 0, ticks-ecm->recvtime, "cache peer request invoked; pipe delivery not confirmed");
 				ecm->cachestatus = ECM_CACHE_REQ;
 			}
 			// check for decode failed with no remaining server to wait, send to new cardserver
@@ -289,6 +309,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							newsrv->ecmnb++;
 							newsrv->busy=1;
 							newsrv->ecm.request = ecm;
+							newsrv->ecm.trace_instance_at_send = ecm->trace_instance;
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
@@ -307,6 +328,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 							if (card) card->ecmnb++;
 							newsrv->busy=1;
 							newsrv->ecm.request = ecm;
+							newsrv->ecm.trace_instance_at_send = ecm->trace_instance;
 							newsrv->ecm.hash = ecm->hash;
 							newsrv->retry=0;
 							ecm_addsrv(ecm, newsrv->id);
@@ -400,6 +422,8 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		}
 		}
 		else if (!ecm->server_totalwait) {
+			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED,
+			    0, 0, ticks - ecm->recvtime, "server dispatch window expired; no pending server");
 			ecm->statusmsg = "Decode failed, no server open this channel";
 			ecm_faileddcw( ecm );
 			// Send DCW to Cache if not sent
@@ -410,6 +434,8 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		}
 		else if ( cs->option.fallowcache && cs->option.cacheresendreq && (ecm->cachestatus==ECM_CACHE_REQ) ) {
 			pipe_cache_resendreq(ecm, cs);
+			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+			    0, 0, ticks-ecm->recvtime, "cache peer retry invoked; pipe delivery not confirmed");
 			ecm->cachestatus = ECM_CACHE_REQ2;
 			ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period;
 		}

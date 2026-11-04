@@ -655,7 +655,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					pthread_mutex_lock(&prg.lockecm); //###
 
 					// Search for ECM
-					ECM_DATA *ecm = search_ecmdata_any(cs, ecmdata, ecmlen, clicd.sid, clicd.caid); // dont get failed ecm request from cache
+					ECM_DATA *ecm = search_ecmdata_any(cs, ecmdata, ecmlen, clicd.sid, clicd.caid, clicd.provid, 1); // dont get failed ecm request from cache
 					/* TASK R31 (D82) -- receiver attestation tap, mirroring
 					 * srv-newcamd's: this client's too-soon re-ask after a
 					 * delivered key is one receiver's vote on the BYTES;
@@ -671,7 +671,8 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 						&& ecm && (ecm->hash==cli->lastecm.hash) && (ecm->ecm[0]==cli->lastecm.tag) ) {
 						if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
 							attest_note( ATTEST_TAG_MGCAMD | (uint32_t)cli->id, cli->lastecm.dcw,
-								cli->lastecm.caid, cli->lastecm.prov, cli->lastecm.sid,
+								cli->lastecm.caid, cli->lastecm.prov,
+								cli->lastecm.provider_known, cli->lastecm.sid,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
 					}
 					int isnew =  ( ecm==NULL );
@@ -732,9 +733,17 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 						}
 					}
 					else {
-						cs->ecmaccepted++;
 						// Setup ECM Request for Server(s)
 						ecm = store_ecmdata(cs, ecmdata, ecmlen, clicd.sid,clicd.caid,clicd.provid);
+						if (!ecm) {
+							cs->ecmdenied++;
+							cli->ecmdenied++;
+							uint8_t failure[3] = { ecmdata[0], 0, 0 };
+							if (!cs_message_send(cli->handle, &clicd, failure, sizeof(failure), cli->sessionkey)) mg_disconnect_cli(cli);
+							pthread_mutex_unlock(&prg.lockecm);
+							break;
+						}
+						cs->ecmaccepted++;
 						mg_store_ecmclient(ecm, cli, clicd.msgid);
 						debugf(getdbgflagpro(DBG_MGCAMD,0,cli->id, cs->id)," <- ecm from mgcamd client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,clicd.caid,clicd.provid,clicd.sid,ecm->hash);
 						cli->ecm.busy=1;
@@ -801,7 +810,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 						break;
 					}
 					// Check for DCW
-					if (!acceptDCW_profile_ca(&buf[3], ecm->cs, ecm->caid)) {
+					if (!acceptDCW_profile_ecm(&buf[3], ecm->cs, ecm->caid, ecm->provid, ecm->sid)) {
 						debugf(getdbgflagpro(DBG_MGCAMD,0,cli->id,ecm->cs->id)," <!= wrong cw from Client '%s' ch %04x:%06x:%04x\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->lastecmtime);
 						pthread_mutex_unlock(&prg.lockecm);
 						break;
@@ -870,6 +879,7 @@ void mg_senddcw_cli(struct mg_client_data *cli)
 	//
 	cli->lastecm.caid = ecm->caid;
 	cli->lastecm.prov = ecm->provid;
+	cli->lastecm.provider_known = ecm->provider_known;
 	cli->lastecm.sid = ecm->sid;
 	/* TASK R43 (D106): this protocol never recorded the ECM identity,
 	 * so the retry guard could not tell a re-ask from the next ECM
