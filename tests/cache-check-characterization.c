@@ -8,7 +8,7 @@
 #include <assert.h>
 
 static uint32_t clock_ms = 100000;
-uint64_t GetTickCount(void) { return clock_ms; }
+uint32_t GetTickCount(void) { return clock_ms; }
 int similarcw(uint8_t *a, uint8_t *b) { (void)a; (void)b; abort(); }
 uint32_t getdbgflag(int a, int b, int c) { (void)a; (void)b; (void)c; return 0; }
 void debugf(uint32_t flag, char *format, ...) { (void)flag; (void)format; }

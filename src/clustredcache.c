@@ -1,9 +1,86 @@
 
 #include "common.h"
+#include "cache-pipe-codec.h"
 #include "user-trace.h"
 #include "cafamily.h"	/* TASK R36 (D92) */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
+#include "cache-pipe-queue.h"
+#include "newcamd-lifetime.h"
 #include <stdlib.h>
+
+/* Cache requests can originate while lockecm is held. Serialize their frames
+ * here, then let one worker perform the potentially waiting pipe write. */
+static cache_pipe_queue_t cache_pipe_out_queue = CACHE_PIPE_QUEUE_INITIALIZER;
+static volatile uint32_t cache_pipe_out_dropped;
+static int cache_pipe_out_enqueue(const uint8_t *buf, int len)
+{
+	if (len <= 0 || !cache_pipe_queue_push(&cache_pipe_out_queue, buf, (size_t)len)) {
+		__sync_fetch_and_add(&cache_pipe_out_dropped, 1u);
+		return 0;
+	}
+	return 1;
+}
+
+#if !defined(THREAD_DCW) && defined(CLI_CSCACHE)
+/* No-thread DCW commits hold lockecm. Queue the small value snapshot here so
+ * a full ECM pipe cannot stall the commit; the detached worker performs the
+ * bounded pipe_write only after the producer has returned to the ECM loop. */
+static cache_pipe_queue_t server_cscache_reply_out_queue = CACHE_PIPE_QUEUE_INITIALIZER;
+
+static int cache_queue_server_cscache_reply(uint32_t server_id,
+                                            uint64_t request_lifetime_id,
+                                            uint16_t caid, uint32_t provid,
+                                            uint16_t sid, uint8_t ecm_tag,
+                                            const uint8_t cw[16])
+{
+	return pipe_queue_server_cscache_reply(&server_cscache_reply_out_queue,
+	        server_id, request_lifetime_id, caid, provid, sid, ecm_tag, cw);
+}
+
+static void *server_cscache_reply_out_thread(void *param)
+{
+	uint8_t buf[CACHE_PIPE_QUEUE_PAYLOAD_MAX];
+	size_t len;
+	(void)param;
+	prctl(PR_SET_NAME, "ECM Pipe Send", 0, 0, 0);
+	while (cache_pipe_queue_pop(&server_cscache_reply_out_queue, buf, &len)) {
+		if (pipe_send(prg.pipe.ecm[1], buf, (int)len) < 0 && !prg.restart)
+			debugf(DBG_ERROR, " !!! ECM pipe writer could not deliver a queued cached-server reply\n");
+	}
+	return NULL;
+}
+#endif
+
+static void *cache_pipe_out_thread(void *param)
+{
+	uint8_t buf[CACHE_PIPE_QUEUE_PAYLOAD_MAX];
+	size_t len;
+	uint32_t reported_drops = 0;
+	(void)param;
+	prctl(PR_SET_NAME, "Cache Pipe Send", 0, 0, 0);
+	while (!prg.restart) {
+		uint32_t dropped;
+		if (!cache_pipe_queue_pop(&cache_pipe_out_queue, buf, &len)) break;
+		if (pipe_send(prg.pipe.cache[1], buf, (int)len) < 0 && !prg.restart)
+			debugf(DBG_ERROR, " !!! cache pipe writer failed; queued frame could not be delivered\n");
+		dropped = __sync_fetch_and_add(&cache_pipe_out_dropped, 0u);
+		if (dropped != reported_drops) {
+			debugf(DBG_ERROR, " !!! cache pipe outbound queue dropped %u frame(s) under overload\n", dropped);
+			reported_drops = dropped;
+		}
+	}
+	return NULL;
+}
+
+/* Wake the detached sender when mainprocess exits so shutdown never leaves it
+ * asleep forever on an empty queue. Pending frames are irrelevant after restart. */
+void cache_pipe_out_shutdown(void)
+{
+	cache_pipe_queue_close(&cache_pipe_out_queue);
+#if !defined(THREAD_DCW) && defined(CLI_CSCACHE)
+	cache_pipe_queue_close(&server_cscache_reply_out_queue);
+#endif
+}
 
 /* Return 0 rather than storing or acknowledging an incomplete HTML escape. */
 static int stringtohtml(const char *src, char *dest, size_t capacity)
@@ -37,8 +114,8 @@ void fpeer_update(struct cacheserver_data *cache)
 	memset( cache->fpeer, 0, sizeof(cache->fpeer) ); // NULL
 	struct cachepeer_data *peer = cache->peer;
 	while (peer) {
-		if ( peer->host->ip ) {
-			int index = peer->host->ip & 0xFF;
+		if ( host_ip_snapshot(peer->host) ) {
+			int index = host_ip_snapshot(peer->host) & 0xFF;
 			peer->fnext = cache->fpeer[index];
 			cache->fpeer[index] = peer;
 		}
@@ -69,23 +146,26 @@ void ipeer_update(struct cacheserver_data *cache)
 }
 */
 
-// 0: removed
+// 0: removed. Caller holds prg.lockcache; this may unlink/free a runtime peer.
 int peer_doublecheck(struct cacheserver_data *cache, struct cachepeer_data *xpeer)
 {
 	struct cachepeer_data *peer = cache->peer;
 	struct cachepeer_data *previous = NULL;
 	while (peer) {
-		if (peer!=xpeer)
-		if (peer->port==xpeer->port)
-		if (peer->host->ip==xpeer->host->ip) {
-			if (peer->runtime) {
-				if (previous) previous->next = peer->next; else cache->peer = peer->next;
-				//close(peer->outsock);
-				free( peer );
-				return 0;				
+		if (peer != xpeer && peer->port == xpeer->port) {
+			uint32_t peer_ip = host_ip_snapshot(peer->host);
+			uint32_t xpeer_ip = host_ip_snapshot(xpeer->host);
+			if (peer_ip == xpeer_ip) {
+				if (peer->runtime) {
+					if (previous) previous->next = peer->next;
+					else cache->peer = peer->next;
+					//close(peer->outsock);
+					free(peer);
+					return 0;
+				}
+				else if (xpeer->runtime) peer_doublecheck(cache, peer);
+				return 1;
 			}
-			else if (xpeer->runtime) peer_doublecheck(cache, peer);
-			return 1;
 		}
 		previous = peer;
 		peer = peer->next;
@@ -114,16 +194,18 @@ int peer_doublecheck(struct cacheserver_data *cache, struct cachepeer_data *xpee
 #include "cwlog.h"		/* TASK R11 (D65): the per-CW verdict ring */
 #endif
 
+/* Borrowed peer pointers are valid only while the caller holds lockcache. */
 struct cachepeer_data *getpeerbyaddr(struct cacheserver_data *cache, uint32_t ip, uint16_t port)
 {
 	struct cachepeer_data *peer = cache->peer;
 	while(peer) {
-		if ( (peer->host->ip==ip)&&(peer->recvport==port) ) return peer;
+		if ( (host_ip_snapshot(peer->host)==ip)&&(peer->recvport==port) ) return peer;
 		peer = peer->next;
 	}
 	return NULL;
 }
 
+/* Borrowed peer pointers are valid only while the caller holds lockcache. */
 struct cachepeer_data *getpeerbyid(int id)
 {
 	/*
@@ -327,6 +409,9 @@ struct __attribute__ ((__packed__)) cache_data {
 	struct cw_cache_data *cwdata;
 
 	ECM_DATA *ecm;
+	/* Exact request generation paired with ecm. The ECM pool reuses storage,
+	 * so a pointer/key tuple alone cannot safely identify a queued waiter. */
+	uint64_t ecm_lifetime_id;
 	/* A local request's numeric provider, distinct from the cache entry's
 	 * provider (which incoming messages may overwrite or leave unknown).
 	 * This association lasts until the entry is recycled, including after
@@ -641,67 +726,309 @@ char *cwcycle2str( cwcycle_t cwcycle )
 
 
 /*
- * TASK 3.6 -- the death of a cache entry's waiter, made visible to the entry.
- *
- * CACHE_FLAG_SENDPIPE arms an entry's push path: the local FIND/REQUEST
- * handlers set it while a local ECM is waiting on the cache (pcache->ecm),
- * and every push -- cache_setdcw()'s forced push, the FIND scans, the
- * cross-channel goodcw walks -- is gated on it, as is the peer-request
- * auto-answer in TYPE_REQUEST. Nothing in the tree ever cleared it, so one
- * FIND on a hash kept the entry armed for its whole alive time (45 s by
- * default): keys pushed after the waiter's death were force-marked DCW_SENT
- * and piped at a waiter that was no longer there -- buried for every future
- * ECM of that hash -- and peers asking for the hash got silence.
- *
- * This is the clearing half. The two death moments of the waiter call it:
- * ecm_setdcwdata() when the waiter is answered (SUCCESS, any source) and
- * ecm_faileddcw() when it gives up (FAILED). The guard is the back-pointer
- * itself: only the link THIS entry holds is cleared, so a newer waiter that
- * re-armed the entry keeps its arm. Callers must have committed the death
- * (dcwstatus) BEFORE calling: the FIND/REQUEST handlers refuse to arm a
- * waiter that is already answered or failed, and both this helper and those
- * handlers run under lockcache, so "clear first, arm later" cannot
- * interleave back into a stuck flag. Never cleared earlier: while the waiter
- * lives (WAITCACHE, or WAIT with the card servers racing) the arm IS the
- * delivery path -- clearing it there is the black screen this task fixes.
+ * Cache workers need only two ECM facts: whether a waiter is still live and
+ * which profile was associated with it. Keep those in a bounded side registry
+ * under lockcache instead of extending/re-reading ECM_DATA while holding the
+ * cache lock. ECM-side publication follows the established lockecm -> lockcache
+ * order; cache-side readers never acquire lockecm.
+ */
+#define CACHE_ECM_SNAPSHOT_SLOTS 16384u
+#define CACHE_ECM_SNAPSHOT_EMPTY 0u
+#define CACHE_ECM_SNAPSHOT_USED  1u
+#define CACHE_ECM_SNAPSHOT_TOMB  2u
+
+struct cache_ecm_snapshot {
+	ECM_DATA *ecm;
+	uint64_t lifetime_id;
+	struct cardserver_data *profile;
+#ifdef CACHEEX
+	struct ledger_identity ledger_identity;
+	uint8_t ledger_identity_valid;
+#endif
+	uint8_t active;
+	uint8_t state;
+};
+
+static struct cache_ecm_snapshot cache_ecm_snapshots[CACHE_ECM_SNAPSHOT_SLOTS];
+
+static unsigned cache_ecm_snapshot_hash(const ECM_DATA *ecm)
+{
+	uintptr_t value = (uintptr_t)ecm;
+	value >>= 3;
+	value ^= value >> 11;
+	value *= (uintptr_t)0x9e3779b1u;
+	return (unsigned)(value & (CACHE_ECM_SNAPSHOT_SLOTS - 1u));
+}
+
+/* lockcache is held. Inactive records may be reclaimed while preserving the
+ * open-addressing probe chain with a tombstone. One record per ECM storage
+ * pointer is enough because a reused slot publishes its new lifetime in place. */
+static int cache_ecm_snapshot_slot_locked(ECM_DATA *ecm, int insert,
+                                         unsigned *slot_out, int *reclaim_out)
+{
+	unsigned start, probe;
+	int first_tomb = -1, first_inactive = -1;
+	if (!ecm || !slot_out) return 0;
+	start = cache_ecm_snapshot_hash(ecm);
+	for (probe = 0; probe < CACHE_ECM_SNAPSHOT_SLOTS; probe++) {
+		unsigned pos = (start + probe) & (CACHE_ECM_SNAPSHOT_SLOTS - 1u);
+		struct cache_ecm_snapshot *entry = &cache_ecm_snapshots[pos];
+		if (entry->state == CACHE_ECM_SNAPSHOT_USED) {
+			if (entry->ecm == ecm) {
+				*slot_out = pos;
+				if (reclaim_out) *reclaim_out = 0;
+				return 1;
+			}
+			if (!entry->active && first_inactive < 0) first_inactive = (int)pos;
+		} else if (entry->state == CACHE_ECM_SNAPSHOT_TOMB) {
+			if (first_tomb < 0) first_tomb = (int)pos;
+		} else {
+			if (!insert) return 0;
+			/* Preserve queued inactive snapshots whenever an empty slot still
+			 * exists. They may be the only proof for a serialized cache reply
+			 * not yet drained from the pipe. Reclaim one only after a full scan. */
+			if (first_tomb >= 0) {
+				*slot_out = (unsigned)first_tomb;
+				if (reclaim_out) *reclaim_out = 1;
+			} else {
+				*slot_out = pos;
+				if (reclaim_out) *reclaim_out = 0;
+			}
+			return 0;
+		}
+	}
+	if (!insert) return 0;
+	if (first_tomb >= 0) {
+		*slot_out = (unsigned)first_tomb;
+		if (reclaim_out) *reclaim_out = 1;
+		return 0;
+	}
+	if (first_inactive >= 0) {
+		*slot_out = (unsigned)first_inactive;
+		if (reclaim_out) *reclaim_out = 1;
+		return 0;
+	}
+	return 0;
+}
+
+static int cache_ecm_snapshot_record(ECM_DATA *ecm, struct cardserver_data *cs,
+                                    int active)
+{
+	uint64_t lifetime_id;
+	unsigned slot;
+	int found;
+#ifdef CACHEEX
+	struct ledger_identity ledger_identity;
+	int ledger_identity_valid;
+#endif
+	if (!ecm || !cs) return 0;
+#ifdef CACHEEX
+	ledger_identity_valid = ledger_identity_from_ecm(&ledger_identity, ecm);
+#endif
+	/* Caller holds lockecm (including the reload-exclusive variant), so this
+	 * direct ECM read is stable. Registry protection is lockcache only. */
+	lifetime_id = ecm_request_lifetime_id_load(ecm);
+	if (!lifetime_id) return 0;
+	pthread_mutex_lock(&prg.lockcache);
+	slot = CACHE_ECM_SNAPSHOT_SLOTS;
+	found = cache_ecm_snapshot_slot_locked(ecm, 1, &slot, NULL);
+	/* A saturated table with no inactive/tombstone slot is fail-closed: the
+	 * caller skips cache IPC and normal server fallback still proceeds. */
+	if (!found && slot >= CACHE_ECM_SNAPSHOT_SLOTS) {
+		pthread_mutex_unlock(&prg.lockcache);
+		return 0;
+	}
+	if (!found || cache_ecm_snapshots[slot].lifetime_id != lifetime_id) {
+		memset(&cache_ecm_snapshots[slot], 0, sizeof(cache_ecm_snapshots[slot]));
+	}
+	cache_ecm_snapshots[slot].ecm = ecm;
+	cache_ecm_snapshots[slot].lifetime_id = lifetime_id;
+	cache_ecm_snapshots[slot].profile = cs;
+#ifdef CACHEEX
+	cache_ecm_snapshots[slot].ledger_identity_valid = !!ledger_identity_valid;
+	if (ledger_identity_valid)
+		cache_ecm_snapshots[slot].ledger_identity = ledger_identity;
+	else
+		memset(&cache_ecm_snapshots[slot].ledger_identity, 0,
+		       sizeof(cache_ecm_snapshots[slot].ledger_identity));
+#endif
+	cache_ecm_snapshots[slot].active = !!active;
+	cache_ecm_snapshots[slot].state = CACHE_ECM_SNAPSHOT_USED;
+	pthread_mutex_unlock(&prg.lockcache);
+	return 1;
+}
+
+static int cache_ecm_snapshot_publish(ECM_DATA *ecm, struct cardserver_data *cs)
+{
+	return cache_ecm_snapshot_record(ecm, cs, 1);
+}
+
+/* Called from the ECM-side status transition before the plain dcwstatus write.
+ * It does not inspect that status or any other mutable ECM field. */
+void cache_ecm_snapshot_mark_inactive(ECM_DATA *ecm)
+{
+	uint64_t lifetime_id;
+	unsigned slot;
+	if (!ecm) return;
+	lifetime_id = ecm_request_lifetime_id_load(ecm);
+	if (!lifetime_id) return;
+	pthread_mutex_lock(&prg.lockcache);
+	if (cache_ecm_snapshot_slot_locked(ecm, 0, &slot, NULL) &&
+	    cache_ecm_snapshots[slot].lifetime_id == lifetime_id)
+		cache_ecm_snapshots[slot].active = 0;
+	pthread_mutex_unlock(&prg.lockcache);
+}
+
+/* A queued pointer is only safe to dereference while it names the exact pool
+ * generation registered by an ECM-side producer. Retire that identity under
+ * lockcache before the ECM slot is cleared and assigned a new lifetime. */
+void cache_ecm_snapshot_retire(ECM_DATA *ecm)
+{
+	uint64_t lifetime_id;
+	unsigned slot;
+	if (!ecm) return;
+	lifetime_id = ecm_request_lifetime_id_load(ecm);
+	if (!lifetime_id) return;
+	pthread_mutex_lock(&prg.lockcache);
+	if (cache_ecm_snapshot_slot_locked(ecm, 0, &slot, NULL) &&
+	    cache_ecm_snapshots[slot].lifetime_id == lifetime_id) {
+		cache_ecm_snapshots[slot].active = 0;
+		cache_ecm_snapshots[slot].lifetime_id = 0;
+		cache_ecm_snapshots[slot].profile = NULL;
+#ifdef CACHEEX
+		cache_ecm_snapshots[slot].ledger_identity_valid = 0;
+		memset(&cache_ecm_snapshots[slot].ledger_identity, 0,
+		       sizeof(cache_ecm_snapshots[slot].ledger_identity));
+#endif
+	}
+	pthread_mutex_unlock(&prg.lockcache);
+}
+
+/* lockcache is held by every caller of the functions below. */
+static int cache_ecm_snapshot_read_locked(ECM_DATA *ecm, uint64_t lifetime_id,
+                                          int *active_out,
+                                          struct cardserver_data **profile_out)
+{
+	unsigned slot;
+	if (active_out) *active_out = 0;
+	if (profile_out) *profile_out = NULL;
+	if (!ecm || !lifetime_id ||
+	    !cache_ecm_snapshot_slot_locked(ecm, 0, &slot, NULL)) return 0;
+	if (cache_ecm_snapshots[slot].lifetime_id != lifetime_id) return 0;
+	if (active_out) *active_out = cache_ecm_snapshots[slot].active;
+	if (profile_out) *profile_out = cache_ecm_snapshots[slot].profile;
+	return 1;
+}
+
+#ifdef CACHEEX
+/* Copy exact request identity from the side registry. Cache-side code must not
+ * dereference a cache_data ECM pointer; this additionally requires a live
+ * waiter so a stale cache entry cannot attribute a source offer to a later
+ * request that merely reused the same cache key. */
+static int cache_ecm_snapshot_ledger_identity_locked(
+	ECM_DATA *ecm, uint64_t lifetime_id, struct ledger_identity *identity_out)
+{
+	unsigned slot;
+	if (!identity_out ||
+	    !cache_ecm_snapshot_slot_locked(ecm, 0, &slot, NULL) ||
+	    cache_ecm_snapshots[slot].lifetime_id != lifetime_id ||
+	    !cache_ecm_snapshots[slot].active ||
+	    !cache_ecm_snapshots[slot].ledger_identity_valid) return 0;
+	*identity_out = cache_ecm_snapshots[slot].ledger_identity;
+	return ledger_identity_valid(identity_out);
+}
+#endif
+
+/* The serialized value is treated only as an address token until this table
+ * confirms that an ECM-side producer registered the same generation. */
+int cache_ecm_snapshot_validate(ECM_DATA *ecm, uint64_t lifetime_id)
+{
+	int valid;
+	pthread_mutex_lock(&prg.lockcache);
+	valid = cache_ecm_snapshot_read_locked(ecm, lifetime_id, NULL, NULL);
+	pthread_mutex_unlock(&prg.lockcache);
+	return valid;
+}
+
+/* A waiter that completed before its FIND/REQUEST is drained is already
+ * inactive in the side registry. No cache worker reads plain dcwstatus/cs. */
+static int cache_sendpipe_armable(ECM_DATA *ecm, uint64_t lifetime_id)
+{
+	int active = 0;
+	/* This is a cache-thread lookup under lockcache. Do not dereference a raw
+	 * pointer decoded from the pipe; the side table proves address + lifetime. */
+	return cache_ecm_snapshot_read_locked(ecm, lifetime_id, &active, NULL) && active;
+}
+
+static int cache_entry_ecm_current(const struct cache_data *entry)
+{
+	/* lockcache is held by cache-side callers; pointer comparison in the side
+	 * registry is safe even if the serialized value itself is malformed. */
+	return entry && cache_ecm_snapshot_read_locked(entry->ecm,
+	                                               entry->ecm_lifetime_id,
+	                                               NULL, NULL);
+}
+
+static int cache_entry_sendpipe_active(const struct cache_data *entry)
+{
+	return entry && (entry->flags & CACHE_FLAG_SENDPIPE) &&
+	       cache_sendpipe_armable(entry->ecm, entry->ecm_lifetime_id);
+}
+
+static struct cardserver_data *cache_entry_cardserver_current(
+	const struct cache_data *entry)
+{
+	struct cardserver_data *cs = NULL;
+	if (!cache_entry_ecm_current(entry)) return NULL;
+	if (!cache_ecm_snapshot_read_locked(entry->ecm, entry->ecm_lifetime_id,
+	                                    NULL, &cs)) return NULL;
+	if (!cache_entry_ecm_current(entry)) return NULL;
+	return cs;
+}
+
+/* The side registry is retired on slot reuse and may reclaim inactive
+ * records; its fixed capacity is sized above MAX_ECM_DATA with load headroom. */
+
+/*
+ * TASK 3.6 -- clear the cache entry's waiter arm only after the matching ECM
+ * has committed SUCCESS or FAILED. A generation match is required in addition
+ * to the storage pointer so a late cleanup cannot clear a newer waiter's arm.
+ * The caller follows lockecm -> lockcache; cache workers never acquire
+ * lockecm, so this order is acyclic. While the waiter is still active, the arm
+ * is the push path and must not be cleared.
  */
 void cache_clear_sendpipe( ECM_DATA *ecm )
 {
 	struct cache_data req;
 	struct cache_data *pcache;
+	if (!ecm) return;
 	memset( &req, 0, sizeof(req) );
 	req.tag = ecm->ecm[0];
 	req.sid = ecm->sid;
 	req.caid = ecm->caid;
 	req.hash = ecm->hash;
+	req.ecm_lifetime_id = ecm_request_lifetime_id_load(ecm);
+	if (!req.ecm_lifetime_id) return;
 	pthread_mutex_lock( &prg.lockcache );
 	pcache = cache_fetch( &req );
-	if ( pcache && (pcache->ecm==ecm) ) {
+	if ( pcache && pcache->ecm==ecm &&
+	     pcache->ecm_lifetime_id==req.ecm_lifetime_id ) {
 		pcache->flags &= ~CACHE_FLAG_SENDPIPE;
+		pcache->ecm = NULL;
+		pcache->ecm_lifetime_id = 0;
 	}
 	pthread_mutex_unlock( &prg.lockcache );
 }
 
-
-/*
- * TASK 3.6 -- may this FIND/REQUEST still arm SENDPIPE for this ECM?
- *
- * A waiter that is already answered (SUCCESS) or has given up (FAILED) must
- * not arm the entry: the arm would outlive the waiter by the entry's alive
- * time and the flag would be stuck again. This closes the death-before-the-
- * pipe race: ecm_faileddcw() commits dcwstatus BEFORE cache_clear_sendpipe(),
- * so an arm decision made under lockcache after that commit sees the dead
- * waiter, and one made before it is undone by the clear. Called only with
- * the pipe's own fresh ECM (milliseconds old, un-recyclable) under
- * lockcache; the int read is the same lock-free read the ecm thread itself
- * does in check_ecm().
- */
-static int cache_sendpipe_armable( ECM_DATA *ecm )
+static int cache_entry_ecm_excheck_gt1(const struct cache_data *entry)
 {
-	if (!ecm) return 0;
-	if (ecm->dcwstatus==STAT_DCW_SUCCESS) return 0;
-	if (ecm->dcwstatus==STAT_DCW_FAILED) return 0;
-	return 1;
+#ifdef CACHEEX
+	struct cardserver_data *cs = cache_entry_cardserver_current(entry);
+	return cs && cs->option.excheck > 1;
+#else
+	(void)entry;
+	return 0;
+#endif
 }
 
 
@@ -757,32 +1084,57 @@ void checkcycle_mismatch_inc(void) { __sync_fetch_and_add(&g_cycle_mismatches, 1
 // CACHE ---> ECM
 ///////////////////////////////////////////////////////////////////////////////
 
-int get_cache2ecm( uint8_t *buf, struct cache_data *pcache, uint8_t *cw, int *cwmark )
+int get_cache2ecm(uint8_t *buf, size_t len, struct cache_data *pcache,
+                  uint8_t *cw, int *cwmark, uint32_t *peerid_out)
 {
+	int base_len = 12 + (int)sizeof(void*) + (int)sizeof(uint64_t);
+	int has_cw;
+	int index = 12;
+	uint64_t ecm_lifetime_id;
+	if (!buf || !pcache || len < (size_t)base_len) return 0;
+	if (buf[0] == PIPE_CACHE_FIND_FAILED) has_cw = 0;
+	else if (buf[0] == PIPE_CACHE_FIND_SUCCESS) has_cw = 1;
+	else return 0;
+	if (len != (size_t)(base_len + (has_cw ? 4 + 16 + 1 : 0))) return 0;
+	if ((has_cw && !cw) || (!has_cw && cw)) return 0;
+	memset(pcache, 0, sizeof(*pcache));
 	pcache->tag = buf[1];
 	pcache->sid = (buf[2]<<8) | buf[3];
 	pcache->onid = (buf[4]<<8) | buf[5];
 	pcache->caid = (buf[6]<<8) | buf[7];
-	pcache->hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | (buf[11]);
-//	memcpy( &(pcache->tag), buf+1, 11);
-	int index = 12;
-	memcpy( &(pcache->ecm), buf+index, sizeof(void*) );
-	//debugf(0, " get_cache2ecm %p\n", pcache->ecm);
+	pcache->hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | buf[11];
+	memcpy(&pcache->ecm, buf+index, sizeof(void*));
 	index += sizeof(void*);
-	if (cw) {
-		int peerid = ((uint32_t)buf[index]<<24) | (buf[index+1]<<16) | (buf[index+2]<<8) | (buf[index+3]);
-		index+=4;
-		memcpy( cw, buf+index, 16);
-		index+=16;
+	memcpy(&ecm_lifetime_id, buf+index, sizeof(ecm_lifetime_id));
+	if (!ecm_lifetime_id) return 0;
+	pcache->ecm_lifetime_id = ecm_lifetime_id;
+	index += sizeof(ecm_lifetime_id);
+	if (has_cw) {
+		uint32_t peerid = ((uint32_t)buf[index]<<24) | ((uint32_t)buf[index+1]<<16) |
+		                  ((uint32_t)buf[index+2]<<8) | buf[index+3];
+		index += 4;
+		memcpy(cw, buf+index, 16);
+		index += 16;
 		/* TASK 2.5: the cycle declared by the key's sender, if any. */
 		if (cwmark) *cwmark = buf[index];
-		return peerid;
+		if (peerid_out) *peerid_out = peerid;
 	}
-	return 0;
+	return 1;
 }
 
-int put_cache2ecm(uint8_t type, uint8_t *buf, struct cache_data *pcache, uint8_t *cw, int peerid, int cwmark )
+int put_cache2ecm(uint8_t type, uint8_t *buf, size_t capacity,
+                  struct cache_data *pcache, uint8_t *cw, uint32_t peerid, int cwmark)
 {
+	int required_len = 12 + (int)sizeof(void*) + (int)sizeof(uint64_t);
+	uint64_t ecm_lifetime_id;
+	if (!buf || !pcache) return 0;
+	if (type == PIPE_CACHE_FIND_SUCCESS) {
+		if (!cw) return 0;
+		required_len += 4 + 16 + 1;
+	} else if (type != PIPE_CACHE_FIND_FAILED || cw) return 0;
+	if (!pcache->ecm || !pcache->ecm_lifetime_id || capacity < (size_t)required_len)
+		return 0;
+	ecm_lifetime_id = pcache->ecm_lifetime_id;
 	buf[0] = type;
 	buf[1] = pcache->tag;
 	buf[2] = pcache->sid>>8; buf[3] = pcache->sid&0xff;
@@ -794,6 +1146,8 @@ int put_cache2ecm(uint8_t type, uint8_t *buf, struct cache_data *pcache, uint8_t
 	memcpy( buf+index, &pcache->ecm, sizeof(void*) );
 	//debugf(0, " put_cache2ecm %p\n", pcache->ecm);
 	index += sizeof(void*);
+	memcpy(buf+index, &ecm_lifetime_id, sizeof(ecm_lifetime_id));
+	index += sizeof(ecm_lifetime_id);
 	if (cw) {
 		buf[index] = peerid>>24; buf[index+1] = peerid>>16; buf[index+2] = peerid>>8; buf[index+3] = peerid & 0xff;
 		index+=4;
@@ -838,22 +1192,24 @@ static void cwlog_deliver(int peerid, uint32_t caid, uint32_t provid,
 
 void pipe_cache2ecm_find_failed(struct cache_data *pcache)
 {
-	uint8_t buf[48];
+	uint8_t buf[64];
+	if (!cache_entry_ecm_current(pcache)) return;
 	user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid, pcache->hash, 0, "cache lookup: no existing entry; peer response may still arrive", NULL);
-	int len = put_cache2ecm(PIPE_CACHE_FIND_FAILED, buf, pcache, NULL, 0, 0);
-	pipe_send( prg.pipe.ecm[1], buf, len);
+	int len = put_cache2ecm(PIPE_CACHE_FIND_FAILED, buf, sizeof(buf), pcache, NULL, 0, 0);
+	if (len > 0) pipe_send(prg.pipe.ecm[1], buf, len);
 }
 
-void pipe_cache2ecm_find_success(struct cache_data *pcache, uint8_t *cw, int peerid )
+void pipe_cache2ecm_find_success(struct cache_data *pcache, uint8_t *cw, uint32_t peerid )
 {
-	uint8_t buf[48];
+	uint8_t buf[64];
+	if (!cache_entry_ecm_current(pcache)) return;
 #ifdef MCS_DCWSTATS
 	/* TASK R11 (D65): the single delivery funnel -- every accepted key
 	 * reaches its waiter (or the store) through this pipe send, the
 	 * window-release walk included. waiter = an ECM is parked on this
 	 * entry; without one the key is a seed, and the page says so. */
 	cwlog_deliver(peerid, pcache->caid, pcache->provid, pcache->sid, cw,
-		      pcache->ecm ? 1 : 0);
+		      cache_entry_sendpipe_active(pcache) ? 1 : 0);
 #endif
 	/*
 	 * TASK 2.5: the marker travels with the key. It is read from the entry's
@@ -869,18 +1225,37 @@ void pipe_cache2ecm_find_success(struct cache_data *pcache, uint8_t *cw, int pee
 		cwd = cwd->next;
 	}
 	user_trace_cache_observation(pcache->caid, pcache->provid, pcache->sid, pcache->hash, peerid, "cache forwarded CW to ECM pipe; delivery not confirmed", cw);
-	int len = put_cache2ecm(PIPE_CACHE_FIND_SUCCESS, buf, pcache, cw, peerid, cwmark);
-	pipe_send( prg.pipe.ecm[1], buf, len);
+	int len = put_cache2ecm(PIPE_CACHE_FIND_SUCCESS, buf, sizeof(buf), pcache, cw, peerid, cwmark);
+	if (len > 0) pipe_send(prg.pipe.ecm[1], buf, len);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // ECM ---> CACHE
 ///////////////////////////////////////////////////////////////////////////////
 
-int get_ecm2cache(uint8_t *buf , struct cache_data *pcache, uint8_t *cw)
+int get_ecm2cache(uint8_t *buf, int len, struct cache_data *pcache, uint8_t *cw)
 {
+	int base_len = 16 + (int)sizeof(void*) + (int)sizeof(uint64_t);
 	/* Pipe messages serialize only the wire/cache key fields. Clear local-only
 	 * provider association and pointers before decoding into a stack record. */
+#ifdef CACHEEX
+	base_len += 16; /* ecmd5 */
+#endif
+	if (!buf || !pcache || len < base_len) return -1;
+	switch (buf[0]) {
+	case PIPE_CACHE_FIND:
+		if (len != base_len && len != base_len + 16) return -1;
+		break;
+	case PIPE_CACHE_REQUEST:
+	case PIPE_CACHE_RESENDREQ:
+		if (len != base_len) return -1;
+		break;
+	case PIPE_CACHE_REPLY:
+		if (len != base_len + 17 || !cw) return -1;
+		break;
+	default:
+		return -1;
+	}
 	memset(pcache, 0, sizeof(*pcache));
 	pcache->tag = buf[1];
 	pcache->sid = (buf[2]<<8) | buf[3];
@@ -891,22 +1266,43 @@ int get_ecm2cache(uint8_t *buf , struct cache_data *pcache, uint8_t *cw)
 	pcache->provider_known = !!(buf[15] & 0x80) || pcache->provid != 0;
 	pcache->cwcycle = (cwcycle_t)(buf[15] & 0x7F);
 	int index = 16;
+	uint64_t ecm_lifetime_id;
 	//
 	memcpy( &pcache->ecm, buf+index, sizeof(void*) );
 	index += sizeof(void*);
+	memcpy(&ecm_lifetime_id, buf+index, sizeof(ecm_lifetime_id));
+	if (!ecm_lifetime_id) return -1;
+	pcache->ecm_lifetime_id = ecm_lifetime_id;
+	index += sizeof(ecm_lifetime_id);
 #ifdef CACHEEX
 	memcpy( pcache->ecmd5, buf+index, 16 );
 	index+=16;
 #endif
-	if (cw) {
-		memcpy( cw, buf+index, 16 );
-		index+=16;
-	}
+	if (cw && cache_pipe_copy_optional_cw(buf, (size_t)len,
+	                                      (size_t)index, cw))
+		index += 16;
 	return index;
 }
 
-int put_ecm2cache(uint8_t type, uint8_t *buf , ECM_DATA *ecm, uint16_t onid, uint8_t *cw )
+/* The pipe_* serializers call this with lockecm held so every copied field and
+ * the lifetime token belong to one ECM generation. It deliberately takes no
+ * locks; taking locksv here would invert the ECM worker's lock order. */
+static int put_ecm2cache(uint8_t type, uint8_t *buf, size_t capacity,
+                         ECM_DATA *ecm, uint16_t onid, uint8_t *cw)
 {
+	uint64_t ecm_lifetime_id;
+	int required_len = 16 + (int)sizeof(void*) + (int)sizeof(uint64_t);
+	if (!ecm || !buf) return 0;
+#ifdef CACHEEX
+	required_len += 16;
+#endif
+	if (type != PIPE_CACHE_FIND && type != PIPE_CACHE_REQUEST &&
+	    type != PIPE_CACHE_REPLY && type != PIPE_CACHE_RESENDREQ)
+		return 0;
+	if (cw) required_len += 16;
+	if (capacity < (size_t)required_len) return 0;
+	ecm_lifetime_id = ecm_request_lifetime_id_load(ecm);
+	if (!ecm_lifetime_id) return 0;
 	buf[0] = type;
 	buf[1] = ecm->ecm[0];
 	buf[2] = ecm->sid>>8; buf[3] = ecm->sid;
@@ -922,6 +1318,8 @@ int put_ecm2cache(uint8_t type, uint8_t *buf , ECM_DATA *ecm, uint16_t onid, uin
 	int index = 16;
 	memcpy( buf+index, &ecm, sizeof(void*) );
 	index += sizeof(void*);
+	memcpy(buf+index, &ecm_lifetime_id, sizeof(ecm_lifetime_id));
+	index += sizeof(ecm_lifetime_id);
 #ifdef CACHEEX
 	memcpy( buf+index, ecm->ecmd5, 16 );
 	index+=16;
@@ -959,12 +1357,12 @@ void pipe_cache_find( ECM_DATA *ecm, struct cardserver_data *cs)
 #endif
 		pcache->flags |= CACHE_FLAG_SENDPIPE;
 		// XXX set find failed
-		ecm->dcwstatus = STAT_DCW_WAIT;
+		ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 		ecm->checktime = 1;
 	}
 	else {
 		if (!cs->option.cachetimeout) {
-			ecm->dcwstatus = STAT_DCW_WAIT;
+			ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 			ecm->checktime = 1;
 		}
 		pcache->ecm = ecm;
@@ -997,36 +1395,72 @@ void pipe_cache_find( ECM_DATA *ecm, struct cardserver_data *cs)
 {
 	uint8_t buf[64];
 	uint8_t *cw = NULL;
+	int len;
+	if (!ecm || !cs || !cache_ecm_snapshot_publish(ecm, cs)) return;
 	if ( ecm->lastdecode.ecm && (ecm->lastdecode.counter>1) ) cw = ecm->lastdecode.dcw;
-	int len = put_ecm2cache(PIPE_CACHE_FIND, buf, ecm, cs->option.onid, cw);
-	pipe_send( prg.pipe.cache[1], buf, len);
+	len = put_ecm2cache(PIPE_CACHE_FIND, buf, sizeof(buf), ecm, cs->option.onid, cw);
+	if (len > 0 && ecm_request_lifetime_id_load(ecm) != 0)
+		cache_pipe_out_enqueue(buf, len);
 }
 
 void pipe_cache_request( ECM_DATA *ecm, struct cardserver_data *cs)
 {
 	uint8_t buf[64];
-	int len = put_ecm2cache(PIPE_CACHE_REQUEST, buf, ecm, cs->option.onid, NULL);
-	pipe_send( prg.pipe.cache[1], buf, len);
+	int len;
+	if (!ecm || !cs || !cache_ecm_snapshot_publish(ecm, cs)) return;
+	len = put_ecm2cache(PIPE_CACHE_REQUEST, buf, sizeof(buf), ecm, cs->option.onid, NULL);
+	if (len > 0 && ecm_request_lifetime_id_load(ecm) != 0)
+		cache_pipe_out_enqueue(buf, len);
 }
 
-void pipe_cache_reply( ECM_DATA *ecm, struct cardserver_data *cs)
+/* Serialize while the caller still owns the ECM's stable identity (the
+ * successful setdcw commit is under lockecm). Sending is deferred until after
+ * lockecm is released so a full pipe cannot stall the ECM lock. */
+int pipe_cache_reply(ECM_DATA *ecm, struct cardserver_data *cs, uint8_t *buf, size_t capacity)
 {
-	uint8_t buf[64];
 	int len;
-	if (ecm->dcwstatus!=STAT_DCW_SUCCESS) return;
-	len = put_ecm2cache(PIPE_CACHE_REPLY, buf, ecm, cs->option.onid, ecm->cw);
+	uint64_t lifetime_id;
+	/* Caller owns lockecm at the SUCCESS commit. No dcwstatus read is needed;
+	 * serialize only a live, nonzero generation and set REP after the complete
+	 * snapshot has been written. */
+	if (!ecm || !cs || !buf || !cs->option.fallowcache || !cs->option.cachesendrep ||
+	    (ecm->cachestatus & ECM_CACHE_REP)) return 0;
+	/* One additional byte records whether the reply originated in the cache. */
+	{
+		size_t required_len = 16u + sizeof(void*) + sizeof(uint64_t) + 16u + 17u;
+#ifndef CACHEEX
+		required_len -= 16u;
+#endif
+		if (capacity < required_len) return 0;
+	}
+	/* The success transition has already marked the waiter inactive. Keep an
+	 * inactive identity record even if no FIND/REQUEST was previously queued. */
+	if (!cache_ecm_snapshot_record(ecm, cs, 0)) return 0;
+	lifetime_id = ecm_request_lifetime_id_load(ecm);
+	if (!lifetime_id) return 0;
+	len = put_ecm2cache(PIPE_CACHE_REPLY, buf, capacity, ecm, cs->option.onid, ecm->cw);
+	if (len <= 0 || !ecm_request_lifetime_matches(ecm, ecm, lifetime_id)) return 0;
 	/* Snapshot the origin with the CW: the ECM object can be recycled before
 	 * this asynchronous pipe message is processed. */
 	buf[len++] = (ecm->dcwsrctype == DCW_SOURCE_CACHE) ? 1 : 0;
-	pipe_send( prg.pipe.cache[1], buf, len);
+	if (!ecm_request_lifetime_matches(ecm, ecm, lifetime_id)) return 0;
+	ecm->cachestatus |= ECM_CACHE_REP;
+	return len;
+}
+
+void pipe_cache_reply_send(uint8_t *buf, int len)
+{
+	if (buf && len > 0) cache_pipe_out_enqueue(buf, len);
 }
 
 void pipe_cache_resendreq(ECM_DATA *ecm, struct cardserver_data *cs)
 {
 	uint8_t buf[64];
 	int len;
-	len = put_ecm2cache(PIPE_CACHE_RESENDREQ, buf, ecm, cs->option.onid, NULL);
-	pipe_send( prg.pipe.cache[1], buf, len);
+	if (!ecm || !cs || !cache_ecm_snapshot_publish(ecm, cs)) return;
+	len = put_ecm2cache(PIPE_CACHE_RESENDREQ, buf, sizeof(buf), ecm, cs->option.onid, NULL);
+	if (len <= 0) return;
+	cache_pipe_out_enqueue(buf, len);
 	debugf( getdbgflag(DBG_NEWCAMD,cs->id,0), " [%s] CACHE RESENDREQ ch %04x:%06x:%04x\n", cs->name,ecm->caid,ecm->provid,ecm->sid);
 }
 
@@ -1050,16 +1484,17 @@ void sendtoip( int handle, uint32_t ip, int port, unsigned char *buf, int len)
 
 void sendtopeer( struct cachepeer_data *peer, unsigned char *buf, int len)
 {
+	uint32_t peer_ip = host_ip_snapshot(peer->host);
 	/* Disabled means disabled in both directions, even if a stale ping is
 	 * positive or another sender bypasses cache_check_peers(). */
 	if (IS_DISABLED(peer->flags)) return;
-	if (peer->host->ip && peer->port) {
+	if (peer_ip && peer->port) {
 		struct sockaddr_in si_other;
 		int slen=sizeof(si_other);
 		memset((char *) &si_other, 0, sizeof(si_other));
 		si_other.sin_family = AF_INET;
 		si_other.sin_port = htons( peer->port );
-		si_other.sin_addr.s_addr = peer->host->ip;
+		si_other.sin_addr.s_addr = peer_ip;
 #ifdef DEBUG_NETWORK2
 		if (flag_debugnet) {
 			debugf(getdbgflag(DBG_CACHE,0,0)," cache: send data (%d) to peer (%s:%d)\n", len, peer->host->name,peer->port);
@@ -1123,6 +1558,13 @@ void sendtopeer( struct cachepeer_data *peer, unsigned char *buf, int len)
 
 #include "peer_cards.h"	/* TASK 3.17: bounded card-list search */
 
+static int cache_peer_card_compare(const void *left, const void *right)
+{
+	uint32_t a = *(const uint32_t *)left;
+	uint32_t b = *(const uint32_t *)right;
+	return (a > b) - (a < b);
+}
+
 int peer_card_binarysearch( struct cachepeer_data *peer, uint16_t caid, uint32_t provid)
 {
 	/*
@@ -1163,25 +1605,48 @@ int peer_acceptcard( struct cachepeer_data *peer, uint16_t caid, uint32_t provid
  * FLAG_DISABLE lever (every later packet is dropped by the existing
  * IS_DISABLED paths). Never called for unknown peers.
  */
+/* peerrep_event runs under lockcache. Copy the transition details here; after
+ * the caller releases lockcache, persist first (the ledger is the source of
+ * truth) and only then publish the escalation log line. */
+struct cache_peerrep_deferred_event {
+	int stage;
+	uint16_t port;
+	uint32_t peer_id;
+	char host[256];
+	char reason[PEERREP_REASON_MAX];
+};
+static __thread struct cache_peerrep_deferred_event cache_peerrep_deferred;
+
+void cache_peerrep_save_after_unlock(void)
+{
+	static const char *const pr_cons[] = { "", "its keys are no longer requested",
+		"its pushes are refused", "the peer is disabled and pinned in the file" };
+	struct cache_peerrep_deferred_event event = cache_peerrep_deferred;
+	if (!event.stage) return;
+	memset(&cache_peerrep_deferred, 0, sizeof(cache_peerrep_deferred));
+	peerrep_save();
+	debugf(getdbgflag(DBG_CACHE,0,event.peer_id),
+		" [PEER REP] peer %s:%u ESCALATED to %s -- last event '%s' -- consequence: %s\\n",
+		event.host, event.port,
+		event.stage==PEERREP_STAGE_DISTRUST?"DISTRUST":
+		(event.stage==PEERREP_STAGE_ISOLATE?"ISOLATE":"BAN"),
+		event.reason, pr_cons[event.stage]);
+}
+
 static void peerrep_event(struct cachepeer_data *peer, const char *reason)
 {
-	int st = peerrep_note(peer->host->ip, peer->port, reason);
+	int st = peerrep_note(host_ip_snapshot(peer->host), peer->port, reason);
 	if (st>0) {
-		static const char *const pr_cons[] = { "", "its keys are no longer requested",
-			"its pushes are refused", "the peer is disabled and pinned in the file" };
-		/* the file is the source of truth: it is pinned BEFORE the log line
-		 * says so (the rig races the log against the file and caught the
-		 * old order printing first, renaming later) */
-		peerrep_save();
-		debugf(getdbgflag(DBG_CACHE,0,peer->id),
-			" [PEER REP] peer %s:%u ESCALATED to %s -- last event '%s' -- consequence: %s\n",
-			peer->host->name, peer->port,
-			st==PEERREP_STAGE_DISTRUST?"DISTRUST":(st==PEERREP_STAGE_ISOLATE?"ISOLATE":"BAN"),
-			reason, pr_cons[st]);
+		cache_peerrep_deferred.stage = st;
+		cache_peerrep_deferred.port = peer->port;
+		cache_peerrep_deferred.peer_id = peer->id;
+		snprintf(cache_peerrep_deferred.host, sizeof(cache_peerrep_deferred.host),
+		         "%s", peer->host ? peer->host->name : "");
+		snprintf(cache_peerrep_deferred.reason, sizeof(cache_peerrep_deferred.reason),
+		         "%s", reason ? reason : "unknown");
 		if (st==PEERREP_STAGE_BAN) { peer->flags |= FLAG_DISABLE; peer->ping = 0; }
 	}
 }
-
 void cache_send_request(struct cache_data *pcache,struct cachepeer_data *peer)
 {
 	uint8_t buf[64];
@@ -1209,7 +1674,7 @@ void cache_send_request(struct cache_data *pcache,struct cachepeer_data *peer)
 			while (peer) {
 				if (peer->ping>0)
 				if (peer->flags&FLAG_CACHE_SENDREQ)
-				if ( peerrep_ask_ok(peer->host->ip, peer->port) ) /* TASK R4 (D58): distrust+ means we stop asking */
+				if ( peerrep_ask_ok(host_ip_snapshot(peer->host), peer->port) ) /* TASK R4 (D58): distrust+ means we stop asking */
 				if ( !peer->fblock0onid || pcache->onid )
 				if ( peer_card_binarysearch(peer, pcache->caid, pcache->provid) ) {
 					/*
@@ -1401,57 +1866,106 @@ void cache_send_keepalive(struct cacheserver_data *cache, struct cachepeer_data 
 	else cache_send_ping(cache, peer);
 }
 
-void save_sms( struct sms_data *sms, struct cachepeer_data *peer)
+static void save_sms_record(const struct sms_data *sms,
+                            const char *peer_name, uint16_t peer_port)
 {
-	// print to sms file
-	FILE *fhandle;
-	fhandle=fopen(sms_file, "at");
-	if (fhandle!=0) {
-		// Get Time
-		char timebuf [80];
-		struct tm * timeinfo = localtime (&(time_t){sms->rawtime});
-		strftime (timebuf,80,"%x %X",timeinfo);
-		if (sms->status&1) fprintf(fhandle,"\n\n[ %s ] >> SMS to peer (%s:%d)\n", timebuf, peer->host->name, peer->port);
-		else  fprintf(fhandle,"\n\n[ %s ] << SMS from peer (%s:%d)\n", timebuf, peer->host->name, peer->port);
+	FILE *fhandle = fopen(sms_file, "at");
+	if (fhandle) {
+		char timebuf[80];
+		time_t rawtime;
+		struct tm time_storage;
+		struct tm *timeinfo;
+		memcpy(&rawtime, PACKED_MPTR(sms, time_t, rawtime), sizeof(rawtime));
+		timeinfo = localtime_r(&rawtime, &time_storage);
+		if (timeinfo) strftime(timebuf, sizeof(timebuf), "%x %X", timeinfo);
+		else snprintf(timebuf, sizeof(timebuf), "unknown time");
+		if (sms->status & 1)
+			fprintf(fhandle, "\n\n[ %s ] >> SMS to peer (%s:%u)\n", timebuf, peer_name, peer_port);
+		else
+			fprintf(fhandle, "\n\n[ %s ] << SMS from peer (%s:%u)\n", timebuf, peer_name, peer_port);
 		fputs(sms->msg, fhandle);
 		fclose(fhandle);
 	}
 }
 
-struct sms_data *cache_new_sms(char *msg)
+int cache_peer_send_sms_by_id(uint32_t peer_id, const char *message,
+                              uint32_t *hash_out)
 {
-	struct sms_data *sms = malloc( sizeof(struct sms_data) );
-	int len = strlen(msg);
-	uint32_t hash = hashCode((uint8_t*)msg, len);
-	strcpy( sms->msg, msg );
+	struct cachepeer_data *peer;
+	struct sms_data *sms;
+	struct sms_data saved_sms;
+	char peer_name[256];
+	uint32_t peer_ip, hash;
+	uint16_t peer_port;
+	int peer_socket, peer_flags, len;
+	uint8_t buf[sizeof(sms->msg) + 5];
+	if (!message) return 0;
+	len = (int)strnlen(message, sizeof(sms->msg));
+	if (len <= 0 || len >= (int)sizeof(sms->msg)) return 0;
+	sms = (struct sms_data *)calloc(1, sizeof(*sms));
+	if (!sms) return 0;
+	memcpy(sms->msg, message, (size_t)len);
+	sms->msg[len] = 0;
+	hash = hashCode((uint8_t *)sms->msg, (unsigned int)len);
 	sms->hash = hash;
 	sms->rawtime = time(NULL);
-	sms->next = NULL;
-	return (sms);
-}
+	sms->status = 1;
 
-void cache_send_sms(struct cachepeer_data *peer, struct sms_data *sms)
-{
-	int len = strlen(sms->msg);
-	sms->status = 1; // bit 0 (0:in,1:out) bit 1 (0:unread/unack, 1:read/ack)
+	pthread_mutex_lock(&prg.lockcache);
+	peer = getpeerbyid((int)peer_id);
+	if (!peer) {
+		pthread_mutex_unlock(&prg.lockcache);
+		free(sms);
+		return 0;
+	}
 	sms->next = peer->sms;
 	peer->sms = sms;
-	// Send Buffer
-	uint8_t buf[1024];
+	memset(&saved_sms, 0, sizeof(saved_sms));
+	saved_sms.status = sms->status;
+	saved_sms.rawtime = sms->rawtime;
+	snprintf(saved_sms.msg, sizeof(saved_sms.msg), "%s", sms->msg);
+	if (peer->host)
+		snprintf(peer_name, sizeof(peer_name), "%s", peer->host->name);
+	else
+		peer_name[0] = 0;
+	peer_ip = peer->host ? host_ip_snapshot(peer->host) : 0;
+	peer_port = peer->port;
+	peer_socket = peer->outsock;
+	peer_flags = (int)peer->flags;
+	pthread_mutex_unlock(&prg.lockcache);
+
 	buf[0] = TYPE_SMS;
-	buf[1] = sms->hash>>24;
-	buf[2] = sms->hash>>16;
-	buf[3] = sms->hash>>8;
-	buf[4] = sms->hash;
-	memcpy( buf+5, sms->msg, len );
-	sendtopeer(peer, buf, len+5);
-	// Debug
-	debugf(getdbgflag(DBG_CACHE,0,0)," SMS to peer (%s:%d)\n", peer->host->name, peer->port);
-	save_sms( sms, peer);
+	buf[1] = (uint8_t)(hash >> 24);
+	buf[2] = (uint8_t)(hash >> 16);
+	buf[3] = (uint8_t)(hash >> 8);
+	buf[4] = (uint8_t)hash;
+	memcpy(buf + 5, saved_sms.msg, (size_t)len);
+	if (!IS_DISABLED((uint32_t)peer_flags) && peer_ip && peer_port)
+		sendtoip(peer_socket, peer_ip, peer_port, buf, len + 5);
+	debugf(getdbgflag(DBG_CACHE,0,0), " SMS to peer (%s:%u)\n", peer_name, peer_port);
+	save_sms_record(&saved_sms, peer_name, peer_port);
+	if (hash_out) *hash_out = hash;
+	return 1;
 }
 
-
-#endif
+int cache_peer_sms_status_by_id(uint32_t peer_id, uint32_t hash)
+{
+	struct cachepeer_data *peer;
+	struct sms_data *sms;
+	int status = -1;
+	pthread_mutex_lock(&prg.lockcache);
+	peer = getpeerbyid((int)peer_id);
+	if (peer) {
+		for (sms = peer->sms; sms; sms = sms->next) {
+			if (sms->hash == hash && (sms->status & 1)) {
+				status = sms->status;
+				break;
+			}
+		}
+	}
+	pthread_mutex_unlock(&prg.lockcache);
+	return status;
+}
 
 void peer_check_messages( struct cachepeer_data *peer )
 {
@@ -1474,6 +1988,7 @@ void peer_check_messages( struct cachepeer_data *peer )
 		}
 	}
 }
+#endif /* NEWCACHE */
 
 
 
@@ -1655,7 +2170,7 @@ struct cache_data *cache_fetch_goodcw2( struct cache_data *thereq, uint8_t cw[16
 	uint32_t ticks = GetTickCount();
 	while (pcache) {
 		if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
-		if ( pcache->flags&CACHE_FLAG_SENDPIPE )
+		if ( cache_entry_sendpipe_active(pcache) )
 		if ( (pcache->sid==thereq->sid)&&(pcache->hash!=thereq->hash) )
 		if ( pcache->tag && (pcache->tag==thereq->tag) )
 		if ( pcache->cwcycle!=NO_CYCLE )
@@ -1673,8 +2188,7 @@ struct cache_data *cache_fetch_goodcw2( struct cache_data *thereq, uint8_t cw[16
 					    pcache->hash, peerid, "cache provider collision: known numeric providers differ; cross-cache relay skipped", NULL);
 				} else if (cfg.cache.consensus || cfg.cache.threshold > 1 ||
 				           cfg.cache.gate_cwcheck > 1 ||
-				           (pcache->ecm && pcache->ecm->cs &&
-				            pcache->ecm->cs->option.excheck > 1)) {
+				           cache_entry_ecm_excheck_gt1(pcache)) {
 					/* This CW is not in the target entry (iscwincache above).
 					 * Source-entry votes/arrivals cannot establish the target's
 					 * confirmation policy. Let its ordinary lookup continue. */
@@ -1728,7 +2242,7 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 	uint32_t ticks = GetTickCount();
 	while (pcache) {
 		if ( cache_time_expired(ticks, pcache->recvtime, cfg.cache.alivetime) ) break;
-		if ( pcache->flags&CACHE_FLAG_SENDPIPE )
+		if ( cache_entry_sendpipe_active(pcache) )
 		if (pcache->sid!=thereq->sid)
 		if ( (pcache->hash==thereq->hash) )
 		if ( pcache->tag && (pcache->tag==thereq->tag) )
@@ -1747,8 +2261,7 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 					    pcache->hash, peerid, "cache provider collision: known numeric providers differ; cross-cache relay skipped", NULL);
 				} else if (cfg.cache.consensus || cfg.cache.threshold > 1 ||
 				           cfg.cache.gate_cwcheck > 1 ||
-				           (pcache->ecm && pcache->ecm->cs &&
-				            pcache->ecm->cs->option.excheck > 1)) {
+				           cache_entry_ecm_excheck_gt1(pcache)) {
 					/* This CW is not in the target entry (iscwincache above).
 					 * Source-entry votes/arrivals cannot establish the target's
 					 * confirmation policy. Let its ordinary lookup continue. */
@@ -1810,7 +2323,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 				 * be considered for the optional cross-entry relays. */
 				if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
 				if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, peerid);
-				if ( (pcache->flags&CACHE_FLAG_SENDPIPE) && !(cwdata->status&DCW_SENT) ) {
+				if ( cache_entry_sendpipe_active(pcache) && !(cwdata->status&DCW_SENT) ) {
 					pipe_cache2ecm_find_success(pcache, cw, peerid);
 					piped = 1;   /* TASK R11 (D65) */
 					cwdata->status |= DCW_SENT;
@@ -1860,7 +2373,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 			 * refusal happens exactly as stock, invisibly, byte for byte.
 			 */
 			if ( cwcy_judge(pcache->cwcycle, cwcy_observed((int)cwcycle)) == CWCY_CONTRA ) {
-				struct cardserver_data *cyc_cs = pcache->ecm ? pcache->ecm->cs : NULL;
+				struct cardserver_data *cyc_cs = cache_entry_cardserver_current(pcache);
 				if (dcw_profile_cycle_enabled(cyc_cs)) {
 #ifdef MCS_DCWSTATS
 					DCWSTATS_REJECT(DCW_REJ_CYCLE);
@@ -1928,7 +2441,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 	if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid);
 	if (cfg.cache.dcwcheck3) cache_fetch_goodcw3(pcache, cw, peerid);
 
-	if ( (pcache->flags&CACHE_FLAG_SENDPIPE) && !(cwdata->status&DCW_SENT) ) {
+	if ( cache_entry_sendpipe_active(pcache) && !(cwdata->status&DCW_SENT) ) {
 		cwdata->status |= DCW_SENT;
 		/*
 		 * TASK 3.16 rig. Unset, this is one compare. A positive
@@ -1970,6 +2483,48 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 	return cwdata->status;
 }
 
+#ifdef CACHEEX
+/* Record a cache offer before cache-level validation, but only when this exact
+ * cache entry is attached to a live local ECM snapshot. CSP does not carry an
+ * ECMD5, so its identity must come from that saved request context; CacheEX
+ * additionally has an on-wire ECMD5, which must match before it can be joined
+ * to the local request. No raw ECM pointer is dereferenced under lockcache. */
+static void cache_ledger_note_candidate_locked(const struct cache_data *req,
+                                               const struct cache_data *entry,
+                                               const uint8_t cw[16], int peerid)
+{
+	struct ledger_identity identity;
+	int exchange;
+	if (!req || !entry || !cw || !cache_entry_sendpipe_active(entry) ||
+	    !cache_ecm_snapshot_ledger_identity_locked(entry->ecm,
+	                                               entry->ecm_lifetime_id,
+	                                               &identity)) return;
+	if (identity.caid != req->caid || identity.sid != req->sid ||
+	    identity.hash != req->hash) return;
+
+	exchange = cex_is_exchange(peerid);
+	if (exchange) {
+		/* CacheEX carries the byte identity and an explicit provider value.
+		 * Reject an absent/mismatched digest rather than borrowing the
+		 * active request's identity on the strength of the 32-bit cache key. */
+		if (!ledger_key_valid(req->ecmd5) ||
+		    memcmp(identity.ecmd5, req->ecmd5, sizeof(identity.ecmd5)) != 0 ||
+		    (req->tag && req->tag != identity.tag) ||
+		    !cache_request_provider_known(req)) return;
+		/* The candidate is keyed by the provider the peer actually supplied.
+		 * A conflicting value is kept separate from the active request and
+		 * cannot become its acceptance or failure evidence. */
+		identity.provid = req->provid;
+		identity.provider_known = 1;
+	} else if (req->tag != identity.tag) {
+		/* A provider-less CSP reply must still match the saved ECM tag. */
+		return;
+	}
+	ledger_note_candidate_identity(&identity, cw, DCW_SOURCE_CACHE, peerid,
+	                               GetTickCount());
+}
+#endif
+
 int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int peerid )
 {
 	/*
@@ -2002,10 +2557,20 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		 * checks, so it alone is not evidence of a live waiter. SENDPIPE is
 		 * cleared when that request succeeds or fails; the status guard also
 		 * closes the short commit-before-clear window. */
-		has_waiter = pend && pend->ecm && (pend->flags & CACHE_FLAG_SENDPIPE) &&
-		             cache_sendpipe_armable(pend->ecm);
-		pcs = has_waiter ? pend->ecm->cs : NULL;
+		has_waiter = cache_entry_sendpipe_active(pend);
+		pcs = has_waiter ? cache_entry_cardserver_current(pend) : NULL;
+		if (has_waiter && !cache_entry_sendpipe_active(pend)) {
+			has_waiter = 0;
+			pcs = NULL;
+		}
 		cex_exchange = cex_is_exchange(peerid);
+#ifdef CACHEEX
+		/* A rejected cache offer used to disappear here: the later ledger hook
+		 * lives in ECM Set-DCW, which no early cache gate reaches. Record only
+		 * against the exact active ECM snapshot (and require the wire ECMD5 for
+		 * CacheEX) before provider/profile/content gates can return. */
+		cache_ledger_note_candidate_locked(req, pend, cw, peerid);
+#endif
 		int gate_local = cfg.cache.gate_localonly;
 		cex_gate_fake  = cfg.cache.gate_blockfake;
 		cex_gate_check = cfg.cache.gate_cwcheck;
@@ -2041,10 +2606,12 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 				user_trace_cache_observation(req->caid, 0, req->sid, req->hash, peerid,
 				    "CSP supplied no provider; profile validation used the active local ECM provider only", cw);
 		}
+#ifdef CACHEEX
 		if (pcs) {
 			if (pcs->option.fexblockfake) cex_gate_fake = 1;
 			if (pcs->option.excheck > cex_gate_check) cex_gate_check = pcs->option.excheck;
 		}
+#endif
 		/* LOCAL_ONLY: an exchange push with no waiting local ECM never
 		 * seeds the cache -- returned BEFORE cache_new(), so nothing is
 		 * stored, nothing is served later, and the key cannot pre-poison
@@ -2306,7 +2873,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		int cw_weight = 1;
 		{
 			struct cachepeer_data *vc_peer = getpeerbyid(peerid);
-			if ( vc_peer && (peerrep_stage(vc_peer->host->ip, vc_peer->port) >= 1) )
+			if ( vc_peer && (peerrep_stage(host_ip_snapshot(vc_peer->host), vc_peer->port) >= 1) )
 				cw_weight = 0; /* already distrusted: the vote counts nothing */
 		}
 		{
@@ -2522,6 +3089,8 @@ static void cache_csp_reuse_check(struct cachepeer_data *peer,
 }
 #endif
 
+/* Takes lockcache for the complete peer/cache-table state transition. All
+ * callers hold the config lifetime read gate, but not lockcache. */
 void cache_recvmsg(struct cacheserver_data *cache)
 {
 	unsigned int recv_ip;
@@ -2582,7 +3151,14 @@ void cache_recvmsg(struct cacheserver_data *cache)
 
 	// Store Data
 	struct cache_data req;
+	struct sms_data sms_log_copy;
+	char sms_log_peer[256];
+	uint16_t sms_log_port = 0;
+	int sms_log_pending = 0;
 	memset(&req, 0, sizeof(req));
+	memset(&cache_peerrep_deferred, 0, sizeof(cache_peerrep_deferred));
+	/* lockcache owns cache-peer state/list and cache-table state. */
+	pthread_mutex_lock(&prg.lockcache);
 	switch(buf[0]) {
 
 
@@ -2600,7 +3176,6 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
 			req.provid = 0;
 
-			pthread_mutex_lock( &prg.lockcache );
 
 			// Check Cache Request
 			if ( cache_check(&req) ) {
@@ -2612,7 +3187,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 					if (!pcache->tag) pcache->tag = req.tag; // set tag if not set (coming from cahceex)
 					if (!pcache->provid && req.provid) pcache->provid = req.provid; // set provid if not set (coming from csp)
 					if ( cfg.cache.forward || ((peer->ismultics)&&(peer->protocol&BIT_CACHE_HACK)) )
-					if ( pcache->cwdata && !(pcache->flags&CACHE_FLAG_SENDPIPE) ) {
+					if ( pcache->cwdata && !cache_entry_sendpipe_active(pcache) ) {
 						struct cw_cache_data *cwdata = pcache->cwdata;
 						int peer_defer_noted = 0;
 						while (cwdata) {
@@ -2631,7 +3206,6 @@ void cache_recvmsg(struct cacheserver_data *cache)
 				}
 			}
 
-			pthread_mutex_unlock( &prg.lockcache );
 			break;
 
 
@@ -2652,7 +3226,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			 * -- but the arrival itself still counts: after confirmed
 			 * contradictions, choosing to keep pushing is the peer's own
 			 * escalation (reason push-while-isolated). Off = never speaks. */
-			if ( !peerrep_push_ok(peer->host->ip, peer->port) ) {
+			if ( !peerrep_push_ok(host_ip_snapshot(peer->host), peer->port) ) {
                 cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, "peer reputation isolation");
 				peerrep_event(peer, "push-while-isolated");
 				debugf(getdbgflag(DBG_CACHE,0,peer->id),
@@ -2673,7 +3247,6 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
 			req.provid = 0;
 
-			pthread_mutex_lock( &prg.lockcache );
 
 			// Check Cache Request
 			if ( cache_check(&req) ) {
@@ -2720,7 +3293,6 @@ void cache_recvmsg(struct cacheserver_data *cache)
                 cache_trace_csp_drop(buf, received, peer->id|PEER_CSP, why);
             }
 
-			pthread_mutex_unlock( &prg.lockcache );
 			break;
 
 		case TYPE_RESENDREQ:
@@ -2741,11 +3313,10 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.hash = ((uint32_t)buf[12]<<24) | (buf[13]<<16) | (buf[14]<<8) | buf[15];
 			req.provid = 0;
 			//
-			pthread_mutex_lock( &prg.lockcache );
 			// Check Cache Request
 			if ( cache_check(&req) ) {
 				struct cache_data *pcache = cache_fetch( &req );
-				if (pcache!=NULL && !(pcache->flags&CACHE_FLAG_SENDPIPE)) {
+				if (pcache!=NULL && !cache_entry_sendpipe_active(pcache)) {
 					buf[4] = TYPE_REPLY;
 					buf[16] = buf[5];
 					struct cw_cache_data *cwdata = pcache->cwdata;
@@ -2765,7 +3336,6 @@ void cache_recvmsg(struct cacheserver_data *cache)
 				}
 			}
 			//
-			pthread_mutex_unlock( &prg.lockcache );
 			break;
 
 		case TYPE_PINGREQ:
@@ -2774,7 +3344,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			int port = (buf[11]<<8)|buf[12];
 			struct cachepeer_data *peerip = NULL;
 			while (peer) {
-				if (peer->host->ip==recv_ip) {
+				if (host_ip_snapshot(peer->host)==recv_ip) {
 					peerip = peer;
 					if (peer->port==port) break; // Found
 				}
@@ -2826,7 +3396,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 						}
 					}
 					else {
-						peer->host->checkiptime = 0;
+						host_checkiptime_set(peer->host, 0);
 					}
 				}
 				else if (cfg.cache.autoadd) {
@@ -2836,7 +3406,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 					peer->flags = FLAG_CACHE_SENDREQ | FLAG_CACHE_SENDREP;
 					// ADD HOST
 					struct host_data *host = add_host( &cfg, ip2string(recv_ip) );
-					host->ip = recv_ip;
+					host_ip_set(host, recv_ip);
 					peer->host = host;
 					peer->port = port;
 					peer->id = cfg.cache.peerid;
@@ -2918,7 +3488,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			peer = cache->peer;
 			int peerid = (buf[4]<<8) | buf[5];
 			while (peer) {
-				if ( (peer->host->ip==recv_ip)&&(peer->id==peerid) ) {
+				if ( (host_ip_snapshot(peer->host)==recv_ip)&&(peer->id==peerid) ) {
 					if (IS_DISABLED(peer->flags)) break;
 					peer->protocol = 0;
 					peer->recvport = recv_port;
@@ -2931,7 +3501,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 						/* TASK R4 (D58): a ban pinned in the reputation file
 						 * survives the restart -- re-applied the moment the
 						 * peer shows up again, said once. */
-						if ( peerrep_stage(peer->host->ip, peer->port) >= PEERREP_STAGE_BAN ) {
+						if ( peerrep_stage(host_ip_snapshot(peer->host), peer->port) >= PEERREP_STAGE_BAN ) {
 							if ( !(peer->flags & FLAG_DISABLE) ) {
 								peer->flags |= FLAG_DISABLE;
 								debugf(getdbgflag(DBG_CACHE,0,peer->id),
@@ -2957,7 +3527,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 					peerid = (buf[4]<<8) | buf[5];
 					peer = cache->peer;
 					while (peer) {
-						if ( (peer->host->ip==recv_ip)&&(peer->id==peerid) ) {
+						if ( (host_ip_snapshot(peer->host)==recv_ip)&&(peer->id==peerid) ) {
 							if (IS_DISABLED(peer->flags)) break;
 							// Check for private new cache
 							uint8_t k[4]; k[0] = cache->port>>8; k[1] = cache->port; k[2]=peer->port>>8; k[3]=peer->port; 
@@ -2972,7 +3542,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 								if (!peer_doublecheck(cache,peer)) break;
 								debugf(getdbgflag(DBG_CACHE,0,peer->id), " cache: Peer (%s:%d) come Online*\n", peer->host->name, peer->port );
 								/* TASK R4 (D58): the pinned-ban restore, other Online door. */
-								if ( peerrep_stage(peer->host->ip, peer->port) >= PEERREP_STAGE_BAN ) {
+								if ( peerrep_stage(host_ip_snapshot(peer->host), peer->port) >= PEERREP_STAGE_BAN ) {
 									if ( !(peer->flags & FLAG_DISABLE) ) {
 										peer->flags |= FLAG_DISABLE;
 										debugf(getdbgflag(DBG_CACHE,0,peer->id),
@@ -3065,11 +3635,9 @@ void cache_recvmsg(struct cacheserver_data *cache)
 				j++; idx++;
 			}
 			peer->nbcards = idx;
-			// Arrange Cards
-			int i;
-			for (i=0; i<(idx-1); i++)
-				for (j=i+1; j<idx; j++)
-					if ( peer->cards[i] > peer->cards[j] ) { uint32_t x=peer->cards[i]; peer->cards[i] = peer->cards[j]; peer->cards[j] = x; }
+			// Keep the sorted order expected by peer_card_binarysearch().
+			qsort(peer->cards, (size_t)idx, sizeof(peer->cards[0]),
+			      cache_peer_card_compare);
 			break;
 
 
@@ -3129,8 +3697,15 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			sendtopeer( peer, buf, 5 );
 			// debug
 			debugf(getdbgflag(DBG_CACHE,0,0)," cache: SMS from peer (%s:%d)\n", peer->host->name, peer->port);
-			// print to sms file
-			save_sms( sms, peer);
+			// Save the file record after releasing lockcache.
+			memset(&sms_log_copy, 0, sizeof(sms_log_copy));
+			sms_log_copy.status = sms->status;
+			sms_log_copy.rawtime = sms->rawtime;
+			snprintf(sms_log_copy.msg, sizeof(sms_log_copy.msg), "%s", sms->msg);
+			snprintf(sms_log_peer, sizeof(sms_log_peer), "%s",
+			         peer->host ? peer->host->name : "");
+			sms_log_port = peer->port;
+			sms_log_pending = 1;
 			break;
 
 
@@ -3192,6 +3767,10 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			break;
 
 	}
+	pthread_mutex_unlock(&prg.lockcache);
+	cache_peerrep_save_after_unlock();
+	if (sms_log_pending)
+		save_sms_record(&sms_log_copy, sms_log_peer, sms_log_port);
 }
 
 
@@ -3308,21 +3887,35 @@ static int cache_local_provider_collision(struct cache_data *entry,
     return 0;
 }
 
+static int cache_ecm_pipe_base_len(void)
+{
+	int length = 16 + sizeof(void*) + sizeof(uint64_t);
+#ifdef CACHEEX
+	length += 16; /* ecmd5 */
+#endif
+	return length;
+}
+
 void cache_pipe_recvmsg()
 {
-	uint8_t buf[64];
+	/* pipe_recv() has a 1020-byte payload ceiling; size for that contract and
+	 * validate each cache message before decoding its fixed offsets. */
+	uint8_t buf[1024];
 	uint8_t cw[16];
 	struct cache_data req;
 	struct cache_data *pcache;
 	int find_hold_noted = 0, find_policy_noted = 0;
 
-	int len =  pipe_recv( prg.pipe.cache[0], buf );
+	int len =  pipe_recv( prg.pipe.cache[0], buf, sizeof(buf) );
 	if (len<=0) return;
+	int base_len = cache_ecm_pipe_base_len();
 
 	switch (buf[0]) {
 
 		case PIPE_CACHE_FIND:
-			get_ecm2cache(buf , &req, req.prevcw);
+			if (len != base_len && len != base_len + 16) break;
+			if (get_ecm2cache(buf, len, &req, req.prevcw) < 0) break;
+			if (!cache_ecm_snapshot_read_locked(req.ecm, req.ecm_lifetime_id, NULL, NULL)) break;
 			//debugf(0, " Get PIPE_CACHE_FIND: %04x:%06x:%04x:%08x\n", req.caid, req.provid, req.sid, req.hash);
 
 			pcache = cache_fetch( &req );
@@ -3332,19 +3925,20 @@ void cache_pipe_recvmsg()
 				 * to the card servers; the find is simply not served. */
 				if (!pcache) break;
 				pcache->ecm = req.ecm;
+				pcache->ecm_lifetime_id = req.ecm_lifetime_id;
 				cache_attach_local_provider(pcache, &req);
 				pcache->cwcycle = req.cwcycle;
 
 #ifdef CACHEEX
-				if (len==16+sizeof(void*)+16+16) memcpy( pcache->prevcw, req.prevcw, 16);
+				if (len==base_len+16) memcpy( pcache->prevcw, req.prevcw, 16);
 				memcpy( pcache->ecmd5, req.ecmd5, 16 );
 #else
-				if (len==16+sizeof(void*)+16) memcpy( pcache->prevcw, req.prevcw, 16);
+				if (len==base_len+16) memcpy( pcache->prevcw, req.prevcw, 16);
 #endif
 				/* TASK 3.6: arm only a waiter that is still waiting; a waiter
 				 * that died while its FIND sat in the pipe must not leave the
 				 * entry armed for its whole alive time. */
-				if ( cache_sendpipe_armable(req.ecm) ) pcache->flags |= CACHE_FLAG_SENDPIPE;
+				if ( cache_sendpipe_armable(req.ecm, req.ecm_lifetime_id) ) pcache->flags |= CACHE_FLAG_SENDPIPE;
 				// Send find failed
 				pipe_cache2ecm_find_failed(pcache);
 			}
@@ -3353,22 +3947,23 @@ void cache_pipe_recvmsg()
 					/* Wake this request's normal cache-miss flow without
 					 * consuming or modifying the other local provider's entry. */
 					uint8_t miss[48];
-					int misslen = put_cache2ecm(PIPE_CACHE_FIND_FAILED, miss, &req, NULL, 0, 0);
-					pipe_send(prg.pipe.ecm[1], miss, misslen);
+						int misslen = put_cache2ecm(PIPE_CACHE_FIND_FAILED, miss, sizeof(miss), &req, NULL, 0, 0);
+						if (misslen > 0) pipe_send(prg.pipe.ecm[1], miss, misslen);
 					break;
 				}
 				pcache->ecm = req.ecm;
+				pcache->ecm_lifetime_id = req.ecm_lifetime_id;
 				cache_attach_local_provider(pcache, &req);
 				pcache->tag = req.tag; // set tag if not set (coming from cache)
 				pcache->cwcycle = req.cwcycle;
 #ifdef CACHEEX
-				if (len==16+sizeof(void*)+16+16) memcpy( pcache->prevcw, req.prevcw, 16);
+				if (len==base_len+16) memcpy( pcache->prevcw, req.prevcw, 16);
 				memcpy( pcache->ecmd5, req.ecmd5, 16 );
 #else
-				if (len==16+sizeof(void*)+16) memcpy( pcache->prevcw, req.prevcw, 16);
+				if (len==base_len+16) memcpy( pcache->prevcw, req.prevcw, 16);
 #endif
 				/* TASK 3.6: same arm guard as the new-entry branch. */
-				if ( cache_sendpipe_armable(req.ecm) ) pcache->flags |= CACHE_FLAG_SENDPIPE;
+				if ( cache_sendpipe_armable(req.ecm, req.ecm_lifetime_id) ) pcache->flags |= CACHE_FLAG_SENDPIPE;
 
 
 				// Check stored cw with status = 0, look for same cycle
@@ -3463,7 +4058,9 @@ void cache_pipe_recvmsg()
 
 
 		case PIPE_CACHE_REQUEST:
-			get_ecm2cache(buf , &req, NULL);
+			if (len != base_len) break;
+			if (get_ecm2cache(buf, len, &req, NULL) < 0) break;
+			if (!cache_ecm_snapshot_read_locked(req.ecm, req.ecm_lifetime_id, NULL, NULL)) break;
 			//debugf(0, " Get PIPE_CACHE_REQUEST: %04x:%06x:%04x:%08x\n", req.caid, req.provid, req.sid, req.hash);
 			pcache = cache_fetch( &req );
 			if (pcache==NULL) pcache = cache_new( &req );
@@ -3475,11 +4072,12 @@ void cache_pipe_recvmsg()
 			 * request to peers is dropped; the ECM's server flow is unchanged. */
 			if (!pcache) break;
 			pcache->ecm = req.ecm;
+				pcache->ecm_lifetime_id = req.ecm_lifetime_id;
 			cache_attach_local_provider(pcache, &req);
 			/* TASK 3.6: same arm guard -- the REQUEST rides the pipe too, and
 			 * its waiter can be answered or failed before the cache thread gets
 			 * here. */
-			if ( cache_sendpipe_armable(req.ecm) ) pcache->flags |= CACHE_FLAG_SENDPIPE;
+			if ( cache_sendpipe_armable(req.ecm, req.ecm_lifetime_id) ) pcache->flags |= CACHE_FLAG_SENDPIPE;
 			// Send Request if not dcw sent
 			if (!(pcache->flags&CACHE_FLAG_REQSENT)) {
 				pcache->flags |= CACHE_FLAG_REQSENT;
@@ -3490,15 +4088,13 @@ void cache_pipe_recvmsg()
 
 
 		case PIPE_CACHE_REPLY: {
-			int expected = 16 + sizeof(void*) + 16;
-#ifdef CACHEEX
-			expected += 16;
-#endif
+			int expected = base_len + 16; /* CW follows the fixed ECM record. */
 			/* Reject incomplete or unknown provenance rather than attributing
 			 * a cache-sourced key to a local source. */
 			if (len != expected + 1 || buf[expected] > 1) break;
 			int from_cache = buf[expected];
-			get_ecm2cache(buf , &req, cw);
+			if (get_ecm2cache(buf, len, &req, cw) < 0) break;
+			if (!cache_ecm_snapshot_read_locked(req.ecm, req.ecm_lifetime_id, NULL, NULL)) break;
 			//debugf(0, " Get PIPE_CACHE_REPLY: %04x:%06x:%04x:%08x\n", req.caid, req.provid, req.sid, req.hash);
 
 			pcache = cache_fetch( &req );
@@ -3561,7 +4157,9 @@ void cache_pipe_recvmsg()
 		}
 
 		case PIPE_CACHE_RESENDREQ:
-			get_ecm2cache(buf , &req, NULL);
+			if (len != base_len) break;
+			if (get_ecm2cache(buf, len, &req, NULL) < 0) break;
+			if (!cache_ecm_snapshot_read_locked(req.ecm, req.ecm_lifetime_id, NULL, NULL)) break;
 /*
 			pcache = cache_fetch( &req );
 			if (pcache==NULL) pcache = cache_new( &req );
@@ -3580,15 +4178,18 @@ void cache_pipe_recvmsg()
 }
 
 
+/* Caller holds the config lifetime read gate; this function owns lockcache. */
 void cache_check_peers(struct cacheserver_data *cache)
 {
-	struct cachepeer_data *peer = cache->peer;
+	struct cachepeer_data *peer;
+	pthread_mutex_lock(&prg.lockcache);
+	peer = cache->peer;
 	while (peer) {
 		if (!IS_DISABLED(peer->flags))
-		if ( (peer->host->ip)&&(peer->port) ) {
+		if ( (host_ip_snapshot(peer->host))&&(peer->port) ) {
 			uint32_t ticks = GetTickCount();
 			if (peer->ping==0) { // inactive
-				if ( (!peer->lastpingsent)||((peer->lastpingsent+9000)<ticks) ) { // send every 15s
+				if ( (!peer->lastpingsent)||((uint32_t)(ticks-peer->lastpingsent)>9000u) ) { // send every 15s
 					cache_send_ping(cache, peer);
 					peer->lastpingsent = ticks;
 					peer->lastpingrecv = 0;
@@ -3596,7 +4197,7 @@ void cache_check_peers(struct cacheserver_data *cache)
 				}
 			}
 			else if (peer->ping==-1) { // inactive
-				if ( (!peer->lastpingsent)||((peer->lastpingsent+19000)<ticks) ) { // send every 15s
+				if ( (!peer->lastpingsent)||((uint32_t)(ticks-peer->lastpingsent)>19000u) ) { // send every 15s
 					cache_send_ping(cache, peer);
 					peer->lastpingsent = ticks;
 					peer->lastpingrecv = 0;
@@ -3604,7 +4205,7 @@ void cache_check_peers(struct cacheserver_data *cache)
 				}
 			}
 			else if (peer->ping==-2) { // inactive
-				if ( (!peer->lastpingsent)||((peer->lastpingsent+29000)<ticks) ) { // send every 15s
+				if ( (!peer->lastpingsent)||((uint32_t)(ticks-peer->lastpingsent)>29000u) ) { // send every 15s
 					cache_send_ping(cache, peer);
 					peer->lastpingsent = ticks;
 					peer->lastpingrecv = 0;
@@ -3612,14 +4213,14 @@ void cache_check_peers(struct cacheserver_data *cache)
 				}
 			}
 			else if (peer->ping<=-3) { // inactive
-				if ( (!peer->lastpingsent)||((peer->lastpingsent+59000)<ticks) ) { // send every 15s
+				if ( (!peer->lastpingsent)||((uint32_t)(ticks-peer->lastpingsent)>59000u) ) { // send every 15s
 					cache_send_ping(cache, peer);
 					peer->lastpingsent = ticks;
 					peer->lastpingrecv = 0;
 				}
 			}
 			else if (peer->ping>0) {
-				if ( (!peer->lastpingrecv)&&((peer->lastpingsent+9000)<ticks) ) {
+				if ( (!peer->lastpingrecv)&&((uint32_t)(ticks-peer->lastpingsent)>9000u) ) {
 					if (peer->lastpingnb==1) {
 #ifdef NEWCACHE
 						cache_send_keepalive(cache, peer);
@@ -3643,11 +4244,11 @@ void cache_check_peers(struct cacheserver_data *cache)
 						peer->lastpingsent = ticks;
 						peer->lastpingrecv = 0;
 						peer->ping = 0;
-						peer->host->checkiptime = 0; // maybe ip changed
+						host_checkiptime_set(peer->host, 0); // maybe ip changed
 						//ipeer_update(cache);
 					}
 				}
-				else if ( (peer->lastpingsent+60000)<ticks ) { // send every 75s
+				else if ( (uint32_t)(ticks-peer->lastpingsent)>60000u ) { // send every 75s
 #ifdef NEWCACHE
 					cache_send_keepalive(cache, peer);
 #else
@@ -3661,6 +4262,7 @@ void cache_check_peers(struct cacheserver_data *cache)
 		}
 		peer = peer->next;
 	}
+	pthread_mutex_unlock(&prg.lockcache);
 }
 
 
@@ -3684,8 +4286,10 @@ void *cache_thread(void *param)
 
 	uint32_t chkticks = 0;
 	while (!prg.restart) {
+		newcamd_config_read_lock();
+		uint64_t config_generation = cfg.cache.generation;
 		// Check Peers Ping
-		if ( GetTickCount()>(chkticks+5000) ) {
+		if ( (uint32_t)((uint32_t)GetTickCount()-chkticks)>5000u ) {
 			struct cacheserver_data *cache = cfg.cache.server;
 			while (cache) {
 				cache_check_peers(cache);
@@ -3731,28 +4335,36 @@ void *cache_thread(void *param)
 		}
 		pthread_mutex_unlock(&prg.lockcache);
 
-		int ready = epoll_wait( prg.epoll.cache, evlist, MAX_EPOLL_EVENTS, cfg.cache.consensus ? 100 : 1001);
-		if (ready == -1) {
-			if ( (errno==EINTR)||(errno==EAGAIN) ) {
-				usleep(1000);
-				continue;
-			}
+		int consensus_enabled = !!cfg.cache.consensus;
+		int poll_timeout = consensus_enabled ? 100 : 1001;
+		newcamd_config_read_unlock();
+		int ready = epoll_wait( prg.epoll.cache, evlist, MAX_EPOLL_EVENTS, poll_timeout);
+		if (ready < 0) {
+			if ( (errno==EINTR)||(errno==EAGAIN) ) usleep(1000);
 			else {
 				usleep(99000);
 				debugf(DBG_ERROR,"Err! epoll_wait (%d)", errno);
 			}
+			continue;
 		}
-		else if (ready==0) continue; // timeout
+		if (ready == 0) continue; // timeout
+
+		newcamd_config_read_lock();
+		if (config_generation != cfg.cache.generation) {
+			newcamd_config_read_unlock();
+			continue;
+		}
 
 		for (i=0; i < ready; i++) {
-			#ifdef CACHE_QUEUE
-			if ( evlist[i].events & (EPOLLIN|EPOLLPRI) ) cache_queue_recv(evlist[i].data.ptr);
+				#ifdef CACHE_QUEUE
+				if ( evlist[i].events & (EPOLLIN|EPOLLPRI) ) cache_queue_recv(evlist[i].data.ptr);
 #else
-			if ( evlist[i].events & (EPOLLIN|EPOLLPRI) ) cache_recvmsg(evlist[i].data.ptr);
+				if ( evlist[i].events & (EPOLLIN|EPOLLPRI) ) cache_recvmsg(evlist[i].data.ptr);
 #endif
+			}
+			newcamd_config_read_unlock();
 		}
-	}
-	return NULL;
+		return NULL;
 }
 
 #else
@@ -3765,8 +4377,10 @@ void *cache_thread(void *param)
 
 	uint32_t chkticks = 0;
 	while (!prg.restart) {
+		newcamd_config_read_lock();
+		uint64_t config_generation = cfg.cache.generation;
 		// Check Peers Ping
-		if ( GetTickCount()>(chkticks+3000) ) {
+		if ( (uint32_t)((uint32_t)GetTickCount()-chkticks)>3000u ) {
 			/*
 			 * TASK 1.9 -- SERVICE-BLACKLIST-TIME expiry and the STATS-WINDOW
 			 * summary, both on this already-existing three-second wakeup so that
@@ -3823,6 +4437,8 @@ void *cache_thread(void *param)
 
 		struct pollfd pfd[100];
 		int pfdcount = 0;
+		int consensus_enabled = !!cfg.cache.consensus;
+		int poll_timeout = consensus_enabled ? 100 : 3001;
 #ifndef THREAD_CACHE_PIPE
 		pfd[pfdcount].fd = prg.pipe.cache[0];
 		pfd[pfdcount].events = POLLIN | POLLPRI;
@@ -3838,9 +4454,15 @@ void *cache_thread(void *param)
 			cache = cache->next;
 		}
 
-		int retval = poll(pfd, pfdcount, cfg.cache.consensus ? 100 : 3001);
+		newcamd_config_read_unlock();
+		int retval = poll(pfd, pfdcount, poll_timeout);
 
 		if ( retval>0 ) {
+			newcamd_config_read_lock();
+			if (config_generation != cfg.cache.generation) {
+				newcamd_config_read_unlock();
+				continue;
+			}
 #ifndef THREAD_CACHE_PIPE
 			if ( pfd[0].revents & (POLLIN|POLLPRI) ) {
 				/* R6 (D60): the request fan-out stays HERE, exactly where
@@ -3868,10 +4490,11 @@ void *cache_thread(void *param)
 				}
 				cache = cache->next;
 			}
-		} else if (retval < 0 || !cfg.cache.consensus) usleep( 99000 );
-	}
+				newcamd_config_read_unlock();
+			} else if (retval < 0 || !consensus_enabled) usleep( 99000 );
+		}
 
-	//close(cfg.cache.handle);
+		//close(cfg.cache.handle);
 	return NULL;
 }
 
@@ -3894,12 +4517,14 @@ void *cache_pipe_thread(void *param)
 		pfd.fd = prg.pipe.cache[0];
 		pfd.events = POLLIN | POLLPRI;
 		int retval = poll(&pfd, 1, 3031);
-		if ( retval>0 ) {
-			pthread_mutex_lock( &prg.lockcache );
-			cache_pipe_recvmsg();
-			pthread_mutex_unlock( &prg.lockcache );
-		}
-		else usleep( 99000 );
+			if ( retval>0 ) {
+				newcamd_config_read_lock();
+				pthread_mutex_lock( &prg.lockcache );
+				cache_pipe_recvmsg();
+				pthread_mutex_unlock( &prg.lockcache );
+				newcamd_config_read_unlock();
+			}
+			else usleep( 99000 );
 	}
 	return NULL;
 }
@@ -3926,7 +4551,8 @@ static void cache_queue_recv(struct cacheserver_data *cache)
             cache_trace_csp_drop(buf, received, 0, received > 512 ? "oversized datagram" : "incomplete header");
         return;
     }
-	cq_push(cache, &si_other, buf, received);
+	cq_push(cache->id, cache->handle, cfg.cache.generation,
+	        &si_other, buf, received);
 }
 
 /*
@@ -3948,7 +4574,7 @@ void *cache_queue_thread(void *param)
 	 * worse (the 200/1000 adaptive pair peaked near 7 s of CPU for the
 	 * same workload the flat 10 ms does in a fraction of). */
 	while (!prg.restart) {
-		if ( GetTickCount()>(lastreported+60000) ) {
+		if ( (uint32_t)((uint32_t)GetTickCount()-lastreported)>60000u ) {
 			/* time-gated (not pop-gated): one line per minute whenever the
 			 * queue did ANY work since startup, so a silent log means an
 			 * idle queue and never a stuck one */
@@ -3960,12 +4586,29 @@ void *cache_queue_thread(void *param)
 			/* CACHE-AI: Periodic cleanup — unban expired peers, decay inactive trust */
 			ci_tick(ci_now_ms());
 		}
-		struct cq_entry e;
-		if (!cq_pop(&e)) { usleep(10000); continue; }
-		cq_current = e;
-		cq_active = 1;
-		cache_recvmsg((struct cacheserver_data *)e.src);
-		cq_active = 0;
+			struct cq_entry e;
+			struct cacheserver_data *cache;
+			if (!cq_pop(&e)) { usleep(10000); continue; }
+			/* Resolve only while the config graph is pinned. A queued raw
+			 * pointer could outlive a reload and be recycled for another peer. */
+			newcamd_config_read_lock();
+			if (e.config_generation != cfg.cache.generation) {
+				newcamd_config_read_unlock();
+				continue;
+			}
+			cache = cfg.cache.server;
+			while (cache && !cq_source_matches(&e, cache->id, cache->handle,
+			                                    cfg.cache.generation))
+				cache = cache->next;
+			if (!cache) {
+				newcamd_config_read_unlock();
+				continue;
+			}
+			cq_current = e;
+			cq_active = 1;
+			cache_recvmsg(cache);
+			cq_active = 0;
+			newcamd_config_read_unlock();
 	}
 	return NULL;
 }
@@ -3973,6 +4616,14 @@ void *cache_queue_thread(void *param)
 
 int start_thread_cache()
 {
+	create_thread(PACKED_MPTR(&prg, pthread_t, tid_cache), cache_pipe_out_thread, NULL);
+#if !defined(THREAD_DCW) && defined(CLI_CSCACHE)
+	if (!create_thread(NULL, server_cscache_reply_out_thread, NULL)) {
+		debugf(DBG_ERROR, " !!! unable to start cached-server ECM pipe writer\n");
+		prg.restart = 1;
+		return -1;
+	}
+#endif
 #ifdef THREAD_CACHE_PIPE
 	create_thread(PACKED_MPTR(&prg, pthread_t, tid_cache), (threadfn)cache_pipe_thread,NULL);
 #endif
@@ -3980,10 +4631,6 @@ int start_thread_cache()
 #ifdef CACHE_QUEUE
 	cq_init();
 	create_thread(PACKED_MPTR(&prg, pthread_t, tid_cache), (threadfn)cache_queue_thread,NULL);
-#endif
-
-#ifdef THREAD_CACHE_PIPE
-	create_thread(PACKED_MPTR(&prg, pthread_t, tid_cache), (threadfn)cache_pipe_thread,NULL);
 #endif
 
 	create_thread(PACKED_MPTR(&prg, pthread_t, tid_cache), (threadfn)cache_thread,NULL);

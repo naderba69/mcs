@@ -126,16 +126,18 @@ static inline emm_cache_entry_t *emm_cache_add(uint16_t caid, uint32_t provid,
                                                 uint8_t emm_type, uint16_t emm_len) {
     int i;
     int oldest_idx = -1;
-    time_t oldest_time = time(NULL);
+    time_t oldest_time = 0;
     
-    /* Find empty slot or oldest entry */
+    /* Prefer a free slot. If the table is full, choose the oldest occupied
+     * entry without assuming its timestamp is <= the current wall clock: the
+     * system clock can move backwards or entries may contain future times. */
     for (i = 0; i < EMM_CACHE_MAX_ENTRIES; i++) {
         emm_cache_entry_t *e = &g_emm_cache.entries[i];
         if (!e->used) {
             oldest_idx = i;
             break;
         }
-        if (e->last_written < oldest_time) {
+        if (oldest_idx < 0 || e->last_written < oldest_time) {
             oldest_time = e->last_written;
             oldest_idx = i;
         }
@@ -144,6 +146,7 @@ static inline emm_cache_entry_t *emm_cache_add(uint16_t caid, uint32_t provid,
     if (oldest_idx < 0) return NULL;
     
     emm_cache_entry_t *entry = &g_emm_cache.entries[oldest_idx];
+    int was_used = entry->used;
     entry->caid = caid;
     entry->provid = provid;
     memcpy(entry->emm_hash, emm_hash, 16);
@@ -156,7 +159,7 @@ static inline emm_cache_entry_t *emm_cache_add(uint16_t caid, uint32_t provid,
     entry->success = 0;
     entry->used = 1;
     
-    if (!entry->used) {
+    if (!was_used) {
         g_emm_cache.stats.current_entries++;
         if (g_emm_cache.stats.current_entries > g_emm_cache.stats.peak_entries) {
             g_emm_cache.stats.peak_entries = g_emm_cache.stats.current_entries;

@@ -10,9 +10,11 @@ void *connect_cli_thread(void *param)
 	prg.pid_connect = syscall(SYS_gettid);
 
 	while(!prg.restart) {
-
+		uint64_t config_generation;
 		struct pollfd pfd[MAX_PFD];
 		int pfdcount = 0;
+		newcamd_config_read_lock();
+		config_generation = cfg.cache.generation;
 
 #ifdef FREECCCAM_SRV
 		if ( !IS_DISABLED(cfg.freecccam.server.flags)&&(cfg.freecccam.server.handle>0) ) {
@@ -69,10 +71,15 @@ void *connect_cli_thread(void *param)
 		}
 
 
+		newcamd_config_read_unlock();
 		int retval = poll(pfd, pfdcount, 3006);
 
-
 		if ( retval>0 ) {
+			newcamd_config_read_lock();
+			if (config_generation != cfg.cache.generation) {
+				newcamd_config_read_unlock();
+				continue;
+			}
 			struct cardserver_data *cs = cfg.cardserver;
 			while (cs) {
 				if ( cs->option.fsharenewcamd )
@@ -117,10 +124,10 @@ void *connect_cli_thread(void *param)
 				if ( pfd[cfg.freecccam.server.ipoll].revents & (POLLIN|POLLPRI) ) freecccam_srv_accept( &cfg.freecccam.server );
 			}
 #endif
-
+				newcamd_config_read_unlock();
+			}
+			else if (retval<0) usleep(96000);
 		}
-		else if (retval<0) usleep(96000);
-	}
 	return NULL;
 }
 

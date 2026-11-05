@@ -241,6 +241,44 @@ static void t_evict(void)
 	      "the whole table stays under a kilobyte (GR9: bounded, no allocation)");
 }
 
+static void t_eviction_wraparound(void)
+{
+	struct dcwstruct_table t;
+	const uint32_t base = UINT32_MAX - 3u;
+	uint32_t refresh_tick = (uint32_t)(base + DCWSTRUCT_WINDOW);
+	uint32_t insert_tick = refresh_tick + 100u;
+	unsigned char keys[DCWSTRUCT_SLOTS + 1][16];
+	int i, r;
+
+	dcwstruct_init(&t);
+	for (i = 0; i <= DCWSTRUCT_SLOTS; i++) {
+		memcpy(keys[i], k_mono, 16);
+		keys[i][0] = (unsigned char)(0x10 + i);
+	}
+	for (i = 0; i < DCWSTRUCT_SLOTS; i++)
+		r = dcwstruct_seen_once(&t, DCWS_MONO, 1, 100, 0x1884, 0, 0x64,
+		                        keys[i], base + (uint32_t)i);
+	CHECK(r == DCWSTRUCT_REPORT_NEW,
+	      "a full structural table fills with wrapped test timestamps");
+
+	r = dcwstruct_seen_once(&t, DCWS_MONO, 1, 100, 0x1884, 0, 0x64,
+	                        keys[0], refresh_tick);
+	CHECK(r == DCWSTRUCT_REPORT_AGAIN,
+	      "the suppression window expires correctly across tick wrap");
+	r = dcwstruct_seen_once(&t, DCWS_MONO, 1, 100, 0x1884, 0, 0x64,
+	                        keys[DCWSTRUCT_SLOTS], insert_tick);
+	CHECK(r == DCWSTRUCT_REPORT_NEW,
+	      "a new anomaly still fits after wrap-safe oldest-entry selection");
+	r = dcwstruct_seen_once(&t, DCWS_MONO, 1, 100, 0x1884, 0, 0x64,
+	                        keys[1], insert_tick + 1u);
+	CHECK(r == DCWSTRUCT_REPORT_NEW,
+	      "the genuinely oldest key, not the smallest absolute tick, was evicted");
+	r = dcwstruct_seen_once(&t, DCWS_MONO, 1, 100, 0x1884, 0, 0x64,
+	                        keys[DCWSTRUCT_SLOTS / 2], insert_tick + 2u);
+	CHECK(r == DCWSTRUCT_REPORT_AGAIN,
+	      "a newer low-tick entry survived the wraparound eviction");
+}
+
 int main(void)
 {
 	printf("test_dcwstruct -- TASK 1.8 structural pre-filters as soft signals\n");
@@ -256,6 +294,7 @@ int main(void)
 	t_names();
 	t_table();
 	t_evict();
+	t_eviction_wraparound();
 
 	printf("\n== %d/%d passed, %d failed ==\n", pass_n, pass_n + fail_n, fail_n);
 	return fail_n ? 1 : 0;

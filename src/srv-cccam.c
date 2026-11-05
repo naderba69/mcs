@@ -3,12 +3,15 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "biss.h"
+#include "newcamd-lifetime.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 // PROTO
 ///////////////////////////////////////////////////////////////////////////////
 
-void cc_senddcw_cli(struct cc_client_data *cli);
+void cc_senddcw_cli(struct cc_client_data *cli, const struct ledger_delivery_snapshot *delivery);
+static void cc_senddcw_cli_locked(struct cc_client_data *cli, const struct ledger_delivery_snapshot *delivery);
+static void cc_disconnect_cli_unlocked(struct cc_client_data *cli);
 
 
 struct cccam_server_data *getcccamserverbyid(uint32_t id)
@@ -84,16 +87,24 @@ struct cc_client_data *getcccamclientbyname(struct cccam_server_data *cccam, cha
 // CCCAM SERVER: DISCONNECT CLIENTS
 ///////////////////////////////////////////////////////////////////////////////
 
-void cc_disconnect_cli(struct cc_client_data *cli)
+static void cc_disconnect_cli_unlocked(struct cc_client_data *cli)
 {
+	if (!cli) return;
 	cli->connection.status = 0;
 	uint32_t ticks = GetTickCount();
 	cli->connection.uptime += ticks - cli->connection.time;
 	cli->connection.lastseen = ticks; // Last Seen
-	close(cli->handle);
+	if (cli->handle > 0) close(cli->handle);
 	cli->handle = -1;
-	cli->parent->clipfd.update = 1;
+	if (cli->parent) cli->parent->clipfd.update = 1;
 	debugf(0," CCcam: client '%s' disconnected \n", cli->user);
+}
+
+void cc_disconnect_cli(struct cc_client_data *cli)
+{
+	if (!cli || client_state_lock(cli) != 0) return;
+	cc_disconnect_cli_unlocked(cli);
+	client_state_unlock(cli);
 }
 
 
@@ -234,6 +245,7 @@ void *cc_connect_cli(struct connect_cli_data *param)
 	int i;
 	struct cc_crypt_block sendblock;	// crypto state block
 	struct cc_crypt_block recvblock;	// crypto state block
+	uint32_t connected_client_id = 0;
 	char usr[64];
 	char pwd[255];
 	// Store data from param
@@ -401,14 +413,12 @@ void *cc_connect_cli(struct connect_cli_data *param)
 		return NULL;
 	}
 	memcpy( &tmpcli, cli, sizeof(struct cc_client_data));
+	connected_client_id = cli->id;
 
 	// Check for Host
 	if (cli->host) {
 		struct host_data *host = cli->host;
-		host->clip = ip;
-		if ( host->ip && (host->ip!=ip) ) {
-			uint32_t sec = getseconds()+60;
-			if ( host->checkiptime > sec ) host->checkiptime = sec;
+		if (host_record_client_ip(host, ip, getseconds() + 60)) {
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: Aborted connection from Client '%s' (%s), ip refused\n", cccam->id, usr, ip2string(ip));
 			cli->nbloginerror++;
 			close(sock);
@@ -479,7 +489,7 @@ void *cc_connect_cli(struct connect_cli_data *param)
 
 	//Check Reconnection
 	if (cli->connection.status>0) {
-		if ( (GetTickCount()-cli->connection.time) > 60000 ) {
+		if ( tick32_elapsed(GetTickCount(), cli->connection.time) > 60000u ) {
 			cc_disconnect_cli(cli);
 			if (cli->ip==ip) debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: Client '%s' (%s) already connected\n", cccam->id, usr, ip2string(ip));
 			else {
@@ -555,7 +565,7 @@ void *cc_connect_cli(struct connect_cli_data *param)
 #endif
 
 #ifdef EPOLL_CCCAM
-	pipe_pointer( prg.pipe.cccam[1], PIPE_CLI_CONNECTED, cli );
+	pipe_send_u32(prg.pipe.cccam[1], PIPE_CLI_CONNECTED, connected_client_id);
 #else
 	pipe_wakeup( prg.pipe.cccam[1] );
 #endif
@@ -601,7 +611,11 @@ void cccam_srv_accept(struct cccam_server_data *srv)
 			pthread_t srv_tid;
 			if (cfg.cccam.keepalive) SetSocketKeepalive(newfd);
 			SetSocketNoDelay(newfd);
-			SetSoketNonBlocking(newfd);
+			if (SetSoketNonBlocking(newfd) < 0) {
+				debugf(DBG_ERROR, " CCcam%d: unable to set accepted socket nonblocking (errno=%d)\n", srv->id, errno);
+				close(newfd);
+				return;
+			}
 			//debugf(getdbgflag(DBG_CCCAM,srv->id,0)," CCcam%d: new connection (%s)\n", srv->id, ip2string(newip) );
 			struct connect_cli_data *newdata = malloc( sizeof(struct connect_cli_data) );
 			newdata->server = srv; 
@@ -621,10 +635,11 @@ void *cccam_accept_thread(void *param)
 	sleep(5);
 
 	while(!prg.restart) {
-
+		uint64_t config_generation;
 		struct pollfd pfd[18];
 		int pfdcount = 0;
-
+		newcamd_config_read_lock();
+		config_generation = cfg.cache.generation;
 		struct cccam_server_data *cccam = cfg.cccam.server;
 		while (cccam) {
 			if ( !IS_DISABLED(cccam->flags) && (cccam->handle>0) ) {
@@ -634,121 +649,189 @@ void *cccam_accept_thread(void *param)
 			} else cccam->ipoll = -1;
 			cccam = cccam->next;
 		}
+		newcamd_config_read_unlock();
 
 		if (pfdcount) {
 			int retval = poll(pfd, pfdcount, 3006);
-			if ( retval>0 ) {
+			if (retval > 0) {
+				newcamd_config_read_lock();
+				if (config_generation != cfg.cache.generation) {
+					newcamd_config_read_unlock();
+					continue;
+				}
 				struct cccam_server_data *cccam = cfg.cccam.server;
 				while (cccam) {
-					if ( !IS_DISABLED(cccam->flags) && (cccam->handle>0) && (cccam->ipoll>=0) && (cccam->handle==pfd[cccam->ipoll].fd) ) {
-						if ( pfd[cccam->ipoll].revents & (POLLIN|POLLPRI) ) cccam_srv_accept(cccam);
-					}
+					if ( !IS_DISABLED(cccam->flags) && (cccam->handle>0) &&
+					     (cccam->ipoll>=0) && (cccam->handle==pfd[cccam->ipoll].fd) &&
+					     (pfd[cccam->ipoll].revents & (POLLIN|POLLPRI)) )
+						cccam_srv_accept(cccam);
 					cccam = cccam->next;
 				}
-			}
-			else if (retval<0) usleep(96000);
+				newcamd_config_read_unlock();
+			} else if (retval < 0) usleep(96000);
 		} else sleep(1);
 	}
 	return NULL;
 }
-
 ////////////////////////////////////////////////////////////////////////////////
 // CCCAM SERVER: SEND DCW TO CLIENTS
 ////////////////////////////////////////////////////////////////////////////////
 
-void cc_senddcw_cli(struct cc_client_data *cli)
+static void cc_senddcw_cli_locked(struct cc_client_data *cli,
+                                  const struct ledger_delivery_snapshot *delivery)
 {
 	uint8_t buf[CC_MAXMSGSIZE];
+	uint64_t current_lifetime_id;
+	uint16_t response_caid;
+	uint32_t response_provid;
+	uint8_t response_provider_known;
+	uint16_t response_sid;
+	uint32_t response_hash;
+	uint8_t response_tag;
+	uint32_t response_profile;
+	uint32_t response_recvtime;
 	uint32_t ticks = GetTickCount();
+	int samechannel, enablefreeze = 0;
 
-	if (cli->ecm.status==STAT_DCW_SENT) {
-		debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," +> cw send failed to CCcam client '%s', cw already sent\n", cli->user); 
+	if (!cli || !delivery || !delivery->lifetime_id ||
+	    delivery->request == NULL) return;
+	current_lifetime_id = __atomic_load_n(&cli->ecm.lifetime_id, __ATOMIC_ACQUIRE);
+	/* Request pointers and hashes are reusable. Hold the client's striped state
+	 * lock across this generation check and the complete response send. */
+	if (current_lifetime_id != delivery->lifetime_id ||
+	    !ecm_request_lifetime_matches(cli->ecm.request, delivery->request,
+	                                  delivery->lifetime_id) ||
+	    ecm_request_lifetime_id_load(delivery->request) != delivery->lifetime_id)
 		return;
-	}
-	if (cli->handle<=0) {
-		debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," +> cw send failed to CCcam client '%s', client disconnected\n", cli->user); 
-		return;
-	}
-	if (!cli->ecm.busy) {
-		debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," +> cw send failed to CCcam client '%s', no ecm request\n", cli->user); 
+	if (IS_DISABLED(cli->flags) || cli->connection.status <= 0 ||
+	    cli->handle <= 0 || !cli->ecm.busy) return;
+	if (cli->ecm.status == STAT_DCW_SENT) {
+		debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id),
+		       " +> cw send failed to CCcam client '%s', cw already sent\n", cli->user);
 		return;
 	}
 
-	ECM_DATA *ecm = cli->ecm.request;
-	//FREEZE
-	int samechannel = (cli->lastecm.caid==ecm->caid)&&(cli->lastecm.prov==ecm->provid)&&(cli->lastecm.sid==ecm->sid);
-	int enablefreeze=0;
+	response_caid = delivery->caid;
+	response_provid = delivery->provid;
+	response_provider_known = delivery->provider_known;
+	response_sid = delivery->sid;
+	response_hash = delivery->hash;
+	response_tag = delivery->tag;
+	response_profile = delivery->profile_id;
+	response_recvtime = delivery->recvtime;
+
+	samechannel = (cli->lastecm.caid == response_caid) &&
+	              (cli->lastecm.prov == response_provid) &&
+	              (cli->lastecm.sid == response_sid);
 	if (samechannel) {
-		if ( (cli->lastecm.hash!=ecm->hash)&&(cli->lastecm.tag!=ecm->ecm[0]) )
-		if ( (cli->lastecm.status==1)&&(cli->lastdcwtime+200<ticks) ) enablefreeze = 1;
+		if (cli->lastecm.hash != response_hash && cli->lastecm.tag != response_tag &&
+		    cli->lastecm.status == 1 &&
+		    (uint32_t)(ticks - cli->lastdcwtime) > 200u)
+			enablefreeze = 1;
 	} else cli->zap++;
-	//
-	cli->lastecm.caid = ecm->caid;
-	cli->lastecm.prov = ecm->provid;
-	cli->lastecm.provider_known = ecm->provider_known;
-	cli->lastecm.sid = ecm->sid;
-	cli->lastecm.hash = ecm->hash;
-	cli->lastecm.tag = ecm->ecm[0];
-	cli->lastecm.decodetime = ticks-cli->ecm.recvtime;
-	cli->lastecm.request = cli->ecm.request;
 
-	if ( (ecm->dcwstatus==STAT_DCW_SUCCESS)&&(ecm->hash==cli->ecm.hash) ) {
-		cli->lastecm.dcwsrctype = ecm->dcwsrctype;
-		cli->lastecm.dcwsrcid = ecm->dcwsrcid;
-		/* TASK R31 (D82): name the delivered key on the record, as
-		 * srv-newcamd does -- receiver attestation files BYTES, so
-		 * the bytes themselves must be remembered. */
-		memcpy( cli->lastecm.dcw, ecm->cw, 16 );
-		cli->lastecm.status=1;
-		cli->ecmok++;
-		cli->lastdcwtime = ticks;
-		cli->ecmoktime += ticks-cli->ecm.recvtime;
-		//cli->lastecmoktime = ticks-cli->ecm.recvtime;
-		memcpy( buf, ecm->cw, 16 );
+	cli->lastecm.caid = response_caid;
+	cli->lastecm.prov = response_provid;
+	cli->lastecm.provider_known = response_provider_known;
+	cli->lastecm.sid = response_sid;
+	cli->lastecm.hash = response_hash;
+	cli->lastecm.tag = response_tag;
+	cli->lastecm.decodetime = ticks - response_recvtime;
+	cli->lastecm.request = delivery->request;
 
-		cc_crypt_cw( cli->nodeid, cli->ecm.cardid , buf);
-		if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_REQUEST, 16, buf) ) {
-			if (ecm->trace_instance) user_trace_client_result(cli->id, ecm->trace_instance, cli->ecm.hash, USER_TRACE_SEND_FAILED, ecm->dcwsrctype, ecm->dcwsrcid, ticks-cli->ecm.recvtime, "CW send failed");
-			cc_disconnect_cli( cli );
+	if (delivery->status == STAT_DCW_SUCCESS) {
+		uint32_t sent_at;
+		memcpy(buf, delivery->cw, 16);
+		cc_crypt_cw(cli->nodeid, cli->ecm.cardid, buf);
+		if (!cc_msg_send_and_encrypt(cli->handle, &cli->sendblock,
+		                            CC_MSG_ECM_REQUEST, 16, buf, buf, 16)) {
+			if (delivery->trace_instance)
+				user_trace_client_result(cli->id, delivery->trace_instance,
+				                        delivery->hash, USER_TRACE_SEND_FAILED,
+				                        delivery->srctype, delivery->srcid,
+				                        ticks - response_recvtime, "CW send failed");
+			cc_disconnect_cli_unlocked(cli);
 			return;
 		}
-		if (ecm->trace_instance) user_trace_client_cw(cli->id, ecm->trace_instance, cli->ecm.hash, ecm->dcwsrctype, ecm->dcwsrcid, ticks-cli->ecm.recvtime, "CW response sent; picture not verified", ecm->cw);
-		cc_encrypt(&cli->sendblock, buf, 16); // additional crypto step
-		debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,ecm->cs->id)," => cw to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->ecm.recvtime);
-	}
-	else { //if (ecm->data->dcwstatus==STAT_DCW_FAILED)
-		if (enablefreeze) {
-			cli->freeze++;
-		}
+		sent_at = GetTickCount();
+#ifdef CACHEEX
+		LEDGER_DELIVERY_TO_LASTECM(cli->lastecm, *delivery);
+#else
+		cli->lastecm.dcwsrctype = delivery->srctype;
+		cli->lastecm.dcwsrcid = delivery->srcid;
+		memcpy(cli->lastecm.dcw, delivery->cw, sizeof(cli->lastecm.dcw));
+#endif
+		cli->lastecm.status = 1;
+		cli->ecmok++;
+		cli->lastdcwtime = sent_at;
+		cli->ecmoktime += sent_at - response_recvtime;
+		if (delivery->trace_instance)
+			user_trace_client_cw(cli->id, delivery->trace_instance, delivery->hash,
+			                     delivery->srctype, delivery->srcid,
+			                     sent_at - response_recvtime,
+			                     "CW response sent; picture not verified", delivery->cw);
+#ifdef CACHEEX
+		ledger_note_delivered(delivery, sent_at);
+#endif
+		debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,response_profile),
+		       " => cw to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n",
+		       cli->user, response_caid, response_provid, response_sid,
+		       sent_at - response_recvtime);
+	} else {
+		if (enablefreeze) cli->freeze++;
 		cli->lastecm.dcwsrctype = DCW_SOURCE_NONE;
 		cli->lastecm.dcwsrcid = 0;
-		cli->lastecm.status=0;
-		if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL) ) {
-			if (ecm->trace_instance) user_trace_client_result(cli->id, ecm->trace_instance, cli->ecm.hash, USER_TRACE_SEND_FAILED, 0, 0, ticks-cli->ecm.recvtime, "failure response send failed");
-			cc_disconnect_cli( cli );
+		cli->lastecm.status = 0;
+		memset(cli->lastecm.dcw, 0, sizeof(cli->lastecm.dcw));
+#ifdef CACHEEX
+		memset(cli->lastecm.ecmd5, 0, sizeof(cli->lastecm.ecmd5));
+		cli->lastecm.ecmlen = 0;
+#endif
+		if (!cc_msg_send(cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL)) {
+			if (delivery->trace_instance)
+				user_trace_client_result(cli->id, delivery->trace_instance,
+				                        delivery->hash, USER_TRACE_SEND_FAILED,
+				                        0, 0, ticks - response_recvtime,
+				                        "failure response send failed");
+			cc_disconnect_cli_unlocked(cli);
 			return;
 		}
-		if (ecm->trace_instance) user_trace_client_result(cli->id, ecm->trace_instance, cli->ecm.hash, USER_TRACE_FAILED, 0, 0, ticks-cli->ecm.recvtime, "decode failed; detailed reason unavailable");
-		debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,ecm->cs->id)," |> decode failed to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, ecm->caid,ecm->provid,ecm->sid, ticks-cli->ecm.recvtime);
+		if (delivery->trace_instance)
+			user_trace_client_result(cli->id, delivery->trace_instance,
+			                        delivery->hash, USER_TRACE_FAILED, 0, 0,
+			                        ticks - response_recvtime,
+			                        "decode failed; detailed reason unavailable");
+		debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,response_profile),
+		       " |> decode failed to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n",
+		       cli->user, response_caid, response_provid, response_sid,
+		       ticks - response_recvtime);
 	}
-	cli->ecm.busy=0;
+	cli->ecm.busy = 0;
 	cli->ecm.status = STAT_DCW_SENT;
+}
+
+void cc_senddcw_cli(struct cc_client_data *cli,
+                    const struct ledger_delivery_snapshot *delivery)
+{
+	if (!cli || client_state_lock(cli) != 0) return;
+	cc_senddcw_cli_locked(cli, delivery);
+	client_state_unlock(cli);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
 // Check sending cw to clients
-void cc_check_sendcw(ECM_DATA *ecm)
+void cc_check_sendcw(ECM_DATA *ecm, const struct ledger_delivery_snapshot *delivery)
 {
+	if (!delivery || !delivery->lifetime_id || delivery->request != ecm) return;
 	struct cccam_server_data *cccam = cfg.cccam.server;
 	while (cccam) {
-		if ( !IS_DISABLED(cccam->flags) && (cccam->handle>0) ) {
+		if (!IS_DISABLED(cccam->flags) && cccam->handle > 0) {
 			struct cc_client_data *cli = cccam->client;
 			while (cli) {
-				if ( !IS_DISABLED(cli->flags)&&(cli->connection.status>0)&&(cli->ecm.busy)&&(cli->ecm.request==ecm) ) {
-					cc_senddcw_cli( cli );
-				}
-				cli = cli->next;
+				struct cc_client_data *next = cli->next;
+				cc_senddcw_cli(cli, delivery);
+				cli = next;
 			}
 		}
 		cccam = cccam->next;
@@ -759,11 +842,32 @@ void cc_check_sendcw(ECM_DATA *ecm)
 // CCCAM SERVER: RECEIVE MESSAGES FROM CLIENTS
 ///////////////////////////////////////////////////////////////////////////////
 
+static int cc_capture_client_delivery_locked(
+	struct ledger_delivery_snapshot *out, ECM_DATA *ecm,
+	const struct cc_client_data *cli)
+{
+	uint64_t lifetime_id;
+	if (!out || !ecm || !cli || !cli->ecm.busy || cli->ecm.request != ecm)
+		return 0;
+	lifetime_id = __atomic_load_n(&cli->ecm.lifetime_id, __ATOMIC_ACQUIRE);
+	if (!ecm_request_lifetime_matches(ecm, cli->ecm.request, lifetime_id) ||
+	    !ledger_delivery_snapshot_capture_locked(out, ecm))
+		return 0;
+	return out->lifetime_id == lifetime_id;
+}
+
+#define CC_CAPTURE_CLIENT_DELIVERY(name, request, client) \
+	struct ledger_delivery_snapshot name##_storage; \
+	const struct ledger_delivery_snapshot *name = \
+		cc_capture_client_delivery_locked(&name##_storage, (request), (client)) ? \
+		&name##_storage : NULL
+
 void cc_store_ecmclient(ECM_DATA *ecm, struct cc_client_data *cli)
 {
 	uint32_t ticks = GetTickCount();
 	cli->ecm.recvtime = ticks;
 	cli->ecm.request = ecm;
+	__atomic_store_n(&cli->ecm.lifetime_id, ecm_request_lifetime_id_load(ecm), __ATOMIC_RELEASE);
     cli->ecm.status = STAT_ECM_SENT;
 	ecm_addip(ecm, cli->ip);
 
@@ -792,9 +896,9 @@ void cc_store_ecmclient(ECM_DATA *ecm, struct cc_client_data *cli)
 ///////////////////////////////////////////////////////////////////////////////
 
 // Receive messages from client
-void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
+static void cc_cli_parsemsg_locked(struct cc_client_data *cli, uint8_t *buf, int len)
 {
-	if (len>=CC_MAXMSGSIZE) return;
+	if (!cli || !buf || len < 2 || len >= CC_MAXMSGSIZE) return;
 
 	uint8_t data[CC_MAXMSGSIZE]; // for other use
 	uint8_t cw[16];
@@ -814,7 +918,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL) ) {
 					debugf(getdbgflag(DBG_ERROR,0,0)," Error encountred when sending failedcw to client '%s'\n", cli->user);
 
-					cc_disconnect_cli(cli);
+					cc_disconnect_cli_unlocked(cli);
 					return;
 				}
 				debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," <|> decode failed to CCcam client '%s', too many ecm requests\n", cli->user);
@@ -849,7 +953,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 					cli->ecmdenied++;
 					if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL) ) {
 						debugf(getdbgflag(DBG_ERROR,0,0)," Error encountred when sending failedcw to client '%s'\n", cli->user);
-						cc_disconnect_cli(cli);
+						cc_disconnect_cli_unlocked(cli);
 						return;
 					}
 					debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," <|> decode failed to CCcam client '%s', card-id %x (%04x:%06x) not found\n",cli->user, cardid, caid,provid);
@@ -862,7 +966,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				cli->ecmdenied++;
 				if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL) ) {
 					debugf(getdbgflag(DBG_ERROR,0,0)," Error encountred when sending failedcw to client '%s'\n", cli->user);
-					cc_disconnect_cli(cli);
+					cc_disconnect_cli_unlocked(cli);
 					return;
 				}
 				debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," <|> decode failed to CCcam client '%s', Profile '%s' disabled to client\n",cli->user, cs->name);
@@ -876,7 +980,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				cs->ecmdenied++;
 				cli->ecmdenied++;
 				if (!cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL)) {
-					cc_disconnect_cli(cli);
+					cc_disconnect_cli_unlocked(cli);
 					return;
 				}
 				debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,cs->id)," <|> decode failed to CCcam client '%s' ch %04x:%06x:%04x, %s\n", cli->user, caid,provid,sid, error);
@@ -884,7 +988,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			}
 
 			// ACCEPTED
-			pthread_mutex_lock(&prg.lockecm);
+			ecm_lock();
 
 			// Search for ECM
 			ECM_DATA *ecm = search_ecmdata_any(cs, data,  len-17, sid, caid, provid, 1);
@@ -901,11 +1005,15 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			 * key failed; counting it filed good keys as bad. */
 			if ( (cli->lastecm.caid==caid) && (cli->lastecm.prov==provid) && (cli->lastecm.sid==sid) && cli->lastecm.status
 				&& ecm && (ecm->hash==cli->lastecm.hash) && (ecm->ecm[0]==cli->lastecm.tag) ) {
-				if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
+				if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD ) {
 					attest_note( ATTEST_TAG_CCCAM | (uint32_t)cli->id, cli->lastecm.dcw,
 						cli->lastecm.caid, cli->lastecm.prov,
 						cli->lastecm.provider_known, cli->lastecm.sid,
 						cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
+#ifdef CACHEEX
+					LEDGER_NOTE_CLIENT_FAILURE(ecm, cli->lastecm, cli->lastdcwtime, ticks);
+#endif
+				}
 			}
 			int isnew =  ( ecm==NULL );
 			if (ecm) {
@@ -922,7 +1030,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 							user_trace_unbind_shared(trace_session, trace_attempt);
 						}
 						if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL) ) {
-							cc_disconnect_cli( cli );
+							cc_disconnect_cli_unlocked( cli );
 							return;
 						}
 						debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," <|> decode failed to CCcam client '%s' ch %04x:%06x:%04x:%08x, already failed\n",cli->user, caid, provid, sid, ecm->hash);
@@ -934,7 +1042,7 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 						cli->ecm.busy=1;
 						cli->ecm.hash = ecm->hash;
 						cli->ecm.cardid = cardid;
-						ecm->dcwstatus = STAT_DCW_WAIT;
+						ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 						ecm->cachestatus = 0; //ECM_CACHE_NONE; // Resend Request
 						ecm->checktime = 1; // Check NOW
 						pipe_wakeup( prg.pipe.ecm[1] );
@@ -956,20 +1064,22 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 					if (!ecm->checktime) {
 						if (cli->dcwcheck) {
 							if ( (ecm->dcwstatus==STAT_DCW_SUCCESS) && !checkfreeze_setdcw(ecm,ecm->cw) ) { // ??? last ecm is wrong
-								ecm->dcwstatus = STAT_DCW_WAIT;
+								ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 								memset( ecm->cw, 0, 16 );
 								ecm->checktime = 1; // Wakeup Now
 								pipe_wakeup( prg.pipe.ecm[1] );
 							}
 							else {
-								pthread_mutex_unlock(&prg.lockecm);
-								cc_senddcw_cli(cli);
+								CC_CAPTURE_CLIENT_DELIVERY(delivery, ecm, cli);
+								ecm_unlock();
+								cc_senddcw_cli_locked(cli,delivery);
 								break;
 							}
 						}
 						else {
-							pthread_mutex_unlock(&prg.lockecm);
-							cc_senddcw_cli(cli);
+							CC_CAPTURE_CLIENT_DELIVERY(delivery, ecm, cli);
+							ecm_unlock();
+							cc_senddcw_cli_locked(cli,delivery);
 							break;
 						}
 					}
@@ -985,8 +1095,8 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 						user_trace_add(trace_session, trace_attempt, USER_TRACE_FAILED, trace_hash, 0, 0, 0, "ECM allocation failed; request not queued");
 						user_trace_unbind_shared(trace_session, trace_attempt);
 					}
-					if (!cc_msg_send(cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL)) cc_disconnect_cli(cli);
-					pthread_mutex_unlock(&prg.lockecm);
+					if (!cc_msg_send(cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL)) cc_disconnect_cli_unlocked(cli);
+					ecm_unlock();
 					break;
 				}
 				cs->ecmaccepted++;
@@ -1001,14 +1111,14 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 				cli->ecm.hash = ecm->hash;
 				cli->ecm.cardid = cardid;
 				ecm->cw1cycle = cw1cycle;
-				ecm->dcwstatus = STAT_DCW_WAIT;
+				ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 
 #ifdef CHECK_NEXTDCW
 				if (cli->dcwcheck) checkfreeze_checkECM( ecm, cli->lastecm.request);
 #endif
 				if (cs->option.fallowcache) {
 					ecm->waitcache = 1;
-					ecm->dcwstatus = STAT_DCW_WAITCACHE;
+					ecm_request_set_dcwstatus(ecm, STAT_DCW_WAITCACHE);
 					ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
 					if (ecm->trace_instance) {
 						char detail[128];
@@ -1032,12 +1142,12 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 #endif
 			}
 
-			pthread_mutex_unlock(&prg.lockecm);
+			ecm_unlock();
 			if (isnew) wakeup_sendecm();
 			break;
 
 		 case CC_MSG_KEEPALIVE:
-			if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_KEEPALIVE, 0, NULL) ) cc_disconnect_cli( cli );
+			if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_KEEPALIVE, 0, NULL) ) cc_disconnect_cli_unlocked( cli );
 			//printf(" Keepalive from client '%s'\n",cli->user);
 			break;
 
@@ -1056,7 +1166,9 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			// Look for cardserver
 			cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
 			if ( !cs || !cs->option.fallowcacheex ) {
+				pthread_mutex_lock(&prg.lockcacheex);
 				cli->cacheex.badcw++;
+				pthread_mutex_unlock(&prg.lockcacheex);
 				break;
 			}
 			if ((buf[23]&0xFE)==0x80) cacheex.tag = buf[23]; else cacheex.tag = 0;
@@ -1064,9 +1176,11 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			//if ( !checkECMD5(cacheex.ecmd5) ) cli->cacheex.totalcsp++;
 			cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 			if (!cacheex_check(&cacheex)) break;
+			pthread_mutex_lock(&prg.lockcacheex);
 			cli->cacheex.got[0]++;
 			int uphop = buf[60];
 			if (uphop<10) cli->cacheex.got[uphop]++;
+			pthread_mutex_unlock(&prg.lockcacheex);
 			//
 			//
 			pthread_mutex_lock( &prg.lockcache );
@@ -1137,8 +1251,13 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 			}
 #endif
 			pthread_mutex_unlock( &prg.lockcache );
+			cache_peerrep_save_after_unlock();
 			if (res&DCW_ERROR) {
-				if ( !(res&DCW_SKIP) ) cli->cacheex.badcw++;
+				if ( !(res&DCW_SKIP) ) {
+					pthread_mutex_lock(&prg.lockcacheex);
+					cli->cacheex.badcw++;
+					pthread_mutex_unlock(&prg.lockcacheex);
+				}
 			}
 			else if (res&DCW_CYCLE) {
 				if ( cs->option.cacheex.maxhop>uphop ) {
@@ -1175,8 +1294,12 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 					debugf(0, "BISS SHARE: Received CW from client '%s' for %04X:%06X:%04X (source=%d)\n",
 						cli->user, share_caid, share_provid, share_sid, source);
 					
-					// Update client stats
+					// Update CacheEX-specific client stats when that feature is built.
+#ifdef CACHEEX
+					pthread_mutex_lock(&prg.lockcacheex);
 					cli->cacheex.got[0]++;
+					pthread_mutex_unlock(&prg.lockcacheex);
+#endif
 					
 					// Log for monitoring
 					biss_keys.keys[biss_keys.count-1].last_used = GetTickCount();
@@ -1196,6 +1319,15 @@ void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
 
 
 
+void cc_cli_parsemsg(struct cc_client_data *cli, uint8_t *buf, int len)
+{
+	if (!cli || !buf || len < 2 || len >= CC_MAXMSGSIZE || client_state_lock(cli) != 0)
+		return;
+	cc_cli_parsemsg_locked(cli, buf, len);
+	client_state_unlock(cli);
+}
+
+
 int cc_cli_peekmsg(struct cc_client_data *cli, uint8_t *buf)
 {
 	int len;
@@ -1211,7 +1343,7 @@ int cc_cli_peekmsg(struct cc_client_data *cli, uint8_t *buf)
 	}
 	else if (len<0) {
 		if (!cli->chkrecvtime) cli->chkrecvtime = ticks;
-		else if ( (cli->chkrecvtime+500)<ticks ) {
+		else if ((uint32_t)(ticks - cli->chkrecvtime) > 500u) {
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam: client '%s' read failed %d\n", cli->user,len);
 			cc_disconnect_cli(cli);
 		}
@@ -1239,7 +1371,7 @@ int cc_cli_peekmsg(struct cc_client_data *cli, uint8_t *buf)
 	else if (len==-1) {
 		uint32_t ticks = GetTickCount();
 		if (!cli->chkrecvtime) cli->chkrecvtime = ticks;
-		else if ( (cli->chkrecvtime+1000)<ticks ) {
+		else if ((uint32_t)(ticks - cli->chkrecvtime) > 1000u) {
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam: client '%s' read failed %d\n", cli->user,len);
 			cc_disconnect_cli(cli);
 		}
@@ -1297,6 +1429,7 @@ void cc_recv_pipe()
 {
 	struct cccam_server_data *cccam;
 	struct cardserver_data *cs;
+	struct cardserver_data card_event;
 
 	struct cc_client_data *cli;
 
@@ -1305,58 +1438,63 @@ void cc_recv_pipe()
 	uint8_t buf[1024];
 	struct pollfd pfd[2];
 	do {
-		int len = pipe_recv( prg.pipe.cccam[0], buf);
+		int len = pipe_recv( prg.pipe.cccam[0], buf, sizeof(buf));
 		if (len>0) {
 			//debugf(getdbgflag(DBG_CCCAM,0,0)," CCcam: recv_msg from pipe (%d)\n", buf[0]);
 			switch(buf[0]) {
 				case PIPE_WAKEUP:  // ADD NEW CLIENT
+					if (len != 2) break;
 					//debugf(" wakeup csmsg\n");
 					break;
 #ifdef EPOLL_CCCAM
-				case PIPE_CLI_CONNECTED:  // ADD NEW FD
-					memcpy( &cli, buf+1, sizeof(void*) );
-					// Add to events
-					struct epoll_event ev; // epoll event
-					ev.events = EPOLLIN;
-					ev.data.fd = cli->handle;
-					ev.data.ptr = cli;
-					if ( epoll_ctl(prg.epoll.cccam, EPOLL_CTL_ADD, cli->handle, &ev) == -1 ) debugf(DBG_ERROR,"Err! EPOLL_CTL_ADD %s (%d) %d\n", cli->user, cli->handle, errno);
-					//else debugf(0,"EPOLL_CTL_ADD %s (%d)\n", cli->user, cli->handle);
-					break;
+					case PIPE_CLI_CONNECTED:  // ADD NEW FD by stable client id
+						{
+							uint32_t client_id;
+							struct epoll_event ev;
+							if (!pipe_decode_u32_message(buf, (size_t)len, PIPE_CLI_CONNECTED, &client_id) || !client_id) break;
+							cli = getcccamclientbyid(client_id);
+							if (!cli || cli->handle <= 0 || IS_DISABLED(cli->flags)) break;
+							memset(&ev, 0, sizeof(ev));
+							ev.events = EPOLLIN | EPOLLPRI | EPOLLRDHUP;
+							ev.data.u64 = client_id;
+							if (epoll_ctl(prg.epoll.cccam, EPOLL_CTL_ADD, cli->handle, &ev) == -1)
+								debugf(DBG_ERROR,"Err! EPOLL_CTL_ADD %s (%d) %d\n", cli->user, cli->handle, errno);
+						}
+						break;
 #endif
-				case PIPE_CARD_DEL:
-					memcpy( &cs, buf+1, sizeof(void*) );
-					if (cs) {
-						cccam = cfg.cccam.server;
-						while (cccam) {
-							if ( !IS_DISABLED(cccam->flags)&&(cccam->handle>0) ) {
-								struct cc_client_data *cli = cccam->client;
-								while (cli) {
-									if ( !IS_DISABLED(cli->flags)&&(cli->handle>0) ) cc_sendcard_del(cs, cli);
-									cli = cli->next;
+					case PIPE_CARD_DEL:
+					case PIPE_CARD_ADD:
+						{
+							struct pipe_card_snapshot snapshot;
+							struct cc_client_data *cardcli;
+							int i;
+							if (!pipe_decode_card_message(buf, (size_t)len, buf[0], &snapshot) ||
+							    snapshot.provider_count > CARD_MAXPROV) break;
+							memset(&card_event, 0, sizeof(card_event));
+							card_event.id = snapshot.profile_id;
+							card_event.card.caid = snapshot.caid;
+							card_event.card.nbprov = snapshot.provider_count;
+							card_event.option.fsharecccam = !!(snapshot.share_flags & PIPE_CARD_SHARE_CCCAM);
+							card_event.option.fsharemgcamd = !!(snapshot.share_flags & PIPE_CARD_SHARE_MGCAMD);
+							for (i = 0; i < snapshot.provider_count; i++)
+								card_event.card.prov[i].id = snapshot.provider_ids[i];
+							cs = &card_event;
+							cccam = cfg.cccam.server;
+							while (cccam) {
+								if (!IS_DISABLED(cccam->flags) && cccam->handle > 0) {
+									cardcli = cccam->client;
+									while (cardcli) {
+										if (!IS_DISABLED(cardcli->flags) && cardcli->handle > 0) {
+											if (buf[0] == PIPE_CARD_DEL) cc_sendcard_del(cs, cardcli);
+											else cc_sendcard_cli(cs, cardcli, 0);
+										}
+										cardcli = cardcli->next;
+									}
 								}
+								cccam = cccam->next;
 							}
-							cccam = cccam->next;
 						}
-					}
-					break;
-
-				case PIPE_CARD_ADD:
-					memcpy( &cs, buf+1, sizeof(void*) );
-					if (cs) {
-						cccam = cfg.cccam.server;
-						while (cccam) {
-							if ( !IS_DISABLED(cccam->flags)&&(cccam->handle>0) ) {
-								struct cc_client_data *cli = cccam->client;
-								while (cli) {
-									if ( !IS_DISABLED(cli->flags)&&(cli->handle>0) ) cc_sendcard_cli(cs, cli, 0);
-									cli = cli->next;
-								}
-							}
-							cccam = cccam->next;
-						}
-					}
-					break;
+						break;
 			}
 		}
 		pfd[0].fd = prg.pipe.cccam[0];
@@ -1381,36 +1519,51 @@ void *cc_recvmsg_thread(void *param)
 	prg.epoll.cccam = epoll_create( MAX_EPOLL_EVENTS );
 	// Add PIPE
 	struct epoll_event ev; // epoll event
+	memset(&ev, 0, sizeof(ev));
 	ev.events = EPOLLIN | EPOLLPRI | EPOLLRDHUP;
-	ev.data.ptr = NULL;
+	ev.data.u64 = 0;
 	if ( epoll_ctl(prg.epoll.cccam, EPOLL_CTL_ADD, prg.pipe.cccam[0], &ev) == -1 ) printf("epoll_ctl");
 
 	while (!prg.restart) {
+		newcamd_config_read_lock();
+		uint64_t config_generation = cfg.cache.generation;
+		uint32_t thread_delay = cfg.delay.thread;
+		newcamd_config_read_unlock();
 		int ready = epoll_wait( prg.epoll.cccam, evlist, MAX_EPOLL_EVENTS, 1002);
-		if (ready == -1) {
-			if ( (errno==EINTR)||(errno==EAGAIN) ) {
-				usleep(1000);
-				continue;
-			}
+		if (ready < 0) {
+			if ( (errno==EINTR)||(errno==EAGAIN) ) usleep(1000);
 			else {
 				usleep(99000);
 				debugf(DBG_ERROR,"Err! epoll_wait (%d)", errno);
 			}
+			continue;
 		}
-		else if (ready==0) continue; // timeout
+		if (ready == 0) continue; // timeout
+		if (thread_delay) usleep(thread_delay);
 
-		usleep(cfg.delay.thread);
-
+		newcamd_config_read_lock();
+		if (config_generation != cfg.cache.generation) {
+			newcamd_config_read_unlock();
+			continue;
+		}
 		for (i=0; i < ready; i++) {
+			uint32_t client_id = (uint32_t)evlist[i].data.u64;
 			if ( evlist[i].events & (EPOLLIN|EPOLLPRI) ) {
-				if (evlist[i].data.ptr == NULL) cc_recv_pipe();
-				else cc_cli_recvmsg(evlist[i].data.ptr);
+				if (!client_id) cc_recv_pipe();
+				else {
+					struct cc_client_data *cli = getcccamclientbyid(client_id);
+					if (cli && cli->handle > 0) cc_cli_recvmsg(cli);
+				}
 			}
-			else if ( evlist[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR) ) { // EPOLLRDHUP
-				if (evlist[i].data.ptr == NULL) debugf(DBG_ERROR,"Err! epoll_wait() pipe\n"); // error !!!
-				else cc_disconnect_cli(evlist[i].data.ptr);
+			else if ( evlist[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR) ) {
+				if (!client_id) debugf(DBG_ERROR,"Err! epoll_wait() pipe\n");
+				else {
+					struct cc_client_data *cli = getcccamclientbyid(client_id);
+					if (cli && cli->handle > 0) cc_disconnect_cli(cli);
+				}
 			}
 		}
+		newcamd_config_read_unlock();
 	}
 	return NULL;
 }
@@ -1421,12 +1574,17 @@ void *cc_recvmsg_thread(void *param)
 {
 	struct pollfd pfd[MAX_PFD];
 	int pfdcount;
+	uint32_t thread_delay;
 
 	cfg.cccam.pid_recvmsg = syscall(SYS_gettid);
 	prg.pid_cc_msg = syscall(SYS_gettid);
 	prctl(PR_SET_NAME,"CCcam RecvMSG",0,0,0);
 
 	while (!prg.restart) {
+		uint64_t config_generation;
+		newcamd_config_read_lock();
+		config_generation = cfg.cache.generation;
+		thread_delay = cfg.delay.thread;
 		pfdcount = 0;
 		// PIPE
 		pfd[pfdcount].fd = prg.pipe.cccam[0];
@@ -1458,10 +1616,16 @@ void *cc_recvmsg_thread(void *param)
 			cccam = cccam->next;
 		}
 
+		newcamd_config_read_unlock();
 		int retval = poll(pfd, pfdcount, 3004); // for 3seconds
 
 		if ( retval>0 ) {
-			usleep(cfg.delay.thread);
+			if (thread_delay) usleep(thread_delay);
+			newcamd_config_read_lock();
+			if (config_generation != cfg.cache.generation) {
+				newcamd_config_read_unlock();
+				continue;
+			}
 
 			struct cccam_server_data *cccam = cfg.cccam.server;
 			while (cccam) {
@@ -1484,6 +1648,7 @@ void *cc_recvmsg_thread(void *param)
 			}
 			//
 			if ( pfd[0].revents & (POLLIN|POLLPRI) ) cc_recv_pipe();
+			newcamd_config_read_unlock();
 		}
 		else if ( retval<0 ) {
 			debugf(getdbgflag(DBG_CCCAM,0,0), " thread receive messages: poll error %d(errno=%d)\n", retval, errno);

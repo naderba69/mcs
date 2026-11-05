@@ -129,7 +129,7 @@ release-stats:
 # NULL and the first fprintf crashed. The test now mkdirs its directory and
 # guards its fixtures (xopen), so running it right after test_monjson is kept
 # as the standing regression for exactly that folklore.
-test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwconsensus_load x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_thread_create x64/test_scoped_checksum_policy
+test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwconsensus_load x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_ptguard x64/test_chanhealth x64/test_cexvis x64/test_smart_retry_ticks x64/test_ecm_pattern_ticks x64/test_cwpredict_ticks x64/test_cw_timing_layers x64/test_udpfast_ticks x64/test_dcwstrict_ticks x64/test_implicit_bs_ticks x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_tick_math x64/test_cache_intelligence_ticks x64/test_cache_pipe_codec x64/test_pipe_messages x64/test_pipe_server_send x64/test_cs378x_frame x64/test_cache_pipe_queue x64/test_newcamd_lifetime x64/test_radegast_frame x64/test_cache_prefetch_ticks x64/test_cachewarm_ticks x64/test_cache_turbo_ticks x64/test_blackscreen_ticks x64/test_fastretx_ticks x64/test_pipeline_parquery_ticks x64/test_r22_candidate_ticks x64/test_emm_cache x64/test_supersmartfilter_ticks x64/test_cw_quarantine_clientbuf_ticks x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_thread_create x64/test_scoped_checksum_policy
 	./x64/test_cachequeue
 	@echo
 	./x64/test_cwconsensus
@@ -168,6 +168,16 @@ test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwcons
 	./x64/test_cwcm
 	./x64/test_trustagg
 	./x64/test_cacheguard
+	./x64/test_ptguard
+	./x64/test_chanhealth
+	./x64/test_cexvis
+	./x64/test_smart_retry_ticks
+	./x64/test_ecm_pattern_ticks
+	./x64/test_cwpredict_ticks
+	./x64/test_cw_timing_layers
+	./x64/test_udpfast_ticks
+	./x64/test_dcwstrict_ticks
+	./x64/test_implicit_bs_ticks
 	@./x64/test_trustlife
 	@./x64/test_htmlesc
 	@./x64/test_debugcore
@@ -192,6 +202,27 @@ test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwcons
 	./x64/test_peercard
 	@echo
 	./x64/test_retry_detect
+	@echo
+	./x64/test_tick_math
+	@echo
+	./x64/test_cache_intelligence_ticks
+	./x64/test_cache_pipe_codec
+	./x64/test_pipe_messages
+	./x64/test_pipe_server_send
+	./x64/test_cs378x_frame
+	./x64/test_cache_pipe_queue
+	./x64/test_newcamd_lifetime
+	./x64/test_radegast_frame
+	./x64/test_cache_prefetch_ticks
+	./x64/test_cachewarm_ticks
+	./x64/test_cache_turbo_ticks
+	./x64/test_blackscreen_ticks
+	./x64/test_fastretx_ticks
+	./x64/test_pipeline_parquery_ticks
+	./x64/test_r22_candidate_ticks
+	./x64/test_emm_cache
+	@echo
+	./x64/test_supersmartfilter_ticks
 	@echo
 	./x64/test_cw_reuse
 	@echo
@@ -253,9 +284,50 @@ x64/test_trustagg: test_trustagg.c ../src/trustagg.h ../src/trust.h
 # TASK 2.9: the cache protocol guard (../src/cacheguard.h) -- the per-type
 # minimums against what the handlers really read, the window throttle, the
 # sentences, degenerate arguments. Plain build.
-x64/test_cacheguard: test_cacheguard.c ../src/cacheguard.h
+x64/test_cacheguard: test_cacheguard.c ../src/cacheguard.h ../src/tick_math.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cacheguard.c
+
+# Rollover-safe evidence-table throttling and eviction regressions.
+x64/test_ptguard: test_ptguard.c ../src/ptguard.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_ptguard.c
+
+x64/test_chanhealth: test_chanhealth.c ../src/chanhealth.h ../src/cwlog.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_chanhealth.c
+
+x64/test_cexvis: test_cexvis.c ../src/cexvis.h ../src/peer_origin.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cexvis.c
+
+x64/test_smart_retry_ticks: test_smart_retry_ticks.c ../src/smart-retry.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_smart_retry_ticks.c
+
+x64/test_ecm_pattern_ticks: test_ecm_pattern_ticks.c ../src/ecm-pattern-analysis.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_ecm_pattern_ticks.c
+
+x64/test_cwpredict_ticks: test_cwpredict_ticks.c ../src/cwpredict.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cwpredict_ticks.c
+
+x64/test_cw_timing_layers: test_cw_timing_layers.c ../src/cwvalidity.h ../src/zerolatency.h ../src/cwredundancy.h ../src/cwfingerprint.h ../src/chanpred.h ../src/cwretry.h ../src/zerohandoff.h ../src/cwemergency.h ../src/autoswitch.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cw_timing_layers.c
+
+x64/test_udpfast_ticks: test_udpfast_ticks.c ../src/udpfast.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_udpfast_ticks.c
+
+x64/test_dcwstrict_ticks: test_dcwstrict_ticks.c ../src/dcwstrict.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_dcwstrict_ticks.c
+
+x64/test_implicit_bs_ticks: test_implicit_bs_ticks.c ../src/implicit-bs-detect.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_implicit_bs_ticks.c
 
 # TASK 2.10: the trust lifecycle (../src/trustlife.h) against the restore
 # entry points in trust.h / trustagg.h / cwneg.h -- the fade, the strict
@@ -314,6 +386,82 @@ x64/test_retry_detect: test_retry_detect.c ../src/retry_detect.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_retry_detect.c
 
+x64/test_tick_math: test_tick_math.c ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_tick_math.c
+
+x64/test_r22_candidate_ticks: test_r22_candidate_ticks.c ../src/cwpropblock.h ../src/cwfeedback.h ../src/cwpattern.h ../src/blackscreen.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_r22_candidate_ticks.c
+
+x64/test_emm_cache: test_emm_cache.c ../src/emm-cache.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_emm_cache.c
+
+x64/test_pipeline_parquery_ticks: test_pipeline_parquery_ticks.c ../src/pipeline.h ../src/parquery.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_pipeline_parquery_ticks.c
+
+x64/test_fastretx_ticks: test_fastretx_ticks.c ../src/fastretx.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_fastretx_ticks.c
+
+x64/test_blackscreen_ticks: test_blackscreen_ticks.c ../src/blackscreen-detector.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_blackscreen_ticks.c
+
+x64/test_cache_turbo_ticks: test_cache_turbo_ticks.c ../src/cache-turbo.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_cache_turbo_ticks.c
+
+x64/test_cachewarm_ticks: test_cachewarm_ticks.c ../src/cachewarm.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cachewarm_ticks.c
+
+x64/test_cache_prefetch_ticks: test_cache_prefetch_ticks.c ../src/cache-prefetch.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_cache_prefetch_ticks.c
+
+x64/test_cache_intelligence_ticks: test_cache_intelligence_ticks.c ../src/cache-intelligence.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cache_intelligence_ticks.c -lpthread
+
+x64/test_cache_pipe_codec: test_cache_pipe_codec.c ../src/cache-pipe-codec.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cache_pipe_codec.c
+
+x64/test_pipe_messages: test_pipe_messages.c ../src/pipe.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_pipe_messages.c
+
+x64/test_pipe_server_send: test_pipe_server_send.c ../src/pipe.c ../src/pipe.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_pipe_server_send.c
+
+x64/test_cs378x_frame: test_cs378x_frame.c ../src/cs378x-frame.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cs378x_frame.c
+
+x64/test_cache_pipe_queue: test_cache_pipe_queue.c ../src/cache-pipe-queue.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_cache_pipe_queue.c
+
+x64/test_newcamd_lifetime: test_newcamd_lifetime.c ../src/newcamd-lifetime.c ../src/newcamd-lifetime.h ../src/newcamd-request.h ../src/newcamd-keepalive.h ../src/tick_math.h ../src/ecmdata.h ../src/common.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_newcamd_lifetime.c ../src/newcamd-lifetime.c
+
+x64/test_radegast_frame: test_radegast_frame.c ../src/msg-radegast.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_radegast_frame.c
+
+x64/test_supersmartfilter_ticks: test_supersmartfilter_ticks.c ../src/supersmartfilter.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_supersmartfilter_ticks.c -lpthread
+
+x64/test_cw_quarantine_clientbuf_ticks: test_cw_quarantine_clientbuf_ticks.c ../src/cwquarantine.h ../src/clientbuf.h ../src/cwreplace.h ../src/cwcrosschannel.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -I../src -o $@ test_cw_quarantine_clientbuf_ticks.c
+
 # TASK 1.11a: exercises the real min-peer floor from ../src/cache_threshold.h
 x64/test_cache_threshold: test_cache_threshold.c ../src/cache_threshold.h
 	@mkdir -p x64
@@ -368,6 +516,7 @@ x64/test_scoped_checksum_policy: ../tests/scoped-checksum-policy.c $(SCOPED_OUTP
 	$(CC) -o $@ $(SCOPED_CFLAGS) $^ -lpthread
 
 x64/test_cafamily: test_cafamily.c ../src/cafamily.h
+	@mkdir -p x64
 	$(CC) $(CFLAGS) -o $@ test_cafamily.c
 
 # TASK R1: the exchange-gate decision table (pure header, no src objects)
@@ -404,7 +553,7 @@ x64/test_cwattest: test_cwattest.c ../src/cwattest.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cwattest.c
 
-x64/test_cwconsensus: test_cwconsensus.c ../src/cwconsensus.c ../src/cwconsensus.h
+x64/test_cwconsensus: test_cwconsensus.c ../src/cwconsensus.c ../src/cwconsensus.h ../src/tick_math.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cwconsensus.c ../src/cwconsensus.c -lpthread
 

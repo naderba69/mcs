@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define REDUNDANCY_CHANNELS 64
 #define REDUNDANCY_MAX      4   /* max CWs per channel */
@@ -36,6 +37,7 @@ struct cwredundancy_channel {
     struct cwredundancy_entry cws[REDUNDANCY_MAX];
     int cw_count;
     int active_idx;        /* index of currently active CW */
+    uint32_t last_used;    /* last channel activity, used for LRU eviction */
     uint8_t used;
 };
 
@@ -66,36 +68,41 @@ cwredundancy_find(struct cwredundancy_table *t, uint16_t caid,
 
 static inline struct cwredundancy_channel *
 cwredundancy_alloc(struct cwredundancy_table *t, uint16_t caid,
-                   uint32_t provid, uint16_t sid)
+                   uint32_t provid, uint16_t sid, uint32_t now)
 {
-    int i, oldest = 0;
+    int i, oldest = -1;
+    uint32_t oldest_age = 0;
     struct cwredundancy_channel *c;
 
+    if (!t) return 0;
     c = cwredundancy_find(t, caid, provid, sid);
     if (c) return c;
 
     for (i = 0; i < REDUNDANCY_CHANNELS; i++) {
+        uint32_t age;
         if (!t->channels[i].used) {
             c = &t->channels[i];
             c->caid = caid;
             c->provid = provid;
             c->sid = sid;
+            c->last_used = now;
             c->used = 1;
             return c;
         }
-        /* Find oldest (by first CW timestamp) for eviction */
-        if (t->channels[i].cws[0].timestamp <
-            t->channels[oldest].cws[0].timestamp) {
+        age = tick32_elapsed(now, t->channels[i].last_used);
+        if (oldest < 0 || age > oldest_age) {
             oldest = i;
+            oldest_age = age;
         }
     }
 
-    /* Evict oldest */
-    c = &t->channels[oldest];
+    /* Evict the channel with greatest modulo elapsed age. */
+    c = &t->channels[(oldest < 0) ? 0 : oldest];
     memset(c, 0, sizeof(*c));
     c->caid = caid;
     c->provid = provid;
     c->sid = sid;
+    c->last_used = now;
     c->used = 1;
     return c;
 }
@@ -115,8 +122,9 @@ static inline int cwredundancy_add(struct cwredundancy_table *t,
 
     if (!t || !cw) return 0;
 
-    c = cwredundancy_alloc(t, caid, provid, sid);
+    c = cwredundancy_alloc(t, caid, provid, sid, now);
     if (!c) return 0;
+    c->last_used = now;
 
     /* Check for duplicate */
     for (i = 0; i < c->cw_count; i++) {

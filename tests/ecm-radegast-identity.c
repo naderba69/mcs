@@ -7,11 +7,11 @@
 #include <string.h>
 
 static uint32_t fake_ticks = 10000;
-uint64_t GetTickCount(void);
+uint32_t GetTickCount(void);
 
 #include "../src/ecmdata.c"
 
-uint64_t GetTickCount(void)
+uint32_t GetTickCount(void)
 {
     return fake_ticks;
 }

@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include "cwconsensus.h"
+#include "tick_math.h"
 
 #define CWC_SLOTS   CWC_CAPACITY
 #define CWC_MAXV     8   /* distinct voters tracked per key */
@@ -50,7 +51,7 @@ unsigned long cwconsensus_refusals(void) { return cwc_n_refusals; }
 
 static int cwc_fresh(uint32_t now, uint32_t born, uint32_t window)
 {
-	return (int32_t)(now - born) <= (int32_t)window;
+	return tick32_elapsed(now, born) <= window;
 }
 
 static int cwc_slotof(uint16_t caid, uint16_t sid, uint32_t provid,
@@ -104,7 +105,9 @@ static struct cw_slot *cwc_best_conflict(uint16_t caid, uint16_t sid,
 		if (!best) { best = s; continue; }
 		int wm = cwc_weight_sum(s, now, window);
 		int wb = cwc_weight_sum(best, now, window);
-		if ( (wm > wb) || (wm == wb && (int32_t)(s->first_tick - best->first_tick) < 0) )
+		if (wm > wb ||
+		    (wm == wb && tick32_elapsed(now, s->first_tick) >
+		                  tick32_elapsed(now, best->first_tick)))
 			best = s;
 	}
 	return best;
@@ -116,6 +119,7 @@ static struct cw_slot *cwc_alloc(uint16_t caid, uint16_t sid, uint32_t provid,
 {
 	int i, start;
 	struct cw_slot *free_slot = NULL, *oldest = NULL;
+	uint32_t oldest_age = 0;
 	provider_known = !!provider_known;
 	if (!provider_known) provid = 0;
 	start = (int)(((uint32_t)(caid * 0x9E3779B1u) ^ (hash * 0x85EBCA6Bu)
@@ -125,8 +129,13 @@ static struct cw_slot *cwc_alloc(uint16_t caid, uint16_t sid, uint32_t provid,
 	for (i = 0; i < CWC_SLOTS; i++) {
 		struct cw_slot *s = &cwc_tab[(start + i) & (CWC_SLOTS - 1)];
 		if (s->used != CWC_LIVE) { free_slot = s; break; }
-		if (!s->holding && !cwc_fresh(now, s->tick, window)
-		    && (!oldest || (int32_t)(s->tick - oldest->tick) < 0)) oldest = s;
+		if (!s->holding && !cwc_fresh(now, s->tick, window)) {
+			uint32_t age = tick32_elapsed(now, s->tick);
+			if (!oldest || age > oldest_age) {
+				oldest = s;
+				oldest_age = age;
+			}
+		}
 	}
 	if (!free_slot) {
 		/* reclaim the oldest EXPIRED slot; never steal a live hold */
@@ -216,7 +225,8 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t provid,
 		/* conflict: weighted decision, timing only breaks silence */
 		int my_w  = cwc_weight_sum(s, now_ms, window_ms);
 		int ot_w  = cwc_weight_sum(cf, now_ms, window_ms);
-		int i_earlier = (int32_t)(s->first_tick - cf->first_tick) < 0;
+		int i_earlier = tick32_elapsed(now_ms, s->first_tick) >
+		                tick32_elapsed(now_ms, cf->first_tick);
 		if (my_w > ot_w || (my_w == ot_w && i_earlier)) {
 			/* I win: neutralize + convict the loser only on WEIGHT */
 			s->holding = 0;
@@ -298,8 +308,8 @@ void cwconsensus_capacity(uint32_t now_ms, uint32_t window_ms,
         }
         ++out->held;
         if (!cwc_fresh(now_ms, s->first_tick, window_ms)) ++out->overdue;
-        age = now_ms - s->first_tick;
-        if ((int32_t)age >= 0 && age > out->oldest_hold_ms) out->oldest_hold_ms = age;
+        age = tick32_elapsed(now_ms, s->first_tick);
+        if (age > out->oldest_hold_ms) out->oldest_hold_ms = age;
     }
 }
 

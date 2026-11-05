@@ -47,7 +47,10 @@ typedef enum
 
 int cc_msg_recv(int handle,struct cc_crypt_block *recvblock, uint8_t *buf, int timeout);
 int cc_msg_recv_nohead(int handle, struct cc_crypt_block *recvblock, uint8_t *buf, int len);
-int cc_msg_send(int handle,struct cc_crypt_block *sendblock, cc_msg_cmd cmd, int len, uint8_t *buf);
+int cc_msg_send(int handle, struct cc_crypt_block *sendblock, cc_msg_cmd cmd, int len, uint8_t *buf);
+int cc_msg_send_and_encrypt(int handle, struct cc_crypt_block *sendblock,
+                            cc_msg_cmd cmd, int len, uint8_t *buf,
+                            uint8_t *followup, int followup_len);
 int cc_msg_chkrecv(int handle,struct cc_crypt_block *recvblock);
 
 int cc_peekmsg(int handle,struct cc_crypt_block *recvblock, struct message_data *msg, uint8_t *buf);

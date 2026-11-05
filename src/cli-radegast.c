@@ -1,3 +1,5 @@
+#include "msg-radegast.h"
+
 void rdg_getsrvmsg();
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -9,10 +11,11 @@ int rdgd_connect_srv(struct server_data *srv, int fd)
 	uint8_t buf[10];
 	if ( recv_nonb(fd, buf, 10,0)==0 ) {
 		static char msg[]= "Server not connected";
-		srv->statmsg = msg;
+		server_set_statmsg(srv, msg);
 		return -1;
 	}
 	debugf(getdbgflag(DBG_SERVER,0,srv->id)," radegast: connect to server (%s:%d)\n", srv->host->name, srv->port);
+	pthread_mutex_lock(&prg.locksrv);
 	srv->statmsg = msg;
 	srv->connection.status = 1;
 	srv->connection.time = GetTickCount();
@@ -24,11 +27,8 @@ int rdgd_connect_srv(struct server_data *srv, int fd)
 	srv->lastdcwtime = 0;
 	srv->chkrecvtime = 0;
 	srv->handle = fd;
-#ifdef EPOLL_ECM
-	pipe_pointer( prg.pipe.ecm[1], PIPE_SRV_CONNECTED, srv );
-#else
-	pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_CONNECTED );
-#endif
+	pthread_mutex_unlock(&prg.locksrv);
+	server_publish_connection_ready(srv, fd);
 	return 0;
 }
 
@@ -37,6 +37,11 @@ int rdgd_connect_srv(struct server_data *srv, int fd)
 int rdgd_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 {
 	unsigned char buf[CWS_NETMSGSIZE];
+	/* The outer Radegast body length is one byte and includes 28 bytes of
+	 * TLV metadata before the ECM value. Reject unrepresentable ECMs rather
+	 * than truncating the frame length or writing beyond the local buffer. */
+	if (!srv || !ecm || ecm->ecmlen <= 0 || ecm->ecmlen > 255 - 28 ||
+	    (size_t)ecm->ecmlen > sizeof(buf) - 30u) return 0;
 	buf[0] = 0x01;
 	//buf[1] = len;
 	int index = 2;
@@ -86,7 +91,7 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 		}
 		else if (len==-1) {
 			if (!srv->chkrecvtime) srv->chkrecvtime = GetTickCount();
-			else if ( (srv->chkrecvtime+300)<GetTickCount() ) {
+			else if (tick32_elapsed(GetTickCount(), srv->chkrecvtime) > 300u) {
 				debugf(getdbgflag(DBG_SERVER,0,srv->id)," radegast: server (%s:%d) read failed %d\n", srv->host->name, srv->port, len);
 				disconnect_srv(srv);
 			}
@@ -103,6 +108,13 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 				disconnect_srv(srv);
 			}
 			else if (len>0) {
+				if (!rdgd_response_header_valid(buf, (size_t)len)) {
+					debugf(getdbgflag(DBG_SERVER,0,srv->id),
+					       " radegast: short response header (%d) from server (%s:%d)\n",
+					       len, srv->host->name, srv->port);
+					disconnect_srv(srv);
+					return;
+				}
 				switch ( buf[0] ) {
 				case 0x02: // DCW
 					srv->lastdcwtime = GetTickCount();
@@ -110,29 +122,21 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 						debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from server (%s:%d), unknown ecm request\n",srv->host->name,srv->port);
 						break;
 					}
-					srv->busy = 0;
-					pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
-
-					pthread_mutex_lock(&prg.lockecm); //###
-
-					ecm = srv->ecm.request;
-					if (!ecm) {
-						debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from server (%s:%d), ecm not found!!!\n",srv->host->name,srv->port);
-						pthread_mutex_unlock(&prg.lockecm); //###
-						break;
-					}
-					// check for ECM???
-					if (ecm->hash!=srv->ecm.hash) {
-						debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from server (%s:%d), ecm deleted!!!\n",srv->host->name,srv->port);
-						pthread_mutex_unlock(&prg.lockecm); //###
-						break;
-					}
-
-					if ( (buf[1]==0x12)&&(buf[2]==0x05)&&(buf[3]==0x10) ) {
+						ecm_lock(); //###
+						ecm = srv->ecm.request;
+						if (!ecm || !ecm_request_lifetime_matches(ecm, srv->ecm.request, srv->ecm.lifetime_id) ||
+						    ecm->hash != srv->ecm.hash) {
+							debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] stale Radegast response ignored\n");
+							ecm_unlock();
+							break;
+						}
+						srv->busy = 0;
+						pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
+					if (rdgd_response_has_complete_cw(buf, (size_t)len)) {
 						// Check for DCW
 						if (!acceptDCW_profile_ecm(&buf[4], ecm->cs, ecm->caid, ecm->provid, ecm->sid)) {
 							srv->ecmerrdcw ++;
-							pthread_mutex_unlock(&prg.lockecm); //###
+							ecm_unlock(); //###
 							break;
 						}
 						srv->ecmok++;
@@ -150,7 +154,8 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 						}
 						else {	//TODO: check same dcw between cards
 							srv->ecmerrdcw ++;
-							if ( memcmp(&ecm->cw, &buf[3],16) ) debugf(getdbgflag(DBG_SERVER,0,srv->id)," !!! different dcw from server (%s:%d)\n",srv->host->name,srv->port);
+							if (memcmp(ecm->cw, &buf[4], 16))
+								debugf(getdbgflag(DBG_SERVER,0,srv->id)," !!! different dcw from server (%s:%d)\n",srv->host->name,srv->port);
 						}
 #ifdef SID_FILTER
 						// ADD IN SID LIST
@@ -160,12 +165,12 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 							srv_cstatadd( srv, cs->id, 1 , srv->lastecmoktime);
 						}
 #endif
-						pthread_mutex_unlock(&prg.lockecm); //###
+						ecm_unlock(); //###
 					}
 					else {
 						struct cardserver_data *cs=ecm->cs;
 						if ( cs && (ecm->dcwstatus!=STAT_DCW_SUCCESS) && (srv->retry<cs->option.retry.radegast) ) {
-							if ( (GetTickCount()-ecm->recvtime) < (cs->option.server.timeout*ecm->period) )
+							if ( tick32_elapsed(GetTickCount(), ecm->recvtime) < (uint32_t)(cs->option.server.timeout*ecm->period) )
 							if (rdgd_sendecm_srv(srv, ecm)>0) {
 								srv->retry++;
 								ecm->lastsendtime = GetTickCount();
@@ -173,8 +178,11 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 								srv->lastecmtime = GetTickCount();
 								srv->ecmnb++;
 								srv->busy=1;
+								srv->ecm.lifetime_id = ecm_request_lifetime_id_load(ecm);
+								srv->ecm.hash = ecm->hash;
+								srv->ecm.trace_instance_at_send = ecm->trace_instance;
 								//srv->busyecm = ecm;
-								pthread_mutex_unlock(&prg.lockecm); //###
+								ecm_unlock(); //###
 								break;
 							}
 						}
@@ -187,7 +195,7 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 							srv_cstatadd( srv, cs->id, 0 , 0);
 						}
 #endif
-						pthread_mutex_unlock(&prg.lockecm); //###
+						ecm_unlock(); //###
 						wakeup_sendecm();
 					}
 					break;

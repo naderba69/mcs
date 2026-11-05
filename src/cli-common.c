@@ -59,12 +59,20 @@ char *getsrvtype(struct server_data *srv)
 	else return NULL;
 }
 
+/* The caller owns prg.locksrv, except during config reload where the write
+ * lifetime gate, drained connect workers, and exclusive lockecm exclude runtime
+ * readers and detached handshake writers. */
 void disconnect_srv(struct server_data *srv)
 {
 	static char msg[]= "Disconnected";
 	srv->statmsg = msg;
+	// Remove before close; already-returned events are filtered by connection token.
+#ifdef EPOLL_ECM
+	if (prg.epoll.ecm > 0 && srv->handle > 0)
+		epoll_ctl(prg.epoll.ecm, EPOLL_CTL_DEL, srv->handle, NULL);
+#endif
 	// close handle
-	close(srv->handle);
+	if (srv->handle > 0) close(srv->handle);
 	srv->handle = -1;
 	// Set connection data
 	srv->connection.status = 0;
@@ -77,7 +85,9 @@ void disconnect_srv(struct server_data *srv)
 	if (!srv->cacheex_mode)
 #endif
 	{
-		if (srv->busy && srv->ecm.request) ecm_setsrvflag(srv->ecm.request, srv->id, ECM_SRV_EXCLUDE);
+		if (srv->busy && srv->ecm.request)
+			ecm_setsrvflag_if_lifetime(srv->ecm.request, srv->id, ECM_SRV_EXCLUDE,
+			                           srv->ecm.lifetime_id);
 		pthread_mutex_lock( &srv->lock );
 		free_cardlist(srv->card);
 		srv->card = NULL;
@@ -85,7 +95,7 @@ void disconnect_srv(struct server_data *srv)
 	}
 	// update server data
 	srv->busy = 0;
-	srv->host->checkiptime = 15; // maybe ip changed
+	host_checkiptime_set(srv->host, 15); // maybe ip changed
 	memset( &srv->keepalive, 0, sizeof(srv->keepalive) );
 	// Debug
 	debugf( getdbgflag(DBG_SERVER,0,srv->id)," %s server (%s:%d) disconnected\n", getsrvtype(srv), srv->host->name, srv->port);

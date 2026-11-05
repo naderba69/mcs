@@ -33,6 +33,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define TRUST_TABLE_SIZE  256   /* x 36 bytes = 9216 bytes of .bss */
 
@@ -201,12 +202,14 @@ static inline struct trust_entry *trust_find(struct trust_table *t,
 	return e;
 }
 
-/* Find an exact entry or allocate/evict one using the existing oldest-first rule. */
+/* Find an exact entry or allocate/evict the entry with greatest modulo-uint32
+ * elapsed age; this remains ordered across tick rollover. */
 static inline struct trust_entry *trust_entry_get_or_create(struct trust_table *t,
                                                             int srctype, int srcid,
                                                             uint16_t caid, uint32_t provid,
                                                             uint8_t provider_scope,
-                                                            uint16_t sid)
+                                                            uint16_t sid,
+                                                            uint32_t ticks_now)
 {
 	struct trust_entry *e = trust_find_scope(t, srctype, srcid, caid, provid,
 	                                         provider_scope, sid);
@@ -214,13 +217,15 @@ static inline struct trust_entry *trust_entry_get_or_create(struct trust_table *
 		unsigned i = trust_index_scoped(srctype, srcid, caid, provid,
 		                                provider_scope, sid);
 		unsigned probe, oldest = i;
-		uint32_t oldest_at = t->e[i].lastseen;
+		uint32_t oldest_age = tick32_elapsed(ticks_now, t->e[i].lastseen);
 
 		for (probe = 0; probe < TRUST_TABLE_SIZE; probe++) {
 			unsigned j = (i + probe) % TRUST_TABLE_SIZE;
+			uint32_t age;
 			if (!t->e[j].used) { oldest = j; break; }
-			if ((int32_t)(t->e[j].lastseen - oldest_at) < 0) {
-				oldest = j; oldest_at = t->e[j].lastseen;
+			age = tick32_elapsed(ticks_now, t->e[j].lastseen);
+			if (age > oldest_age) {
+				oldest = j; oldest_age = age;
 			}
 		}
 		e = &t->e[oldest];
@@ -251,7 +256,8 @@ static inline int trust_record_scoped(struct trust_table *t, int ev,
 {
 	uint8_t scope = trust_provider_scope(provider_known, provid);
 	struct trust_entry *e = trust_entry_get_or_create(t, srctype, srcid,
-	                                                  caid, provid, scope, sid);
+	                                                  caid, provid, scope, sid,
+	                                                  ticks_now);
 
 	e->lastseen = ticks_now;
 	if (ev == TRUST_EV_NONE) return e->score;
@@ -341,7 +347,7 @@ static int trust_restore_scoped(struct trust_table *t, int srctype, int srcid,
 	if (!t || provider_scope > TRUST_PROVIDER_LEGACY_AMBIGUOUS ||
 	    (provider_scope != TRUST_PROVIDER_KNOWN && provid != 0)) return 0;
 	e = trust_entry_get_or_create(t, srctype, srcid, caid, provid,
-	                              provider_scope, sid);
+	                              provider_scope, sid, now);
 
 	if (score < TRUST_FLOOR)   score = TRUST_FLOOR;
 	if (score > TRUST_CEILING) score = TRUST_CEILING;

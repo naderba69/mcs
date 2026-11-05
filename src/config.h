@@ -349,6 +349,7 @@ struct __attribute__ ((__packed__)) cs_client_data
 		// Ecm Data
 		uint32_t recvtime; // ECM Receive Time in ms
 		ECM_DATA *request;
+		uint64_t lifetime_id __attribute__((aligned(8))); // exact ECM pool generation for this client request
 		uint32_t hash; // to check for ecm
 		int climsgid; // MessageID for the ecm request
 	} ecm;
@@ -362,6 +363,10 @@ struct __attribute__ ((__packed__)) cs_client_data
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;
+#ifdef CACHEEX
+		uint8_t ecmd5[16];
+		uint16_t ecmlen;
+#endif
 		int status;
 		uint8_t dcw[16];
 		int dcwsrctype;
@@ -421,10 +426,21 @@ struct __attribute__ ((__packed__)) rdgd_client_data { // Connected Client
 		uint32_t recvtime; // ECM Receive Time in ms
 		int id;
 		uint8_t request_storage[sizeof(void *)]; // active ECM pointer; access via memcpy (packed struct)
+#ifdef CACHEEX
+		uint64_t lifetime_id __attribute__((aligned(8))); // exact ECM pool generation for this client request
+#endif
 		//Last Used Share Saved data
 		uint16_t lastcaid;
 		uint32_t lastprov;
+		uint8_t lastprovider_known;
 		uint16_t lastsid;
+		uint32_t lasthash;
+		uint8_t lasttag;
+		uint8_t lastcw[16];
+#ifdef CACHEEX
+		uint8_t lastecmd5[16];
+		uint16_t lastecm_len;
+#endif
 		int laststatus;
 		// DCW SOURCE
 		int lastdcwsrctype;
@@ -531,6 +547,9 @@ struct __attribute__ ((__packed__)) camd35_client_data { // Connected Client
 		// Ecm Data
 		uint32_t recvtime; // ECM Receive Time in ms
 		ECM_DATA *request;
+#ifdef CACHEEX
+		uint64_t lifetime_id __attribute__((aligned(8))); // exact ECM pool generation for this client request
+#endif
 		uint32_t hash; // to check for ecm
 		int pin;
 	} ecm;
@@ -544,6 +563,10 @@ struct __attribute__ ((__packed__)) camd35_client_data { // Connected Client
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;
+#ifdef CACHEEX
+		uint8_t ecmd5[16];
+		uint16_t ecmlen;
+#endif
 		int status;
 		uint8_t dcw[16];
 		int dcwsrctype;
@@ -561,7 +584,14 @@ struct __attribute__ ((__packed__)) camd35_client_data { // Connected Client
 		//Last Used Share Saved data
 		uint16_t lastcaid;
 		uint32_t lastprov;
+		uint8_t provider_known;
 		uint16_t lastsid;
+		uint32_t hash;
+		uint8_t tag;
+#ifdef CACHEEX
+		uint8_t ecmd5[16];
+		uint16_t ecmlen;
+#endif
 		int laststatus;
 		// DCW SOURCE
 		int lastdcwsrctype;
@@ -833,6 +863,7 @@ struct __attribute__ ((__packed__)) server_data
 	struct server_data *next;
 	uint32_t flags;
 	uint32_t id; // unique id
+	uint64_t connect_generation __attribute__((aligned(8))); // unique token for this connection attempt
 	//*** Config DATA
 	uint8_t type; // Clients type: NEWCAMD/CCcam
 	struct host_data *host;
@@ -894,6 +925,8 @@ struct __attribute__ ((__packed__)) server_data
 	SOCKET handle;
 	int ipoll;
 	uint32_t chkrecvtime; // message recv time
+	/* Runtime card list: readers/writers use prg.locksrv. Config reload may
+	 * replace it only after excluding readers and draining connect workers. */
 	struct cs_card_data *card;
 
 	// Connection data
@@ -942,8 +975,9 @@ struct __attribute__ ((__packed__)) server_data
 	uint32_t busycardid; // card
 	struct {
 		ECM_DATA *request;
+		uint64_t lifetime_id __attribute__((aligned(8))); /* exact ECM pool generation captured at send */
 		int id; // ecm id
-		uint32_t hash; // to check for ecm
+		uint32_t hash; // legacy/logging field; not an exact request identity
 		uint32_t msgid;
 		uint64_t trace_instance_at_send; /* diagnostic ECM lifetime, zero if not traced */
 	} ecm;
@@ -1083,6 +1117,7 @@ struct __attribute__ ((__packed__)) cc_client_data { // Connected Client
 		// Ecm Data
 		uint32_t recvtime; // ECM Receive Time in ms
 		ECM_DATA *request; //ecmid
+		uint64_t lifetime_id __attribute__((aligned(8))); // exact ECM pool generation for this client request
 		uint32_t hash; // to check for ecm
 		char *statmsg; // DCW Status Message
 	} ecm; // current ecm to decode
@@ -1096,6 +1131,10 @@ struct __attribute__ ((__packed__)) cc_client_data { // Connected Client
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;
+#ifdef CACHEEX
+		uint8_t ecmd5[16];
+		uint16_t ecmlen;
+#endif
 		int status;
 		uint8_t dcw[16];
 		int dcwsrctype;
@@ -1212,6 +1251,9 @@ struct __attribute__ ((__packed__)) mg_client_data
 		// Ecm Data
 		uint32_t recvtime; // ECM Receive Time in ms
 		ECM_DATA *request;
+#ifdef CACHEEX
+		uint64_t lifetime_id __attribute__((aligned(8))); // exact ECM pool generation for this client request
+#endif
 		uint32_t hash; // to check for ecm
 		int climsgid;
 	} ecm;
@@ -1225,6 +1267,10 @@ struct __attribute__ ((__packed__)) mg_client_data
 		uint16_t sid;
 		uint32_t hash;
 		uint8_t tag;
+#ifdef CACHEEX
+		uint8_t ecmd5[16];
+		uint16_t ecmlen;
+#endif
 		int status;
 		uint8_t dcw[16];
 		int dcwsrctype;
@@ -1408,6 +1454,9 @@ struct config_data
 
 	struct {
 		struct cacheserver_data *server;
+		/* Monotonic identity epoch for queued datagrams that refer to this
+		 * replaceable profile graph. Read/written under the config lifetime gate. */
+		uint64_t generation;
 		int totalservers;
 		int peerid;
 		int serverid;
@@ -1654,8 +1703,9 @@ struct program_data
 #ifdef CACHEEX
 	pid_t pid_ccex_msg;
 	pthread_t tid_cacheex;
-	pthread_mutex_t lockcacheex;
 #endif
+	/* Protects runtime cache/CacheEX hit statistics in all build variants. */
+	pthread_mutex_t lockcacheex;
 
 	//THREAD_ID
 	pthread_t tid_cfg;
@@ -1674,7 +1724,7 @@ struct program_data
 	// THREADS
 	pthread_mutex_t locksrvth; // Servers connection thread
 	pthread_mutex_t locksrvcs; // Newcamd server
-	pthread_mutex_t lockdnsth; // DNS lookup Thread
+	pthread_mutex_t lockdnsth; // Host list/address/deadline state
 
 #ifdef CCCAM_SRV
 	pthread_mutex_t lockcccli; // CCcam Clients data
@@ -1748,6 +1798,17 @@ void free_card(struct cs_card_data* card);
 void free_cardlist(struct cs_card_data* card);
 
 struct host_data *add_host( struct config_data *cfg, char *hostname);
+/* Host address, client address, and DNS deadline are synchronized by
+ * prg.lockdnsth. Snapshot helpers may be called while holding lockcache or
+ * locksrv; the DNS worker never nests this lock with those locks. */
+void host_state_snapshot(const struct host_data *host, uint32_t *ip,
+                         uint32_t *clip, uint32_t *checkiptime);
+uint32_t host_ip_snapshot(const struct host_data *host);
+void host_ip_set(struct host_data *host, uint32_t ip);
+void host_checkiptime_set(struct host_data *host, uint32_t checkiptime);
+void host_schedule_checkiptime_before(struct host_data *host, uint32_t deadline);
+int host_record_client_ip(struct host_data *host, uint32_t client_ip,
+                          uint32_t retry_deadline);
 void cfg_addcachepeer(struct cacheserver_data *srv, struct cachepeer_data *peer);
 void free_filenames( struct config_data *cfg );
 

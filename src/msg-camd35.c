@@ -1,3 +1,4 @@
+#include "cs378x-frame.h"
 #define CAMD_ECM_REQUEST     0
 #define CAMD_ECM_REPLY       1
 #define CAMD_KEEPALIVE       0x37
@@ -45,6 +46,7 @@ inline int camd35_padding( int len )
 	if (len&0x0f) return ( (len&0xfff0)+0x10 ); else return len;
 }
 
+
 ///////////////////////////////////////////////////////////////////////////////
 
 // for connected udp sockets
@@ -75,7 +77,7 @@ void camd35_send( int handle, AES_KEY *encryptkey, uint32_t ucrc, unsigned char 
 	send( handle, sbuf, newlen+4, 0);
 }
 
-void camd35_sendto( int handle, uint32_t ip, int port, AES_KEY *encryptkey, uint32_t ucrc, unsigned char *buf, int len)
+int camd35_sendto( int handle, uint32_t ip, int port, AES_KEY *encryptkey, uint32_t ucrc, unsigned char *buf, int len)
 {
 	uint8_t sbuf[1024];
 	sbuf[0] = ucrc>>24;
@@ -105,7 +107,8 @@ void camd35_sendto( int handle, uint32_t ip, int port, AES_KEY *encryptkey, uint
 	si_other.sin_family = AF_INET;
 	si_other.sin_port = htons( port );
 	si_other.sin_addr.s_addr = ip;
-	sendto( handle, sbuf, newlen+4, 0, (struct sockaddr *)&si_other, slen);
+	return sendto( handle, sbuf, newlen+4, 0,
+	               (struct sockaddr *)&si_other, slen) == newlen+4;
 }
 
 int cs378x_send( int handle, AES_KEY *encryptkey, uint32_t ucrc, unsigned char *buf, int len)
@@ -129,24 +132,28 @@ int cs378x_send( int handle, AES_KEY *encryptkey, uint32_t ucrc, unsigned char *
 	return send_nonb( handle, sbuf, newlen+4, 100 );
 }
 
-int cs378x_recv(int handle, uint32_t ucrc, AES_KEY *decryptkey, unsigned char *buf)
+int cs378x_recv(int handle, uint32_t ucrc, AES_KEY *decryptkey,
+                unsigned char *buf, int capacity)
 {
-	int received = recv_nonb( handle, buf, 32+4, 1000); // Get minimum packet size
+	int received;
+	int newlen;
+	if (!buf || capacity < 36) return -3;
+	received = recv_nonb( handle, buf, 32+4, 1000); // Get minimum packet size
 	if (received<=0) return received; // Disconnect
+	if (received < 36 || received > capacity) return -3;
 	uint32_t ucrc1 = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 	if (ucrc!=ucrc1) return -2; // wrong ucrc
 	aes_decrypt( decryptkey, buf+4, received-4);
-	//Fix for ECM request size > 255 (use ecm length field)
-	int datalen = buf[5];
-	if (buf[4] == 0) datalen = (((buf[25] & 0x0f) << 8) | buf[26]) + 3; // ECM
-	else if ( (buf[4]&0xFC)==0x3C ) datalen = buf[5] | (buf[6] << 8); // cacheex
-	else datalen = buf[5]; // Normal
-	int newlen = 4+camd35_padding(20+datalen);
+	newlen = cs378x_frame_length(buf, received, capacity, 0);
+	if (newlen < 0 || newlen < received) return -3;
 	if (received<newlen) {
-		int n = recv_nonb( handle, buf+received, newlen-received, 500);
-		if ( n != (newlen-received) ) return -3; // receive timeout or wrong packet size
+		int need = newlen-received;
+		int n = recv_nonb( handle, buf+received, need, 500);
+		if ( n != need ) return -3; // receive timeout or wrong packet size
 		aes_decrypt( decryptkey, buf+received, n);
+		received += n;
 	}
+	if (received != newlen) return -3;
 	//debugf(getdbgflag(DBG_SERVER,0,srv->id)," msg from cs378x server (%s:%d)\n", srv->host->name, srv->port); debughex(buf, newlen);
 	return newlen;
 }

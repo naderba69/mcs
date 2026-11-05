@@ -3,29 +3,54 @@
 // THREAD RESOLVE DNS
 ///////////////////////////////////////////////////////////////////////////////
 
-void *dns_child_thread(struct host_data *host)
+static int dns_take_due_host(char hostname[256])
 {
-	unsigned int newip;
+	struct host_data *host;
+	uint32_t now = getseconds();
+	int found = 0;
+	pthread_mutex_lock(&prg.lockdnsth);
+	for (host = cfg.host; host; host = host->next) {
+		if (host->checkiptime <= now) {
+			snprintf(hostname, 256, "%s", host->name);
+			found = 1;
+			break;
+		}
+	}
+	pthread_mutex_unlock(&prg.lockdnsth);
+	return found;
+}
 
+static void dns_resolve_hostname(const char hostname[256])
+{
+	struct host_data *host;
+	unsigned int newip;
+	uint32_t now;
+
+	/* gethostbyname is serialized separately and may block. Never hold
+	 * lockdnsth while doing resolver or network work. */
 	pthread_mutex_lock(&prg.lockdns);
-	newip = hostname2ip(host->name);
+	newip = hostname2ip((char *)hostname);
 	pthread_mutex_unlock(&prg.lockdns);
 	usleep(10000);
-	if (!newip) {
-		//debugf(" dns: failed to get address for %s\n",host->name);
-		host->checkiptime = getseconds() + 60;
-		host->ip = newip;
+	now = getseconds();
+
+	/* Re-find by immutable name: reload/auto-add may have changed the list
+	 * while DNS ran, so do not carry a host-list pointer across the lookup. */
+	pthread_mutex_lock(&prg.lockdnsth);
+	for (host = cfg.host; host; host = host->next)
+		if (!strcmp(host->name, hostname)) break;
+	if (host) {
+		if (!newip) {
+			host->checkiptime = now + 60;
+			host->ip = 0;
+		} else if (newip != host->ip) {
+			host->checkiptime = now + 300;
+			host->ip = newip;
+		} else {
+			host->checkiptime = now + 600;
+		}
 	}
-	else if (newip!=host->ip) {
-		host->checkiptime = getseconds() + 300;
-		host->ip = newip;
-		//debugf(" dns: %s --> %s\n", host->name, ip2string(host->ip));
-	}
-	else {
-		host->checkiptime = getseconds() + 600;
-		//debugf(" dns: %s == %s\n", host->name, ip2string(host->ip));
-	}
-	return NULL;
+	pthread_mutex_unlock(&prg.lockdnsth);
 }
 
 void *dns_thread(void *param)
@@ -35,19 +60,9 @@ void *dns_thread(void *param)
 	prctl(PR_SET_NAME,"Lookup",0,0,0);
 
 	do {
-		pthread_mutex_lock(&prg.lockdnsth);
-
-		struct host_data *host = cfg.host;
-		while (host) {
-			if (host->checkiptime<=getseconds()) {
-				//pthread_t new_tid;
-				//create_thread(&new_tid, (threadfn)dns_child_thread,host);
-				dns_child_thread( host );
-			}
-			host = host->next;
-		}
-
-		pthread_mutex_unlock(&prg.lockdnsth);
+		char hostname[256];
+		while (dns_take_due_host(hostname))
+			dns_resolve_hostname(hostname);
 		sleep(10);
 	} while (1);
 	return NULL;
@@ -59,5 +74,3 @@ int start_thread_dns()
 	create_thread(PACKED_MPTR(&prg, pthread_t, tid_dns), (threadfn)dns_thread,NULL);
 	return 0;
 }
-
-

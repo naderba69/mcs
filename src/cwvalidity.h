@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CWVALIDITY_CHANNELS 64
 #define CWVALIDITY_HISTORY 10  /* last 10 CW changes */
@@ -34,6 +35,7 @@ struct cwvalidity_channel {
     int interval_count;
     int interval_head;
     uint8_t used;
+    uint8_t has_last_change; /* last_change may legitimately be tick zero */
 };
 
 struct cwvalidity_table {
@@ -63,15 +65,18 @@ cwvalidity_find(struct cwvalidity_table *t, uint16_t caid,
 
 static inline struct cwvalidity_channel *
 cwvalidity_alloc(struct cwvalidity_table *t, uint16_t caid,
-                 uint32_t provid, uint16_t sid)
+                 uint32_t provid, uint16_t sid, uint32_t now)
 {
-    int i, oldest = 0;
+    int i, oldest = -1;
+    uint32_t oldest_age = 0;
     struct cwvalidity_channel *c;
 
+    if (!t) return 0;
     c = cwvalidity_find(t, caid, provid, sid);
     if (c) return c;
 
     for (i = 0; i < CWVALIDITY_CHANNELS; i++) {
+        uint32_t age;
         if (!t->channels[i].used) {
             c = &t->channels[i];
             c->caid = caid;
@@ -80,12 +85,14 @@ cwvalidity_alloc(struct cwvalidity_table *t, uint16_t caid,
             c->used = 1;
             return c;
         }
-        if (t->channels[i].last_change < t->channels[oldest].last_change) {
+        age = tick32_elapsed(now, t->channels[i].last_change);
+        if (oldest < 0 || age > oldest_age) {
             oldest = i;
+            oldest_age = age;
         }
     }
-    /* Reuse oldest */
-    c = &t->channels[oldest];
+    /* Reuse the channel with greatest modulo elapsed age. */
+    c = &t->channels[(oldest < 0) ? 0 : oldest];
     memset(c, 0, sizeof(*c));
     c->caid = caid;
     c->provid = provid;
@@ -103,18 +110,21 @@ static inline void cwvalidity_record_change(struct cwvalidity_table *t,
     uint32_t interval;
 
     if (!t) return;
-    c = cwvalidity_alloc(t, caid, provid, sid);
+    c = cwvalidity_alloc(t, caid, provid, sid, now);
     if (!c) return;
 
-    if (c->last_change > 0 && now > c->last_change) {
-        interval = now - c->last_change;
-        c->intervals[c->interval_head] = interval;
-        c->interval_head = (c->interval_head + 1) % CWVALIDITY_HISTORY;
-        if (c->interval_count < CWVALIDITY_HISTORY) {
-            c->interval_count++;
+    if (c->has_last_change) {
+        interval = tick32_elapsed(now, c->last_change);
+        if (interval > 0 && interval <= 0x7FFFFFFFu) {
+            c->intervals[c->interval_head] = interval;
+            c->interval_head = (c->interval_head + 1) % CWVALIDITY_HISTORY;
+            if (c->interval_count < CWVALIDITY_HISTORY) {
+                c->interval_count++;
+            }
         }
     }
     c->last_change = now;
+    c->has_last_change = 1;
 }
 
 /* Compute the optimal validity window for a channel */
@@ -123,8 +133,8 @@ static inline uint32_t cwvalidity_window(const struct cwvalidity_table *t,
                                           uint16_t sid)
 {
     const struct cwvalidity_channel *c;
-    uint32_t sum = 0;
-    uint32_t avg;
+    uint64_t sum = 0;
+    uint32_t avg_ms;
     uint32_t window;
     int i;
 
@@ -136,10 +146,10 @@ static inline uint32_t cwvalidity_window(const struct cwvalidity_table *t,
     for (i = 0; i < c->interval_count; i++) {
         sum += c->intervals[i];
     }
-    avg = sum / (uint32_t)c->interval_count;
+    avg_ms = (uint32_t)(sum / (uint32_t)c->interval_count);
 
-    /* Apply safety factor */
-    window = (uint32_t)((double)avg * CWVALIDITY_SAFETY_FACTOR);
+    /* Convert the measured millisecond ticks to the API's seconds result. */
+    window = (uint32_t)(((double)avg_ms * CWVALIDITY_SAFETY_FACTOR) / 1000.0);
 
     /* Clamp to [min, max] */
     if (window < CWVALIDITY_MIN_SECS) window = CWVALIDITY_MIN_SECS;

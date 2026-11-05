@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CWRETRY_MAX_ATTEMPTS 5
 #define CWRETRY_BASE_DELAY_MS 1000
@@ -64,15 +65,18 @@ cwretry_find(struct cwretry_table *t, uint32_t client_ip,
 
 static inline struct cwretry_entry *
 cwretry_alloc(struct cwretry_table *t, uint32_t client_ip,
-              uint16_t caid, uint32_t provid, uint16_t sid)
+              uint16_t caid, uint32_t provid, uint16_t sid, uint32_t now)
 {
-    int i, oldest = 0;
+    int i, oldest = -1;
+    uint32_t oldest_age = 0;
     struct cwretry_entry *e;
 
+    if (!t) return 0;
     e = cwretry_find(t, client_ip, caid, provid, sid);
     if (e) return e;
 
     for (i = 0; i < CWRETRY_ENTRIES; i++) {
+        uint32_t age;
         if (!t->entries[i].used) {
             e = &t->entries[i];
             e->client_ip = client_ip;
@@ -82,12 +86,14 @@ cwretry_alloc(struct cwretry_table *t, uint32_t client_ip,
             e->used = 1;
             return e;
         }
-        if (t->entries[i].last_attempt < t->entries[oldest].last_attempt) {
+        age = tick32_elapsed(now, t->entries[i].last_attempt);
+        if (oldest < 0 || age > oldest_age) {
             oldest = i;
+            oldest_age = age;
         }
     }
-    /* Reuse oldest */
-    e = &t->entries[oldest];
+    /* Reuse the entry with greatest modulo elapsed age. */
+    e = &t->entries[(oldest < 0) ? 0 : oldest];
     memset(e, 0, sizeof(*e));
     e->client_ip = client_ip;
     e->caid = caid;
@@ -102,6 +108,7 @@ static inline uint32_t cwretry_delay_ms(uint32_t attempts)
 {
     uint32_t delay;
     if (attempts == 0) return 0;
+    if (attempts >= 5) return CWRETRY_MAX_DELAY_MS;
     delay = CWRETRY_BASE_DELAY_MS * (1U << (attempts - 1));
     if (delay > CWRETRY_MAX_DELAY_MS) delay = CWRETRY_MAX_DELAY_MS;
     return delay;
@@ -120,7 +127,7 @@ static inline int cwretry_record_attempt(struct cwretry_table *t,
     uint32_t delay_ms;
 
     if (!t) return 0;
-    e = cwretry_alloc(t, client_ip, caid, provid, sid);
+    e = cwretry_alloc(t, client_ip, caid, provid, sid, now);
     if (!e) return 0;
 
     e->attempts++;
@@ -145,7 +152,7 @@ static inline int cwretry_allowed(const struct cwretry_table *t,
     e = cwretry_find((struct cwretry_table *)t, client_ip, caid, provid, sid);
     if (!e) return 1;
     if (e->attempts >= CWRETRY_MAX_ATTEMPTS) return 0;
-    return (now >= e->next_allowed) ? 1 : 0;
+    return tick32_deadline_reached(now, e->next_allowed) ? 1 : 0;
 }
 
 /* Reset retry counter (on success) */

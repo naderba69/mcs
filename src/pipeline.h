@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define PIPELINE_STAGES 4
 #define PIPELINE_QUEUE_SIZE 32
@@ -171,7 +172,7 @@ static inline void pipeline_expire(struct pipeline_table *t,
     if (!t) return;
     for (i = 0; i < PIPELINE_QUEUE_SIZE; i++) {
         struct pipeline_entry *e = &t->queue[i];
-        if (e->used && (now - e->entered_at) > max_age) {
+        if (e->used && tick32_elapsed(now, e->entered_at) > max_age) {
             e->used = 0;
         }
     }

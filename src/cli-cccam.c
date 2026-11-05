@@ -65,7 +65,7 @@ int cc_connect_srv(struct server_data *srv, int fd)
 	// get init seed(random) from server
 	if((n = recv_nonb(fd, data, 16,5000)) != 16) {
 		static char msg[]= "Server does not return init sequence";
-		srv->statmsg = msg;
+		server_set_statmsg(srv, msg);
 		debugf( getdbgflag(DBG_SERVER, 0, srv->id), " Server (%s:%d) does not return 16 bytes\n", srv->host->name,srv->port);
 		return -2;
 	}
@@ -125,7 +125,7 @@ int cc_connect_srv(struct server_data *srv, int fd)
 	if ( !cc_msg_send( fd, &srv->sendblock, CC_MSG_NO_HEADER, 6, buf) ) return -1; // send 'CCcam' xor w/ pwd
 	if ((n = recv_nonb(fd, data, 20,5000)) != 20) {
 		static char msg[]= "Password ACK not received";
-		srv->statmsg = msg;
+		server_set_statmsg(srv, msg);
 		debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: login failed to Server (%s:%d), pwd ack not received (n = %d)\n",srv->host->name,srv->port, n);
 		return -2;
 	}
@@ -134,21 +134,26 @@ int cc_connect_srv(struct server_data *srv, int fd)
 
 	if (memcmp(data, buf, 5)) {  // check server response
 		static char msg[]= "Invalid user/pass";
-		srv->statmsg = msg;
+		server_set_statmsg(srv, msg);
 		debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: login failed to Server (%s:%d), usr/pwd invalid\n",srv->host->name,srv->port);
 		return -2;
 	}// else debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: login succeeded to Server (%s:%d)\n",srv->host->name,srv->port);
 
+	pthread_mutex_lock(&prg.locksrv);
 	srv->handle = fd;
+	pthread_mutex_unlock(&prg.locksrv);
 	if (!cc_sendinfo_srv(srv,ismultics)) {
-		srv->handle = -1;
 		static char msg[]= "Error sending client data";
+		pthread_mutex_lock(&prg.locksrv);
+		srv->handle = -1;
 		srv->statmsg = msg;
+		pthread_mutex_unlock(&prg.locksrv);
 		debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: login failed to Server (%s:%d), could not send client data\n",srv->host->name,srv->port);
 		return -3;
 	}
-	// Update Server data
+	// Update Server data atomically with respect to HTTP and the event loop.
 	static char msg[]= "Connected";
+	pthread_mutex_lock(&prg.locksrv);
 	srv->statmsg = msg;
 	srv->connection.status = 1;
 	srv->connection.time = GetTickCount();
@@ -160,23 +165,22 @@ int cc_connect_srv(struct server_data *srv, int fd)
 	srv->lastdcwtime = 0;
 	srv->chkrecvtime = 0;
 	srv->msg.len = 0;
-	//srv->handle = fd;
 	memset(srv->version,0,32);
+	pthread_mutex_unlock(&prg.locksrv);
 
 #ifdef CACHEEX
 	if (srv->cacheex_mode==2) {
+		if (!server_connection_is_enabled(srv, fd)) return 0;
 		if (!create_thread( PACKED_MPTR(srv, pthread_t, tid), (threadfn)cacheex_cc_srv_recvmsg, srv )) {
-			disconnect_srv(srv);
+			pthread_mutex_lock(&prg.locksrv);
+			if (srv->handle == fd) disconnect_srv(srv);
+			pthread_mutex_unlock(&prg.locksrv);
 		}
 	}
 	else
 #endif
 
-#ifdef EPOLL_ECM
-	pipe_pointer( prg.pipe.ecm[1], PIPE_SRV_CONNECTED, srv );
-#else
-	pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_CONNECTED );
-#endif
+	server_publish_connection_ready(srv, fd);
 	return 0;
 }
 
@@ -198,7 +202,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 		}
 		else if (len==-1) {
 			if (!srv->chkrecvtime) srv->chkrecvtime = GetTickCount();
-			else if ( (srv->chkrecvtime+500)<GetTickCount() ) {
+			else if (tick32_elapsed(GetTickCount(), srv->chkrecvtime) > 500u) {
 				debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: server (%s:%d) read failed %d\n", srv->host->name, srv->port, len);
 				disconnect_srv(srv);
 			}
@@ -225,49 +229,36 @@ void cc_srv_recvmsg(struct server_data *srv)
 					 * frame cannot complete the additional crypto step, so
 					 * drop the connection rather than reading uninitialised
 					 * bytes or trying to continue with a desynchronised cipher. */
+					ecm_lock(); //### Protect the config/profile and exact pending request.
 					if (len < 20) {
-						pthread_mutex_lock(&prg.lockecm);
 						ecm = srv->ecm.request;
-						if (ecm && ecm->hash == srv->ecm.hash &&
+						if (ecm && ecm_request_lifetime_matches(ecm, srv->ecm.request, srv->ecm.lifetime_id) &&
 						    user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance))
 							user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, TYPE_CCCAM, srv->id,
 							    GetTickCount()-ecm->recvtime,
 							    "CCcam malformed CW response: fewer than 16 bytes; source disconnected");
 						debugf(getdbgflag(DBG_SERVER,0,srv->id), " [!] short CCcam CW response; disconnecting source\n");
 						disconnect_srv(srv);
-						pthread_mutex_unlock(&prg.lockecm);
+						ecm_unlock();
 						wakeup_sendecm();
+						break;
+					}
+					ecm = srv->ecm.request;
+					if (!ecm || !ecm_request_lifetime_matches(ecm, srv->ecm.request, srv->ecm.lifetime_id) ||
+					    ecm->hash != srv->ecm.hash) {
+						debugf(getdbgflag(DBG_SERVER,0,srv->id), " [!] stale CCcam response, request lifetime changed\n");
+						ecm_unlock();
 						break;
 					}
 					uint8_t dcw[16];
 					cc_crypt_cw( cfg.cccam.nodeid, srv->busycardid, &buf[4]);
 					memcpy(dcw, &buf[4], 16);
-					cc_decrypt(&srv->recvblock, buf+4, len-4); // additional crypto step				
-
+					cc_decrypt(&srv->recvblock, buf+4, len-4); // additional crypto step
+					srv->lastdcwtime = GetTickCount();
 					srv->busy = 0;
 					pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
-
-					srv->lastdcwtime = GetTickCount();
-
-					pthread_mutex_lock(&prg.lockecm); //###
-
-					ecm = srv->ecm.request;
-					if (!ecm) {
-						debugf( getdbgflag(DBG_SERVER, 0, srv->id), " [!] error cw from server (%s:%d), ecm not found!!!\n",srv->host->name,srv->port);
-						pthread_mutex_unlock(&prg.lockecm); //###
-						srv->busy = 0;
-						break;
-					}
-					// check for ECM???
-					if (ecm->hash!=srv->ecm.hash) {
-						debugf( getdbgflag(DBG_SERVER, 0, srv->id), " [!] error cw from server (%s:%d), ecm deleted!!!\n",srv->host->name,srv->port);
-						pthread_mutex_unlock(&prg.lockecm); //###
-						srv->busy = 0;
-						break;
-					}
-
-				cs = ecm->cs;
-				card = cc_getcardbyid( srv, srv->busycardid );
+					cs = ecm->cs;
+					card = cc_getcardbyid( srv, srv->busycardid );
 				/* No message id exists here: only attribute replies to the
 				 * ECM lifetime observed when the request was sent. */
 				if (len >= 20 && user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance)) {
@@ -282,13 +273,13 @@ void cc_srv_recvmsg(struct server_data *srv)
 				}
 				/* EXTERNAL RESEARCH: ECM whitelist check */
 				if (ecm->ecmlen > 2 && !ecm_is_whitelisted(ecm)) {
-					debugf(getdbgflagpro(DBG_SERVER, 0, srv->id, cs->id), " [PROVIDER CONFIG] %04X:%06X - ECM length %d not whitelisted, rejecting\n", ecm->caid, ecm->provid, ecm->ecm[1]);
+					debugf(getdbgflagpro(DBG_SERVER, 0, srv->id, (cs ? cs->id : 0)), " [PROVIDER CONFIG] %04X:%06X - ECM length %d not whitelisted, rejecting\n", ecm->caid, ecm->provid, ecm->ecm[1]);
 					srv->ecmerrdcw++;
 					if (user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance))
 						user_trace_shared_event(ecm->trace_instance, USER_TRACE_REJECTED, TYPE_CCCAM, srv->id,
 						                        GetTickCount()-ecm->recvtime, "CCcam response rejected: ECM length not whitelisted");
 					ecm_setsrvflag(srv->ecm.request, srv->id, ECM_SRV_REPLY_FAIL);
-					pthread_mutex_unlock(&prg.lockecm);
+					ecm_unlock();
 					break;
 				}
 				// Check for DCW
@@ -315,7 +306,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 						}
 #endif
 						ecm_setsrvflag(srv->ecm.request, srv->id, ECM_SRV_REPLY_FAIL);
-						pthread_mutex_unlock(&prg.lockecm); //###
+						ecm_unlock(); //###
 						break;
 					}
 //					else {
@@ -348,7 +339,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 			uint32_t response_time = GetTickCount()-srv->lastecmtime;
 			/* Provider-specific CRC check bypass (from external research) */
 			int skip_crc = provider_should_disable_crc(ecm->caid, ecm->provid);
-			debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,cs->id), " <= cw from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)%s\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, response_time, skip_crc ? " [CRC-BYPASS]" : "");
+			debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,(cs ? cs->id : 0)), " <= cw from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)%s\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, response_time, skip_crc ? " [CRC-BYPASS]" : "");
 			/* Black screen prevention: reset failure counter on success */
 			dcw_on_success(ecm->caid, ecm->sid);
 			/* TASK BS (2026-10-26): Black Screen Detector - record CW success */
@@ -371,7 +362,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 			ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
 			}
 
-					pthread_mutex_unlock(&prg.lockecm); //###
+					ecm_unlock(); //###
 					wakeup_sendecm(); // Wakeup ecm waiting for availabe servers
 					break;
 
@@ -410,23 +401,15 @@ void cc_srv_recvmsg(struct server_data *srv)
 					}
 #endif
 
-					pthread_mutex_lock(&prg.lockecm); //###
+					ecm_lock(); //###
 
-					ecm = srv->ecm.request;
-					if (!ecm) {
-						debugf( getdbgflag(DBG_SERVER, 0, srv->id), " [!] dcw error from server (%s:%d), ecm not found!!!\n",srv->host->name,srv->port);
-						pthread_mutex_unlock(&prg.lockecm); //###
-						srv->busy = 0;
-						break;
-					}
-					// check for ECM???
-					if (ecm->hash!=srv->ecm.hash) {
-						debugf( getdbgflag(DBG_SERVER, 0, srv->id), " [!] dcw error from server (%s:%d), ecm deleted!!!\n",srv->host->name,srv->port);
-						pthread_mutex_unlock(&prg.lockecm); //###
-						srv->busy = 0;
-						break;
-					}
-
+						ecm = srv->ecm.request;
+						if (!ecm || !ecm_request_lifetime_matches(ecm, srv->ecm.request, srv->ecm.lifetime_id) ||
+						    ecm->hash != srv->ecm.hash) {
+							debugf( getdbgflag(DBG_SERVER, 0, srv->id), " [!] stale CCcam negative response ignored\n");
+							ecm_unlock(); //###
+							break;
+						}
 			if (user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance)) {
 				char detail[128];
 				const char *kind = buf[1] == CC_MSG_ECM_NOK1 ? "NOK1" : "NOK2";
@@ -437,7 +420,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 				user_trace_shared_event(ecm->trace_instance, USER_TRACE_SOURCE_REPLY, TYPE_CCCAM, srv->id,
 				                        GetTickCount()-ecm->recvtime, detail);
 			}
-			debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
+			debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,(ecm->cs ? ecm->cs->id : 0)), " <| decode failed from CCcam server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 			/* Black screen prevention: track CW failure */
 			dcw_on_failure(ecm->caid, ecm->sid, ecm->provid);
 			/* TASK BS (2026-10-26): Black Screen Detector - record CW failure & get action */
@@ -482,7 +465,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 
 				if ( cs && (ecm->dcwstatus!=STAT_DCW_SUCCESS) && (srv->retry<cs->option.retry.cccam) ) {
 					uint32_t caid_timeout = caid_integration_get_server_timeout(ecm->caid);
-					if ((GetTickCount()-ecm->recvtime) < (caid_timeout*ecm->period)) {
+					if (tick32_elapsed(GetTickCount(), ecm->recvtime) < (uint32_t)(caid_timeout*ecm->period)) {
 							srv->busy = 0;
 							if (cc_sendecm_srv(srv, ecm)) {
 								srv->lastecmtime = GetTickCount();
@@ -491,8 +474,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 								if (user_trace_same_instance(srv->ecm.trace_instance_at_send, ecm->trace_instance))
 									user_trace_shared_event(ecm->trace_instance, USER_TRACE_SENT, TYPE_CCCAM, srv->id,
 									                        GetTickCount()-ecm->recvtime, "CCcam retry send reported success");
-								debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,ecm->cs->id), " (RE%d) -> ecm to CCcam server (%s:%d) ch %04x:%06x:%04x\n",srv->retry,srv->host->name,srv->port,ecm->caid,ecm->provid,ecm->sid);
-								pthread_mutex_unlock(&prg.lockecm); //###
+								debugf( getdbgflagpro(DBG_SERVER, 0, srv->id,(ecm->cs ? ecm->cs->id : 0)), " (RE%d) -> ecm to CCcam server (%s:%d) ch %04x:%06x:%04x\n",srv->retry,srv->host->name,srv->port,ecm->caid,ecm->provid,ecm->sid);
+								ecm_unlock(); //###
 								break;
 							}
 						}
@@ -508,7 +491,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 					ecm_setsrvflag(srv->ecm.request, srv->id, ECM_SRV_REPLY_FAIL);
 
 					srv->busy = 0;
-					pthread_mutex_unlock(&prg.lockecm); //###
+					ecm_unlock(); //###
 					pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
 					break;
 
@@ -525,7 +508,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 					break;
 
 				case CC_MSG_CARD_DEL: // Delete Card
-					pthread_mutex_lock(&prg.lockecm); //###
+					ecm_lock(); //###
 					card = srv->card;
 					uint32_t k = buf[4]<<24 | buf[5]<<16 | buf[6]<<8 | buf[7];
 					struct cs_card_data *prevcard = NULL;
@@ -551,7 +534,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 						prevcard = card;
 						card = card->next;
 					}
-					pthread_mutex_unlock(&prg.lockecm); //###
+					ecm_unlock(); //###
 			  		break;
 
 				case CC_MSG_CARD_ADD:
@@ -585,10 +568,10 @@ void cc_srv_recvmsg(struct server_data *srv)
 							//debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: new card (%s:%d) %02x%02x%02x%02x%02x%02x%02x%02x_%x uphops %d caid %04x providers %d\n",srv->host->name,srv->port, buf[i],buf[i+1],buf[i+2],buf[i+3],buf[i+4],buf[i+5],buf[i+6],buf[i+7],tcard.shareid ,tcard.uphops, tcard.caid, tcard.nbprov);
 							card = malloc( sizeof(struct cs_card_data) );
 							memcpy( card, &tcard, sizeof(struct cs_card_data) );
-							pthread_mutex_lock(&prg.lockecm); //###
+							ecm_lock(); //###
 							card->next = srv->card;
 							srv->card = card;
-							pthread_mutex_unlock(&prg.lockecm); //###
+							ecm_unlock(); //###
 						}
 					}
 					break;
@@ -618,9 +601,11 @@ void cc_srv_recvmsg(struct server_data *srv)
 					if (buf[18]==0) { // Got CW
 						if (!dcw_hard_reject(buf+44)) { /* TASK 3.15: profile gate is cache_setdcw */
 							uint8_t cw[16];
+							pthread_mutex_lock(&prg.lockcacheex);
 							srv->cacheex.got[0]++;
 							int uphop = buf[60];
 							if (uphop<10) srv->cacheex.got[uphop]++;
+							pthread_mutex_unlock(&prg.lockcacheex);
 							struct cache_data cacheex;
 							memset(&cacheex, 0, sizeof(cacheex));
 							cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
@@ -630,7 +615,9 @@ void cc_srv_recvmsg(struct server_data *srv)
 						// Look for cardserver
 						cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
 						if ( !cs || !cs->option.fallowcacheex ) {
+							pthread_mutex_lock(&prg.lockcacheex);
 							srv->cacheex.badcw++;
+							pthread_mutex_unlock(&prg.lockcacheex);
 							/* DCW badlist: publish bad CW to prevent future use */
 							memcpy(cw, buf+44, 16);
 							dcw_badlist_publish(cw, 1);
@@ -638,7 +625,11 @@ void cc_srv_recvmsg(struct server_data *srv)
 						}
 							if ((buf[19+4]&0xFE)==0x80) cacheex.tag = buf[19+4]; else cacheex.tag = 0;
 							memcpy( cacheex.ecmd5, buf+24, 16);
-							if ( !checkECMD5(cacheex.ecmd5) ) srv->cacheex.csp++;
+							if ( !checkECMD5(cacheex.ecmd5) ) {
+								pthread_mutex_lock(&prg.lockcacheex);
+								srv->cacheex.csp++;
+								pthread_mutex_unlock(&prg.lockcacheex);
+							}
 							cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 							memcpy( cw, buf+44, 16);
 							if (!cacheex_check(&cacheex)) break;
@@ -710,8 +701,13 @@ void cc_srv_recvmsg(struct server_data *srv)
 			}
 #endif
 							pthread_mutex_unlock( &prg.lockcache );
+							cache_peerrep_save_after_unlock();
 							if (res&DCW_ERROR) {
-								if ( !(res&DCW_SKIP) ) srv->cacheex.badcw++;
+								if ( !(res&DCW_SKIP) ) {
+									pthread_mutex_lock(&prg.lockcacheex);
+									srv->cacheex.badcw++;
+									pthread_mutex_unlock(&prg.lockcacheex);
+								}
 							}
 							else if (res&DCW_CYCLE) {
 								if ( cs->option.cacheex.maxhop>uphop ) {
@@ -725,7 +721,9 @@ void cc_srv_recvmsg(struct server_data *srv)
 					}
 /*
 					else {
+						pthread_mutex_lock(&prg.lockcacheex);
 						cli->cacheex.totalreq++;
+						pthread_mutex_unlock(&prg.lockcacheex);
 					}
 */
 					break;
@@ -745,21 +743,26 @@ void *cacheex_cc_srv_recvmsg(struct server_data *srv)
 {
 	srv->pid = syscall(SYS_gettid);
 
-	while (srv->handle>0) {
+	while (!prg.restart) {
 		struct pollfd pfd;
-		pfd.fd = srv->handle;
+		int fd;
+		pthread_mutex_lock(&prg.locksrv);
+		fd = srv->handle;
+		pthread_mutex_unlock(&prg.locksrv);
+		if (fd<=0) break;
+		pfd.fd = fd;
 		pfd.events = POLLIN | POLLPRI;
 		int retval = poll(&pfd, 1, 3005); // for 3seconds
 		if (retval==0) continue;
-		else if (retval<0) { // error
-			disconnect_srv(srv);
-			break;
+		pthread_mutex_lock(&prg.locksrv);
+		if (srv->handle == fd) {
+			if (retval<0 || !(pfd.revents & (POLLIN|POLLPRI)))
+				disconnect_srv(srv);
+			else
+				cc_srv_recvmsg(srv);
 		}
-		else if ( pfd.revents & (POLLIN|POLLPRI) ) cc_srv_recvmsg(srv);
-		else {
-			disconnect_srv(srv);
-			break;
-		}
+		pthread_mutex_unlock(&prg.locksrv);
+		if (retval<0 || !(pfd.revents & (POLLIN|POLLPRI))) break;
 	}
 
 	srv->pid = 0;

@@ -63,7 +63,7 @@ struct ecm_request {
 	int ecmlen;
 	uint8_t ecm[MAX_ECM_SIZE];
 	uint32_t hash;
-	uint64_t lifetime_id; /* Nonzero per allocation/reuse, independent of monitoring. */
+	uint64_t lifetime_id __attribute__((aligned(8))); /* Nonzero per allocation/reuse; aligned for atomic cache-side reads. */
 	uint64_t trace_instance; /* Assigned lazily while lockecm is held. */
 #ifdef CACHEEX
 	unsigned char ecmd5[16]; //MD5_DIGEST_LENGTH];
@@ -119,9 +119,47 @@ struct ecm_request {
 
 	uint32_t iplist[20]; 	// Clients ip list: to Remove Circular request: check for client ip & srv ip
 	uint32_t srviplist[20]; 	// Clients ip list: to Remove Circular request: check for client ip & srv ip
+
 };
 
 typedef struct ecm_request ECM_DATA;
+
+/* A pipe may outlive the request object it points at; pool slots are reused.
+ * The pointer identifies storage, while lifetime_id identifies the exact ECM
+ * request held in that storage. Zero is reserved for an invalid snapshot. */
+static inline uint64_t ecm_request_lifetime_id_load(const ECM_DATA *ecm)
+{
+	return ecm ? __atomic_load_n(&ecm->lifetime_id, __ATOMIC_ACQUIRE) : 0;
+}
+
+/* A small cache-side snapshot registry, protected by lockcache, mirrors only
+ * the fields cache workers need. It avoids both a reverse lock order and any
+ * unlocked ordinary reads of this ECM object. */
+/* Called with lockecm held; takes lockcache in the sanctioned lock order. */
+void cache_ecm_snapshot_mark_inactive(ECM_DATA *ecm);
+/* Validate serialized cache-pipe pointers by trusted address/generation before
+ * any ECM-side dereference; caller may hold lockecm (lockecm -> lockcache). */
+int cache_ecm_snapshot_validate(ECM_DATA *ecm, uint64_t lifetime_id);
+/* Retire the old generation before an ECM pool slot is cleared/reused. */
+void cache_ecm_snapshot_retire(ECM_DATA *ecm);
+
+/* Caller must hold lockecm. Final statuses retire the cache snapshot before
+ * publishing the state; WAIT/WAITCACHE keep the lifetime active. */
+static inline void ecm_request_set_dcwstatus(ECM_DATA *ecm, dcwstatus_type status)
+{
+	if (!ecm) return;
+	if (status==STAT_DCW_SUCCESS || status==STAT_DCW_FAILED)
+		cache_ecm_snapshot_mark_inactive(ecm);
+	ecm->dcwstatus = status;
+}
+
+static inline int ecm_request_lifetime_matches(const ECM_DATA *actual,
+                                               const ECM_DATA *expected,
+                                               uint64_t expected_lifetime_id)
+{
+	return actual && actual == expected && expected_lifetime_id != 0 &&
+	       ecm_request_lifetime_id_load(actual) == expected_lifetime_id;
+}
 
 extern struct ecm_request *ecmdata;
 extern int totalecm;

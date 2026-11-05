@@ -10,7 +10,7 @@ int dcw_filter_cycle;
 int dcw_profile_cycle_enabled(struct cardserver_data *cs) { (void)cs; return 0; }
 int peerrep_note(uint32_t ip,uint16_t port,const char *reason) { (void)ip;(void)port;(void)reason;return 0; }
 void peerrep_save(void) {}
-uint64_t GetTickCount(void) { return 10000; }
+uint32_t GetTickCount(void) { return 10000; }
 uint32_t getdbgflag(int a,int b,int c) { (void)a;(void)b;(void)c;return 0; }
 void debugf(uint32_t flag, char *fmt, ...) { (void)flag;(void)fmt; }
 void user_trace_cache_observation(uint16_t a,uint32_t b,uint16_t c,uint32_t d,int e,const char *f,const uint8_t g[16])

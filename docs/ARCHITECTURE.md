@@ -1,11 +1,17 @@
 # TASK 1.0 — Architecture Map (MultiCS r82a)
 
-Status: **analysis only, no code changed.**
-Verified against the extracted r82a tree in `src/` (84 files) on
-gcc 14.2.0 / GNU Make 4.4.1.
-Sandbox note: the target is Ubuntu LTS / GCC 12+. This box is Debian with
-GCC 14.2; all code we write stays C89-compatible (`-std=gnu89`), which
-compiles unchanged on GCC 12. A GCC 12 run cannot be reproduced here.
+Status: **implementation and audit in progress; not a release certification.**
+This map began as an analysis of the extracted r82a tree in `src/` (84 files),
+but the working tree now contains broad implementation and regression-test
+changes. Historical baseline figures below remain historical; §33 records the
+latest concurrency/build work and its verified limits. No claim is made that the
+full project has zero defects or that the no-thread binary has passed a live
+runtime test.
+
+Toolchain used here: gcc 14.2.0 / GNU Make 4.4.1 on Debian x86-64. The target
+Ubuntu LTS / GCC 12+ environment was not available, so a GCC 12 run cannot be
+reproduced here. The make-x64 compatibility build continues to use
+`-std=gnu89`.
 
 ---
 
@@ -325,7 +331,8 @@ Mutexes live in `struct program_data` (`config.h:1519`), initialized in
 | `prg.lockrdgdcli` / `lockrdgdsrv` | radegast |
 | `prg.lockfreecccli` / `locksrvfreecc` | freecccam |
 | `prg.lockmain` | check ECM/DCW thread |
-| `prg.lockdnsth`, `prg.lockthreaddate` | dns / date |
+| `prg.lockdnsth` | host list and `ip`/`clip`/`checkiptime` state |
+| `prg.lockthreaddate` | date thread |
 
 Observed discipline: the ECM thread takes `prg.lockecm`, and takes
 `prg.lockcache` *while holding* `lockecm` (e.g. `setdcw.c:589`, taken at `:557`), so the
@@ -1373,10 +1380,12 @@ per CAID), `cache_new()` (three `cache_data` branches), `cache_setdcw()`
 and PIPE_CACHE_REPLY (`cw_cache_data`) all malloc'd and dereferenced
 without a check. One failed allocation was a SIGSEGV on the cache thread —
 which is the process. Bitten live with a surgical LD_PRELOAD bite
-(`tests/ca-bite.c`): the original 88-byte layout used a 90112-byte table,
-while the current packed layout is 94 bytes (96256 bytes per table). The
+(`tests/ca-bite.c`): the original 88-byte layout used a 90112-byte table;
+the packed x64 CACHEEX layout at D34 was 94 bytes (96256 bytes per table).
+D6A later approved an 8-byte internal ECM lifetime token, so the current
+entry is 102 bytes and the matching 1024-slot table is 104448 bytes. The
 original size-matched bite killed the 3.3 binary with exit 139 on the first
-honest ECM; the fixed binary survives the current-size bite.
+honest ECM; the bite harness tracks the current table allocation.
 
 **The fix (D34).** Fourteen guards (`TASK 3.4` in the source), one per
 allocation and one per caller. Failure semantics everywhere are the same
@@ -1387,9 +1396,10 @@ its node in only after the table exists, so a half-built node can never be
 found. One bounded `CACHE: out of memory (caid %04X)` line per failed
 table attempt; per-node failures stay silent.
 
-**Scope discipline.** No pool, no freelist, no struct or layout change
-(the reserved categories remain untouched by design choice); nothing
-blocks, nothing queues (GR9). Recorded narrowing: a peer-agreement report
+**Scope discipline.** D34 added no pool or freelist and did not change the
+peer wire layout; the later, single-field internal-cache exception is approved
+and bounded by D6A. Nothing blocks, nothing queues (GR9). Recorded narrowing:
+a peer-agreement report
 dropped for memory is counted nowhere — under pressure sources
 under-report, never invent.
 
@@ -1709,3 +1719,84 @@ Contract, since TASK 3.14:
   were dropped. Dropping the line logs `list cleared` once.
 - `dcwfilter.c` is still not compiled. The walk lives in `dcw.c`,
   which is the file OBJECTS already links.
+
+## §33 — ECM/cache lock contracts and server-card publication (2026-11-05)
+
+This section records the current implementation review, not a release sign-off.
+
+### ECM lifecycle and cache-pipe snapshots
+
+- Active callers of `ecm_request_set_dcwstatus()` are required to own
+  `lockecm`. The protocol receive handlers, `th-ecm.c`, `setdcw.c`, ECM-slot
+  initialization, and attestation invalidation were checked against that
+  contract. The two old calls in a commented-out `clustredcache.c` block are
+  not live callers. Success/failure mark the cache snapshot inactive before the
+  terminal status write; WAIT/WAITCACHE do not. Slot reuse separately retires
+  the old lifetime record before clearing storage.
+- `pipe_cache_find/request/reply/resendreq()` serialize while the caller still
+  owns `lockecm`. `put_ecm2cache()` takes no locks; it copies a request pointer
+  only alongside its lifetime generation. The snapshot registry takes
+  `lockcache` in the established `lockecm -> lockcache` order. Reused ECM slots
+  retire the old registry record before clearing the storage.
+- `srv_cstatadd()` is a caller-locked helper: all live protocol call sites are
+  reached under `prg.locksrv`, which also protects the HTTP cstat snapshot.
+  `disconnect_srv()` has the same runtime lock requirement. Config reload is
+  the sole exception: it owns the write lifetime gate, drains detached connect
+  workers, and owns `lockecm` exclusively before reclaiming runtime state.
+
+### HTTP server-card list
+
+`http_server_detail_snapshot_take()` and the `/server` row builder traverse
+`srv->card` while holding `prg.locksrv`. The Newcamd, Camd35, and CS378X
+connection handshakes previously linked initial cards without that mutex. Those
+three insertions now use the same `locksrv` contract, so HTTP snapshots,
+load-balancing reads, connection-worker publication, and runtime teardown are
+serialized without introducing `locksrv` acquisition into the no-thread ECM
+path. Camd35/CS378X initial-card allocation also checks for `malloc` failure
+before dereferencing the result.
+
+### Cache-peer and host-state synchronization
+
+`prg.lockcache` owns the cache-peer list and live mutable peer fields shared by
+the cache worker, cache-check worker, and HTTP: request/reply/hit counters,
+`ping`, `flags`, program/version, cards, SMS, and peer timestamps. The
+`/cache`, `/cachepeer`, `/json`, and AJAX paths copy bounded value snapshots
+under that lock, then format/write the response after unlocking. Peer actions
+re-resolve the ID under `lockcache`; SMS sends copy the destination and message
+under the lock, then perform UDP/file I/O outside it. Profile-hit aggregates
+remain under `lockcacheex`; cache-hit code acquires `lockcache` and
+`lockcacheex` sequentially, never nested.
+
+Host-list membership and `host_data.ip`, `clip`, and `checkiptime` are owned by
+`prg.lockdnsth`. Readers and writers use host-state helpers. Cache code may
+nest `lockcache -> lockdnsth`, server code may nest `locksrv -> lockdnsth`, and
+ECM code may nest `lockecm -> lockdnsth`; the DNS worker never takes those
+locks in reverse. It copies a due hostname, releases `lockdnsth` during the
+potentially blocking resolver call, then re-finds the record by name and
+publishes its result under `lockdnsth`.
+
+Peer-reputation evidence uses its own leaf mutex and does not call back into
+cache state. Escalations copy their log details while `lockcache` is held, then
+save the ledger after unlocking; the durable file is written before the
+escalation log is emitted. No cache-peer wire message or protocol field changed.
+
+### No-thread build and deferred Newcamd cache replies
+
+The no-thread (`THREAD_DCW` omitted) path now defines the marked-CW entry point
+used by the ECM pipe consumer, validates a declared cache cycle under the
+existing ECM lock, and does not acquire `locksrv` there. No peer wire format or
+protocol message was changed. Deferred Newcamd cached replies are placed on a
+bounded in-memory queue and sent by a separate worker; the ECM-loop consumer
+rechecks server state and the exact request lifetime under `locksrv`. Queue
+saturation remains an explicit overload case: the frame is logged and dropped,
+not synchronously written while `lockecm` is held. A stress test of a full ECM
+pipe against the live worker is still outstanding.
+
+The no-thread link initially exposed missing math-library linkage and the
+no-thread marked-CW symbol. The build rule now links `-lm` after the object list.
+On 2026-11-05, the standard x64 link and a full x64 link with `THREAD_DCW`
+omitted both completed with exit 0 and no compiler warnings/errors in their
+logs. Forced `make -C make-x64 -B test` completed with exit 0: 28 suites,
+1,028 checks passed, 0 failed. `git diff --check` also passed. The no-thread
+executable has not been run against a live configuration, so link success is
+not runtime certification.

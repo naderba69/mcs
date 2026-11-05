@@ -182,6 +182,51 @@ static void t_eviction_is_longest_unseen(void)
 	CHECK(cache_purge_count(&tab) == CACHE_PURGE_SLOTS, "count stays bounded");
 }
 
+static void t_wraparound(void)
+{
+	struct purge_entry lifted[CACHE_PURGE_SLOTS];
+	int n;
+	cache_purge_init(&tab);
+	cache_purge_mark_scoped(&tab, SRV, 77, CAID1, SID1, PROV1, 1,
+	                        UINT32_MAX - 15u);
+
+	CHECK(cache_purge_should_withhold_at_scoped(&tab, SRV, 77, CAID1, SID1,
+	      PROV1, 1, 0x10u, 33u) == 1,
+	      "age 32 ms across tick wrap remains live under a 33 ms limit");
+	CHECK(cache_purge_should_withhold_at_scoped(&tab, SRV, 77, CAID1, SID1,
+	      PROV1, 1, 0x10u, 32u) == 0,
+	      "age exactly at the limit expires across tick wrap");
+	n = cache_purge_expire(&tab, 0x10u, 33u, lifted, CACHE_PURGE_SLOTS);
+	CHECK(n == 0 && cache_purge_count(&tab) == 1,
+	      "expiry does not fire one millisecond early across wrap");
+	n = cache_purge_expire(&tab, 0x11u, 33u, lifted, CACHE_PURGE_SLOTS);
+	CHECK(n == 1 && cache_purge_count(&tab) == 0 &&
+	      lifted[0].srcid == 77 && lifted[0].ticks == UINT32_MAX - 15u,
+	      "expiry fires at the exact wrapped elapsed age and returns the mark");
+}
+
+static void t_eviction_wraparound(void)
+{
+	const uint32_t base = UINT32_MAX - 31u;
+	int i;
+	cache_purge_init(&tab);
+
+	/* Sixty-four ordered timestamps straddle UINT32_MAX. Refresh source 0
+	 * after wrap, then force an eviction: source 1 is now the oldest. */
+	for (i = 0; i < CACHE_PURGE_SLOTS; i++)
+		cache_purge_mark(&tab, SRV, (uint32_t)i, CAID1,
+		                 12000 + (uint16_t)i, PROV1, base + (uint32_t)i);
+	cache_purge_mark(&tab, SRV, 0, CAID1, 12000, PROV1, 100u);
+	CHECK(cache_purge_mark(&tab, SRV, 999, CAID1, 12999, PROV1, 110u) == 1,
+	      "a full table still accepts a mark after tick wrap");
+	CHECK(cache_purge_should_withhold(&tab, SRV, 0, CAID1, 12000, PROV1) == 1,
+	      "wrap-safe eviction preserves the refreshed mark");
+	CHECK(cache_purge_should_withhold(&tab, SRV, 1, CAID1, 12001, PROV1) == 0,
+	      "wrap-safe eviction removes the longest-unseen mark, not a newer low tick");
+	CHECK(cache_purge_should_withhold(&tab, SRV, 32, CAID1, 12032, PROV1) == 1,
+	      "a newer entry whose absolute tick is smaller survives");
+}
+
 static void t_bounded_and_safe(void)
 {
 	long i;
@@ -250,6 +295,8 @@ int main(void)
 	t_unmark_is_reversible();
 	t_eviction_prefers_free_slots();
 	t_eviction_is_longest_unseen();
+	t_wraparound();
+	t_eviction_wraparound();
 	t_bounded_and_safe();
 	t_hits_saturate();
 	printf("== %d/%d passed, %d failed ==\n", pass_n, pass_n + fail_n, fail_n);

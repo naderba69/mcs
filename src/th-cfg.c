@@ -159,17 +159,14 @@ void *reread_config_thread(void *param)
 			user_trace_config_lock();
 			user_trace_stop_active();
 			free_filenames( &cfg );
-			reread_config(&cfg);
-			sleep(1);
-			/*
-			 * Graceful degradation on a reload that lost the profile section:
-			 * say so loudly instead of quietly serving nothing. Editors that
-			 * truncate-then-save make this easy to hit by accident.
-			 */
-			if ( !cfg.cardserver )
-				debugf( DBG_ERROR, " !!! CONFIG: reloaded config has no profile section -- the server is serving nothing until it is fixed\n" );
-			check_config(&cfg);
-			cfg_set_id_counters(&cfg);
+				reread_config(&cfg);
+				/*
+				 * Graceful degradation on a reload that lost the profile section:
+				 * say so loudly instead of quietly serving nothing. Editors that
+				 * truncate-then-save make this easy to hit by accident.
+				 */
+				if ( !cfg.cardserver )
+					debugf( DBG_ERROR, " !!! CONFIG: reloaded config has no profile section -- the server is serving nothing until it is fixed\n" );
 			user_trace_config_unlock();
 		}
 	}

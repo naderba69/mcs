@@ -425,7 +425,7 @@ static inline void r22_hook_cw_failed(
     cwfingerprint_record_fake(&r22_fpr, source_id, now);
 
     /* 7. Check auto-switch */
-    autoswitch_record(&r22_asw, caid, provid, sid, source_id, 0);
+    autoswitch_record(&r22_asw, caid, provid, sid, source_id, 0, now);
     R22STATS_INC(autoswitch_triggered);
     
     /* R24: Update source score (was fake) */
@@ -463,7 +463,7 @@ static inline void r22_hook_cw_verified(
     cwfeedback_record_delivery(&r22_fdbk, 0, caid, provid, sid, cw, source_id, now);
 
     /* 4. Update auto-switch (success) */
-    autoswitch_record(&r22_asw, caid, provid, sid, source_id, 1);
+    autoswitch_record(&r22_asw, caid, provid, sid, source_id, 1, now);
 
     /* 5. Resolve black screen if active */
     blackscreen_resolve(&r22_bscr, caid, provid, sid);

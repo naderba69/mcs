@@ -91,6 +91,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 {
 	uint8_t cw[16];
 	struct cardserver_data *cs;
+	ECM_DATA *ecm;
 /*
 		// TEST KEEPALIVE
 		uint32_t ticks = GetTickCount();
@@ -117,7 +118,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 
 		unsigned char buf[2048];
 		int received = recv_nonb( srv->handle, buf, 32+4, 1000);
-		if (received<=0) {
+		if (received<=0 || received < 36 || received > (int)sizeof(buf)) {
 			disconnect_srv(srv);
 			//debugf(getdbgflag(DBG_SERVER,0,srv->id), " cs378x server disconnected, receive timeout\n");
 			return NULL;
@@ -130,20 +131,26 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 			return NULL;
 		}
 		aes_decrypt( &srv->decryptkey, buf+4, received-4);
-		//Fix for ECM request size > 255 (use ecm length field)
-		int datalen = buf[5];
-		if (buf[4] == 0)
-			{ datalen = (((buf[25] & 0x0f) << 8) | buf[26]) + 3; }
-		else if ( (buf[4]&0xFC)==0x3C ) datalen = buf[5] | (buf[6] << 8); // cacheex
-		int newlen = 4+camd35_padding(20+datalen);
+		int newlen = cs378x_frame_length(buf, received, (int)sizeof(buf), 0);
+		if (newlen < 0 || newlen < received) {
+			debugf(getdbgflag(DBG_SERVER,0,srv->id), " [!] invalid or oversized cs378x frame\n");
+			disconnect_srv(srv);
+			return NULL;
+		}
 		if (received<newlen) {
-			int n = recv_nonb( srv->handle, buf+received, newlen-received, 500);
-			if ( n != (newlen-received) ) {
+			int need = newlen-received;
+			int n = recv_nonb( srv->handle, buf+received, need, 500);
+			if ( n != need ) {
 				disconnect_srv(srv);
 				//debugf(getdbgflag(DBG_SERVER,0,srv->id), " cs378x server disconnected, receive timeout\n");
 				return NULL;
 			}
 			aes_decrypt( &srv->decryptkey, buf+received, n);
+			received += n;
+		}
+		if (received != newlen) {
+			disconnect_srv(srv);
+			return NULL;
 		}
 
 		//debugf(getdbgflag(DBG_SERVER,0,srv->id)," msg from cs378x server (%s:%d)\n", srv->host->name, srv->port); debughex(buf, newlen);
@@ -156,39 +163,46 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from cs378x server (%s:%d), unknown ecm request\n",srv->host->name,srv->port);
 					break;
 				}
-				//
-				if (buf[5]!=0x10) {
+				// The message-id and 16-byte CW are only valid in a full reply frame.
+				if (received < 24) {
+					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] short cs378x ECM response header\n");
+					break;
+				}
+				if (buf[5]!=0x10 || received < 40) {
 					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from cs378x server (%s:%d), wrong length!!!\n",srv->host->name,srv->port);
 					break;
 				}
-				// Check the response against the exact pending ECM profile/channel.
-				ECM_DATA *ecm = srv->ecm.request;
+				ecm_lock(); //### Keep request/profile pointers stable through validation.
+				ecm = srv->ecm.request;
 				if (!ecm) {
 					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from cs378x server (%s:%d), ecm not found!!!\n",srv->host->name,srv->port);
+					ecm_unlock();
+					break;
+				}
+				if ((((uint16_t)buf[20] << 8) | buf[21]) != (uint16_t)srv->ecm.msgid) {
+					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] stale cs378x response, wrong message-id\n");
+					ecm_unlock();
+					break;
+				}
+				if (!ecm_request_lifetime_matches(ecm, srv->ecm.request, srv->ecm.lifetime_id) ||
+				    ecm->hash != srv->ecm.hash) {
+					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] stale cs378x response, request lifetime changed\n");
+					ecm_unlock();
 					break;
 				}
 				if (!acceptDCW_profile_ecm(buf+24, ecm->cs, ecm->caid, ecm->provid, ecm->sid)) {
 					srv->ecmerrdcw++;
 					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from cs378x server (%s:%d), bad dcw!!!\n",srv->host->name,srv->port);
+					ecm_unlock();
 					break;
 				}
-				//
 				srv->busy = 0;
 				pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
-				pthread_mutex_lock(&prg.lockecm); //###
-
-				// check for ECM validity
-				if (ecm->hash!=srv->ecm.hash) {
-					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from cs378x server (%s:%d), ecm deleted!!!\n",srv->host->name,srv->port);
-					pthread_mutex_unlock(&prg.lockecm);
-					break;
-				}
-
 				srv->ecmok++;
 				srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
 				srv->ecmoktime += srv->lastecmoktime;
 				ecm_setsrvflagdcw( ecm, srv->id, ECM_SRV_REPLY_GOOD, buf+24 );
-				debugf(getdbgflagpro(DBG_SERVER,0,srv->id,ecm->cs->id)," <= cw from cs378x server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
+				debugf(getdbgflagpro(DBG_SERVER,0,srv->id,(ecm->cs ? ecm->cs->id : 0))," <= cw from cs378x server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 
 				if (ecm->dcwstatus!=STAT_DCW_SUCCESS) {
 					static char msg[] = "Good dcw from camd35 server";
@@ -198,7 +212,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 				}
 				else {	//TODO: check same dcw between cards
 					srv->ecmerrdcw ++;
-					if ( memcmp( ecm->cw, buf+24, 16) ) debugf(getdbgflagpro(DBG_SERVER,0,srv->id,ecm->cs->id)," !!! different dcw from cs378x server (%s:%d)\n",srv->host->name,srv->port);
+					if ( memcmp( ecm->cw, buf+24, 16) ) debugf(getdbgflagpro(DBG_SERVER,0,srv->id,(ecm->cs ? ecm->cs->id : 0))," !!! different dcw from cs378x server (%s:%d)\n",srv->host->name,srv->port);
 				}
 #ifdef SID_FILTER
 				// ADD IN SID LIST
@@ -208,46 +222,42 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 					srv_cstatadd( srv, cs->id, 1 , srv->lastecmoktime);
 				}
 #endif
-				pthread_mutex_unlock(&prg.lockecm); //###
+				ecm_unlock(); //###
 				break;
 
 
 			case 0x44:
 				srv->lastdcwtime = GetTickCount();
+				if (received < 24) {
+					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] short cs378x negative response header\n");
+					break;
+				}
 				if (!srv->busy) {
 					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from cs378x server (%s:%d), unknown ecm request\n",srv->host->name,srv->port);
 					break;
 				}
-				// Checl Stored ECM
+				ecm_lock(); //###
 				ecm = srv->ecm.request;
-				if (!ecm) {
-					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from cs378x server (%s:%d), ecm not found!!!\n",srv->host->name,srv->port);
+				if (!ecm || ((((uint16_t)buf[20] << 8) | buf[21]) != (uint16_t)srv->ecm.msgid) ||
+				    !ecm_request_lifetime_matches(ecm, srv->ecm.request, srv->ecm.lifetime_id) ||
+				    ecm->hash != srv->ecm.hash) {
+					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] stale cs378x negative response ignored\n");
+					ecm_unlock();
 					break;
 				}
-				//
 				srv->busy = 0;
 				pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
-				pthread_mutex_lock(&prg.lockecm); //###
-
-				// check for ECM validity
-				if (ecm->hash!=srv->ecm.hash) {
-					debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from cs378x server (%s:%d), ecm deleted!!!\n",srv->host->name,srv->port);
-					pthread_mutex_unlock(&prg.lockecm);
-					break;
-				}
-
-				cs= ecm->cs;
+				cs = ecm->cs;
 				ecm_setsrvflag(ecm, srv->id, ECM_SRV_REPLY_FAIL);
-				debugf(getdbgflagpro(DBG_SERVER,0,srv->id,ecm->cs->id)," <| decode failed from cs378x server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
+				debugf(getdbgflagpro(DBG_SERVER,0,srv->id,(ecm->cs ? ecm->cs->id : 0))," <| decode failed from cs378x server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 #ifdef SID_FILTER
-				// ADD IN SID LIST
 				if (cs) {
 					cardsids_update( srv->busycard, ecm->provid, ecm->sid, -1);
 					srv_cstatadd( srv, cs->id, 0 , 0);
 				}
 #endif
-				pthread_mutex_unlock(&prg.lockecm); //###
-				wakeup_sendecm(); // Wakeup ecm waiting for availabe servers
+				ecm_unlock(); //###
+				wakeup_sendecm(); // Wakeup ecm waiting for available servers
 				break;
 
 			// Keepalive
@@ -264,6 +274,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 #ifdef CACHEEX
 			// Request Nodeid
 			case CAMD_CEX_IDREPLY:
+				if (received < 32) break; /* 8-byte node ID starts at offset 24. */
 				srv->keepalive.status = 0;
 				//debugf(getdbgflag(DBG_SERVER,0,srv->id)," server(cs378x): Got Nodeid from (%s:%d)\n", srv->host->name, srv->port);
 				memcpy( srv->nodeid, buf+24, 8);
@@ -278,7 +289,8 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 
 			// push out
 			case CAMD_CEX_PUSH:
-				if (newlen<60) break;
+				/* Includes the trailing 8-byte node ID at [61..68]. */
+				if (received < 69) break;
 				memcpy( cw, buf+44, 16);
 				if (dcw_hard_reject(cw)) break; /* TASK 3.15: profile gate is cache_setdcw */
 				//srv->cacheex.totalrep++;
@@ -291,7 +303,9 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 				// Look for cardserver
 				cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
 				if ( !cs || !cs->option.fallowcacheex ) {
+					pthread_mutex_lock(&prg.lockcacheex);
 					srv->cacheex.badcw++;
+					pthread_mutex_unlock(&prg.lockcacheex);
 					break;
 				}
 				if ((buf[23]&0xFE)==0x80) cacheex.tag = buf[23]; else cacheex.tag = 0;
@@ -300,9 +314,11 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 				cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 				if (!cacheex_check(&cacheex)) break;
 				//debugf(getdbgflag(DBG_SERVER,0,srv->id), " CACHEEX PUSH from client(%d) %04x:%06x:%04x (%08x)\n",cli->id,cacheex.caid,cacheex.provid,cacheex.sid,cacheex.hash);
+				pthread_mutex_lock(&prg.lockcacheex);
 				srv->cacheex.got[0]++;
 				int uphop = buf[60];
 				if (uphop<10) srv->cacheex.got[uphop]++;
+				pthread_mutex_unlock(&prg.lockcacheex);
 				//
 				pthread_mutex_lock( &prg.lockcache );
 				int res = cache_setdcw( &cacheex, cw, NO_CYCLE, PEER_CACHEEX_SERVER | srv->id );
@@ -372,8 +388,13 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 			}
 #endif
 				pthread_mutex_unlock( &prg.lockcache );
+				cache_peerrep_save_after_unlock();
 				if (res&DCW_ERROR) {
-					if ( !(res&DCW_SKIP) ) srv->cacheex.badcw++;
+					if ( !(res&DCW_SKIP) ) {
+						pthread_mutex_lock(&prg.lockcacheex);
+						srv->cacheex.badcw++;
+						pthread_mutex_unlock(&prg.lockcacheex);
+					}
 				}
 				else if (res&DCW_CYCLE) {
 					if ( cs->option.cacheex.maxhop>uphop ) {
@@ -399,23 +420,29 @@ void *cs378x_srv_recvmsg_thread(struct server_data *srv)
 	srv->pid = syscall(SYS_gettid);
 
 	while (!prg.restart) {
-		if (srv->handle<=0) {
+		struct pollfd pfd;
+		int fd;
+		pthread_mutex_lock(&prg.locksrv);
+		fd = srv->handle;
+		pthread_mutex_unlock(&prg.locksrv);
+		if (fd<=0) {
 			srv->pid = 0;
-			disconnect_srv(srv);
 			return NULL;
 		}
-		//
-		struct pollfd pfd;
-		pfd.fd = srv->handle;
+		pfd.fd = fd;
 		pfd.events = POLLIN | POLLPRI;
 		int retval = poll(&pfd, 1, 3009);
 		if (retval==0) continue;
 		if (retval<0) {
-			disconnect_srv(srv);
+			pthread_mutex_lock(&prg.locksrv);
+			if (srv->handle == fd) disconnect_srv(srv);
+			pthread_mutex_unlock(&prg.locksrv);
+			srv->pid = 0;
 			return NULL;
 		}
-		//
-		cs378x_srv_recvmsg( srv );
+		pthread_mutex_lock(&prg.locksrv);
+		if (srv->handle == fd) cs378x_srv_recvmsg(srv);
+		pthread_mutex_unlock(&prg.locksrv);
 	}
 	return NULL;
 }
@@ -428,10 +455,14 @@ void *cs378x_srv_recvmsg_thread(struct server_data *srv)
 int cs378x_connect_srv(struct server_data *srv, int fd)
 {
 
+	pthread_mutex_lock(&prg.locksrv);
 	srv->handle = fd;
+	pthread_mutex_unlock(&prg.locksrv);
 	SetSocketTimeout(fd, 5000);
 	cs378x_send_keepalive(srv);
+	pthread_mutex_lock(&prg.locksrv);
 	srv->handle = 0;
+	pthread_mutex_unlock(&prg.locksrv);
 	// Poll
 	struct pollfd pfd;
 	pfd.fd = fd;
@@ -439,25 +470,30 @@ int cs378x_connect_srv(struct server_data *srv, int fd)
 	if ( poll( &pfd, 1, 3000) <=0 ) return 1;
 	//
 	unsigned char buf[1024];
-	int n = cs378x_recv( fd, srv->ucrc, &srv->decryptkey, buf);
-	if (n>0) {
+	int n = cs378x_recv( fd, srv->ucrc, &srv->decryptkey, buf, (int)sizeof(buf));
+	if (n >= 32) {
 #ifdef CACHEEX
 		if ( buf[4] == CAMD_CEX_IDREPLY ) {
 			memcpy( srv->nodeid, buf+24, 8);
 			//debugf(getdbgflag(DBG_SERVER,0,srv->id)," server(cs378x): Got Nodeid from (%s:%d)\n", srv->host->name, srv->port);
+			pthread_mutex_lock(&prg.locksrv);
 			srv->connection.status = 1;
 			srv->connection.time = GetTickCount();
 			srv->keepalive.status = 0;
 			srv->keepalive.time = GetTickCount();
 			srv->handle = fd;
+			pthread_mutex_unlock(&prg.locksrv);
 			//
 			char str[8*3+1];
 			array2hex( srv->nodeid, str, 8);
 			debugf(getdbgflag(DBG_SERVER,0,srv->id)," Connected to cs378x server (%s:%d), Nodeid = %s\n", srv->host->name, srv->port, str);
+			if (!server_connection_is_enabled(srv, fd)) return 0;
 			// Cache EX 2 -> thread
 			if (srv->cacheex_mode==2) {
 				if (!create_thread(PACKED_MPTR(srv, pthread_t, tid), (threadfn)cs378x_srv_recvmsg_thread, srv)) {
-					disconnect_srv(srv);
+					pthread_mutex_lock(&prg.locksrv);
+					if (srv->handle == fd) disconnect_srv(srv);
+					pthread_mutex_unlock(&prg.locksrv);
 					return 1;
 				}
 			}
@@ -468,29 +504,33 @@ int cs378x_connect_srv(struct server_data *srv, int fd)
 		if ( buf[4] == CAMD_KEEPALIVE ) {
 			//
 			debugf(getdbgflag(DBG_SERVER,0,srv->id)," Connected to cs378x server (%s:%d)\n", srv->host->name, srv->port);
-			srv->connection.status = 1;
-			srv->connection.time = GetTickCount();
-			srv->keepalive.status = 0;
-			srv->keepalive.time = GetTickCount();
-			srv->handle = fd;
-			//SetUP Cards
+			//SetUP Cards while the connection is still marked as connecting.
 			int count = 0;
 			while (srv->sharelimits[count].caid!=0xFFFF) {
 				struct cs_card_data *pcard = malloc( sizeof(struct cs_card_data) );
+				if (!pcard) {
+					debugf(DBG_ERROR, " !!! unable to allocate cs378x server card record for server %u\n", (unsigned)srv->id);
+					break;
+				}
 				memset(pcard, 0, sizeof(struct cs_card_data) );
 				pcard->caid = srv->sharelimits[count].caid;
 				pcard->nbprov = 1;
 				pcard->prov[0] = srv->sharelimits[count].provid;
 				pcard->uphops = srv->sharelimits[count].uphops;
+				pthread_mutex_lock(&prg.locksrv);
 				pcard->next = srv->card;
 				srv->card = pcard;
+				pthread_mutex_unlock(&prg.locksrv);
 				count++;
 			}
-#ifdef EPOLL_ECM
-			pipe_pointer( prg.pipe.ecm[1], PIPE_SRV_CONNECTED, srv );
-#else
-			pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_CONNECTED );
-#endif
+			pthread_mutex_lock(&prg.locksrv);
+			srv->connection.status = 1;
+			srv->connection.time = GetTickCount();
+			srv->keepalive.status = 0;
+			srv->keepalive.time = GetTickCount();
+			srv->handle = fd;
+			pthread_mutex_unlock(&prg.locksrv);
+			server_publish_connection_ready(srv, fd);
 			return 0;
 		}
 	}

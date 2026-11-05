@@ -27,6 +27,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CWREPLACE_RING_SIZE 8   /* last 8 CWs per channel */
 
@@ -135,6 +136,7 @@ static inline int cwreplace_offer(struct cwreplace_table *t,
 {
     struct cwreplace_channel *c;
     struct cwreplace_entry *best = 0;
+    uint32_t best_age = 0;
     int i;
 
     if (!t || !current_cw || !out_cw) return 0;
@@ -143,15 +145,20 @@ static inline int cwreplace_offer(struct cwreplace_table *t,
 
     for (i = 0; i < CWREPLACE_RING_SIZE; i++) {
         struct cwreplace_entry *e = &c->ring[i];
+        uint32_t age;
         if (!e->used) continue;
         /* Exclude the current (fake) CW */
         if (memcmp(e->cw, current_cw, 16) == 0) continue;
-        /* Exclude expired entries */
-        if (max_age > 0 && (now - e->tick) > max_age) continue;
-        /* Prefer verified entries */
-        if (!best) { best = e; continue; }
-        if (e->verified && !best->verified) { best = e; continue; }
-        if (e->tick > best->tick) best = e;
+        age = tick32_elapsed(now, e->tick);
+        /* Exclude expired entries using modulo elapsed time. */
+        if (max_age > 0 && age > max_age) continue;
+        /* Prefer verified entries, then the smallest wrap-safe age. */
+        if (!best) { best = e; best_age = age; continue; }
+        if (e->verified && !best->verified) { best = e; best_age = age; continue; }
+        if (e->verified == best->verified && age < best_age) {
+            best = e;
+            best_age = age;
+        }
     }
 
     if (!best) return 0;

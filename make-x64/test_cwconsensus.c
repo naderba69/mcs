@@ -282,6 +282,40 @@ int main(void)
 	  cwconsensus_capacity(0x20, 400, &cap);
 	  chk(cap.held==1 && cap.overdue==0 && cap.oldest_hold_ms==48, "capacity handles tick wrap", cap.oldest_hold_ms);
 	}
+	cwconsensus_init();
+	cwconsensus_verdict(CH(0x1884,2,2,0x80), K1, 1, 1, 0, 400, &loser);
+	{ struct cwconsensus_capacity cap;
+	  cwconsensus_capacity(3000000000u, 400, &cap);
+	  chk(cap.held==1 && cap.overdue==1 && cap.oldest_hold_ms==3000000000u,
+	      "capacity reports hold age beyond the signed half-range", cap.oldest_hold_ms);
+	}
+	cwconsensus_init();
+	{ int i, fill_ok = 1, distinct = 0, weight = 0;
+	  uint32_t now = 100u;
+	  for (i=0; i<CWC_CAPACITY; i++) {
+	    uint32_t age = (i==0) ? 3000000000u : (uint32_t)(i+1);
+	    uint32_t born = now - age;
+	    int a = cwconsensus_verdict(CH(0x1884,(uint16_t)(0x100+i),
+	                                0xA0000000u+(uint32_t)i,0x80),
+	                                K1, 10000+i, 1, born, 400, &loser);
+	    int b = cwconsensus_verdict(CH(0x1884,(uint16_t)(0x100+i),
+	                                0xA0000000u+(uint32_t)i,0x80),
+	                                K1, 20000+i, 1, born+1u, 400, &loser);
+	    if (a != CWC_HOLD || b != CWC_DELIVER) fill_ok = 0;
+	  }
+	  chk(fill_ok, "consensus table fills with completed candidates", fill_ok);
+	  v = cwconsensus_verdict(CH(0x1884,0x200,0xA0000100u,0x80),
+	                          K2, 30000, 1, now, 400, &loser);
+	  chk(v==CWC_HOLD, "a full consensus table reclaims an expired candidate", v);
+	  chk(!cwconsensus_vote_counts(CH(0x1884,0x100,0xA0000000u,0x80), K1,
+	                                now, 400, &distinct, &weight) && distinct==0,
+	      "consensus eviction drops the greatest unsigned elapsed age", distinct);
+	  distinct = weight = 0;
+	  chk(cwconsensus_vote_counts(CH(0x1884,0x101,0xA0000001u,0x80), K1,
+	                              now, 400, &distinct, &weight) &&
+	      distinct==2 && weight==2,
+	      "consensus eviction preserves a recently active candidate", distinct);
+	}
 
 	/* A stale lost candidate must start a fresh window; an active loss sticks. */
 	cwconsensus_init();

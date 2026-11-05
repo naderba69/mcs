@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define ZEROLATENCY_CHANNELS 64
 #define ZEROLATENCY_LEAD_MS  150  /* send CW 150ms before expiry */
@@ -31,6 +32,7 @@ struct zerolatency_channel {
     int change_head;
     uint32_t last_change;
     uint32_t predicted_next;  /* predicted timestamp of next change */
+    uint8_t prediction_valid; /* predicted_next may legitimately wrap to zero */
     uint8_t prepositioned;    /* 1 = next CW already sent to client */
     uint8_t used;
 };
@@ -62,15 +64,18 @@ zerolatency_find(struct zerolatency_table *t, uint16_t caid,
 
 static inline struct zerolatency_channel *
 zerolatency_alloc(struct zerolatency_table *t, uint16_t caid,
-                  uint32_t provid, uint16_t sid)
+                  uint32_t provid, uint16_t sid, uint32_t now)
 {
-    int i, oldest = 0;
+    int i, oldest = -1;
+    uint32_t oldest_age = 0;
     struct zerolatency_channel *c;
 
+    if (!t) return 0;
     c = zerolatency_find(t, caid, provid, sid);
     if (c) return c;
 
     for (i = 0; i < ZEROLATENCY_CHANNELS; i++) {
+        uint32_t age;
         if (!t->channels[i].used) {
             c = &t->channels[i];
             c->caid = caid;
@@ -79,13 +84,15 @@ zerolatency_alloc(struct zerolatency_table *t, uint16_t caid,
             c->used = 1;
             return c;
         }
-        if (t->channels[i].last_change < t->channels[oldest].last_change) {
+        age = tick32_elapsed(now, t->channels[i].last_change);
+        if (oldest < 0 || age > oldest_age) {
             oldest = i;
+            oldest_age = age;
         }
     }
 
-    /* Evict oldest */
-    c = &t->channels[oldest];
+    /* Evict the channel with greatest modulo elapsed age. */
+    c = &t->channels[(oldest < 0) ? 0 : oldest];
     memset(c, 0, sizeof(*c));
     c->caid = caid;
     c->provid = provid;
@@ -102,43 +109,46 @@ static inline void zerolatency_record(struct zerolatency_table *t,
                                       uint16_t sid, uint32_t now)
 {
     struct zerolatency_channel *c;
-    uint32_t total_interval = 0;
+    uint64_t total_interval = 0;
     int intervals = 0;
     int i;
 
     if (!t) return;
 
-    c = zerolatency_alloc(t, caid, provid, sid);
+    c = zerolatency_alloc(t, caid, provid, sid, now);
     if (!c) return;
 
-    /* Record change timestamp */
     c->changes[c->change_head] = now;
     c->change_head = (c->change_head + 1) % ZEROLATENCY_HISTORY;
     if (c->change_count < ZEROLATENCY_HISTORY) c->change_count++;
 
-    /* Calculate average cycle time */
     if (c->change_count >= 2) {
+        int start = (c->change_head - c->change_count + ZEROLATENCY_HISTORY) %
+                    ZEROLATENCY_HISTORY;
         for (i = 1; i < c->change_count; i++) {
-            int prev = (c->change_head - c->change_count + i - 1 + ZEROLATENCY_HISTORY) % ZEROLATENCY_HISTORY;
-            int curr = (c->change_head - c->change_count + i + ZEROLATENCY_HISTORY) % ZEROLATENCY_HISTORY;
-            if (c->changes[curr] > c->changes[prev]) {
-                total_interval += (c->changes[curr] - c->changes[prev]);
+            uint32_t prev = c->changes[(start + i - 1) % ZEROLATENCY_HISTORY];
+            uint32_t curr = c->changes[(start + i) % ZEROLATENCY_HISTORY];
+            uint32_t interval = tick32_elapsed(curr, prev);
+            if (interval > 0 && interval <= 0x7FFFFFFFu) {
+                total_interval += interval;
                 intervals++;
             }
         }
     }
 
-    /* Predict next change */
-    if (intervals > 0 && c->change_count >= 2) {
-        uint32_t avg_cycle = total_interval / (uint32_t)intervals;
-        int last_idx = (c->change_head - 1 + ZEROLATENCY_HISTORY) % ZEROLATENCY_HISTORY;
+    if (intervals > 0) {
+        uint32_t avg_cycle = (uint32_t)(total_interval / (uint32_t)intervals);
+        int last_idx = (c->change_head - 1 + ZEROLATENCY_HISTORY) %
+                       ZEROLATENCY_HISTORY;
         c->predicted_next = c->changes[last_idx] + avg_cycle;
+        c->prediction_valid = 1;
     } else {
         c->predicted_next = 0;
+        c->prediction_valid = 0;
     }
 
     c->last_change = now;
-    c->prepositioned = 0;  /* Reset: new CW delivered, next one not yet sent */
+    c->prepositioned = 0;
 }
 
 /* Check if it's time to pre-position the next CW.
@@ -157,13 +167,13 @@ static inline int zerolatency_check(struct zerolatency_table *t,
     if (!t) return 0;
 
     c = zerolatency_find(t, caid, provid, sid);
-    if (!c || c->predicted_next == 0) return 0;
+    if (!c || !c->prediction_valid) return 0;
     if (c->prepositioned) return 0;  /* Already sent */
 
-    /* Check if we're within ZEROLATENCY_LEAD_MS of predicted change */
+    /* Ticks are milliseconds; prefetched time must not already be past. */
     lead_time_ms = ZEROLATENCY_LEAD_MS;
-    if ((now * 1000) + lead_time_ms >= (c->predicted_next * 1000)) {
-        return 1;  /* Time to pre-position */
+    if (tick32_elapsed(c->predicted_next, now) <= lead_time_ms) {
+        return 1;
     }
 
     return 0;
@@ -182,8 +192,8 @@ static inline void zerolatency_mark(struct zerolatency_table *t,
     if (c) c->prepositioned = 1;
 }
 
-/* Get predicted time until next CW change (in seconds).
- * Returns: seconds until next change, or 0 if no prediction.
+/* Get predicted time until next CW change in monotonic milliseconds.
+ * Returns 0 when no prediction exists or the predicted tick has passed.
  */
 static inline uint32_t zerolatency_time_remaining(struct zerolatency_table *t,
                                                   uint16_t caid,
@@ -192,11 +202,13 @@ static inline uint32_t zerolatency_time_remaining(struct zerolatency_table *t,
                                                   uint32_t now)
 {
     struct zerolatency_channel *c;
+    uint32_t remaining;
     if (!t) return 0;
     c = zerolatency_find(t, caid, provid, sid);
-    if (!c || c->predicted_next == 0) return 0;
-    if (now >= c->predicted_next) return 0;
-    return c->predicted_next - now;
+    if (!c || !c->prediction_valid) return 0;
+    remaining = tick32_elapsed(c->predicted_next, now);
+    if (remaining > 0x7FFFFFFFu) return 0;
+    return remaining;
 }
 
 #endif /* MCS_ZEROLATENCY_H */

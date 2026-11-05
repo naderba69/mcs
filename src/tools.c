@@ -30,45 +30,90 @@
 
 struct timeval startime;
 
+#ifndef WIN32
+static struct timespec monotonic_startime;
+static pthread_once_t monotonic_start_once = PTHREAD_ONCE_INIT;
+static int monotonic_start_error;
+
+static void init_monotonic_startime(void)
+{
+    if (clock_gettime(CLOCK_MONOTONIC, &monotonic_startime) != 0)
+        monotonic_start_error = errno ? errno : EIO;
+}
+
+int tools_init_tick_clock(void)
+{
+    int rc = pthread_once(&monotonic_start_once, init_monotonic_startime);
+    if (rc != 0) return rc;
+    return monotonic_start_error ? -1 : 0;
+}
+
+static int monotonic_elapsed_us(uint64_t *elapsed)
+{
+    struct timespec now;
+    int64_t seconds, nanoseconds;
+
+    if (!elapsed || tools_init_tick_clock() != 0) return -1;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return -1;
+
+    seconds = (int64_t)now.tv_sec - (int64_t)monotonic_startime.tv_sec;
+    nanoseconds = (int64_t)now.tv_nsec - (int64_t)monotonic_startime.tv_nsec;
+    if (nanoseconds < 0) {
+        seconds--;
+        nanoseconds += 1000000000LL;
+    }
+    if (seconds < 0) return -1;
+    *elapsed = (uint64_t)seconds * 1000000u + (uint64_t)nanoseconds / 1000u;
+    return 0;
+}
+#endif
+
 #ifdef WIN32
 
 void usleep( int count )
 {
-  unsigned long int Ticks = GetTickCount() + count/1000;
-  while (Ticks>GetTickCount()) ;
+  uint32_t start = (uint32_t)GetTickCount();
+  uint32_t delay = count > 0 ? (uint32_t)count / 1000u : 0u;
+  while ((uint32_t)((uint32_t)GetTickCount() - start) < delay) ;
 }
 
 #else
 
-uint64_t GetTickCount()
+uint32_t GetTickCount(void)
 {
-    struct timeval tv;
-    gettimeofday( &tv, NULL );
-    // this will rollover ~ every 49.7 days
-    return (unsigned int)( (tv.tv_sec-startime.tv_sec) * 1000 + tv.tv_usec / 1000);
+    uint64_t elapsed_us;
+    if (monotonic_elapsed_us(&elapsed_us) != 0) return 0;
+    // Preserve the Windows-compatible 32-bit millisecond tick domain.
+    return (uint32_t)(elapsed_us / 1000u);
 }
 
 unsigned int GetuTickCount()
 {
-    struct timeval tv;
-    gettimeofday( &tv, NULL );
-    // this will rollover ~ every 49.7 days
-    return (unsigned int)( (tv.tv_sec-startime.tv_sec) * 1000000 + tv.tv_usec);
+    uint64_t elapsed_us;
+    if (monotonic_elapsed_us(&elapsed_us) != 0) return 0;
+    // The public return type is 32-bit on supported targets; wrap is intentional.
+    return (unsigned int)elapsed_us;
 }
 
 unsigned int GetTicks(struct timeval *tv)
 {
-    return (unsigned int)( (tv->tv_sec-startime.tv_sec) * 1000 + tv->tv_usec/1000 );
+    uint64_t elapsed_us;
+    (void)tv; /* Retain the legacy signature; all POSIX ticks share one clock. */
+    if (monotonic_elapsed_us(&elapsed_us) != 0) return 0;
+    return (unsigned int)(elapsed_us / 1000u);
 }
 
 #endif
 
 unsigned int getseconds()
 {
-    struct timeval tv;
-    gettimeofday( &tv, NULL );
-    // this will rollover ~ every 49.7 days
-    return (unsigned int)(tv.tv_sec-startime.tv_sec);
+#ifndef WIN32
+    uint64_t elapsed_us;
+    if (monotonic_elapsed_us(&elapsed_us) != 0) return 0;
+    return (unsigned int)(elapsed_us / 1000000u);
+#else
+    return (unsigned int)(GetTickCount() / 1000u);
+#endif
 }
 
 

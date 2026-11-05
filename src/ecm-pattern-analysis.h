@@ -44,6 +44,7 @@
 #include <string.h>
 #include <time.h>
 #include <pthread.h>
+#include "tick_math.h"
 
 /* ============================================================================
  * CONFIGURATION
@@ -188,25 +189,30 @@ static inline struct ecmpat_source *ecmpat_find_source(uint32_t source_id)
     return NULL;
 }
 
-static inline struct ecmpat_source *ecmpat_get_or_create(uint32_t source_id)
+static inline struct ecmpat_source *ecmpat_get_or_create(uint32_t source_id,
+                                                          uint32_t now_ms)
 {
     struct ecmpat_source *src = ecmpat_find_source(source_id);
     if (src) return src;
     
     if (g_ecmpat.source_count >= ECMPAT_MAX_SOURCES) {
-        /* Evict oldest */
-        int oldest = 0;
-        uint32_t oldest_time = 0xFFFFFFFF;
+        /* Evict the source whose most recent event has greatest elapsed age. */
+        int oldest = -1;
+        uint32_t oldest_age = 0;
         int i;
         for (i = 0; i < g_ecmpat.source_count; i++) {
-            if (g_ecmpat.sources[i].history_count > 0) {
-                int last = (g_ecmpat.sources[i].history_head - 1 + ECMPAT_HISTORY_SIZE) % ECMPAT_HISTORY_SIZE;
-                if (g_ecmpat.sources[i].history[last].timestamp_ms < oldest_time) {
-                    oldest_time = g_ecmpat.sources[i].history[last].timestamp_ms;
+            struct ecmpat_source *candidate = &g_ecmpat.sources[i];
+            if (candidate->history_count > 0) {
+                int last = (candidate->history_head - 1 + ECMPAT_HISTORY_SIZE) % ECMPAT_HISTORY_SIZE;
+                uint32_t age = tick32_elapsed(now_ms,
+                                              candidate->history[last].timestamp_ms);
+                if (oldest < 0 || age > oldest_age) {
+                    oldest_age = age;
                     oldest = i;
                 }
             }
         }
+        if (oldest < 0) oldest = 0;
         memset(&g_ecmpat.sources[oldest], 0, sizeof(struct ecmpat_source));
         src = &g_ecmpat.sources[oldest];
     } else {
@@ -309,9 +315,9 @@ static inline int ecmpat_detect_emm_shared(struct ecmpat_source *src,
     if (is_emm) return 0;  /* EMM itself is not an attack */
     
     /* Check if we recently received an EMM */
-    if (src->last_emm_time == 0) return 0;
+    if (src->emm_events == 0) return 0;
     
-    uint32_t elapsed = now_ms - src->last_emm_time;
+    uint32_t elapsed = tick32_elapsed(now_ms, src->last_emm_time);
     
     /* If CW arrived within EMM window AND it's bad → EMM-SHARED attack */
     if (elapsed < ECMPAT_EMM_WINDOW_MS && !is_success) {
@@ -332,8 +338,8 @@ static inline int ecmpat_detect_timeout_recovery(struct ecmpat_source *src,
     if (is_success) return 0;  /* Good CWs are fine */
     
     /* Check if we had a recent timeout (>5 seconds gap) */
-    if (src->last_good_cw_time > 0) {
-        uint32_t gap = now_ms - src->last_good_cw_time;
+    if (src->good_cws > 0) {
+        uint32_t gap = tick32_elapsed(now_ms, src->last_good_cw_time);
         if (gap > 5000 && gap < 30000 && src->consecutive_bad >= 1) {
             return 1;
         }
@@ -351,7 +357,7 @@ static inline int ecmpat_detect_burst_fake(struct ecmpat_source *src,
 {
     if (src->consecutive_bad < ECMPAT_BURST_THRESHOLD) return 0;
     
-    uint32_t burst_duration = now_ms - src->burst_start_time;
+    uint32_t burst_duration = tick32_elapsed(now_ms, src->burst_start_time);
     if (burst_duration < ECMPAT_BURST_WINDOW_MS) {
         return 1;
     }
@@ -382,7 +388,7 @@ static inline int ecmpat_detect_cache_poison(const uint8_t *cw_hash,
             int idx = (start + src->history_count - 1 - j) % ECMPAT_HISTORY_SIZE;
             struct ecmpat_event *evt = &src->history[idx];
             if (!evt->is_success && !evt->is_emm &&
-                (now_ms - evt->timestamp_ms) < 5000 &&
+                tick32_elapsed(now_ms, evt->timestamp_ms) < 5000 &&
                 memcmp(evt->cw_hash, cw_hash, 8) == 0) {
                 match_count++;
                 break;  /* Count each source only once */
@@ -419,6 +425,8 @@ static inline void ecmpat_quarantine_source(struct ecmpat_source *src,
                                              uint32_t now_ms)
 {
     src->quarantine_until = now_ms + ECMPAT_QUARANTINE_MS;
+    /* Zero is the inactive sentinel; retain it as such at tick rollover. */
+    if (src->quarantine_until == 0) src->quarantine_until = 1;
     src->attack_count++;
     g_ecmpat.total_quarantines++;
 }
@@ -427,7 +435,9 @@ static inline int ecmpat_is_quarantined(struct ecmpat_source *src,
                                           uint32_t now_ms)
 {
     if (src->quarantine_until == 0) return 0;
-    if (now_ms > src->quarantine_until) {
+    /* Preserve the original strict `now > until` boundary by testing the
+     * next tick as a modular deadline; durations remain under half-range. */
+    if (tick32_deadline_reached(now_ms, src->quarantine_until + 1u)) {
         src->quarantine_until = 0;  /* Quarantine expired */
         return 0;
     }
@@ -463,7 +473,7 @@ static inline int ecmpat_analyze(uint32_t source_id,
     
     g_ecmpat.total_events++;
     
-    struct ecmpat_source *src = ecmpat_get_or_create(source_id);
+    struct ecmpat_source *src = ecmpat_get_or_create(source_id, now_ms);
     struct ecmpat_caid_stats *cstats = ecmpat_get_caid_stats(caid);
     
     /* Check if source is quarantined */
