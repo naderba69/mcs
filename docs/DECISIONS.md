@@ -4171,8 +4171,11 @@ policy as the threaded handler.
 warnings/errors in the captured log. Full x64 link with `THREAD_DCW` omitted
 and `CLI_CSCACHE`/`CACHEEX` enabled: exit 0, no compiler warnings/errors in
 the captured log. Forced `make -C make-x64 -B test`: 28 suites, 1,028 checks
-passed, 0 failed. `git diff --check`: passed. The no-thread binary has not been
-run against a live configuration; live ECM-pipe back-pressure and
+passed, 0 failed. The test build emitted 132 compiler-warning diagnostics
+(including compatibility flags, unused test/header helpers and parameters,
+sign comparisons, bounded-string-copy, and deliberate short-buffer cases); these
+were not suppressed. The two production link logs were warning-free. `git diff --check`: passed. The no-thread binary has not
+been run against a live configuration; live ECM-pipe back-pressure and
 queue-saturation stress tests remain outstanding.
 
 **Risk.** The no-thread marked-CW branch is compile/link-verified but not

@@ -1797,6 +1797,10 @@ no-thread marked-CW symbol. The build rule now links `-lm` after the object list
 On 2026-11-05, the standard x64 link and a full x64 link with `THREAD_DCW`
 omitted both completed with exit 0 and no compiler warnings/errors in their
 logs. Forced `make -C make-x64 -B test` completed with exit 0: 28 suites,
-1,028 checks passed, 0 failed. `git diff --check` also passed. The no-thread
+1,028 checks passed, 0 failed. The test build emitted 132 compiler-warning
+diagnostics (including compatibility flags, unused test/header helpers and
+parameters, sign comparisons, bounded-string-copy, and deliberate short-buffer
+cases); these were not suppressed. The two production link logs were
+warning-free. `git diff --check` also passed. The no-thread
 executable has not been run against a live configuration, so link success is
 not runtime certification.
