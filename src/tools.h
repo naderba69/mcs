@@ -3,7 +3,8 @@
 
 extern struct timeval startime;
 
-uint64_t GetTickCount();
+uint32_t GetTickCount(void);
+int tools_init_tick_clock(void);
 unsigned int GetuTickCount();
 unsigned int GetTicks(struct timeval *tv);
 unsigned int getseconds();

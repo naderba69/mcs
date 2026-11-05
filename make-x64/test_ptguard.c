@@ -66,15 +66,15 @@ int main(void)
 	      "still inside the window at its last millisecond");
 	CHECK(ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 7, 0x1884, 1000 + PTG_LINE_WINDOW_MS) == 1,
 	      "the window that ran out reopens the budget");
-	CHECK(ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 8, 0x1884, 1500) == 1,
+	CHECK(ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 8, 0x1884, 62000) == 1,
 	      "a different source has its own budget");
-	CHECK(ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 7, 0x1885, 1500) == 1,
+	CHECK(ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 7, 0x1885, 63000) == 1,
 	      "and so does a different caid of the same source (GR4)");
-	CHECK(ptg_line_due(&tab, PTG_SITE_RELAY, SRC_T, 7, 0x1884, 1600) == 1,
+	CHECK(ptg_line_due(&tab, PTG_SITE_RELAY, SRC_T, 7, 0x1884, 64000) == 1,
 	      "the two SITES have separate budgets: a mesh withhold never silences the store sentence");
-	CHECK(ptg_line_due(&tab, PTG_SITE_RELAY, SRC_T, 7, 0x1884, 1700) == 0,
+	CHECK(ptg_line_due(&tab, PTG_SITE_RELAY, SRC_T, 7, 0x1884, 65000) == 0,
 	      "(the relay site throttles itself, exactly like the store one)");
-	CHECK(ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 7, 0x1884, 3000) == 0,
+	CHECK(ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 7, 0x1884, 66000) == 0,
 	      "the original slot is untouched by its neighbours' writes");
 
 	/* eviction: fill the table, one source re-stamps (busy), then one new key
@@ -96,6 +96,30 @@ int main(void)
 		      "the busy source survived -- its stamp is the newest, not the oldest");
 		CHECK(ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 101, 0x1884, later + 3) == 1,
 		      "the quiet old neighbour lost its slot: its stamp is gone, so it speaks again");
+	}
+	{
+		uint32_t start = UINT32_MAX - 100u;
+		uint32_t now = 100u;
+		int fill_ok = 1;
+		ptg_line_init(&tab);
+		CHECK(ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 77, 0x1884, start) == 1 &&
+		      ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 77, 0x1884,
+		                   start + PTG_LINE_WINDOW_MS - 1u) == 0 &&
+		      ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 77, 0x1884,
+		                   start + PTG_LINE_WINDOW_MS) == 1,
+		      "line budget expires correctly across tick rollover");
+
+		ptg_line_init(&tab);
+		for (i = 0; i < PTG_LINE_SLOTS; i++) {
+			uint32_t age = (i == 0) ? 3000000000u : (uint32_t)(i + 1);
+			if (ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 5000 + i,
+			                 0x1884, now - age) != 1) fill_ok = 0;
+		}
+		CHECK(fill_ok, "line table fills with the synthetic wrapped timestamps");
+		ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 6000, 0x1884, now);
+		CHECK(ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 5000, 0x1884, now) == 1 &&
+		      ptg_line_due(&tab, PTG_SITE_STORE, SRC_T, 5001, 0x1884, now) == 0,
+		      "full line table evicts maximum unsigned elapsed age across rollover");
 	}
 
 	/* --- 3. the two sentences -------------------------------------------- */

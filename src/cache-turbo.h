@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <pthread.h>
+#include "tick_math.h"
 
 // ============================================================================
 // Configuration
@@ -26,6 +27,7 @@
 #define CACHE_TURBO_BUCKETS 512  // Power of 2 for fast modulo
 #define CACHE_TURBO_MAX_ENTRIES 2048
 #define CACHE_TURBO_TTL_SECONDS 30
+#define CACHE_TURBO_TTL_MS (CACHE_TURBO_TTL_SECONDS * 1000u)
 
 // ============================================================================
 // Data Structures
@@ -48,6 +50,7 @@ struct cache_turbo_entry {
     uint8_t cw_cycle;
     uint8_t source_type;  // DCW_SOURCE_*
     uint32_t source_id;
+    uint8_t used;
     
     // Linked list for collision handling
     struct cache_turbo_entry *next;
@@ -122,41 +125,57 @@ static inline uint32_t cache_turbo_hash(uint16_t caid, uint32_t provid, uint16_t
 // Pool Management
 // ============================================================================
 
-static struct cache_turbo_entry* cache_turbo_alloc_entry(void)
+static struct cache_turbo_entry* cache_turbo_alloc_entry(uint32_t now)
 {
-    if (cache_turbo_pool_used < CACHE_TURBO_MAX_ENTRIES) {
-        return &cache_turbo_pool[cache_turbo_pool_used++];
-    }
-    
-    // Pool full - find oldest entry to evict
-    struct cache_turbo_entry *oldest = NULL;
-    uint32_t oldest_time = 0xFFFFFFFF;
     int i;
-    
-    for (i = 0; i < CACHE_TURBO_MAX_ENTRIES; i++) {
-        if (cache_turbo_pool[i].cached_at < oldest_time) {
-            oldest_time = cache_turbo_pool[i].cached_at;
-            oldest = &cache_turbo_pool[i];
+
+    /* Reuse a previously removed or expired pool slot first. */
+    for (i = 0; i < cache_turbo_pool_used; i++) {
+        if (!cache_turbo_pool[i].used) {
+            memset(&cache_turbo_pool[i], 0, sizeof(cache_turbo_pool[i]));
+            return &cache_turbo_pool[i];
         }
     }
-    
-    if (oldest) {
-        // Remove from bucket chain
-        uint32_t bucket = cache_turbo_hash(oldest->caid, oldest->provid, oldest->sid);
-        struct cache_turbo_entry **pp = &cache_turbo_buckets[bucket];
-        while (*pp) {
-            if (*pp == oldest) {
-                *pp = oldest->next;
-                break;
+
+    if (cache_turbo_pool_used < CACHE_TURBO_MAX_ENTRIES) {
+        struct cache_turbo_entry *entry = &cache_turbo_pool[cache_turbo_pool_used++];
+        memset(entry, 0, sizeof(*entry));
+        return entry;
+    }
+
+    /* Pool full - evict the active entry with greatest modulo elapsed age. */
+    {
+        struct cache_turbo_entry *oldest = NULL;
+        uint32_t oldest_age = 0;
+        for (i = 0; i < cache_turbo_pool_used; i++) {
+            uint32_t age;
+            if (!cache_turbo_pool[i].used) continue;
+            age = tick32_elapsed(now, cache_turbo_pool[i].cached_at);
+            if (!oldest || age > oldest_age) {
+                oldest = &cache_turbo_pool[i];
+                oldest_age = age;
             }
-            pp = &(*pp)->next;
         }
-        
-        cache_turbo_stats.total_evictions++;
-        memset(oldest, 0, sizeof(*oldest));
-        return oldest;
+
+        if (oldest) {
+            uint32_t bucket = cache_turbo_hash(oldest->caid, oldest->provid,
+                                               oldest->sid);
+            struct cache_turbo_entry **pp = &cache_turbo_buckets[bucket];
+            while (*pp) {
+                if (*pp == oldest) {
+                    *pp = oldest->next;
+                    break;
+                }
+                pp = &(*pp)->next;
+            }
+            cache_turbo_stats.total_evictions++;
+            if (cache_turbo_stats.current_entries > 0)
+                cache_turbo_stats.current_entries--;
+            memset(oldest, 0, sizeof(*oldest));
+            return oldest;
+        }
     }
-    
+
     return NULL;
 }
 
@@ -190,14 +209,19 @@ static int cache_turbo_lookup(uint16_t caid, uint32_t provid, uint16_t sid,
     cache_turbo_stats.total_lookups++;
     
     uint32_t bucket = cache_turbo_hash(caid, provid, sid);
-    struct cache_turbo_entry *entry = cache_turbo_buckets[bucket];
+    struct cache_turbo_entry **pp = &cache_turbo_buckets[bucket];
     
     // Walk the chain
-    while (entry) {
+    while (*pp) {
+        struct cache_turbo_entry *entry = *pp;
         if (entry->caid == caid && entry->provid == provid && entry->sid == sid) {
-            // Check TTL
-            if ((now - entry->cached_at) > CACHE_TURBO_TTL_SECONDS) {
-                // Expired
+            // TTL and now use modulo millisecond ticks.
+            if (tick32_elapsed(now, entry->cached_at) > CACHE_TURBO_TTL_MS) {
+                // Remove expired entry now, rather than holding a dead pool slot.
+                *pp = entry->next;
+                memset(entry, 0, sizeof(*entry));
+                if (cache_turbo_stats.current_entries > 0)
+                    cache_turbo_stats.current_entries--;
                 cache_turbo_stats.total_expired++;
                 pthread_mutex_unlock(&cache_turbo_lock);
                 return 0;
@@ -212,7 +236,7 @@ static int cache_turbo_lookup(uint16_t caid, uint32_t provid, uint16_t sid,
             pthread_mutex_unlock(&cache_turbo_lock);
             return 1;
         }
-        entry = entry->next;
+        pp = &entry->next;
     }
     
     // Miss
@@ -255,7 +279,7 @@ static void cache_turbo_store(uint16_t caid, uint32_t provid, uint16_t sid,
     }
     
     // Allocate new entry
-    entry = cache_turbo_alloc_entry();
+    entry = cache_turbo_alloc_entry(now);
     if (!entry) {
         pthread_mutex_unlock(&cache_turbo_lock);
         return;
@@ -273,6 +297,7 @@ static void cache_turbo_store(uint16_t caid, uint32_t provid, uint16_t sid,
     entry->cw_cycle = cw_cycle;
     entry->source_type = source_type;
     entry->source_id = source_id;
+    entry->used = 1;
     
     // Add to bucket chain (prepend)
     entry->next = cache_turbo_buckets[bucket];
@@ -304,7 +329,8 @@ static void cache_turbo_remove(uint16_t caid, uint32_t provid, uint16_t sid)
         if (entry->caid == caid && entry->provid == provid && entry->sid == sid) {
             *pp = entry->next;
             memset(entry, 0, sizeof(*entry));
-            cache_turbo_stats.current_entries--;
+            if (cache_turbo_stats.current_entries > 0)
+                cache_turbo_stats.current_entries--;
             pthread_mutex_unlock(&cache_turbo_lock);
             return;
         }
@@ -328,10 +354,11 @@ static void cache_turbo_cleanup(uint32_t now)
         struct cache_turbo_entry **pp = &cache_turbo_buckets[i];
         while (*pp) {
             struct cache_turbo_entry *entry = *pp;
-            if ((now - entry->cached_at) > CACHE_TURBO_TTL_SECONDS) {
+            if (tick32_elapsed(now, entry->cached_at) > CACHE_TURBO_TTL_MS) {
                 *pp = entry->next;
                 memset(entry, 0, sizeof(*entry));
-                cache_turbo_stats.current_entries--;
+                if (cache_turbo_stats.current_entries > 0)
+                    cache_turbo_stats.current_entries--;
                 cache_turbo_stats.total_expired++;
             } else {
                 pp = &(*pp)->next;

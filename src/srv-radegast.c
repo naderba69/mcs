@@ -2,9 +2,12 @@
 // PROTO
 ///////////////////////////////////////////////////////////////////////////////
 
+#include "tick_math.h"
+
 void *rdgd_connect_cli_thread(void *param);
 void *rdgd_getclimsg(void *param);
 uint rdgd_check_sendcw();
+void rdgd_disconnect_cli(struct cardserver_data *cs, struct rdgd_client_data *cli);
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -28,7 +31,7 @@ static void rdgd_send_failure(struct rdgd_client_data *cli)
 	if (cli && cli->handle > 0) rdgd_message_send(cli->handle, failure, sizeof(failure));
 }
 
-void rdgd_senddcw_cli(struct rdgd_client_data *cli)
+void rdgd_senddcw_cli(struct cardserver_data *cs, struct rdgd_client_data *cli)
 {
 	unsigned char buf[CWS_NETMSGSIZE];
 
@@ -46,36 +49,116 @@ void rdgd_senddcw_cli(struct rdgd_client_data *cli)
 	}
 
 	ECM_DATA *ecm = rdgd_get_ecm_request(cli);
+#ifdef CACHEEX
+	struct ledger_delivery_snapshot delivered;
+	int delivered_valid = ecm &&
+		ledger_delivery_snapshot_capture_locked(&delivered, ecm) &&
+		delivered.request == ecm && delivered.lifetime_id == __atomic_load_n(&cli->ecm.lifetime_id, __ATOMIC_ACQUIRE);
+	if (ecm && !delivered_valid) {
+		/* The stored pointer no longer names this client's exact ECM lifetime. */
+		rdgd_send_failure(cli);
+		cli->ecm.busy = 0;
+		cli->ecm.status = STAT_DCW_SENT;
+		return;
+	}
+	uint32_t response_recvtime = delivered_valid ? delivered.recvtime : cli->ecm.recvtime;
+	if (delivered_valid) {
+		cli->ecm.lastcaid = delivered.caid;
+		cli->ecm.lastprov = delivered.provid;
+		cli->ecm.lastprovider_known = delivered.provider_known;
+		cli->ecm.lastsid = delivered.sid;
+		cli->ecm.lasthash = delivered.hash;
+		cli->ecm.lasttag = delivered.tag;
+		cli->ecm.lastdecodetime = GetTickCount()-response_recvtime;
+	}
+#else
+	uint32_t response_recvtime = cli->ecm.recvtime;
 	if (ecm) {
 		cli->ecm.lastcaid = ecm->caid;
 		cli->ecm.lastprov = ecm->provid;
+		cli->ecm.lastprovider_known = ecm->provider_known;
 		cli->ecm.lastsid = ecm->sid;
-		cli->ecm.lastdecodetime = GetTickCount()-cli->ecm.recvtime;
+		cli->ecm.lasthash = ecm->hash;
+		cli->ecm.lasttag = ecm->ecm[0];
+		cli->ecm.lastdecodetime = GetTickCount()-response_recvtime;
 	}
+#endif
 
+#ifdef CACHEEX
+	if (delivered_valid && delivered.status==STAT_DCW_SUCCESS) {
+#else
 	if ( ecm && (ecm->dcwstatus==STAT_DCW_SUCCESS) ) {
-		cli->ecm.lastdcwsrctype = ecm->dcwsrctype;
-		cli->ecm.lastdcwsrcid = ecm->dcwsrcid;
-		cli->ecm.laststatus=1;
-		cli->ecmok++;
-		cli->ecmoktime += GetTickCount()-cli->ecm.recvtime;
+#endif
+		uint32_t sent_at;
+		cli->ecm.laststatus=0;
+		cli->ecm.lastdcwsrctype = DCW_SOURCE_NONE;
+		cli->ecm.lastdcwsrcid = 0;
+		memset(cli->ecm.lastcw, 0, sizeof(cli->ecm.lastcw));
+#ifdef CACHEEX
+		memset(cli->ecm.lastecmd5, 0, sizeof(cli->ecm.lastecmd5));
+		cli->ecm.lastecm_len = 0;
+#endif
 		// Send DCW
 		buf[0] = 0x02;
 		buf[1] = 0x12;
 		buf[2] = 0x05;
 		buf[3] = 0x10;
-		memcpy( &buf[4], ecm->cw, 16 );
-		rdgd_message_send( cli->handle, buf, 0x14);
-		debugf(0, " => cw to client (%s) ch %04x:%06x:%04x (%dms)\n", ip2string(cli->ip), ecm->caid,ecm->provid,ecm->sid, GetTickCount()-cli->ecm.recvtime);
-		cli->lastdcwtime = GetTickCount();
+#ifdef CACHEEX
+		memcpy(&buf[4], delivered.cw, 16);
+#else
+		memcpy(&buf[4], ecm->cw, 16);
+#endif
+		if (rdgd_message_send(cli->handle, buf, 0x14) <= 0) {
+			rdgd_disconnect_cli(cs, cli);
+			return;
+		}
+		sent_at = GetTickCount();
+#ifdef CACHEEX
+		cli->ecm.lastcaid = delivered.caid;
+		cli->ecm.lastprov = delivered.provid;
+		cli->ecm.lastprovider_known = delivered.provider_known;
+		cli->ecm.lastsid = delivered.sid;
+		cli->ecm.lasthash = delivered.hash;
+		cli->ecm.lasttag = delivered.tag;
+		cli->ecm.lastdcwsrctype = delivered.srctype;
+		cli->ecm.lastdcwsrcid = delivered.srcid;
+		memcpy(cli->ecm.lastcw, delivered.cw, sizeof(cli->ecm.lastcw));
+		memcpy(cli->ecm.lastecmd5, delivered.ecmd5,
+		       sizeof(cli->ecm.lastecmd5));
+		cli->ecm.lastecm_len = delivered.ecmlen;
+		ledger_note_delivered(&delivered, sent_at);
+#else
+		cli->ecm.lastdcwsrctype = ecm->dcwsrctype;
+		cli->ecm.lastdcwsrcid = ecm->dcwsrcid;
+		memcpy(cli->ecm.lastcw, ecm->cw, sizeof(cli->ecm.lastcw));
+#endif
+		cli->ecm.laststatus=1;
+		cli->ecmok++;
+		cli->ecmoktime += sent_at-response_recvtime;
+		cli->lastdcwtime = sent_at;
+#ifdef CACHEEX
+		debugf(0, " => cw to client (%s) ch %04x:%06x:%04x (%dms)\n", ip2string(cli->ip), delivered.caid,delivered.provid,delivered.sid, sent_at-response_recvtime);
+#else
+		debugf(0, " => cw to client (%s) ch %04x:%06x:%04x (%dms)\n", ip2string(cli->ip), ecm->caid,ecm->provid,ecm->sid, sent_at-response_recvtime);
+#endif
 	}
 	else { //if (ecm->data->dcwstatus==STAT_DCW_FAILED)
 		cli->ecm.laststatus=0;
 		cli->ecm.lastdcwsrctype = DCW_SOURCE_NONE;
 		cli->ecm.lastdcwsrcid = 0;
+		memset(cli->ecm.lastcw, 0, sizeof(cli->ecm.lastcw));
+#ifdef CACHEEX
+		memset(cli->ecm.lastecmd5, 0, sizeof(cli->ecm.lastecmd5));
+		cli->ecm.lastecm_len = 0;
+#endif
 		rdgd_send_failure(cli);
-		if (ecm) debugf(0, " |> decode failed to client (%s) ch %04x:%06x:%04x (%dms)\n", ip2string(cli->ip), ecm->caid,ecm->provid,ecm->sid, GetTickCount()-cli->ecm.recvtime);
+#ifdef CACHEEX
+		if (delivered_valid) debugf(0, " |> decode failed to client (%s) ch %04x:%06x:%04x (%dms)\n", ip2string(cli->ip), delivered.caid,delivered.provid,delivered.sid, GetTickCount()-response_recvtime);
 		else debugf(0, " |> decode failed to radegast client (%s), ECM record unavailable\n", ip2string(cli->ip));
+#else
+		if (ecm) debugf(0, " |> decode failed to client (%s) ch %04x:%06x:%04x (%dms)\n", ip2string(cli->ip), ecm->caid,ecm->provid,ecm->sid, GetTickCount()-response_recvtime);
+		else debugf(0, " |> decode failed to radegast client (%s), ECM record unavailable\n", ip2string(cli->ip));
+#endif
 	}
 	cli->ecm.busy=0;
 	cli->ecm.status = STAT_DCW_SENT;
@@ -160,7 +243,11 @@ void *rdgd_connect_cli_thread(void *param)
 				}
 				SetSocketKeepalive(clientsock);
 				SetSocketNoDelay(clientsock);
-				SetSoketNonBlocking(clientsock);
+				if (SetSoketNonBlocking(clientsock) < 0) {
+					debugf(DBG_ERROR, " Radegast: unable to set accepted socket nonblocking (errno=%d)\n", errno);
+					close(clientsock);
+					continue;
+				}
 				struct rdgd_client_data *cli = malloc(sizeof(struct rdgd_client_data));
 				if (!cli) {
 					close(clientsock);
@@ -189,6 +276,9 @@ void rdgd_store_ecmclient(struct cardserver_data *cs, ECM_DATA *ecm, struct rdgd
 {
 	cli->ecm.recvtime = GetTickCount();
 	rdgd_set_ecm_request(cli, ecm);
+#ifdef CACHEEX
+	__atomic_store_n(&cli->ecm.lifetime_id, ecm_request_lifetime_id_load(ecm), __ATOMIC_RELEASE);
+#endif
 	cli->ecm.status = STAT_ECM_SENT;
 	ecm_addip(ecm, cli->ip);
 }
@@ -204,12 +294,14 @@ static int rdgd_tlv_is_complete(const uint8_t *buf, int received, int index)
 
 static int rdgd_cache_has_peers(void)
 {
-	struct cacheserver_data *cache = cfg.cache.server;
-	while (cache) {
-		if (cache->peer) return 1;
-		cache = cache->next;
+	struct cacheserver_data *cache;
+	int found = 0;
+	pthread_mutex_lock(&prg.lockcache);
+	for (cache = cfg.cache.server; cache; cache = cache->next) {
+		if (cache->peer) { found = 1; break; }
 	}
-	return 0;
+	pthread_mutex_unlock(&prg.lockcache);
+	return found;
 }
 
 int accept_ecm(struct cardserver_data *cs, uint16_t caid, uint32_t provid,
@@ -244,7 +336,7 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 		}
 		else if (len==-1) {
 			if (!cli->chkrecvtime) cli->chkrecvtime = GetTickCount();
-			else if ( (cli->chkrecvtime+300)<GetTickCount() ) {
+			else if (tick32_elapsed(GetTickCount(), cli->chkrecvtime) > 300u) {
 				debugf(0, " radegast: client (%s) read failed %d\n", ip2string(cli->ip),len);
 				rdgd_disconnect_cli(cs,cli);
 			}
@@ -338,7 +430,7 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 					}
 
 					// ACCEPTED
-					pthread_mutex_lock(&prg.lockecm); //###
+					ecm_lock(); //###
 
 					// Search for ECM
 					ECM_DATA *ecm = search_ecmdata_dcw(ecmdata, ecmlen, 0, caid, provid, provider_known); // key includes parsed provider presence
@@ -356,7 +448,7 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 							cs->ecmdenied++;
 							cli->ecmdenied++;
 							rdgd_send_failure(cli);
-							pthread_mutex_unlock(&prg.lockecm);
+							ecm_unlock();
 							break;
 						}
 						cs->ecmaccepted++;
@@ -366,12 +458,12 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 						ecm->cw1cycle = cw1cycle;
 						if (cs->option.fallowcache && rdgd_cache_has_peers()) {
 							ecm->waitcache = 1;
-							ecm->dcwstatus = STAT_DCW_WAITCACHE;
+							ecm_request_set_dcwstatus(ecm, STAT_DCW_WAITCACHE);
 							ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
 							pipe_cache_find(ecm, cs);
-						} else ecm->dcwstatus = STAT_DCW_WAIT;
+						} else ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 					}
-					pthread_mutex_unlock(&prg.lockecm); //###
+					ecm_unlock(); //###
 					wakeup_sendecm();
 					break;
 
@@ -443,9 +535,9 @@ void *rdgd_getclimsg(void *param)
 					rdgd_cli_recvmsg(targets[i].cli, targets[i].cs);
 			}
 		}
-		pthread_mutex_lock(&prg.lockecm);
+		ecm_lock();
 		rdgd_check_sendcw();
-		pthread_mutex_unlock(&prg.lockecm);
+		ecm_unlock();
 		free(pfds);
 		free(targets);
 		pthread_mutex_unlock(&prg.lockrdgdcli);
@@ -458,7 +550,7 @@ void *rdgd_getclimsg(void *param)
 uint rdgd_check_sendcw()
 {
 	struct cardserver_data *cs = cfg.cardserver;
-	uint restime = GetTickCount() + 10000;
+	uint restime = (uint32_t)GetTickCount() + 10000u;
 	uint clitime = 0;
 
 	while (cs) {
@@ -466,22 +558,23 @@ uint rdgd_check_sendcw()
 			struct rdgd_client_data *cli = cs->radegast.client;
 			uint32_t ticks = GetTickCount();
 			while (cli) {
+				struct rdgd_client_data *next = cli->next;
 				if ( (cli->handle>0)&&(cli->ecm.busy) ) {
 					clitime = ticks+11000;
 					// Check for DCW ANSWER
 					ECM_DATA *ecm = rdgd_get_ecm_request(cli);
 					if (ecm) {
 						// Check for FAILED
-						if (ecm->dcwstatus==STAT_DCW_FAILED) rdgd_senddcw_cli( cli );
+						if (ecm->dcwstatus==STAT_DCW_FAILED) rdgd_senddcw_cli(cs, cli);
 						// Check for SUCCESS
-						else if (ecm->dcwstatus==STAT_DCW_SUCCESS) rdgd_senddcw_cli( cli );
+						else if (ecm->dcwstatus==STAT_DCW_SUCCESS) rdgd_senddcw_cli(cs, cli);
 						// check for timeout
-						else if ( (cli->ecm.recvtime+cs->option.dcw.timeout) < ticks ) rdgd_senddcw_cli( cli ); else clitime = cli->ecm.recvtime+cs->option.dcw.timeout;
+						else if (tick32_elapsed(ticks, cli->ecm.recvtime) > (uint32_t)cs->option.dcw.timeout) rdgd_senddcw_cli(cs, cli); else clitime = cli->ecm.recvtime+cs->option.dcw.timeout;
 					}
-					else rdgd_senddcw_cli( cli ); // failed
-					if (restime>clitime) restime = clitime;
+					else rdgd_senddcw_cli(cs, cli); // failed
+					if (tick32_deadline_before(clitime, restime)) restime = clitime;
 				}
-				cli = cli->next;
+				cli = next;
 			}
 		}
 		cs = cs->next;

@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <pthread.h>
+#include "tick_math.h"
 
 // ============================================================================
 // Configuration
@@ -112,9 +113,9 @@ static struct sr_ecm_retry* sr_get_ecm(const uint8_t ecm_hash[16])
 static struct sr_ecm_retry* sr_create_ecm(const uint8_t ecm_hash[16], uint16_t caid,
                                            uint32_t provid, uint16_t sid, uint32_t now_ms)
 {
-    // Find empty slot
+    // Find empty slot, or replace the oldest active retry record.
     int slot = -1;
-    int i;
+    int i, reused_active = 0;
     
     for (i = 0; i < SR_MAX_TRACKED_ECMS; i++) {
         if (!sr_ecms[i].active) {
@@ -124,17 +125,21 @@ static struct sr_ecm_retry* sr_create_ecm(const uint8_t ecm_hash[16], uint16_t c
     }
     
     if (slot == -1) {
-        // Remove oldest
-        uint32_t oldest_time = 0xFFFFFFFF;
+        // Remove the entry with greatest elapsed age from this tick.
+        uint32_t oldest_age = 0;
         for (i = 0; i < sr_ecm_count; i++) {
-            if (sr_ecms[i].first_attempt_time < oldest_time) {
-                oldest_time = sr_ecms[i].first_attempt_time;
+            uint32_t age;
+            if (!sr_ecms[i].active) continue;
+            age = tick32_elapsed(now_ms, sr_ecms[i].first_attempt_time);
+            if (slot == -1 || age > oldest_age) {
+                oldest_age = age;
                 slot = i;
             }
         }
     }
     
     if (slot == -1) return NULL;
+    if (sr_ecms[slot].active) reused_active = 1;
     
     struct sr_ecm_retry *ecm = &sr_ecms[slot];
     memset(ecm, 0, sizeof(*ecm));
@@ -152,7 +157,7 @@ static struct sr_ecm_retry* sr_create_ecm(const uint8_t ecm_hash[16], uint16_t c
         sr_ecm_count = slot + 1;
     }
     
-    sr_stats.current_tracked_ecms++;
+    if (!reused_active) sr_stats.current_tracked_ecms++;
     
     return ecm;
 }
@@ -260,22 +265,27 @@ static int sr_should_retry(const uint8_t ecm_hash[16], uint32_t now_ms,
         return 0;
     }
     
-    // Check if enough time passed
-    if (now_ms < ecm->next_retry_time) {
-        *wait_ms = ecm->next_retry_time - now_ms;
+    // Check the modular deadline; retry delays are bounded to milliseconds.
+    if (!tick32_deadline_reached(now_ms, ecm->next_retry_time)) {
+        *wait_ms = (uint32_t)tick32_until(ecm->next_retry_time, now_ms);
         pthread_mutex_unlock(&sr_lock);
         return 0;  // Not time yet
     }
     
-    // Get next strategy
-    ecm->current_retry++;
+    // Select the strategy for this retry before advancing the attempt count.
     ecm->current_strategy = sr_get_next_strategy(ecm);
+    ecm->current_retry++;
     ecm->last_attempt_time = now_ms;
     
-    // Calculate next retry time with exponential backoff
+    // Schedule the following retry with bounded exponential backoff.
     uint32_t backoff = SR_RETRY_INTERVAL_MS;
     int i;
-    for (i = 0; i < ecm->current_retry; i++) {
+    for (i = 1; i < ecm->current_retry; i++) {
+        if (SR_BACKOFF_MULTIPLIER > 0 &&
+            backoff > 0x7FFFFFFFu / (uint32_t)SR_BACKOFF_MULTIPLIER) {
+            backoff = 0x7FFFFFFFu;
+            break;
+        }
         backoff *= SR_BACKOFF_MULTIPLIER;
     }
     ecm->next_retry_time = now_ms + backoff;

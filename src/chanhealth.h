@@ -55,7 +55,8 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "cwlog.h"	/* the verdict codes: DELIVERED / REFUSED / HELD --
+#include "cwlog.h"
+#include "tick_math.h"	/* the verdict codes: DELIVERED / REFUSED / HELD --
 			 * the same vocabulary the verdict ring rows carry */
 
 #define CHANHEALTH_SLOTS	24
@@ -90,6 +91,7 @@ static struct chanhealth_row *chanhealth_lookup(struct chanhealth_tab *t,
 					uint16_t sid, uint32_t now)
 {
 	int i, free_i = -1, victim = -1;
+	uint32_t oldest_age = 0;
 	struct chanhealth_row *r;
 
 	for (i = 0; i < CHANHEALTH_SLOTS; i++) {
@@ -100,12 +102,15 @@ static struct chanhealth_row *chanhealth_lookup(struct chanhealth_tab *t,
 			return r;
 		}
 		if (!r->used && free_i < 0) free_i = i;
-		/* the oldest USED row is the eviction victim -- a slot that
-		 * was never claimed can never be the oldest (the ptguard trap:
-		 * an uninitialised victim of 0 hid behind row 0 being empty) */
-		if (r->used && (victim < 0 ||
-		    (int32_t)(r->last - t->row[victim].last) < 0))
-			victim = i;
+		/* Evict the greatest modulo-uint32 elapsed age; unused rows are
+		 * excluded, and tick rollover does not change the ordering. */
+		if (r->used) {
+			uint32_t age = tick32_elapsed(now, r->last);
+			if (victim < 0 || age > oldest_age) {
+				victim = i;
+				oldest_age = age;
+			}
+		}
 	}
 	if (free_i < 0) {
 		free_i = victim;

@@ -40,6 +40,7 @@
 
 #include "debug.h"
 #include "tools.h"
+#include "tick_math.h"
 #include "sockets.h"
 
 // CONVERTION
@@ -195,10 +196,14 @@ int SetSocketKeepalive(int sock)
 	return 0;
 }
 
-void SetSoketNonBlocking(int fd)
+int SetSoketNonBlocking(SOCKET fd)
 {
-	int flags = fcntl( fd, F_GETFL );
-	fcntl( fd, F_SETFL, flags|O_NONBLOCK );
+	int flags;
+	if (fd < 0) { errno = EBADF; return -1; }
+	flags = fcntl(fd, F_GETFL);
+	if (flags < 0) return -1;
+	if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return -1;
+	return 0;
 }
 
 /*
@@ -476,13 +481,21 @@ int recv_nonb(int sock,uint8_t *buf,int len,int timeout)
 {
 	int ret;
     int index = 0;
+	int infinite = timeout < 0;
 	uint32_t now = GetTickCount();
-	uint32_t last = now + timeout;
+	uint32_t last = now + (timeout > 0 ? (uint32_t)timeout : 0u);
 	while (1) {
 		struct pollfd pfd;
+		int wait_ms;
+		if (infinite) wait_ms = -1;
+		else {
+			int32_t until = tick32_until(last, now);
+			if (until < 0) return -2;
+			wait_ms = (int)until;
+		}
 		pfd.fd = sock;
 		pfd.events = POLLIN | POLLPRI;
-		ret = poll(&pfd, 1, last-now);
+		ret = poll(&pfd, 1, wait_ms);
 		if (ret>0) {
 			if ( pfd.revents & (POLLIN|POLLPRI) ) {
 				ret = recv( sock, buf+index, len-index, MSG_NOSIGNAL|MSG_DONTWAIT );
@@ -499,7 +512,7 @@ int recv_nonb(int sock,uint8_t *buf,int len,int timeout)
 		else if ( (errno!=EINTR)&&(errno!=EAGAIN) ) return -1; // error
 
 		now = GetTickCount();
-		if (now>last) return -2; // timeout
+		if (!infinite && tick32_until(last, now) < 0) return -2; // timeout
 	}
 }
 
@@ -513,9 +526,12 @@ int send_nonb00(int sock,uint8_t *buf,int len,int to)
 		pfd.fd = sock;
 		pfd.events = POLLOUT;
 		int ret = poll(&pfd, 1, 100);
-		if (ret==0) return FALSE;
-		else if ( (ret==-1)&&(errno!=EINTR)&&(errno!=EAGAIN) ) return FALSE;
-		else if ( pfd.revents & POLLOUT ) {
+		if (ret == 0) return FALSE;
+		if (ret < 0) {
+			if (errno == EINTR || errno == EAGAIN) continue;
+			return FALSE;
+		}
+		if (pfd.revents & POLLOUT) {
 			int got = send( sock, (void *) ptr, (size_t) remain, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (got >= 0) {
 				remain -= got;
@@ -558,9 +574,12 @@ int send_nonb(int sock,uint8_t *buf,int len,int to)
 		pfd.fd = sock;
 		pfd.events = POLLOUT;
 		int ret = poll(&pfd, 1, 100);
-		if (ret==0) return FALSE;
-		else if ( (ret==-1)&&(errno!=EINTR)&&(errno!=EAGAIN) ) return FALSE;
-		else if ( pfd.revents & POLLOUT ) {
+		if (ret == 0) return FALSE;
+		if (ret < 0) {
+			if (errno == EINTR || errno == EAGAIN) continue;
+			return FALSE;
+		}
+		if (pfd.revents & POLLOUT) {
 			int got = send( sock, (void *) ptr, (size_t) remain, MSG_NOSIGNAL|MSG_DONTWAIT);
 			if (got >= 0) {
 				remain -= got;

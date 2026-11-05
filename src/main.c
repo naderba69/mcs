@@ -1,4 +1,5 @@
 #include "common.h"
+#include "tick_math.h"
 #include "cafamily.h"	/* TASK R38 (D94) */
 
 #include <stdio.h>
@@ -42,6 +43,7 @@
 #include "ecmdata.h"
 #include "parser.h"
 #include "config.h"
+#include "newcamd-lifetime.h"
 #include "httpserver.h"
 #include "user-trace.h"
 #include "caid-integration.h"  /* CAID-specific optimizations */
@@ -1101,7 +1103,10 @@ static void cm_note(int srctype, int srcid, const uint8_t *key,
 /*
  * TASK 1.5 — CWs proven poisoned, by origin. Fixed size, .bss, no allocation
  * on the ECM path (GR9). Marks are set only on a definitive reuse proof (GR3)
- * and lifted by cache_purge_unmark() (GR8).
+ * and lifted by cache_purge_unmark() (GR8). Every production read or write of
+ * this table, including recovery, expiry, and stats snapshots, holds
+ * prg.lockcache; the retry path follows the established lockecm -> lockcache
+ * order.
  */
 struct purge_table purge_tab;
 
@@ -1152,10 +1157,11 @@ static uint32_t attest_ttl_ms(void)
 }
 
 /*
- * Record one receiver's attestation. Called from srv-newcamd on
- * RETRY_HARD with the DELIVERY-TIME source recorded in `lastecm`
- * (GR1) and the delivered bytes themselves. No-ops entirely unless
- * CACHE ATTEST is armed, so the default build is stock.
+ * Record one receiver's attestation. Called from protocol receive paths on
+ * RETRY_HARD with the DELIVERY-TIME source recorded in `lastecm` (GR1) and the
+ * delivered bytes. Those callers hold lockecm; attest_purge relies on that
+ * same lock to walk/update the ECM ring after its lockcache sweep. No-ops
+ * entirely unless CACHE ATTEST is armed, so the default build is stock.
  */
 static void attest_note(uint32_t clientid, const uint8_t *cw,
                         uint16_t caid, uint32_t provid, int provider_known,
@@ -1324,7 +1330,15 @@ uint32_t trust_fade_grace    = 1800;   /* seconds; 0 disables the fade  */
 uint32_t trust_fade_step     = 30;     /* seconds per point of silence  */
 
 static uint32_t tl_lastsave = 0;
+static int tl_lastsave_valid = 0;
 static unsigned long tl_faded = 0, tl_saves = 0, tl_savefails = 0;
+
+/* Keep configured second intervals representable as modular tick durations. */
+static uint32_t tl_seconds_to_tick_ms(uint32_t seconds)
+{
+	uint64_t ms = (uint64_t)seconds * 1000u;
+	return (ms > 0x7FFFFFFFu) ? 0x7FFFFFFFu : (uint32_t)ms;
+}
 
 /*
  * Snapshot the three tables and leave them in trust_persist_file. The table
@@ -1474,21 +1488,26 @@ static void lifecycle_load(void)
  */
 static void tl_tick(uint32_t now)
 {
+	uint32_t persist_interval_ms = tl_seconds_to_tick_ms(
+		(trust_persist_every > 0) ? (uint32_t)trust_persist_every : 0);
 	if (trust_fade_grace && trust_fade_step) {
 		int moved;
 		/* the fade walks both tables: under the same leaf locks the savers use */
 		pthread_mutex_lock(&trust_lock);
 		moved = tl_fade_fine(&trust_tab, now,
-		                     trust_fade_grace * 1000u, trust_fade_step * 1000u)
+		                     tl_seconds_to_tick_ms(trust_fade_grace),
+		                     tl_seconds_to_tick_ms(trust_fade_step))
 		      + tl_fade_coarse(&trustagg_tab, now,
-		                     trust_fade_grace * 1000u, trust_fade_step * 1000u);
+		                     tl_seconds_to_tick_ms(trust_fade_grace),
+		                     tl_seconds_to_tick_ms(trust_fade_step));
 		pthread_mutex_unlock(&trust_lock);
 		tl_faded += (unsigned long)moved;
 	}
-	if (trust_persist && trust_persist_every > 0 &&
-	    (tl_lastsave == 0 ||
-	     (int32_t)(now - tl_lastsave) >= (int32_t)(trust_persist_every * 1000u))) {
+	if (trust_persist && persist_interval_ms > 0 &&
+	    (!tl_lastsave_valid ||
+	     tick32_elapsed(now, tl_lastsave) >= persist_interval_ms)) {
 		tl_lastsave = now;
+		tl_lastsave_valid = 1;
 		if (tl_save() == 0) tl_saves++;
 		else {
 			tl_savefails++;
@@ -1507,10 +1526,12 @@ static void stats_snapshot_fill(struct stats_snapshot *s)
 	s->struct_suppressed = dcwstruct_suppressed;
 	s->deferrals         = cachepref_defer;
 
+	pthread_mutex_lock(&prg.lockcache);
 	s->purge_live     = cache_purge_count(&purge_tab);
 	s->purge_marked   = purge_tab.marked;
 	s->purge_released = purge_tab.released;
 	s->purge_expired  = purge_tab.expired;
+	pthread_mutex_unlock(&prg.lockcache);
 
 	s->rot_skipped  = rotation_tab.avoided;
 	s->rot_capped   = rotation_tab.capped;
@@ -1638,8 +1659,10 @@ static void phase1_stats_tick(void)
 	if (purge_maxage_ms) {
 		struct purge_entry lifted[CACHE_PURGE_SLOTS];
 		int n, i;
+		pthread_mutex_lock(&prg.lockcache);
 		n = cache_purge_expire(&purge_tab, now, purge_maxage_ms,
 		                       lifted, CACHE_PURGE_SLOTS);
+		pthread_mutex_unlock(&prg.lockcache);
 		for (i = 0; i < n && i < CACHE_PURGE_SLOTS; i++)
 			debugf(DBG_ERROR," !!! CACHE PURGE EXPIRE: ch %04x:%06x:%04x mark on source %d/%d lifted after %u ms -- the channel falls back to the normal source order\n",
 				lifted[i].caid, lifted[i].provid, lifted[i].sid,
@@ -1668,202 +1691,342 @@ static void phase1_stats_tick(void)
 }
 
 /*
- * TASK 2.1 -- the agreement ledger, and the one action a proof earns.
+ * TASK 2.1 -- the agreement ledger.
  *
- * LEDGER STRUCTURE. ledger.h holds the table and the whole verdict; this file
- * holds the sentence. The split is the same one TASK 1.8 used for the
- * structural scan and TASK 1.9 for the stats line: the header stays a pure
- * function of its arguments so make-x64/test_ledger.c can exercise every
- * verdict -- including every verdict that must NOT fire -- with no server, no
- * threads and no clock.
+ * Candidate offers are recorded before policy filters. Acceptance and actual
+ * transport delivery are separate transitions; only a successful send marks
+ * delivered. A retry failure is matched against the saved full ECM identity,
+ * CW bytes, source type/ID, and that client's saved send time.
  *
- * LOCKING. trust_lock, the leaf lock TASK 1.8 already uses for dcwstruct_tab.
- * The ledger is reached from every ECM thread (setdcw.c) and from the client
- * threads (srv-newcamd.c), so it is shared state by definition. Nothing else is
- * acquired while it is held except rotation_note_bad_limited(), which is pure
- * and takes no lock of its own -- the same call the retry path already makes
- * without one.
- *
- * WHAT A PROOF IS ALLOWED TO DO, AND WHY IT IS ALLOWED TO DO IT AT ALL
- *   Every other mechanism in Phase 1 and 1.9 tolerates, defers or counts. This
- *   one acts on a single event, which is exactly what GR3 warns against -- so it
- *   acts only on GR3's own third definitive proof: a key was delivered, the
- *   client came back too soon, and an independent source produced a different
- *   key for the same ECM. That is not an inference about one client; it is a
- *   contradiction between two sources, resolved by which key was in use.
- *   Consequences, all three deliberate:
- *     - the tolerance does not apply (limit 1). BAD-CW-LIMIT counts accidents;
- *       a proof is not an accident, and requiring two proofs for one fact would
- *       only extend the black screen.
- *     - the accusation is the DELIVERED source, never the dissenter (GR1).
- *     - the event is reversible and logged with its evidence (GR8): the trust
- *       engine's recovery path lifts the score again on a good delivery, and the
- *       purge mark expires on SERVICE-BLACKLIST-TIME or when the source itself
- *       delivers a key the client accepts.
- *
- * The counters below are read by the STATS-WINDOW line, which is where an
- * operator sees a dispute rate without grepping.
- */
-/*
- * Turn a proof verdict into action. Called with trust_lock held; the caller
- * writes the log line after releasing it, so no I/O happens under the lock.
+ * The ledger and trust evidence are protected by trust_lock. Cache purge state
+ * is protected by lockcache and is applied only after trust_lock is released:
+ * cache code already nests lockcache -> trust_lock, so the reverse order would
+ * deadlock. No cache-side read of an ECM field is used for ledger identity.
  */
 static void ledger_act(const struct ledger_event *ev, char *tagg, int taggsz)
 {
-	int acc = ev->acc_slot;
-	int accst = ev->src[acc][0];
-	int accid = ev->src[acc][1];
-	uint32_t ticks = GetTickCount();
+	int accst = ev->src[LEDGER_SLOT_FIRST][0];
+	int accid = ev->src[LEDGER_SLOT_FIRST][1];
+	const struct ledger_identity *id = &ev->identity;
+	uint32_t ticks = ev->ticks;
 
 	ledger_proofs++;
-
-	/*
-	 * GR3's definitive proof, so the hard events are the honest ones: a real
-	 * proof rather than another soft signal, and an avoidance with no tolerance.
-	 * rotation_note_bad_limited() with limit 1 also makes the same source the
-	 * one srvtab_arrange() skips on the very next request, which is where the
-	 * black screen actually stops.
-	 */
 	trust_record_scoped(&trust_tab, TRUST_EV_PROOF, accst, accid,
-	                    ev->caid, ev->provid, ev->provider_known,
-	                    ev->sid, ticks);
-	/*
-	 * TASK 2.8: the same proof, summed one level coarser (source, CAID).
-	 * We are under the caller's trust_lock here, so this is the bare form;
-	 * the sentence is formatted now (pure) and written after the unlock,
-	 * in the caller's `tagg` buffer.
-	 */
+	                    id->caid, id->provid, id->provider_known,
+	                    id->sid, ticks);
 	if (tagg) {
 		struct trustagg_evidence taev;
 		if (trustagg_note(&trustagg_tab, TRUST_EV_PROOF, accst, accid,
-		                  ev->caid, ticks, &taev))
+		                  id->caid, ticks, &taev))
 			trustagg_format(&taev, tagg, taggsz);
 	}
 	(void)rotation_note_bad_limited(&rotation_tab, accst, accid,
-	                                ev->caid, ev->sid, ev->provid, ticks, 1);
+	                                id->caid, id->sid, id->provid, ticks, 1);
+	if (accst == DCW_SOURCE_CACHE)
+		cwn_note(accst, accid, ev->cw[LEDGER_SLOT_FIRST], id->caid,
+		         id->provid, id->provider_known, id->sid, ticks);
+}
 
-	/*
-	 * The purge mark is a cache-side mechanism: it stops a poisoned entry being
-	 * served to anyone else. Marking a card server here would occupy a slot
-	 * that gates nothing, so the type test is not cosmetic -- the table is 32
-	 * entries and a meaningless mark costs a real one.
-	 */
-	if (accst == DCW_SOURCE_CACHE) {
-		/*
-		 * TASK 2.6 -- the key the client held and that failed is now proven
-		 * poison: file it, so no cache source can hand the same bytes to
-		 * anyone again. Same scoping as the purge mark (cache origins only,
-		 * GR1); the card-server side keeps its own rotation machinery.
-		 */
-		cwn_note(accst, accid, ev->cw[acc], ev->caid, ev->provid,
-		         ev->provider_known, ev->sid, ticks);
-		int fresh = cache_purge_mark_scoped(&purge_tab, (uint8_t)accst, (uint32_t)accid,
-		                                    ev->caid, ev->sid, ev->provid,
-		                                    ev->provider_known, ticks);
-		if (fresh)
-			debugf(DBG_ERROR," !!! CACHE PURGE: ch %04x:%06x:%04x marked on source %d/%d -- an independent source produced a different key for the same ecm and the client refused the delivered one\n",
-				ev->caid, ev->provid, ev->sid, accst, accid);
+#define LEDGER_PROOF_BATCH_SIZE LEDGER_CANDIDATE_SLOTS
+struct ledger_proof_batch {
+	int count;
+	struct ledger_event event[LEDGER_PROOF_BATCH_SIZE];
+	char line[LEDGER_PROOF_BATCH_SIZE][512];
+	char tagg[LEDGER_PROOF_BATCH_SIZE][384];
+};
+
+/* Called with trust_lock held. The per-delivered-candidate latch means this
+ * loop is bounded by LEDGER_CANDIDATE_SLOTS. */
+static void ledger_drain_proofs(const struct ledger_identity *id,
+                                uint32_t ticks, int rc,
+                                struct ledger_event *ev,
+                                struct ledger_proof_batch *batch)
+{
+	while (rc == LEDGER_PROOF && batch->count < LEDGER_PROOF_BATCH_SIZE) {
+		int i = batch->count++;
+		batch->event[i] = *ev;
+		ledger_act(&batch->event[i], batch->tagg[i], (int)sizeof(batch->tagg[i]));
+		(void)ledger_format(&batch->event[i], batch->line[i], (int)sizeof(batch->line[i]));
+		rc = ledger_next_proof(&ledger_tab, id, ticks, ev);
 	}
 }
 
-/*
- * A source handed this server a control word for an ECM. `delivered` is 1 when
- * a client actually received it.
- *
- * Called from the two delivery points in setdcw.c, above the STAT_DCW_SUCCESS
- * early return, so a key that is about to be thrown away is still recorded --
- * the disagreeing key is exactly the one that usually gets thrown away.
- */
-static void ledger_note_delivery(const uint8_t *ecmd5, uint32_t hash,
-                                 uint16_t caid, uint32_t provid, int provider_known,
-                                 uint16_t sid, const uint8_t *cw,
-                                 int srctype, int srcid,
-                                 uint32_t ticks)
+/* Cache-side state has its own lock. Defined after clustredcache.c exposes the
+ * sweep helper; called only after trust_lock has been released. */
+static void ledger_purge_proof(const struct ledger_event *ev);
+
+static void ledger_finish_batch(struct ledger_proof_batch *batch)
+{
+	int i;
+	for (i = 0; i < batch->count; i++) {
+		ledger_purge_proof(&batch->event[i]);
+		if (batch->line[i][0]) debugf(DBG_ERROR,"%s\n", batch->line[i]);
+		if (batch->tagg[i][0]) {
+			trustagg_lines++;
+			debugf(DBG_ERROR," !!! %s\n", batch->tagg[i]);
+		}
+	}
+}
+
+struct ledger_delivery_snapshot {
+	ECM_DATA *request;
+	uint64_t lifetime_id;
+	uint64_t trace_instance;
+	uint32_t profile_id;
+	uint32_t hash;
+	uint32_t provid;
+	uint32_t recvtime;
+	uint32_t server_srvid[20];
+	uint8_t server_flag[20];
+	uint16_t caid;
+	uint16_t sid;
+	uint16_t ecmlen;
+	uint8_t provider_known;
+	uint8_t tag;
+	uint8_t cw[16];
+	int status;
+	int period;
+	int cw1cycle;
+	int srctype;
+	int srcid;
+#ifdef CACHEEX
+	uint8_t ecmd5[16];
+	struct ledger_identity identity;
+	int ledger_valid;
+#endif
+};
+
+#ifdef CACHEEX
+static int ledger_identity_from_ecm(struct ledger_identity *id, const ECM_DATA *ecm)
+{
+	if (!id || !ecm || ecm->ecmlen <= 0 || ecm->ecmlen > UINT16_MAX) return 0;
+	memset(id, 0, sizeof(*id));
+	memcpy(id->ecmd5, ecm->ecmd5, sizeof(id->ecmd5));
+	id->hash = ecm->hash;
+	id->caid = ecm->caid;
+	id->provid = ecm->provid;
+	id->provider_known = (uint8_t)(ecm->provider_known || ecm->provid != 0);
+	id->sid = ecm->sid;
+	id->tag = ecm->ecm[0];
+	id->ecmlen = (uint16_t)ecm->ecmlen;
+	return ledger_identity_valid(id);
+}
+#endif
+
+/* Caller holds lockecm: freeze all bytes used after transport dispatch so the
+ * ECM pool slot may be safely re-used while the socket send is in progress. */
+static int ledger_delivery_snapshot_capture_locked(struct ledger_delivery_snapshot *out,
+                                                   const ECM_DATA *ecm)
+{
+	int i;
+	if (!out || !ecm) return 0;
+	memset(out, 0, sizeof(*out));
+	out->request = (ECM_DATA *)ecm;
+	out->lifetime_id = ecm_request_lifetime_id_load(ecm);
+	if (!out->lifetime_id) return 0;
+	out->trace_instance = ecm->trace_instance;
+	out->profile_id = ecm->cs ? (uint32_t)ecm->cs->id : 0;
+	out->recvtime = ecm->recvtime;
+	out->period = ecm->period;
+	out->cw1cycle = ecm->cw1cycle;
+	for (i = 0; i < 20; i++) {
+		out->server_srvid[i] = ecm->server[i].srvid;
+		out->server_flag[i] = (uint8_t)ecm->server[i].flag;
+	}
+	out->status = ecm->dcwstatus;
+	out->hash = ecm->hash;
+	out->caid = ecm->caid;
+	out->provid = ecm->provid;
+	out->provider_known = (uint8_t)(ecm->provider_known || ecm->provid != 0);
+	out->sid = ecm->sid;
+	out->tag = ecm->ecm[0];
+	if (ecm->ecmlen > 0 && ecm->ecmlen <= UINT16_MAX)
+		out->ecmlen = (uint16_t)ecm->ecmlen;
+#ifdef CACHEEX
+	memcpy(out->ecmd5, ecm->ecmd5, sizeof(out->ecmd5));
+	out->ledger_valid = ledger_identity_from_ecm(&out->identity, ecm);
+#endif
+	memcpy(out->cw, ecm->cw, sizeof(out->cw));
+	out->srctype = ecm->dcwsrctype;
+	out->srcid = ecm->dcwsrcid;
+	return 1;
+}
+
+#ifdef CACHEEX
+/* Capture only when the client still expects this exact pool generation. */
+static int ledger_delivery_snapshot_capture_for_client_locked(
+	struct ledger_delivery_snapshot *out, const ECM_DATA *ecm,
+	uint64_t expected_lifetime_id)
+{
+	if (!out || !ecm || !expected_lifetime_id ||
+	    ecm_request_lifetime_id_load(ecm) != expected_lifetime_id) return 0;
+	return ledger_delivery_snapshot_capture_locked(out, ecm);
+}
+
+#define LEDGER_CAPTURE_CLIENT_DELIVERY(name, request, client) \
+	struct ledger_delivery_snapshot name##_storage; \
+	const struct ledger_delivery_snapshot *name = \
+		ledger_delivery_snapshot_capture_for_client_locked( \
+			&name##_storage, (request), __atomic_load_n(&(client)->ecm.lifetime_id, __ATOMIC_ACQUIRE)) ? \
+		&name##_storage : NULL
+#else
+#define LEDGER_CAPTURE_CLIENT_DELIVERY(name, request, client) \
+	struct ledger_delivery_snapshot name##_storage; \
+	const struct ledger_delivery_snapshot *name = \
+		((request) && (client)->ecm.busy && (client)->ecm.request == (request) && \
+		 ledger_delivery_snapshot_capture_locked(&name##_storage, (request))) ? \
+		&name##_storage : NULL
+#endif
+
+#ifdef CACHEEX
+/* Record an offer against a previously captured exact ECM identity. Cache
+ * ingress uses this form because the cache worker must not dereference the
+ * ECM pointer while holding lockcache. */
+static void ledger_note_candidate_identity(const struct ledger_identity *id,
+                                           const uint8_t *offered_cw,
+                                           int srctype, int srcid,
+                                           uint32_t ticks)
 {
 	struct ledger_event ev;
-	char line[320];
-	char tagg[384];   /* TASK 2.8: the coarse-tier sentence, if one crossed */
 	int rc;
-
-	line[0] = 0; tagg[0] = 0;
+	if (!ledger_identity_valid(id) || !offered_cw) return;
 	pthread_mutex_lock(&trust_lock);
-	rc = ledger_offer(&ledger_tab, ecmd5, hash, caid, provid, sid, cw,
-	                   srctype, srcid, 1, ticks, &ev);
-	/* Presence belongs to this event's exact ECM context; the ledger snapshots
-	 * its numeric channel fields, so supply the parallel presence bit here. */
-	ev.provider_known = (uint8_t)(provider_known || provid != 0);
-	switch (rc) {
-	case LEDGER_AGREE:       ledger_agrees++;       break;
-	case LEDGER_DISPUTE:     ledger_disputes++;     break;
-	case LEDGER_SELFDISPUTE: ledger_selfdisputes++; break;
-	case LEDGER_PROOF:
-		ledger_act(&ev, tagg, (int)sizeof(tagg));
-		ledger_format(&ev, line, (int)sizeof(line));
-		break;
-	default: break;
-	}
+	rc = ledger_candidate(&ledger_tab, id, offered_cw, srctype, srcid, ticks, &ev);
+	if (ev.source_agreement) ledger_agrees++;
+	if (ev.independent_dispute) ledger_disputes++;
+	if (ev.self_dispute) ledger_selfdisputes++;
+	(void)rc;
 	pthread_mutex_unlock(&trust_lock);
-
-	if (line[0])
-		debugf(DBG_ERROR,"%s\n", line);
-	if (tagg[0]) {
-		trustagg_lines++;
-		debugf(DBG_ERROR," !!! %s\n", tagg);
-	}
 }
 
-/*
- * The client came back for the same ECM far sooner than its crypto period, after
- * a key from this source. Returns 1 when that failure completed a proof.
- *
- * Only RETRY_HARD is passed here, never RETRY_SOFT. A hard retry is the 1-3 s
- * window the brief describes as the observable failure; a soft one is inference
- * on top of inference, and GR3 does not allow a hard action on inference. A
- * soft retry that is real will produce a hard one next cycle anyway.
- *
- * GR2 holds at the call site: the caller only reaches this when a CW was
- * actually delivered, so a timeout is never counted as a failure of anybody.
- */
-static int ledger_note_failure(const uint8_t *ecmd5, uint32_t hash,
-                               uint16_t caid, uint32_t provid, int provider_known,
-                               uint16_t sid, const uint8_t *cw,
-                               int srctype, int srcid,
-                               uint32_t ticks)
+/* The ECM-thread offer is recorded before MINTIME, acceptDCW, and later filters. */
+static void ledger_note_candidate(const ECM_DATA *ecm, const uint8_t *offered_cw,
+                                  int srctype, int srcid, uint32_t ticks)
+{
+	struct ledger_identity id;
+	if (!ledger_identity_from_ecm(&id, ecm)) return;
+	ledger_note_candidate_identity(&id, offered_cw, srctype, srcid, ticks);
+}
+
+/* Called at the successful acceptance/commit point, after every decode filter. */
+static void ledger_note_accepted(const ECM_DATA *ecm,
+                                 const uint8_t *offered_cw,
+                                 const uint8_t *accepted_cw,
+                                 int srctype, int srcid, uint32_t ticks)
+{
+	struct ledger_identity id;
+	struct ledger_event ev;
+	struct ledger_proof_batch batch;
+	int rc;
+	if (!ledger_identity_from_ecm(&id, ecm)) return;
+	memset(&batch, 0, sizeof(batch));
+	pthread_mutex_lock(&trust_lock);
+	rc = ledger_accept(&ledger_tab, &id, offered_cw, accepted_cw,
+	                   srctype, srcid, ticks, &ev);
+	ledger_drain_proofs(&id, ticks, rc, &ev, &batch);
+	pthread_mutex_unlock(&trust_lock);
+	ledger_finish_batch(&batch);
+}
+
+/* Preserve exactly the request, CW and origin associated with a successful
+ * transport write for each client's later retry/failure classification. */
+#define LEDGER_DELIVERY_TO_LASTECM(dst, sent) do { \
+	(dst).caid = (sent).caid; \
+	(dst).prov = (sent).provid; \
+	(dst).provider_known = (sent).provider_known; \
+	(dst).sid = (sent).sid; \
+	(dst).hash = (sent).hash; \
+	(dst).tag = (sent).tag; \
+	memcpy((dst).ecmd5, (sent).ecmd5, sizeof((dst).ecmd5)); \
+	(dst).ecmlen = (sent).ecmlen; \
+	memcpy((dst).dcw, (sent).cw, sizeof((dst).dcw)); \
+	(dst).dcwsrctype = (sent).srctype; \
+	(dst).dcwsrcid = (sent).srcid; \
+} while (0)
+
+/* Call only after the protocol reports that this saved CW was sent. */
+static void ledger_note_delivered(const struct ledger_delivery_snapshot *sent,
+                                  uint32_t ticks)
 {
 	struct ledger_event ev;
-	char line[320];
-	char tagg[384];   /* TASK 2.8: the coarse-tier sentence, if one crossed */
-	int rc, proof = 0;
-
-	line[0] = 0; tagg[0] = 0;
+	struct ledger_proof_batch batch;
+	int rc;
+	if (!sent || !sent->ledger_valid || !ledger_identity_valid(&sent->identity)) return;
+	memset(&batch, 0, sizeof(batch));
 	pthread_mutex_lock(&trust_lock);
-	rc = ledger_failed(&ledger_tab, ecmd5, hash, caid, provid, sid, cw,
-	                    srctype, srcid, ticks, &ev);
-	/* Match the scope bit to the exact retry context used for this failure. */
-	ev.provider_known = (uint8_t)(provider_known || provid != 0);
-	if (rc == LEDGER_PROOF) {
-		ledger_act(&ev, tagg, (int)sizeof(tagg));
-		ledger_format(&ev, line, (int)sizeof(line));
-		proof = 1;
-	} else if (!ledger_find(&ledger_tab, ecmd5, ticks)) {
-		/*
-		 * Nothing was recorded for this ECM, so the ledger could not place the
-		 * failure. Counted rather than ignored: on a real peer population this
-		 * number rising means entries are being evicted or aged out before the
-		 * contradiction arrives, and the table is too small.
-		 */
-		ledger_unplaceable++;
-	}
+	rc = ledger_delivered(&ledger_tab, &sent->identity, sent->cw,
+	                      sent->srctype, sent->srcid, ticks, &ev);
+	ledger_drain_proofs(&sent->identity, ticks, rc, &ev, &batch);
 	pthread_mutex_unlock(&trust_lock);
-
-	if (line[0])
-		debugf(DBG_ERROR,"%s\n", line);
-	if (tagg[0]) {
-		trustagg_lines++;
-		debugf(DBG_ERROR," !!! %s\n", tagg);
-	}
-	return proof;
+	ledger_finish_batch(&batch);
 }
+
+/* Failure evidence is built from a value snapshot taken only after a
+ * successful transport send. When the current retry ECM is available, require
+ * its complete identity to equal that saved snapshot; never use a hash or
+ * recycled ECM pointer as a substitute for the ECMD5/length identity. */
+static int ledger_note_failure_saved(const ECM_DATA *retry_ecm,
+                                     const uint8_t saved_ecmd5[16],
+                                     uint16_t saved_ecmlen,
+                                     uint32_t hash, uint16_t caid,
+                                     uint32_t provid, int provider_known,
+                                     uint16_t sid, uint8_t tag,
+                                     const uint8_t *cw, int srctype, int srcid,
+                                     uint32_t delivered_at, uint32_t ticks)
+{
+	struct ledger_identity id, current;
+	struct ledger_event ev;
+	struct ledger_proof_batch batch;
+	int rc, proof;
+	if (!saved_ecmd5 || !cw || srctype == DCW_SOURCE_NONE) return 0;
+	memset(&id, 0, sizeof(id));
+	memcpy(id.ecmd5, saved_ecmd5, sizeof(id.ecmd5));
+	id.hash = hash;
+	id.caid = caid;
+	id.provid = provid;
+	id.provider_known = (uint8_t)(provider_known || provid != 0);
+	id.sid = sid;
+	id.tag = tag;
+	id.ecmlen = saved_ecmlen;
+	if (!ledger_identity_valid(&id)) return 0;
+	if (retry_ecm && (!ledger_identity_from_ecm(&current, retry_ecm) ||
+	                  !ledger_identity_equal(&current, &id))) return 0;
+
+	memset(&batch, 0, sizeof(batch));
+	pthread_mutex_lock(&trust_lock);
+	rc = ledger_failed(&ledger_tab, &id, cw, srctype, srcid,
+	                   delivered_at, ticks, &ev);
+	if (rc == LEDGER_NONE && !ev.matched_delivery) ledger_unplaceable++;
+	proof = (rc == LEDGER_PROOF);
+	ledger_drain_proofs(&id, ticks, rc, &ev, &batch);
+	pthread_mutex_unlock(&trust_lock);
+	ledger_finish_batch(&batch);
+	return proof || batch.count != 0;
+}
+
+/* Newcamd's retry classifier supplies both the saved successful-send record
+ * and the current ECM; the common helper enforces exact identity equality. */
+static int ledger_note_failure(const struct cs_client_data *cli,
+                               const ECM_DATA *retry_ecm, uint32_t ticks)
+{
+	if (!cli || !cli->lastecm.status || cli->lastecm.dcwsrctype == DCW_SOURCE_NONE)
+		return 0;
+	return ledger_note_failure_saved(retry_ecm, cli->lastecm.ecmd5,
+	    cli->lastecm.ecmlen, cli->lastecm.hash, cli->lastecm.caid,
+	    cli->lastecm.prov, cli->lastecm.provider_known, cli->lastecm.sid,
+	    cli->lastecm.tag, cli->lastecm.dcw, cli->lastecm.dcwsrctype,
+	    cli->lastecm.dcwsrcid, cli->lastdcwtime, ticks);
+}
+
+#define LEDGER_NOTE_CLIENT_FAILURE(retry_ecm, saved, delivered_at, now) \
+	ledger_note_failure_saved((retry_ecm), (saved).ecmd5, (saved).ecmlen, \
+	    (saved).hash, (saved).caid, (saved).prov, (saved).provider_known, \
+	    (saved).sid, (saved).tag, (saved).dcw, (saved).dcwsrctype, \
+	    (saved).dcwsrcid, (delivered_at), (now))
+#else
+#define LEDGER_CAPTURE_CLIENT_DELIVERY(name, request, client) \
+	const struct ledger_delivery_snapshot *name = NULL
+#endif /* CACHEEX */
 
 char cccam_nodeid[8];
 
@@ -1881,6 +2044,60 @@ char ecm_file[256];
 struct config_data cfg;
 struct program_data prg;
 
+/* Track lock ownership on this thread so disconnect cleanup can reuse an
+ * existing ECM critical section without recursively locking the mutex. */
+static __thread unsigned int ecm_lock_depth;
+
+/* Always acquire the config lifetime pin before lockecm. Config reload takes
+ * the write side first, then lockecm, so all ECM-side paths must use this
+ * wrapper rather than locking prg.lockecm directly. */
+void ecm_lock(void)
+{
+	newcamd_config_read_lock();
+	pthread_mutex_lock(&prg.lockecm);
+	ecm_lock_depth++;
+}
+
+void ecm_unlock(void)
+{
+	if (ecm_lock_depth) ecm_lock_depth--;
+	pthread_mutex_unlock(&prg.lockecm);
+	newcamd_config_read_unlock();
+}
+
+/* The config reload already owns the write side of the config lifetime gate;
+ * it must not recursively acquire the read side through ecm_lock(). */
+void ecm_lock_config_exclusive(void)
+{
+	pthread_mutex_lock(&prg.lockecm);
+	ecm_lock_depth++;
+}
+
+void ecm_unlock_config_exclusive(void)
+{
+	if (ecm_lock_depth) ecm_lock_depth--;
+	pthread_mutex_unlock(&prg.lockecm);
+}
+
+/* Exclude a disconnected server only if its saved ECM pointer still names the
+ * same pool generation. Acquire lockecm when the caller does not already own
+ * it; callers pin the config graph (read side or reload write side) first. */
+int ecm_setsrvflag_if_lifetime(ECM_DATA *request, unsigned int srvid, int flag,
+                               uint64_t expected_lifetime_id)
+{
+	int acquired = 0;
+	int matched;
+	if (!request || !expected_lifetime_id) return 0;
+	if (!ecm_lock_depth) {
+		pthread_mutex_lock(&prg.lockecm);
+		acquired = 1;
+	}
+	matched = ecm_request_lifetime_matches(request, request, expected_lifetime_id);
+	if (matched) ecm_setsrvflag(request, srvid, flag);
+	if (acquired) pthread_mutex_unlock(&prg.lockecm);
+	return matched;
+}
+
 /* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT global configs */
 struct ssf_config ssf_cfg;
 struct dcwstrict_config dcwstrict_cfg;
@@ -1889,9 +2106,16 @@ uint32_t ecm_check_time = 0;
 
 
 
+/* Dedicated leaf lock for per-profile server counters. ECM receive handlers
+ * already own lockecm; do not add locksrv here (the no-thread ECM path must not
+ * take it). HTTP snapshots take this same lock while copying cstat. */
+pthread_mutex_t srv_cstat_lock = PTHREAD_MUTEX_INITIALIZER;
+
 void srv_cstatadd( struct server_data *srv, int csid, int ok, uint32_t ecmoktime)
 {
 	int i;
+	if (!srv) return;
+	pthread_mutex_lock(&srv_cstat_lock);
 	for(i=0; i<MAX_CSPORTS; i++) {
 		if (!srv->cstat[i].csid) {
 			srv->cstat[i].csid = csid;
@@ -1915,6 +2139,7 @@ void srv_cstatadd( struct server_data *srv, int csid, int ok, uint32_t ecmoktime
 			break;
 		}
 	}
+	pthread_mutex_unlock(&srv_cstat_lock);
 }
 
 
@@ -2290,13 +2515,40 @@ int pipe_send_cacheex_push_cache(struct cache_data *pcache, uint8_t *cw, uint8_t
 
 #include "clustredcache.c"
 
+/* Cache-side tables are protected by lockcache. Do not call this from inside
+ * trust_lock: cache code already uses lockcache -> trust_lock. */
+static void ledger_purge_proof(const struct ledger_event *ev)
+{
+	const struct ledger_identity *id = &ev->identity;
+	int srctype = ev->src[LEDGER_SLOT_FIRST][0];
+	int srcid = ev->src[LEDGER_SLOT_FIRST][1];
+	int fresh, npurged = 0;
+	if (srctype != DCW_SOURCE_CACHE) return;
+
+	pthread_mutex_lock(&prg.lockcache);
+	fresh = cache_purge_mark_scoped(&purge_tab, (uint8_t)srctype,
+	                                (uint32_t)srcid, id->caid, id->sid,
+	                                id->provid, id->provider_known, ev->ticks);
+	if (fresh)
+		npurged = cache_purge_sweep_scoped(&purge_tab, (uint8_t)srctype,
+		                                   (uint32_t)srcid, id->caid, id->sid,
+		                                   id->provid, id->provider_known, DCW_ERROR);
+	pthread_mutex_unlock(&prg.lockcache);
+
+	if (fresh)
+		debugf(DBG_ERROR," !!! CACHE PURGE: ch %04x:%06x:%04x marked %d cached CW(s) on source %d/%d after accepted independent evidence and failure of the delivered key\n",
+		       id->caid, id->provid, id->sid, npurged, srctype, srcid);
+}
+
 /*
  * TASK R30 (D81) -- the purge half of a filing, defined here because
  * cache_purge_sweep()'s DCW_ERROR mark is clustredcache.c's own. The
  * stored entry stops being served at once, exactly as a reuse proof
- * stops it (TASK 1.5); the sweep requires prg.lockcache, which the
- * client thread does not hold, so it is taken here -- attest_note has
- * already released the attestation lock, so no locks ever nest.
+ * stops it (TASK 1.5). The caller already holds lockecm; take lockcache
+ * only for the cache mark/sweep, following the established lockecm ->
+ * lockcache order, then release it before walking the ECM ring. attest_note
+ * released cwattest_lock before entering here, so no attestation-table lock
+ * is nested with either runtime lock.
  */
 static void attest_purge(int srctype, int srcid, const uint8_t *cw,
                          uint16_t caid, uint32_t provid, int provider_known,
@@ -2336,7 +2588,7 @@ static void attest_purge(int srctype, int srcid, const uint8_t *cw,
 					if ( e->caid==caid && e->provid==provid && e->sid==sid &&
 					     e->dcwstatus==STAT_DCW_SUCCESS &&
 					     !memcmp(e->cw, cw, 16) ) {
-						e->dcwstatus = STAT_DCW_WAIT;
+						ecm_request_set_dcwstatus(e, STAT_DCW_WAIT);
 						memset(e->cw, 0, 16);
 						e->checktime = 1; /* recheck now */
 						ninvalid++;
@@ -2445,7 +2697,7 @@ struct connect_cli_data {
 ///////////////////////////////////////////////////////////////////////////////
 
 
-char *src2string(int srctype, int srcid, char *ret)
+static char *src2string_inner(int srctype, int srcid, char *ret)
 {
 	static char ss1[] = "server";
 	static char ss2[] = "cache peer";
@@ -2461,11 +2713,22 @@ char *src2string(int srctype, int srcid, char *ret)
 	}
 	else if (srctype==DCW_SOURCE_CACHE) {
 		if (srcid&PEER_CSP) {
-			struct cachepeer_data *peer = getpeerbyid(srcid&0xFFFF);
-			if (peer)
-				sprintf( ret,"cache peer (%s:%d)", peer->host->name, peer->port);
+			char peer_name[256] = "";
+			uint16_t peer_port = 0;
+			int found = 0;
+			struct cachepeer_data *peer;
+			pthread_mutex_lock(&prg.lockcache);
+			peer = getpeerbyid(srcid&0xFFFF);
+			if (peer && peer->host) {
+				snprintf(peer_name, sizeof(peer_name), "%s", peer->host->name);
+				peer_port = peer->port;
+				found = 1;
+			}
+			pthread_mutex_unlock(&prg.lockcache);
+			if (found)
+				sprintf(ret, "cache peer (%s:%u)", peer_name, peer_port);
 			else
-				sprintf( ret,"Unknown cache peer (id=%d)", srcid);
+				sprintf(ret, "Unknown cache peer (id=%d)", srcid);
 			return ss2;
 		}
 #ifdef CACHEEX
@@ -2513,14 +2776,17 @@ char *src2string(int srctype, int srcid, char *ret)
 #ifdef SRV_CSCACHE
 	else if (srctype==DCW_SOURCE_CSCLIENT) {
 		// srcid =  (csid<<16)|cliid;
+		newcamd_config_read_lock();
 		struct cardserver_data *cs = getcsbyid( srcid>>16 );
 		if (cs) {
 			struct cs_client_data *cli = getnewcamdclientbyid( srcid&0xffff );
 			if (cli) {
 				sprintf( ret,"newcamd client '%s'", cli->user);
+				newcamd_config_read_unlock();
 				return ss3;
 			}
 		}
+		newcamd_config_read_unlock();
 		sprintf( ret,"Unknown newcamd client (id=%x)", srcid);
 		return ss3;
 	}
@@ -2549,6 +2815,15 @@ char *src2string(int srctype, int srcid, char *ret)
 	return NULL;
 }
 
+char *src2string(int srctype, int srcid, char *ret)
+{
+	char *result;
+	newcamd_config_read_lock();
+	result = src2string_inner(srctype, srcid, ret);
+	newcamd_config_read_unlock();
+	return result;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 pthread_t cli_tid;
@@ -2566,10 +2841,22 @@ uint8_t fastrnd2()
 }
 
 
+static void require_pipe_nonblocking(int fd)
+{
+	if (SetSoketNonBlocking(fd) < 0) {
+		perror("fcntl(O_NONBLOCK) for pipe");
+		exit(1);
+	}
+}
+
 void mainprocess()
 {
 #ifndef WIN32
 	gettimeofday( &startime, NULL );
+	if (tools_init_tick_clock() != 0) {
+		fprintf(stderr, "Error: CLOCK_MONOTONIC initialization failed.\n");
+		exit(1);
+	}
 	//if (startime.tv_sec>1380237152) exit(0);
 	//printf(" %ld\n", startime.tv_sec + (24*3600*5) ); exit(0);
 #endif
@@ -2600,7 +2887,7 @@ void mainprocess()
 #endif
 
 	// Main Loops(THREADS)
-	pthread_mutex_init(&prg.lockdnsth, NULL); // DNS lookup Thread
+	pthread_mutex_init(&prg.lockdnsth, NULL); // Host list and DNS state
 
 	pthread_mutex_init(&prg.locksrvth, NULL);	// Connection to cardservers
 	pthread_mutex_init(&prg.lockmain, NULL); // Messages Recv
@@ -2617,55 +2904,56 @@ void mainprocess()
 
 	pthread_mutex_init(&prg.lockthreaddate, NULL);
 
-#ifdef CACHEEX
 	pthread_mutex_init(&prg.lockcacheex, NULL);
-#endif
 	gettimeofday( &prg.exectime, NULL );
 
 	memset(&trace, 0, sizeof(struct trace_data) );
 
-	/* Create the pipe. */
+	/* The pipe writer's bounded EAGAIN retry depends on every endpoint being
+	 * nonblocking. Treat an fcntl failure as a startup error; otherwise the
+	 * first full pipe could block forever while a cache/ECM lock is held. */
+	{
+		if ( pipe(PACKED_MPTR(&prg, int, pipe.cache)) < 0 ) { perror("pipe()"); exit(1); }
+		require_pipe_nonblocking(prg.pipe.cache[0]);
+		require_pipe_nonblocking(prg.pipe.cache[1]);
 
-	if ( pipe(PACKED_MPTR(&prg, int, pipe.cache)) < 0 ) { perror("pipe()"); exit(1); }
-	SetSoketNonBlocking(prg.pipe.cache[0]);
-	SetSoketNonBlocking(prg.pipe.cache[1]);
-
-	if ( pipe(PACKED_MPTR(&prg, int, pipe.ecm)) < 0 ) { perror("pipe()"); exit(1); }
-	SetSoketNonBlocking(prg.pipe.ecm[0]);
-	SetSoketNonBlocking(prg.pipe.ecm[1]);
+		if ( pipe(PACKED_MPTR(&prg, int, pipe.ecm)) < 0 ) { perror("pipe()"); exit(1); }
+		require_pipe_nonblocking(prg.pipe.ecm[0]);
+		require_pipe_nonblocking(prg.pipe.ecm[1]);
 
 #ifdef CACHEEX
-	if ( pipe(PACKED_MPTR(&prg, int, pipe.cacheex)) < 0 ) { perror("pipe()"); exit(1); }
-	SetSoketNonBlocking(prg.pipe.cacheex[0]);
-	SetSoketNonBlocking(prg.pipe.cacheex[1]);
+		if ( pipe(PACKED_MPTR(&prg, int, pipe.cacheex)) < 0 ) { perror("pipe()"); exit(1); }
+		require_pipe_nonblocking(prg.pipe.cacheex[0]);
+		require_pipe_nonblocking(prg.pipe.cacheex[1]);
 #endif
 
-	if ( pipe(PACKED_MPTR(&prg, int, pipe.cs378x)) < 0 ) { perror("pipe()"); exit(1); }
-	SetSoketNonBlocking(prg.pipe.cs378x[0]);
-	SetSoketNonBlocking(prg.pipe.cs378x[1]);
-	if ( pipe(PACKED_MPTR(&prg, int, pipe.cs378x_cex)) < 0 ) { perror("pipe()"); exit(1); }
-	SetSoketNonBlocking(prg.pipe.cs378x_cex[0]);
-	SetSoketNonBlocking(prg.pipe.cs378x_cex[1]);
+		if ( pipe(PACKED_MPTR(&prg, int, pipe.cs378x)) < 0 ) { perror("pipe()"); exit(1); }
+		require_pipe_nonblocking(prg.pipe.cs378x[0]);
+		require_pipe_nonblocking(prg.pipe.cs378x[1]);
+		if ( pipe(PACKED_MPTR(&prg, int, pipe.cs378x_cex)) < 0 ) { perror("pipe()"); exit(1); }
+		require_pipe_nonblocking(prg.pipe.cs378x_cex[0]);
+		require_pipe_nonblocking(prg.pipe.cs378x_cex[1]);
 
-	if ( pipe(PACKED_MPTR(&prg, int, pipe.cccam)) < 0 ) { perror("pipe()"); exit(1); }
-	SetSoketNonBlocking(prg.pipe.cccam[0]);
-	SetSoketNonBlocking(prg.pipe.cccam[1]);
+		if ( pipe(PACKED_MPTR(&prg, int, pipe.cccam)) < 0 ) { perror("pipe()"); exit(1); }
+		require_pipe_nonblocking(prg.pipe.cccam[0]);
+		require_pipe_nonblocking(prg.pipe.cccam[1]);
 
-	if ( pipe(PACKED_MPTR(&prg, int, pipe.mgcamd)) < 0 ) { perror("pipe()"); exit(1); }
-	SetSoketNonBlocking(prg.pipe.mgcamd[0]);
-	SetSoketNonBlocking(prg.pipe.mgcamd[1]);
+		if ( pipe(PACKED_MPTR(&prg, int, pipe.mgcamd)) < 0 ) { perror("pipe()"); exit(1); }
+		require_pipe_nonblocking(prg.pipe.mgcamd[0]);
+		require_pipe_nonblocking(prg.pipe.mgcamd[1]);
 
-	if ( pipe(PACKED_MPTR(&prg, int, pipe.newcamd)) < 0 ) { perror("pipe()"); exit(1); }
-	SetSoketNonBlocking(prg.pipe.newcamd[0]);
-	SetSoketNonBlocking(prg.pipe.newcamd[1]);
+		if ( pipe(PACKED_MPTR(&prg, int, pipe.newcamd)) < 0 ) { perror("pipe()"); exit(1); }
+		require_pipe_nonblocking(prg.pipe.newcamd[0]);
+		require_pipe_nonblocking(prg.pipe.newcamd[1]);
 
-	if ( pipe(frcc_pipe) < 0 ) { perror("pipe()"); exit(1); }
-	SetSoketNonBlocking(frcc_pipe[0]);
-	SetSoketNonBlocking(frcc_pipe[1]);
+		if ( pipe(frcc_pipe) < 0 ) { perror("pipe()"); exit(1); }
+		require_pipe_nonblocking(frcc_pipe[0]);
+		require_pipe_nonblocking(frcc_pipe[1]);
 
-	if ( pipe(dcwpipe) < 0 ) { perror("pipe()"); exit(1); }
-	SetSoketNonBlocking(dcwpipe[0]);
-	SetSoketNonBlocking(dcwpipe[1]);
+		if ( pipe(dcwpipe) < 0 ) { perror("pipe()"); exit(1); }
+		require_pipe_nonblocking(dcwpipe[0]);
+		require_pipe_nonblocking(dcwpipe[1]);
+	}
 
 	// EPOLL
 #ifdef EPOLL_CACHE
@@ -3170,7 +3458,7 @@ OPTIONS\n\
 		//else mainprocess();
 	}
 
-	prg.pid_main = getpid();
+	__atomic_store_n(&prg.pid_main, (pid_t)getpid(), __ATOMIC_RELEASE);
 
 	prg.restart = 0;
 
@@ -3188,6 +3476,7 @@ OPTIONS\n\
 	}
 
 	mainprocess();
+	cache_pipe_out_shutdown();
 
 	if (prg.restart==1) { // restart()
 		if ( (evil[0]!='e')||(evil[1]!='v')||(evil[2]!='i')||(evil[3]!='l')||(evil[4]!='e')||(evil[5]!='y')||(evil[6]!='e')||(evil[7]!='s') ) exit(0);

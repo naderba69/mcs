@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <pthread.h>
+#include "tick_math.h"
 
 // ============================================================================
 // Configuration
@@ -43,6 +44,9 @@ struct bs_channel_stats {
     // Failure tracking
     uint32_t last_ecm_time;
     uint32_t last_cw_time;
+    uint32_t last_used;
+    uint8_t has_last_ecm;
+    uint8_t has_last_cw;
     int consecutive_failures;
     int total_failures;
     int total_successes;
@@ -86,47 +90,75 @@ static int bs_enabled = 1;
 // Channel Tracking
 // ============================================================================
 
-static struct bs_channel_stats* bs_get_channel(uint16_t caid, uint32_t provid, uint16_t sid)
+static struct bs_channel_stats* bs_find_channel(uint16_t caid, uint32_t provid,
+                                                uint16_t sid)
 {
     int i;
-    
-    // Find existing
     for (i = 0; i < bs_channel_count; i++) {
-        if (bs_channels[i].active &&
-            bs_channels[i].caid == caid &&
-            bs_channels[i].provid == provid &&
-            bs_channels[i].sid == sid) {
+        if (bs_channels[i].active && bs_channels[i].caid == caid &&
+            bs_channels[i].provid == provid && bs_channels[i].sid == sid)
             return &bs_channels[i];
-        }
     }
-    
-    // Create new
+    return NULL;
+}
+
+static struct bs_channel_stats* bs_get_channel(uint16_t caid, uint32_t provid,
+                                                uint16_t sid, uint32_t now_ms)
+{
+    struct bs_channel_stats *ch = bs_find_channel(caid, provid, sid);
+    int i;
+    if (ch) {
+        ch->last_used = now_ms;
+        return ch;
+    }
+
     if (bs_channel_count < BS_MAX_TRACKED_CHANNELS) {
-        struct bs_channel_stats *ch = &bs_channels[bs_channel_count++];
+        ch = &bs_channels[bs_channel_count++];
         memset(ch, 0, sizeof(*ch));
         ch->caid = caid;
         ch->provid = provid;
         ch->sid = sid;
+        ch->last_used = now_ms;
         ch->active = 1;
         bs_stats.active_channels++;
         return ch;
     }
-    
-    // Find inactive slot
+
+    /* Prefer a free slot if one was deactivated by a future lifecycle hook. */
     for (i = 0; i < BS_MAX_TRACKED_CHANNELS; i++) {
         if (!bs_channels[i].active) {
-            struct bs_channel_stats *ch = &bs_channels[i];
+            ch = &bs_channels[i];
             memset(ch, 0, sizeof(*ch));
             ch->caid = caid;
             ch->provid = provid;
             ch->sid = sid;
+            ch->last_used = now_ms;
             ch->active = 1;
             bs_stats.active_channels++;
             return ch;
         }
     }
-    
-    return NULL;
+
+    /* Full table: replace the channel with greatest modulo elapsed age. */
+    {
+        int oldest = 0;
+        uint32_t oldest_age = tick32_elapsed(now_ms, bs_channels[0].last_used);
+        for (i = 1; i < BS_MAX_TRACKED_CHANNELS; i++) {
+            uint32_t age = tick32_elapsed(now_ms, bs_channels[i].last_used);
+            if (age > oldest_age) {
+                oldest_age = age;
+                oldest = i;
+            }
+        }
+        ch = &bs_channels[oldest];
+        memset(ch, 0, sizeof(*ch));
+        ch->caid = caid;
+        ch->provid = provid;
+        ch->sid = sid;
+        ch->last_used = now_ms;
+        ch->active = 1;
+    }
+    return ch;
 }
 
 // ============================================================================
@@ -142,9 +174,10 @@ static void bs_record_ecm_request(uint16_t caid, uint32_t provid, uint16_t sid, 
     
     pthread_mutex_lock(&bs_lock);
     
-    struct bs_channel_stats *ch = bs_get_channel(caid, provid, sid);
+    struct bs_channel_stats *ch = bs_get_channel(caid, provid, sid, now_ms);
     if (ch) {
         ch->last_ecm_time = now_ms;
+        ch->has_last_ecm = 1;
     }
     
     pthread_mutex_unlock(&bs_lock);
@@ -160,9 +193,10 @@ static void bs_record_cw_success(uint16_t caid, uint32_t provid, uint16_t sid,
     
     pthread_mutex_lock(&bs_lock);
     
-    struct bs_channel_stats *ch = bs_get_channel(caid, provid, sid);
+    struct bs_channel_stats *ch = bs_get_channel(caid, provid, sid, now_ms);
     if (ch) {
         ch->last_cw_time = now_ms;
+        ch->has_last_cw = 1;
         ch->consecutive_failures = 0;
         ch->total_successes++;
         ch->last_response_time_ms = response_time_ms;
@@ -178,7 +212,8 @@ static void bs_record_cw_success(uint16_t caid, uint32_t provid, uint16_t sid,
         if (ch->in_recovery) {
             ch->in_recovery = 0;
             bs_stats.total_recoveries++;
-            bs_stats.channels_in_recovery--;
+            if (bs_stats.channels_in_recovery > 0)
+                bs_stats.channels_in_recovery--;
         }
     }
     
@@ -199,7 +234,7 @@ static int bs_record_cw_failure(uint16_t caid, uint32_t provid, uint16_t sid, ui
     
     pthread_mutex_lock(&bs_lock);
     
-    struct bs_channel_stats *ch = bs_get_channel(caid, provid, sid);
+    struct bs_channel_stats *ch = bs_get_channel(caid, provid, sid, now_ms);
     if (!ch) {
         pthread_mutex_unlock(&bs_lock);
         return 0;
@@ -210,10 +245,20 @@ static int bs_record_cw_failure(uint16_t caid, uint32_t provid, uint16_t sid, ui
     
     int action = 0;
     
-    // Check for black screen condition
-    uint32_t time_since_last_cw = now_ms - ch->last_cw_time;
+    // Use the last successful CW, or the first ECM time before any CW exists.
+    uint32_t baseline = now_ms;
+    int has_baseline = 0;
+    uint32_t time_since_last_cw = 0;
+    if (ch->has_last_cw) {
+        baseline = ch->last_cw_time;
+        has_baseline = 1;
+    } else if (ch->has_last_ecm) {
+        baseline = ch->last_ecm_time;
+        has_baseline = 1;
+    }
+    if (has_baseline) time_since_last_cw = tick32_elapsed(now_ms, baseline);
     
-    if (time_since_last_cw > BS_TIMEOUT_MS) {
+    if (has_baseline && time_since_last_cw > BS_TIMEOUT_MS) {
         // Black screen detected!
         bs_stats.total_blackscreens_detected++;
         
@@ -248,7 +293,8 @@ static int bs_record_cw_failure(uint16_t caid, uint32_t provid, uint16_t sid, ui
     }
     
     // Check if recovery window expired
-    if (ch->in_recovery && (now_ms - ch->recovery_start_time) > BS_RECOVERY_WINDOW_MS) {
+    if (ch->in_recovery &&
+        tick32_elapsed(now_ms, ch->recovery_start_time) > BS_RECOVERY_WINDOW_MS) {
         // Reset recovery state for next attempt
         ch->quick_switch_attempted = 0;
         ch->broadcast_attempted = 0;
@@ -268,14 +314,28 @@ static int bs_is_blackscreen(uint16_t caid, uint32_t provid, uint16_t sid, uint3
     
     pthread_mutex_lock(&bs_lock);
     
-    struct bs_channel_stats *ch = bs_get_channel(caid, provid, sid);
+    struct bs_channel_stats *ch = bs_find_channel(caid, provid, sid);
     if (!ch) {
         pthread_mutex_unlock(&bs_lock);
         return 0;
     }
+    ch->last_used = now_ms;
     
-    uint32_t time_since_last_cw = now_ms - ch->last_cw_time;
-    int is_bs = (time_since_last_cw > BS_TIMEOUT_MS && ch->consecutive_failures >= 2);
+    uint32_t baseline;
+    int has_baseline = 0;
+    uint32_t time_since_last_cw = 0;
+    if (ch->has_last_cw) {
+        baseline = ch->last_cw_time;
+        has_baseline = 1;
+    } else if (ch->has_last_ecm) {
+        baseline = ch->last_ecm_time;
+        has_baseline = 1;
+    } else {
+        baseline = now_ms;
+    }
+    if (has_baseline) time_since_last_cw = tick32_elapsed(now_ms, baseline);
+    int is_bs = (has_baseline && time_since_last_cw > BS_TIMEOUT_MS &&
+                 ch->consecutive_failures >= 2);
     
     pthread_mutex_unlock(&bs_lock);
     return is_bs;
@@ -287,9 +347,10 @@ static int bs_is_blackscreen(uint16_t caid, uint32_t provid, uint16_t sid, uint3
 static int bs_get_channel_stats(uint16_t caid, uint32_t provid, uint16_t sid,
                                  struct bs_channel_stats *out)
 {
+    if (!out) return 0;
     pthread_mutex_lock(&bs_lock);
     
-    struct bs_channel_stats *ch = bs_get_channel(caid, provid, sid);
+    struct bs_channel_stats *ch = bs_find_channel(caid, provid, sid);
     if (ch) {
         memcpy(out, ch, sizeof(*out));
         pthread_mutex_unlock(&bs_lock);
@@ -305,6 +366,7 @@ static int bs_get_channel_stats(uint16_t caid, uint32_t provid, uint16_t sid,
  */
 static void bs_get_global_stats(struct bs_global_stats *out)
 {
+    if (!out) return;
     pthread_mutex_lock(&bs_lock);
     memcpy(out, &bs_stats, sizeof(*out));
     pthread_mutex_unlock(&bs_lock);
@@ -317,12 +379,18 @@ static void bs_reset_channel(uint16_t caid, uint32_t provid, uint16_t sid)
 {
     pthread_mutex_lock(&bs_lock);
     
-    struct bs_channel_stats *ch = bs_get_channel(caid, provid, sid);
+    struct bs_channel_stats *ch = bs_find_channel(caid, provid, sid);
     if (ch) {
         ch->consecutive_failures = 0;
         ch->total_failures = 0;
         ch->total_successes = 0;
+        if (ch->in_recovery && bs_stats.channels_in_recovery > 0)
+            bs_stats.channels_in_recovery--;
         ch->in_recovery = 0;
+        ch->has_last_cw = 0;
+        ch->has_last_ecm = 0;
+        ch->last_cw_time = 0;
+        ch->last_ecm_time = 0;
         ch->quick_switch_attempted = 0;
         ch->broadcast_attempted = 0;
     }

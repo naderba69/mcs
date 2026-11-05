@@ -14,6 +14,7 @@
 #define MCS_R22STATS_H
 
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #ifdef R22_LAYERS

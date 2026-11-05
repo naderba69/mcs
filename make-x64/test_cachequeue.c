@@ -49,13 +49,13 @@ int main(void)
 	/* ==================================================================
 	 * 2. Argument guards.
 	 * ================================================================== */
-	check("push(NULL from) is refused", cq_push(0, 0, buf, 16), 0);
+	check("push(NULL from) is refused", cq_push(0, 0, 1, 0, buf, 16), 0);
 	check("push(NULL buf) is refused",
-	      cq_push(0, &a, 0, 16), 0);
+	      cq_push(0, 0, 1, &a, 0, 16), 0);
 	check("push(len > CQ_BUF) is refused",
-	      cq_push(0, &a, buf, CQ_BUF + 1), 0);
-	check("push(len < 0) is refused", cq_push(0, &a, buf, -1), 0);
-	check("push(len 0) is accepted", cq_push(0, &a, buf, 0), 1);
+	      cq_push(0, 0, 1, &a, buf, CQ_BUF + 1), 0);
+	check("push(len < 0) is refused", cq_push(0, 0, 1, &a, buf, -1), 0);
+	check("push(len 0) is accepted", cq_push(0, 0, 1, &a, buf, 0), 1);
 	check("pop(NULL) is refused", cq_pop(0), 0);
 	check("the len-0 entry pops", cq_pop(&e), 1);
 	check("nothing was dropped by the guards", (int)cq_dropped(), 0);
@@ -66,7 +66,7 @@ int main(void)
 	cq_init();
 	for (i = 0; i < 5; i++) {
 		buf[0] = (unsigned char)i;
-		check("one datagram queues", cq_push((void *)(uintptr_t)(i + 1),
+		check("one datagram queues", cq_push(i + 1, 100 + i, 7,
 		      (i & 1) ? &b : &a, buf, 64), 1);
 	}
 	check("depth after five pushes", cq_depth(), 5);
@@ -74,8 +74,10 @@ int main(void)
 		ok = cq_pop(&e);
 		check("one datagram pops", ok, 1);
 		check("FIFO payload order", e.buf[0] == (unsigned char)i, 1);
-		check("FIFO source passthrough",
-		      e.src == (void *)(uintptr_t)(i + 1), 1);
+		check("FIFO source identity is preserved",
+		      cq_source_matches(&e, i + 1, 100 + i, 7), 1);
+		check("a stale config generation cannot claim a queued datagram",
+		      !cq_source_matches(&e, i + 1, 100 + i, 8), 1);
 		check("the sockaddr travels with the datagram",
 		      e.from.sin_port == ((i & 1) ? b.sin_port : a.sin_port), 1);
 		check("the length travels with the datagram", e.len, 64);
@@ -90,13 +92,13 @@ int main(void)
 	cq_init();
 	for (i = 0; i < CQ_SLOTS; i++) {
 		buf[0] = (unsigned char)(i & 0xFF);
-		if (!cq_push(0, &a, buf, 32)) {
+		if (!cq_push(0, 0, 1, &a, buf, 32)) {
 			check("the ring accepted every datagram up to capacity", 0, 1);
 			break;
 		}
 	}
 	check("the ring holds exactly CQ_SLOTS", cq_depth(), CQ_SLOTS);
-	check("the overflow push is refused", cq_push(0, &a, buf, 32), 0);
+	check("the overflow push is refused", cq_push(0, 0, 1, &a, buf, 32), 0);
 	check("the overflow is counted as dropped", (int)cq_dropped(), 1);
 	check("depth is unchanged after the drop", cq_depth(), CQ_SLOTS);
 
@@ -113,7 +115,7 @@ int main(void)
 	ok = 1;
 	for (i = 0; i < CQ_SLOTS * 3; i++) {
 		buf[0] = (unsigned char)(i & 0xFF);
-		if (!cq_push(0, &a, buf, 8)) { ok = 0; break; }
+		if (!cq_push(0, 0, 1, &a, buf, 8)) { ok = 0; break; }
 		if (!cq_pop(&e)) { ok = 0; break; }
 		if (e.buf[0] != (unsigned char)(i & 0xFF)) { ok = 0; break; }
 	}

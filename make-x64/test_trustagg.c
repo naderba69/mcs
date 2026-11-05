@@ -184,6 +184,43 @@ int main(void)
 		trustagg_count(&full, &p, &b);
 		CHECK(p == TRUSTAGG_TABLE_SIZE, "a full table always accepts the next peer");
 	}
+	{
+		struct trustagg_table wrapped;
+		uint32_t now = 100u;
+		int i;
+		trustagg_reset(&wrapped);
+		for (i = 0; i < TRUSTAGG_TABLE_SIZE; i++) {
+			uint32_t age = (i == 0) ? 3000000000u : (uint32_t)(i + 1);
+			trustagg_note(&wrapped, TRUST_EV_GOOD, 1, 10000 + i, 0x1884,
+			              now - age, &ev);
+		}
+		trustagg_note(&wrapped, TRUST_EV_GOOD, 1, 10000 + TRUSTAGG_TABLE_SIZE,
+		              0x1884, now, &ev);
+		CHECK(trustagg_find(&wrapped, 1, 10000, 0x1884) == NULL &&
+		      trustagg_find(&wrapped, 1, 10001, 0x1884) != NULL,
+		      "full-table eviction chooses greatest unsigned age across rollover");
+		trustagg_count(&wrapped, &p, &b);
+		CHECK(p == TRUSTAGG_TABLE_SIZE, "rollover eviction retains fixed table capacity");
+	}
+	{
+		struct trustagg_table wrapped;
+		uint32_t start = UINT32_MAX - (TRUSTAGG_SUPPRESS_MS - 1u);
+		trustagg_reset(&wrapped);
+		trustagg_note(&wrapped, TRUST_EV_PROOF, 1, 77, 0x1884, start, &ev);
+		crossed = trustagg_note(&wrapped, TRUST_EV_PROOF, 1, 77, 0x1884, start, &ev);
+		CHECK(crossed == 1 && trustagg_ask(&wrapped, 1, 77, 0x1884, start) == 0,
+		      "suppression deadline remains active when its sum wraps to zero");
+		CHECK(trustagg_ask(&wrapped, 1, 77, 0x1884, 0) == 0 &&
+		      trustagg_ask(&wrapped, 1, 77, 0x1884, 1) == 1,
+		      "wrapped suppression expires at the next representable tick");
+
+		trustagg_reset(&wrapped);
+		trustagg_note(&wrapped, TRUST_EV_PROOF, 1, 78, 0x1884, 0, &ev);
+		crossed = trustagg_note(&wrapped, TRUST_EV_PROOF, 1, 78, 0x1884, 0, &ev);
+		CHECK(crossed == 1, "a report at tick zero is recorded");
+		crossed = trustagg_note(&wrapped, TRUST_EV_SOFT, 1, 78, 0x1884, 1, &ev);
+		CHECK(crossed == 0, "tick-zero report does not re-fire inside its window");
+	}
 	trustagg_reset(&t);
 	trustagg_count(&t, &p, &b);
 	CHECK(p == 0 && b == 0, "reset empties the table and the counters");

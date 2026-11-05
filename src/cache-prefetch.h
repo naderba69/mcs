@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <pthread.h>
+#include "tick_math.h"
 
 // ============================================================================
 // Configuration
@@ -161,20 +162,26 @@ static int prefetch_is_in_queue(uint16_t caid, uint32_t provid, uint16_t sid)
 static void prefetch_add_to_queue(uint16_t caid, uint32_t provid, uint16_t sid,
                                    uint32_t now_ms, int priority)
 {
-    if (prefetch_queue_count >= PREFETCH_MAX_QUEUE) {
-        // Queue full, remove oldest
-        int oldest = 0;
-        uint32_t oldest_time = 0xFFFFFFFF;
+    if (prefetch_stats.current_queue_size >= PREFETCH_MAX_QUEUE) {
+        /* Queue full: evict the active request with greatest elapsed age. */
+        int oldest = -1;
+        uint32_t oldest_age = 0;
         int i;
         
         for (i = 0; i < prefetch_queue_count; i++) {
-            if (prefetch_queue[i].requested_at < oldest_time) {
-                oldest_time = prefetch_queue[i].requested_at;
+            uint32_t age;
+            if (!prefetch_queue[i].active) continue;
+            age = tick32_elapsed(now_ms, prefetch_queue[i].requested_at);
+            if (oldest < 0 || age > oldest_age) {
                 oldest = i;
+                oldest_age = age;
             }
         }
-        
+        if (oldest < 0) return;
         prefetch_queue[oldest].active = 0;
+        if (prefetch_stats.current_queue_size > 0)
+            prefetch_stats.current_queue_size--;
+        prefetch_stats.total_prefetch_misses++;
     }
     
     // Find empty slot
@@ -187,9 +194,8 @@ static void prefetch_add_to_queue(uint16_t caid, uint32_t provid, uint16_t sid,
         }
     }
     
-    if (slot == -1) {
-        slot = prefetch_queue_count++;
-    }
+    if (slot == -1) return;
+    if (slot >= prefetch_queue_count) prefetch_queue_count = slot + 1;
     
     struct prefetch_queue_entry *e = &prefetch_queue[slot];
     e->caid = caid;
@@ -364,7 +370,8 @@ static void prefetch_cleanup(uint32_t now_ms)
     int i;
     for (i = 0; i < prefetch_queue_count; i++) {
         if (prefetch_queue[i].active &&
-            (now_ms - prefetch_queue[i].requested_at) > PREFETCH_COOLDOWN_MS) {
+            tick32_elapsed(now_ms, prefetch_queue[i].requested_at) >
+                PREFETCH_COOLDOWN_MS) {
             
             prefetch_queue[i].active = 0;
             prefetch_stats.total_prefetch_misses++;

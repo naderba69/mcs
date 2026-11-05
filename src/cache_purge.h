@@ -231,7 +231,7 @@ static int cache_purge_mark_scoped(struct purge_table *t,
                                    uint32_t ticks_now)
 {
 	int i, freepos = -1, victim = -1;
-	uint32_t oldest = 0xFFFFFFFFu;
+	uint32_t oldest_age = 0;
 
 	provider_known = cache_purge_scope_known(provid, provider_known);
 	provid = cache_purge_scope_value(provid, provider_known);
@@ -239,6 +239,7 @@ static int cache_purge_mark_scoped(struct purge_table *t,
 
 	for (i = 0; i < CACHE_PURGE_SLOTS; i++) {
 		struct purge_entry *e = &t->e[i];
+		uint32_t age;
 		if (e->inuse) {
 			if (e->srctype == srctype && e->srcid == srcid &&
 			    e->caid == caid && e->sid == sid && e->provid == provid &&
@@ -247,7 +248,9 @@ static int cache_purge_mark_scoped(struct purge_table *t,
 				t->marked++;
 				return 0; /* already marked; not a new event */
 			}
-			if (e->ticks < oldest) { oldest = e->ticks; victim = i; }
+			/* Compare elapsed ages, not absolute ticks: GetTickCount wraps. */
+			age = (uint32_t)(ticks_now - e->ticks);
+			if (victim < 0 || age > oldest_age) { oldest_age = age; victim = i; }
 		}
 		else if (freepos < 0) {
 			freepos = i; /* first free slot; always beats an eviction */

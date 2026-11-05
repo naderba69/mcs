@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CHANPRED_CHANNELS 32
 #define CHANPRED_HISTORY 10
@@ -64,15 +65,18 @@ chanpred_find(struct chanpred_table *t, uint16_t caid,
 
 static inline struct chanpred_channel *
 chanpred_alloc(struct chanpred_table *t, uint16_t caid,
-               uint32_t provid, uint16_t sid)
+               uint32_t provid, uint16_t sid, uint32_t now)
 {
-    int i, oldest = 0;
+    int i, oldest = -1;
+    uint32_t oldest_age = 0;
     struct chanpred_channel *c;
 
+    if (!t) return 0;
     c = chanpred_find(t, caid, provid, sid);
     if (c) return c;
 
     for (i = 0; i < CHANPRED_CHANNELS; i++) {
+        uint32_t age;
         if (!t->channels[i].used) {
             c = &t->channels[i];
             c->caid = caid;
@@ -81,12 +85,14 @@ chanpred_alloc(struct chanpred_table *t, uint16_t caid,
             c->used = 1;
             return c;
         }
-        if (t->channels[i].last_update < t->channels[oldest].last_update) {
+        age = tick32_elapsed(now, t->channels[i].last_update);
+        if (oldest < 0 || age > oldest_age) {
             oldest = i;
+            oldest_age = age;
         }
     }
-    /* Reuse oldest */
-    c = &t->channels[oldest];
+    /* Reuse the channel with greatest modulo elapsed age. */
+    c = &t->channels[(oldest < 0) ? 0 : oldest];
     memset(c, 0, sizeof(*c));
     c->caid = caid;
     c->provid = provid;
@@ -102,7 +108,7 @@ static inline void chanpred_record(struct chanpred_table *t,
 {
     struct chanpred_channel *c;
     if (!t) return;
-    c = chanpred_alloc(t, caid, provid, sid);
+    c = chanpred_alloc(t, caid, provid, sid, now);
     if (!c) return;
 
     c->refusals[c->history_head]++;

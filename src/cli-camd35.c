@@ -11,7 +11,7 @@ void camd35_send_keepalive(struct server_data *srv)
 		buf[0] = 0x3D;
 		buf[1] = 12;
 		memcpy( buf+20, cccam_nodeid, 8);
-		camd35_sendto( srv->handle, srv->host->ip, srv->port, &srv->encryptkey, srv->ucrc, buf, 20+12);
+		camd35_sendto( srv->handle, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+12);
 	}
 	else
 #endif
@@ -21,7 +21,7 @@ void camd35_send_keepalive(struct server_data *srv)
 		memset(buf,0, 21);
 		buf[0] = 0x37;
 		buf[1] = 1;
-		camd35_sendto( srv->handle, srv->host->ip, srv->port, &srv->encryptkey, srv->ucrc, buf, 20+1);
+		camd35_sendto( srv->handle, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+1);
 	}
 }
 
@@ -47,7 +47,7 @@ int camd35_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 	buf[16] = srv->ecm.msgid>>8;
 	buf[17] = srv->ecm.msgid;
 	memcpy( buf+20, ecm->ecm, ecm->ecmlen);
-	camd35_sendto( srv->handle, srv->host->ip, srv->port, &srv->encryptkey, srv->ucrc, buf, 20+ecm->ecmlen);
+	camd35_sendto( srv->handle, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+ecm->ecmlen);
 	return 1;
 }
 
@@ -59,6 +59,7 @@ void camd35_srv_recvmsg(struct server_data *srv)
 {
 	uint8_t cw[16];
 	struct cardserver_data *cs;
+	ECM_DATA *ecm;
 
 	struct sockaddr_in si_other;
 	socklen_t slen = sizeof(si_other);
@@ -96,33 +97,41 @@ void camd35_srv_recvmsg(struct server_data *srv)
 				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), wrong length!!!\n",srv->host->name,srv->port);
 				break;
 			}
-			// Check the response against the exact pending ECM profile/channel.
-			ECM_DATA *ecm = srv->ecm.request;
+			if (received < 40) {
+				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] short camd35 CW response (%d bytes)\n", received);
+				break;
+			}
+			ecm_lock(); //### Keep request/profile pointers stable through validation.
+			ecm = srv->ecm.request;
 			if (!ecm) {
 				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), ecm not found!!!\n",srv->host->name,srv->port);
+				ecm_unlock();
+				break;
+			}
+			if ((((uint16_t)buf[20] << 8) | buf[21]) != (uint16_t)srv->ecm.msgid) {
+				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] stale camd35 response, wrong message-id\n");
+				ecm_unlock();
+				break;
+			}
+			if (!ecm_request_lifetime_matches(ecm, srv->ecm.request, srv->ecm.lifetime_id) ||
+			    ecm->hash != srv->ecm.hash) {
+				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] stale camd35 response, request lifetime changed\n");
+				ecm_unlock();
 				break;
 			}
 			if (!acceptDCW_profile_ecm(buf+24, ecm->cs, ecm->caid, ecm->provid, ecm->sid)) {
 				srv->ecmerrdcw++;
 				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), bad dcw!!!\n",srv->host->name,srv->port);
+				ecm_unlock();
 				break;
 			}
-			//
 			srv->busy = 0;
 			pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
-			pthread_mutex_lock(&prg.lockecm); //###
-			// check for ECM validity
-			if (ecm->hash!=srv->ecm.hash) {
-				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), ecm deleted!!!\n",srv->host->name,srv->port);
-				pthread_mutex_unlock(&prg.lockecm);
-				break;
-			}
-
 			srv->ecmok++;
 			srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
 			srv->ecmoktime += srv->lastecmoktime;
 			ecm_setsrvflagdcw( ecm, srv->id, ECM_SRV_REPLY_GOOD, buf+24 );
-			debugf(getdbgflagpro(DBG_SERVER,0,srv->id,ecm->cs->id)," <= cw from camd35 server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
+			debugf(getdbgflagpro(DBG_SERVER,0,srv->id,(ecm->cs ? ecm->cs->id : 0))," <= cw from camd35 server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 
 			if (ecm->dcwstatus!=STAT_DCW_SUCCESS) {
 				static char msg[] = "Good dcw from camd35 server";
@@ -132,7 +141,7 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			}
 			else {	//TODO: check same dcw between cards
 				srv->ecmerrdcw ++;
-				if ( memcmp( ecm->cw, buf+24, 16) ) debugf(getdbgflagpro(DBG_SERVER,0,srv->id,ecm->cs->id)," !!! different dcw from camd35 server (%s:%d)\n",srv->host->name,srv->port);
+				if ( memcmp( ecm->cw, buf+24, 16) ) debugf(getdbgflagpro(DBG_SERVER,0,srv->id,(ecm->cs ? ecm->cs->id : 0))," !!! different dcw from camd35 server (%s:%d)\n",srv->host->name,srv->port);
 			}
 #ifdef SID_FILTER
 			// ADD IN SID LIST
@@ -142,7 +151,7 @@ void camd35_srv_recvmsg(struct server_data *srv)
 				srv_cstatadd( srv, cs->id, 1 , srv->lastecmoktime);
 			}
 #endif
-			pthread_mutex_unlock(&prg.lockecm); //###
+			ecm_unlock(); //###
 			break;
 
 		case 0x44:
@@ -151,34 +160,32 @@ void camd35_srv_recvmsg(struct server_data *srv)
 				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), unknown ecm request\n",srv->host->name,srv->port);
 				break;
 			}
-			// Checl Stored ECM
-			ecm = srv->ecm.request;
-			if (!ecm) {
-				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), ecm not found!!!\n",srv->host->name,srv->port);
+			if (received < 24) {
+				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] short camd35 negative response (%d bytes)\n", received);
 				break;
 			}
-			//
+			ecm_lock(); //###
+			ecm = srv->ecm.request;
+			if (!ecm || ((((uint16_t)buf[20] << 8) | buf[21]) != (uint16_t)srv->ecm.msgid) ||
+			    !ecm_request_lifetime_matches(ecm, srv->ecm.request, srv->ecm.lifetime_id) ||
+			    ecm->hash != srv->ecm.hash) {
+				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] stale camd35 negative response ignored\n");
+				ecm_unlock();
+				break;
+			}
 			srv->busy = 0;
 			pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
-			pthread_mutex_lock(&prg.lockecm); //###
-			// check for ECM validity
-			if (ecm->hash!=srv->ecm.hash) {
-				debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from camd35 server (%s:%d), ecm deleted!!!\n",srv->host->name,srv->port);
-				pthread_mutex_unlock(&prg.lockecm);
-				break;
-			}
-			cs= ecm->cs;
+			cs = ecm->cs;
 			ecm_setsrvflag(ecm, srv->id, ECM_SRV_REPLY_FAIL);
-			debugf(getdbgflagpro(DBG_SERVER,0,srv->id,ecm->cs->id)," <| decode failed from camd35 server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
+			debugf(getdbgflagpro(DBG_SERVER,0,srv->id,(ecm->cs ? ecm->cs->id : 0))," <| decode failed from camd35 server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 #ifdef SID_FILTER
-			// ADD IN SID LIST
 			if (cs) {
 				cardsids_update( srv->busycard, ecm->provid, ecm->sid, -1);
 				srv_cstatadd( srv, cs->id, 0 , 0);
 			}
 #endif
-			pthread_mutex_unlock(&prg.lockecm); //###
-			wakeup_sendecm(); // Wakeup ecm waiting for availabe servers
+			ecm_unlock(); //###
+			wakeup_sendecm(); // Wakeup ecm waiting for available servers
 			break;
 
 		// Keepalive
@@ -221,7 +228,9 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			// Look for cardserver
 			cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
 			if ( !cs || !cs->option.fallowcacheex ) {
+				pthread_mutex_lock(&prg.lockcacheex);
 				srv->cacheex.badcw++;
+				pthread_mutex_unlock(&prg.lockcacheex);
 				break;
 			}
 			if ((buf[23]&0xFE)==0x80) cacheex.tag = buf[23]; else cacheex.tag = 0;
@@ -230,9 +239,11 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 			if (!cacheex_check(&cacheex)) break;
 			//debugf( getdbgflag(DBG_CACHEEX, 0, 0)," CACHEEX PUSH from client(%d) %04x:%06x:%04x (%08x)\n",cli->id,cacheex.caid,cacheex.provid,cacheex.sid,cacheex.hash);
+			pthread_mutex_lock(&prg.lockcacheex);
 			srv->cacheex.got[0]++;
 			int uphop = buf[60];
 			if (uphop<10) srv->cacheex.got[uphop]++;
+			pthread_mutex_unlock(&prg.lockcacheex);
 			//
 			pthread_mutex_lock( &prg.lockcache );
 			int res = cache_setdcw( &cacheex, cw, NO_CYCLE, PEER_CACHEEX_SERVER | srv->id );
@@ -302,8 +313,13 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			}
 #endif
 			pthread_mutex_unlock( &prg.lockcache );
+			cache_peerrep_save_after_unlock();
 			if (res&DCW_ERROR) {
-				if ( !(res&DCW_SKIP)) srv->cacheex.badcw++;
+				if ( !(res&DCW_SKIP)) {
+					pthread_mutex_lock(&prg.lockcacheex);
+					srv->cacheex.badcw++;
+					pthread_mutex_unlock(&prg.lockcacheex);
+				}
 			}
 			else if (res&DCW_CYCLE) {
 				if ( cs->option.cacheex.maxhop>uphop ) {
@@ -320,35 +336,8 @@ void camd35_srv_recvmsg(struct server_data *srv)
 
 }
 
-// CACHEEX MODE 2
-void *camd35_srv_recvmsg_thread(struct server_data *srv)
-{
-	srv->pid = syscall(SYS_gettid);
+// CACHEEX MODE 2 is serviced by the generation-checked worker in th-srv.c.
 
-	while (!prg.restart) {
-		if (srv->handle<=0) {
-			srv->pid = 0;
-			return NULL;
-		}
-		//
-		struct pollfd pfd;
-		pfd.fd = srv->handle;
-		pfd.events = POLLIN | POLLPRI;
-		int retval = poll(&pfd, 1, 3009);
-		if (retval==0) continue; // timeout
-		if (retval<0) {
-			disconnect_srv(srv);
-			srv->pid = 0;
-			return NULL;
-		}
-		camd35_srv_recvmsg(srv);
-	}
-	return NULL;
-}
-
-
-///////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
 
 int camd35_connect_srv(struct server_data *srv, int fd)
 {
@@ -360,7 +349,7 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 		buf[0] = CAMD_CEX_IDREQUEST;
 		buf[1] = 12;
 		memcpy( buf+20, cccam_nodeid, 8);
-		camd35_sendto( fd, srv->host->ip, srv->port, &srv->encryptkey, srv->ucrc, buf, 20+12);
+		camd35_sendto( fd, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+12);
 		struct pollfd pfd;
 		pfd.fd = fd;
 		pfd.events = POLLIN | POLLPRI;
@@ -378,14 +367,19 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 				memcpy( srv->nodeid, buf+24, 8);
 				array2hex( srv->nodeid, buf, 8);
 				debugf(0," Connected to camd35 server (%s:%d), Nodeid = %s\n", srv->host->name, srv->port, buf);
+				pthread_mutex_lock(&prg.locksrv);
 				srv->connection.status = 1;
 				srv->connection.time = GetTickCount();
 				srv->keepalive.status = 0;
 				srv->keepalive.time = GetTickCount();
 				srv->handle = fd;
+				pthread_mutex_unlock(&prg.locksrv);
+				if (!server_connection_is_enabled(srv, fd)) return 0;
 				if (srv->cacheex_mode==2) {
-					if (!create_thread(PACKED_MPTR(srv, pthread_t, tid), (threadfn)camd35_srv_recvmsg_thread, srv)) {
-						disconnect_srv(srv);
+					if (!server_receive_thread_start(srv)) {
+						pthread_mutex_lock(&prg.locksrv);
+						if (srv->handle == fd) disconnect_srv(srv);
+						pthread_mutex_unlock(&prg.locksrv);
 					}
 				}
 				else pipe_wakeup( prg.pipe.cacheex[1] );
@@ -404,7 +398,7 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 		memset(buf,0, 21);
 		buf[0] = CAMD_KEEPALIVE;
 		buf[1] = 1;
-		camd35_sendto( fd, srv->host->ip, srv->port, &srv->encryptkey, srv->ucrc, buf, 20+1);
+		camd35_sendto( fd, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+1);
 		struct pollfd pfd;
 		pfd.fd = fd;
 		pfd.events = POLLIN | POLLPRI;
@@ -423,27 +417,31 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 				int count = 0;
 				while (srv->sharelimits[count].caid!=0xFFFF) {
 					struct cs_card_data *pcard = malloc( sizeof(struct cs_card_data) );
+					if (!pcard) {
+						debugf(DBG_ERROR, " !!! unable to allocate camd35 server card record for server %u\n", (unsigned)srv->id);
+						break;
+					}
 					memset(pcard, 0, sizeof(struct cs_card_data) );
 					pcard->caid = srv->sharelimits[count].caid;
 					pcard->nbprov = 1;
 					pcard->prov[0] = srv->sharelimits[count].provid;
 					pcard->uphops = srv->sharelimits[count].uphops;
+					pthread_mutex_lock(&prg.locksrv);
 					pcard->next = srv->card;
 					srv->card = pcard;
+					pthread_mutex_unlock(&prg.locksrv);
 					count++;
 				}
 				//
 				debugf(0," Connected to camd35 server (%s:%d)\n", srv->host->name, srv->port);
+				pthread_mutex_lock(&prg.locksrv);
 				srv->connection.status = 1;
 				srv->connection.time = GetTickCount();
 				srv->keepalive.status = 0;
 				srv->keepalive.time = GetTickCount();
 				srv->handle = fd;
-#ifdef EPOLL_ECM
-				pipe_pointer( prg.pipe.ecm[1], PIPE_SRV_CONNECTED, srv );
-#else
-				pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_CONNECTED );
-#endif
+				pthread_mutex_unlock(&prg.locksrv);
+				server_publish_connection_ready(srv, fd);
 				return 0;
 			}
 			break;

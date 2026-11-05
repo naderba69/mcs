@@ -75,7 +75,7 @@ int main(void)
 	/* --- identity: (origin, peer id) never merges across origins --- */
 	cexvis_note(&t, PEER_CACHEEX_SERVER, 3, "upstream", CEXVIS_PUSH, "",
 			0x1884, 0, 0x0064, now++);
-	n = cexvis_copy(&t, rows, CEXVIS_SLOTS);
+	n = cexvis_copy(&t, rows, CEXVIS_SLOTS, now);
 	ok(n == 2, "the same bare id under another origin is a second row");
 	f = 0;
 	for (i = 0; i < n; i++)
@@ -115,7 +115,7 @@ int main(void)
 				    "x", CEXVIS_PUSH, "", 0, 0, 0, t0 + i);
 		cexvis_note(&u, PEER_CCCAM_CLIENT, 777, "new", CEXVIS_RELAY, "",
 				0, 0, 0, t0 + 1000);
-		n = cexvis_copy(&u, rows, CEXVIS_SLOTS);
+		n = cexvis_copy(&u, rows, CEXVIS_SLOTS, t0 + 1000u);
 		ok(n == CEXVIS_SLOTS, "the table holds exactly SLOTS rows");
 		f = 0;
 		for (i = 0; i < n; i++)
@@ -127,6 +127,27 @@ int main(void)
 		ok(!f, "the LRU row (peer 100) was the eviction victim");
 		ok(u.evicts == 1, "the eviction is counted");
 	}
+	{
+		struct cexvis_tab w;
+		uint32_t tick = 100u;
+		memset(&w, 0, sizeof(w));
+		for (i = 0; i < CEXVIS_SLOTS; i++) {
+			uint32_t age = (i == 0) ? 3000000000u : (uint32_t)(i + 1);
+			cexvis_note(&w, PEER_CCCAM_CLIENT, (uint32_t)(5000 + i), "x",
+			            CEXVIS_PUSH, "", 0, 0, 0, tick - age);
+		}
+		cexvis_note(&w, PEER_CCCAM_CLIENT, 9000, "new", CEXVIS_RELAY,
+		            "", 0, 0, 0, tick);
+		n = cexvis_copy(&w, rows, CEXVIS_SLOTS, tick);
+		f = 0;
+		for (i = 0; i < n; i++) if (rows[i].peerid == 5000) f = 1;
+		ok(!f, "wrap-safe visibility eviction drops the greatest unsigned age");
+		f = 0;
+		for (i = 0; i < n; i++) if (rows[i].peerid == 5001) f = 1;
+		ok(f, "wrap-safe visibility eviction preserves recent rows");
+		ok(n > 0 && rows[0].peerid == 9000,
+		   "visibility snapshot orders rows by modular recency");
+	}
 
 	/* --- copy order: most recently touched first --- */
 	{
@@ -134,7 +155,7 @@ int main(void)
 		memset(&v, 0, sizeof(v));
 		cexvis_note(&v, PEER_CCCAM_CLIENT, 1, "old", CEXVIS_PUSH, "", 0, 0, 0, 10);
 		cexvis_note(&v, PEER_CCCAM_CLIENT, 2, "new", CEXVIS_PUSH, "", 0, 0, 0, 20);
-		n = cexvis_copy(&v, rows, CEXVIS_SLOTS);
+		n = cexvis_copy(&v, rows, CEXVIS_SLOTS, 20u);
 		ok(n == 2 && rows[0].peerid == 2 && rows[1].peerid == 1,
 		   "snapshot returns the most recently touched row first");
 	}

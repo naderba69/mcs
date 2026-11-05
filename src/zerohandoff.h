@@ -16,6 +16,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define ZEROHANDOFF_CLIENTS 32
 #define ZEROHANDOFF_BACKUPS 4
@@ -35,6 +36,7 @@ struct zerohandoff_client {
     struct zerohandoff_backup backups[ZEROHANDOFF_BACKUPS];
     int backup_count;
     uint32_t last_switch;
+    uint32_t last_used;
     uint32_t switch_count;
     uint8_t used;
 };
@@ -64,13 +66,14 @@ static inline void zerohandoff_register(struct zerohandoff_table *t,
                                          uint16_t sid,
                                          int primary_server,
                                          const int *backup_servers,
-                                         int backup_count)
+                                         int backup_count,
+                                         uint32_t now)
 {
     int i, free_slot = -1;
     struct zerohandoff_client *c;
     int count;
 
-    if (!t) return;
+    if (!t || backup_count < 0 || (backup_count > 0 && !backup_servers)) return;
     if (backup_count > ZEROHANDOFF_BACKUPS) backup_count = ZEROHANDOFF_BACKUPS;
 
     /* Find or allocate */
@@ -80,6 +83,8 @@ static inline void zerohandoff_register(struct zerohandoff_table *t,
             c->caid == caid && c->provid == provid && c->sid == sid) {
             /* Update existing */
             c->primary_server = primary_server;
+            c->last_used = now;
+            memset(c->backups, 0, sizeof(c->backups));
             count = backup_count;
             for (i = 0; i < count; i++) {
                 c->backups[i].server_id = backup_servers[i];
@@ -95,10 +100,13 @@ static inline void zerohandoff_register(struct zerohandoff_table *t,
     }
 
     if (free_slot < 0) {
-        /* Replace oldest */
+        /* Replace the entry with greatest modulo elapsed age. */
         int oldest = 0;
+        uint32_t oldest_age = tick32_elapsed(now, t->clients[0].last_used);
         for (i = 1; i < ZEROHANDOFF_CLIENTS; i++) {
-            if (t->clients[i].last_switch < t->clients[oldest].last_switch) {
+            uint32_t age = tick32_elapsed(now, t->clients[i].last_used);
+            if (age > oldest_age) {
+                oldest_age = age;
                 oldest = i;
             }
         }
@@ -106,11 +114,13 @@ static inline void zerohandoff_register(struct zerohandoff_table *t,
     }
 
     c = &t->clients[free_slot];
+    memset(c, 0, sizeof(*c));
     c->client_ip = client_ip;
     c->caid = caid;
     c->provid = provid;
     c->sid = sid;
     c->primary_server = primary_server;
+    c->last_used = now;
     count = backup_count;
     for (i = 0; i < count; i++) {
         c->backups[i].server_id = backup_servers[i];
@@ -153,6 +163,7 @@ static inline int zerohandoff_switch(struct zerohandoff_table *t,
             if (best_backup >= 0) {
                 c->primary_server = best_backup;
                 c->last_switch = now;
+                c->last_used = now;
                 c->switch_count++;
                 t->total_switches++;
             }

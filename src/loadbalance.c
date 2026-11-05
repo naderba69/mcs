@@ -1,4 +1,5 @@
 #include "cafamily.h"	/* TASK R39 (D98): provider-strict families for card matching */
+#include "tick_math.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -158,7 +159,7 @@ int srvtab_arrange(struct cardserver_data *cs, ECM_DATA *ecm, int bestone )
 			|| ( cs->option.fallowcs378x && (srv->type==TYPE_CS378X) )
 		)
 		// Remove Circular request: check for client ip & srv ip
-		if ( (srv->host->ip==0x0100007F) || ( !ecm_checkip(ecm, srv->host->ip) && !ecm_checksrvip(ecm, srv->host->ip) ) )
+		if ( (host_ip_snapshot(srv->host)==0x0100007F) || ( !ecm_checkip(ecm, host_ip_snapshot(srv->host)) && !ecm_checksrvip(ecm, host_ip_snapshot(srv->host)) ) )
 		{
 			// Check for CS PORTS
 			for(i=0; i<MAX_CSPORTS; i++ ) {
@@ -197,7 +198,7 @@ int srvtab_arrange(struct cardserver_data *cs, ECM_DATA *ecm, int bestone )
 				}
 				if ( (i>=20)||(ecm->server[i].srvid!=srv->id) ) {
 					// Check for ECM TIMEOUT
-					if ( (srv->busy)&&((srv->lastecmtime+9000)<ticks) ) { // timeout
+					if (srv->busy && (uint32_t)(ticks - srv->lastecmtime) > 9000u) { // timeout
 						debugf(getdbgflag(DBG_SERVER,0,srv->id)," ??? server (%s:%d) doesnt send ecm answer\n", srv->host->name,srv->port);
 						srv->ecmtimeout++;
 						srv->busy = 0;
@@ -262,7 +263,7 @@ int srvtab_arrange(struct cardserver_data *cs, ECM_DATA *ecm, int bestone )
 				if ( msperecm > (2*cs->option.server.timeperecm) ) tim = 0;
 				else if ( msperecm > cs->option.server.timeperecm ) tim = (2*cs->option.server.timeperecm)-msperecm;
 				else tim = cs->option.server.timeperecm;
-				if ( (psrvlist[j]->srv->lastecmtime+tim)<=ticks ) {
+				if ( tick32_elapsed(ticks, psrvlist[j]->srv->lastecmtime) >= tim ) {
 					if (i<j) psrvlist[i] = psrvlist[j];
 					i++;
 				}
@@ -314,10 +315,11 @@ int srvtab_arrange(struct cardserver_data *cs, ECM_DATA *ecm, int bestone )
 
 //// ARRANGE
 
-	// Arrange by ECM LAST SENT TIME
+	// Arrange by ECM LAST SENT TIME, oldest first (elapsed age, not absolute tick).
 	for(i=0; i<nbsrv-1; i++)
 		for(j=i+1; j<nbsrv; j++)
-			if ( psrvlist[i]->srv->lastecmtime > psrvlist[j]->srv->lastecmtime ) {
+			if ( tick32_elapsed(ticks, psrvlist[i]->srv->lastecmtime) <
+			     tick32_elapsed(ticks, psrvlist[j]->srv->lastecmtime) ) {
 				srvtemp = psrvlist[i];
 				psrvlist[i] = psrvlist[j];
 				psrvlist[j] = srvtemp;

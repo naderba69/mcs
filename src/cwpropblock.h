@@ -19,9 +19,11 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CWPROPBLOCK_TABLE_SIZE 128
 #define CWPROPBLOCK_TTL_SECS 300  /* 5 minutes */
+#define CWPROPBLOCK_TTL_MS (CWPROPBLOCK_TTL_SECS * 1000u)
 
 struct cwpropblock_entry {
     uint8_t cw_prefix[8];  /* first 8 bytes of CW (fingerprint) */
@@ -75,11 +77,14 @@ static inline int cwpropblock_add(struct cwpropblock_table *t,
 
     /* Allocate new slot */
     if (free_slot < 0) {
-        /* Table full — find oldest entry */
+        /* Table full — replace the entry with greatest modulo elapsed age. */
         int oldest = 0;
+        uint32_t oldest_age = tick32_elapsed(now, t->entries[0].blocked_at);
         for (i = 1; i < CWPROPBLOCK_TABLE_SIZE; i++) {
-            if (t->entries[i].blocked_at < t->entries[oldest].blocked_at) {
+            uint32_t age = tick32_elapsed(now, t->entries[i].blocked_at);
+            if (age > oldest_age) {
                 oldest = i;
+                oldest_age = age;
             }
         }
         free_slot = oldest;
@@ -112,7 +117,7 @@ static inline int cwpropblock_check(const struct cwpropblock_table *t,
         const struct cwpropblock_entry *e = &t->entries[i];
         if (!e->used) continue;
         /* Check TTL */
-        if ((now - e->blocked_at) > CWPROPBLOCK_TTL_SECS) continue;
+        if (tick32_elapsed(now, e->blocked_at) > CWPROPBLOCK_TTL_MS) continue;
         /* Check match */
         if (e->caid == caid && e->provid == provid && e->sid == sid &&
             memcmp(e->cw_prefix, cw, 8) == 0) {
@@ -133,7 +138,7 @@ static inline void cwpropblock_expire(struct cwpropblock_table *t,
     if (!t) return;
     for (i = 0; i < CWPROPBLOCK_TABLE_SIZE; i++) {
         struct cwpropblock_entry *e = &t->entries[i];
-        if (e->used && (now - e->blocked_at) > max_age) {
+        if (e->used && tick32_elapsed(now, e->blocked_at) > max_age) {
             e->used = 0;
         }
     }
@@ -150,7 +155,7 @@ static inline int cwpropblock_check_global(const struct cwpropblock_table *t,
     for (i = 0; i < CWPROPBLOCK_TABLE_SIZE; i++) {
         const struct cwpropblock_entry *e = &t->entries[i];
         if (!e->used) continue;
-        if ((now - e->blocked_at) > CWPROPBLOCK_TTL_SECS) continue;
+        if (tick32_elapsed(now, e->blocked_at) > CWPROPBLOCK_TTL_MS) continue;
         if (memcmp(e->cw_prefix, cw, 8) == 0) {
             return 1;  /* blocked globally */
         }

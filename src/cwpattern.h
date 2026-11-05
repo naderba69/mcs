@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CWPATTERN_LIBRARY_SIZE 64
 #define CWPATTERN_PREFIX_LEN 8
@@ -45,9 +46,10 @@ static inline int cwpattern_is_obvious_fake(const uint8_t cw[16])
 {
     int i;
     int all_zero = 1, all_ff = 1, all_same = 1;
-    uint8_t first = cw[0];
+    uint8_t first;
 
     if (!cw) return 0;
+    first = cw[0];
 
     for (i = 0; i < 16; i++) {
         if (cw[i] != 0x00) all_zero = 0;
@@ -104,14 +106,17 @@ static inline void cwpattern_learn(struct cwpattern_library *lib,
 
     /* Add new pattern */
     if (free_slot < 0) {
-        /* Find least-seen pattern to replace */
-        int min_seen = 0;
+        /* Replace the pattern with greatest modulo elapsed age. */
+        int oldest = 0;
+        uint32_t oldest_age = tick32_elapsed(now, lib->entries[0].last_seen);
         for (i = 1; i < CWPATTERN_LIBRARY_SIZE; i++) {
-            if (lib->entries[i].seen_count < lib->entries[min_seen].seen_count) {
-                min_seen = i;
+            uint32_t age = tick32_elapsed(now, lib->entries[i].last_seen);
+            if (age > oldest_age) {
+                oldest = i;
+                oldest_age = age;
             }
         }
-        free_slot = min_seen;
+        free_slot = oldest;
     }
 
     e = &lib->entries[free_slot];

@@ -33,16 +33,22 @@ soak: .ncclient.bin .cachepeer.bin
 smoke:
 	@command -v curl >/dev/null || { echo "curl required"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@rm -f .smoke.log; $(BIN) -C $(CFG) > .smoke.log 2>&1 & echo $$! > .pid; \
-	code=000; \
+	@rm -f .smoke.log .threads.html; $(BIN) -C $(CFG) > .smoke.log 2>&1 & echo $$! > .pid; \
+	code=000; threads_code=000; \
 	for i in $$(seq 1 25); do \
 	  code=$$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/); \
 	  [ "$$code" = "200" ] && break; \
 	  sleep 1; \
 	done; \
+	if [ "$$code" = "200" ]; then \
+	  threads_code=$$(curl -s -m 5 -u admin:admin -o .threads.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/threads); \
+	fi; \
 	kill $$(cat .pid) 2>/dev/null; rm -f .pid; \
-	if [ "$$code" = "200" ]; then echo "  [ ok ] HTTP / answered 200"; rm -f .smoke.log; else \
-	  echo "  [FAIL] HTTP / answered $$code"; echo "--- server log ---"; cat .smoke.log; exit 1; fi
+	ok=1; \
+	if [ "$$code" = "200" ]; then echo "  [ ok ] HTTP / answered 200"; else echo "  [FAIL] HTTP / answered $$code"; ok=0; fi; \
+	if [ "$$threads_code" = "200" ] && grep -q 'THREADID Main =' .threads.html; then echo "  [ ok ] HTTP /threads answered 200 and rendered the thread snapshot"; else echo "  [FAIL] HTTP /threads answered $$threads_code or omitted the snapshot marker"; ok=0; fi; \
+	rm -f .threads.html; \
+	if [ "$$ok" = "1" ]; then rm -f .smoke.log; else echo "--- server log (startup only) ---"; cat .smoke.log; exit 1; fi
 
 no-profile:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }

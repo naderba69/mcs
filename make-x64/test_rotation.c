@@ -166,6 +166,29 @@ static void t_eviction(void)
 	CHECK(rotation_count_bad(&tab, CAID1, 9999, PROV1) == 1, "the new record is live");
 }
 
+static void t_eviction_wraparound(void)
+{
+	const uint32_t base = UINT32_MAX - 31u;
+	const uint16_t sid = 12000;
+	int i;
+	rotation_init(&tab);
+
+	/* Ordered timestamps straddle UINT32_MAX. Touch channel 0 at tick 100,
+	 * then make room at tick 110; channel 1 is the longest-unseen entry. */
+	for (i = 0; i < ROTATION_SLOTS; i++)
+		rotation_note_bad(&tab, SRV, 1, (uint16_t)(0x1000 + i), sid, PROV1,
+		                  base + (uint32_t)i);
+	rotation_note_bad(&tab, SRV, 1, 0x1000, sid, PROV1, 100u);
+	CHECK(rotation_note_bad(&tab, SRV, 1, 0x1100, sid, PROV1, 110u) == 1,
+	      "a full rotation table accepts a channel after tick wrap");
+	CHECK(rotation_count_bad(&tab, 0x1000, sid, PROV1) == 1,
+	      "wrap-safe eviction preserves the refreshed channel");
+	CHECK(rotation_count_bad(&tab, 0x1001, sid, PROV1) == 0,
+	      "wrap-safe eviction removes the longest-unseen channel");
+	CHECK(rotation_count_bad(&tab, 0x1020, sid, PROV1) == 1,
+	      "a newer channel with a smaller absolute tick survives");
+}
+
 static void t_bounded_and_nullsafe(void)
 {
 	long i;
@@ -202,6 +225,7 @@ int main(void)
 	t_good_clears();
 	t_cap_never_strands_the_channel();
 	t_eviction();
+	t_eviction_wraparound();
 	t_bounded_and_nullsafe();
 	printf("== %d/%d passed, %d failed ==\n", pass_n, pass_n + fail_n, fail_n);
 	return fail_n ? 1 : 0;

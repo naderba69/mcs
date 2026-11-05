@@ -2564,15 +2564,16 @@ dl:
 # allocation -- one -- was a SIGSEGV on the cache thread, which is the
 # process. Historical pre-fix bite: the original 88-byte layout requested
 # calloc(90112), and refusing that matching allocation killed the 3.3 binary
-# with exit 139 on the first honest client ECM. The current x64 CACHEEX layout
-# is 94 bytes; ca-bite.c now refuses its matching calloc(96256) allocation.
+# with exit 139 on the first honest client ECM. The x64 CACHEEX cache entry is
+# now 102 bytes: the approved internal ECM lifetime token adds 8 bytes per
+# slot (peer wire format unchanged); ca-bite.c refuses calloc(104448).
 #
 # THE FIX. Fourteen guards, one per allocation and one per caller that
 # dereferences what an allocation returned: the table allocator says so once
 # per failed attempt and returns NULL; every caller drops the one event it
 # was holding (a find, a request, a reply, one peer report) and the ECM's own
-# cachetimeout fallback takes over. Nothing blocks, nothing queues (GR9), no
-# pool, no layout change.
+# cachetimeout fallback takes over. Nothing blocks, nothing queues (GR9), and
+# the peer wire layout is unchanged.
 #
 # THE SCENARIO. Phase 1 runs the fixed binary with the same bite active and
 # drives two client ECMs: the server must survive, say so in bounded lines,

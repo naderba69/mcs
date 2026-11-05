@@ -48,6 +48,7 @@
 #include <string.h>
 #include <time.h>
 #include <pthread.h>
+#include "tick_math.h"
 
 /* ============================================================================
  * CONFIGURATION
@@ -72,6 +73,7 @@ struct ibs_channel {
     uint32_t last_cw_sent_time;        /* When we last sent CW */
     uint32_t last_ecm_request_time;    /* When last ECM arrived */
     uint32_t prev_ecm_request_time;    /* Previous ECM request time */
+    uint8_t has_ecm_request;           /* zero is a valid first-request tick */
     
     /* CW source tracking (for blaming the right source) */
     uint32_t last_cw_source_id;        /* Source that provided last CW */
@@ -284,6 +286,7 @@ static inline int ibs_on_ecm_request(uint32_t client_id,
         struct ibs_channel *ch = ibs_get_or_create_channel(cl, caid, provid, sid);
         ch->prev_ecm_request_time = 0;
         ch->last_ecm_request_time = now_ms;
+        ch->has_ecm_request = 1;
         pthread_mutex_unlock(&g_ibs.lock);
         return 0;  /* First request — no baseline */
     }
@@ -292,20 +295,21 @@ static inline int ibs_on_ecm_request(uint32_t client_id,
     if (!ch) {
         ch = ibs_get_or_create_channel(cl, caid, provid, sid);
         ch->last_ecm_request_time = now_ms;
+        ch->has_ecm_request = 1;
         pthread_mutex_unlock(&g_ibs.lock);
         return 0;
     }
     
     /* Calculate interval since last CW was sent */
     uint32_t interval_since_cw = 0;
-    if (ch->last_cw_sent_time > 0) {
-        interval_since_cw = now_ms - ch->last_cw_sent_time;
+    if (ch->total_cws_sent > 0) {
+        interval_since_cw = tick32_elapsed(now_ms, ch->last_cw_sent_time);
     }
     
-    /* Calculate interval since last ECM request */
+    /* Calculate interval since last ECM request; tick zero is a valid stamp. */
     uint32_t interval_since_ecm = 0;
-    if (ch->last_ecm_request_time > 0) {
-        interval_since_ecm = now_ms - ch->last_ecm_request_time;
+    if (ch->has_ecm_request) {
+        interval_since_ecm = tick32_elapsed(now_ms, ch->last_ecm_request_time);
     }
     
     /* BLACK SCREEN DETECTION:
@@ -349,6 +353,7 @@ static inline int ibs_on_ecm_request(uint32_t client_id,
     
     ch->prev_ecm_request_time = ch->last_ecm_request_time;
     ch->last_ecm_request_time = now_ms;
+    ch->has_ecm_request = 1;
     
     pthread_mutex_unlock(&g_ibs.lock);
     return result;

@@ -17,7 +17,8 @@ void cq_init(void)
 	cq_n_enqueued = cq_n_dropped = 0;
 }
 
-int cq_push(void *src, const struct sockaddr_in *from,
+int cq_push(int src_id, int src_handle, uint64_t config_generation,
+            const struct sockaddr_in *from,
             const unsigned char *buf, int len)
 {
 	if (!from || !buf || len < 0 || len > CQ_BUF) return 0;
@@ -28,7 +29,9 @@ int cq_push(void *src, const struct sockaddr_in *from,
 		return 0;
 	}
 	struct cq_entry *e = &cq_ring[cq_head];
-	e->src = src;
+	e->src_id = src_id;
+	e->src_handle = src_handle;
+	e->config_generation = config_generation;
 	e->len = len;
 	memcpy(e->buf, buf, len);
 	e->from = *from;

@@ -55,6 +55,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include "tick_math.h"
 
 #define CG_WINDOW_MS 60000   /* one line per kind per window */
 
@@ -116,7 +117,8 @@ struct cg_window {
 
 static inline int cg_window_event(struct cg_window *w, uint32_t now)
 {
-	if (w->opened == 0 || (int32_t)(now - w->opened) >= (int32_t)CG_WINDOW_MS) {
+	if (w->opened == 0 ||
+	    tick32_deadline_reached(now, w->opened + CG_WINDOW_MS)) {
 		w->opened = now ? now : 1;
 		w->count = 1;
 		return 1;

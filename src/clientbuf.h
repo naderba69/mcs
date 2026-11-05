@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CLIENTBUF_MAX_SIZE 5
 #define CLIENTBUF_CHANNELS 32
@@ -118,15 +119,21 @@ static inline void clientbuf_add(struct clientbuf_table *t,
 {
     struct clientbuf_channel *c;
     struct clientbuf_cw *slot;
+    uint32_t ttl_ms;
 
     if (!clientbuf_enabled(t) || !cw) return;
     c = clientbuf_alloc(t, caid, provid, sid);
     if (!c) return;
 
+    /* The public TTL is seconds, while `now` is a 32-bit millisecond tick.
+     * Bound deadlines to the signed half-range required by modular ordering. */
+    if (ttl_secs > (uint32_t)INT32_MAX / 1000u)
+        ttl_secs = (uint32_t)INT32_MAX / 1000u;
+    ttl_ms = ttl_secs * 1000u;
     slot = &c->buffer[c->head];
     memcpy(slot->cw, cw, 16);
     slot->received_at = now;
-    slot->expires_at = now + ttl_secs;
+    slot->expires_at = now + ttl_ms;
     slot->used = 1;
     c->head = (c->head + 1) % c->buffer_size;
     t->total_buffered++;
@@ -142,6 +149,7 @@ static inline int clientbuf_get(struct clientbuf_table *t,
 {
     struct clientbuf_channel *c;
     struct clientbuf_cw *best = 0;
+    uint32_t best_age = 0;
     int i;
 
     if (!clientbuf_enabled(t) || !out_cw) return 0;
@@ -151,10 +159,13 @@ static inline int clientbuf_get(struct clientbuf_table *t,
     /* Find the most recent non-expired CW */
     for (i = 0; i < c->buffer_size; i++) {
         struct clientbuf_cw *slot = &c->buffer[i];
+        uint32_t age;
         if (!slot->used) continue;
-        if (slot->expires_at <= now) continue;  /* expired */
-        if (!best || slot->received_at > best->received_at) {
+        if (tick32_deadline_reached(now, slot->expires_at)) continue;  /* expired */
+        age = tick32_elapsed(now, slot->received_at);
+        if (!best || age < best_age) {
             best = slot;
+            best_age = age;
         }
     }
 
@@ -174,7 +185,7 @@ static inline void clientbuf_expire(struct clientbuf_table *t, uint32_t now)
         if (!c->used) continue;
         for (j = 0; j < c->buffer_size; j++) {
             struct clientbuf_cw *slot = &c->buffer[j];
-            if (slot->used && slot->expires_at <= now) {
+            if (slot->used && tick32_deadline_reached(now, slot->expires_at)) {
                 slot->used = 0;
             }
         }
@@ -194,7 +205,7 @@ static inline int clientbuf_utilization(const struct clientbuf_table *t,
     if (!c) return 0;
 
     for (i = 0; i < c->buffer_size; i++) {
-        if (c->buffer[i].used && c->buffer[i].expires_at > now) {
+        if (c->buffer[i].used && !tick32_deadline_reached(now, c->buffer[i].expires_at)) {
             count++;
         }
     }

@@ -22,6 +22,7 @@
 #include <string.h>
 #include <time.h>
 #include <pthread.h>
+#include "tick_math.h"
 
 // ============================================================================
 // Configuration
@@ -30,6 +31,7 @@
 #define SSF_MAX_HISTORY 16
 #define SSF_MAX_BLACKLIST 32
 #define SSF_MAX_PEERS 256
+#define SSF_MAX_MC_ENTRIES 256
 #define SSF_HISTORY_WINDOW_MS 5000
 
 struct ssf_config {
@@ -80,13 +82,15 @@ struct ssf_cw_history {
     uint32_t provid;
     uint16_t sid;
     uint32_t timestamp;
+    uint8_t used;
 };
 
 struct ssf_peer_stats {
     uint32_t peer_id;
     uint64_t total_cws;
     uint64_t bad_cws;
-    uint32_t blocked_until;
+    uint32_t blocked_until;      // 32-bit monotonic millisecond deadline
+    uint8_t blocked;             // Explicit: a wrapped deadline may validly be zero
     int active;
 };
 
@@ -98,6 +102,7 @@ struct ssf_multicheck_entry {
     uint32_t first_seen;
     uint32_t last_seen;
     int resolved;
+    uint8_t used;
 };
 
 struct ssf_stats {
@@ -125,7 +130,7 @@ static struct ssf_cw_history ssf_history[SSF_MAX_HISTORY];
 static int ssf_history_index = 0;
 static struct ssf_peer_stats ssf_peers[SSF_MAX_PEERS];
 static int ssf_peer_count = 0;
-static struct ssf_multicheck_entry ssf_mc_table[256];
+static struct ssf_multicheck_entry ssf_mc_table[SSF_MAX_MC_ENTRIES];
 static int ssf_mc_count = 0;
 static struct ssf_stats ssf_stats;
 static pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -270,10 +275,10 @@ static inline int ssf_check_duplicate(const uint8_t cw[16], uint16_t caid,
         int idx = (ssf_history_index - 1 - i + SSF_MAX_HISTORY) % SSF_MAX_HISTORY;
         struct ssf_cw_history *h = &ssf_history[idx];
         
-        if (!h->timestamp) continue;
+        if (!h->used) continue;
         
-        // Time check
-        if ((now_ms - h->timestamp) > time_window) continue;
+        // Time check uses modulo millisecond ticks; zero is a valid stamp.
+        if (tick32_elapsed(now_ms, h->timestamp) > time_window) continue;
         
         // Same CW?
         if (memcmp(h->cw, cw, 16) == 0) {
@@ -296,7 +301,7 @@ static inline int ssf_check_crosschannel(const uint8_t cw[16], uint16_t caid,
     for (i = 0; i < SSF_MAX_HISTORY; i++) {
         struct ssf_cw_history *h = &ssf_history[i];
         
-        if (!h->timestamp) continue;
+        if (!h->used) continue;
         
         // Same CW but different channel?
         if (memcmp(h->cw, cw, 16) == 0) {
@@ -327,27 +332,46 @@ static inline int ssf_check_multicheck(const uint8_t ecm_hash[16], const uint8_t
         if (!caid_match) return 0;  // Not required for this CAID
     }
     
-    // Find or create entry
+    // Find an existing request or a free slot.
     struct ssf_multicheck_entry *entry = NULL;
-    for (i = 0; i < ssf_mc_count; i++) {
+    int free_slot = -1;
+    for (i = 0; i < SSF_MAX_MC_ENTRIES; i++) {
+        if (!ssf_mc_table[i].used) {
+            if (free_slot < 0) free_slot = i;
+            continue;
+        }
         if (memcmp(ssf_mc_table[i].ecm_hash, ecm_hash, 16) == 0) {
             entry = &ssf_mc_table[i];
             break;
         }
     }
-    
+
     if (!entry) {
-        // Create new entry
-        if (ssf_mc_count >= 256) {
-            // Table full, remove oldest
-            ssf_mc_count = 0;
+        if (free_slot < 0) {
+            // Full table: retain all other evidence and replace only the oldest.
+            uint32_t oldest_age = 0;
+            int oldest = -1;
+            for (i = 0; i < SSF_MAX_MC_ENTRIES; i++) {
+                uint32_t age;
+                if (!ssf_mc_table[i].used) continue;
+                age = tick32_elapsed(now_ms, ssf_mc_table[i].last_seen);
+                if (oldest < 0 || age > oldest_age) {
+                    oldest = i;
+                    oldest_age = age;
+                }
+            }
+            if (oldest < 0) return 0;
+            free_slot = oldest;
+        } else {
+            ssf_mc_count++;
         }
-        entry = &ssf_mc_table[ssf_mc_count++];
+        entry = &ssf_mc_table[free_slot];
+        memset(entry, 0, sizeof(*entry));
         memcpy(entry->ecm_hash, ecm_hash, 16);
         memcpy(entry->cw, cw, 16);
-        entry->peer_count = 0;
         entry->first_seen = now_ms;
-        entry->resolved = 0;
+        entry->last_seen = now_ms;
+        entry->used = 1;
     }
     
     // Add peer if not already present
@@ -372,7 +396,8 @@ static inline int ssf_check_multicheck(const uint8_t ecm_hash[16], const uint8_t
     }
     
     // Check timeout
-    if ((now_ms - entry->first_seen) > (uint32_t)ssf_cfg.sf_mc_wait_ms) {
+    if (tick32_elapsed(now_ms, entry->first_seen) >
+        (uint32_t)ssf_cfg.sf_mc_wait_ms) {
         return 1;  // Timeout - not enough peers
     }
     
@@ -411,12 +436,13 @@ static int ssf_is_peer_blocked(uint32_t peer_id, uint32_t now)
     struct ssf_peer_stats *p = ssf_get_peer(peer_id);
     if (!p) return 0;
     
-    if (p->blocked_until && now < p->blocked_until) {
+    if (p->blocked && !tick32_deadline_reached(now, p->blocked_until)) {
         return 1;  // Blocked
     }
     
     // Auto-unblock
-    if (p->blocked_until && now >= p->blocked_until) {
+    if (p->blocked && tick32_deadline_reached(now, p->blocked_until)) {
+        p->blocked = 0;
         p->blocked_until = 0;
         ssf_stats.peers_unblocked++;
     }
@@ -438,8 +464,19 @@ static void ssf_record_cw_result(uint32_t peer_id, int is_bad, uint32_t now)
         
         int ratio = (int)((p->bad_cws * 100) / p->total_cws);
         if (ratio >= ssf_cfg.badcwratio && ssf_cfg.badcwratio > 0) {
-            p->blocked_until = now + ssf_cfg.unblock_time;
-            ssf_stats.peers_blocked++;
+            uint32_t unblock_ms = 0;
+            if (ssf_cfg.unblock_time > 0) {
+                uint64_t delay = (uint64_t)(unsigned int)ssf_cfg.unblock_time * 1000u;
+                unblock_ms = delay > 0x7FFFFFFFu ? 0x7FFFFFFFu : (uint32_t)delay;
+            }
+            if (unblock_ms) {
+                p->blocked_until = now + unblock_ms;
+                p->blocked = 1;
+                ssf_stats.peers_blocked++;
+            } else {
+                p->blocked_until = 0;
+                p->blocked = 0;
+            }
         }
     }
 }
@@ -473,12 +510,11 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
     
     ssf_stats.total_checked++;
     
-    // Check if peer is blocked
-    uint32_t now_sec = now_ms / 1000;
-    if (ssf_is_peer_blocked(peer_id, now_sec)) {
+    // Check if peer is blocked (blocked_until is stored in the same ms tick domain).
+    if (ssf_is_peer_blocked(peer_id, now_ms)) {
+        ssf_stats.total_rejected++;
         pthread_mutex_unlock(&ssf_lock);
         if (reject_reason) *reject_reason = 99;  // Peer blocked
-        ssf_stats.total_rejected++;
         return 1;
     }
     
@@ -576,7 +612,7 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
 done:
     // Record result
     if (peer_id > 0) {
-        ssf_record_cw_result(peer_id, rejected, now_sec);
+        ssf_record_cw_result(peer_id, rejected, now_ms);
     }
     
     // Update history
@@ -587,6 +623,7 @@ done:
         h->provid = provid;
         h->sid = sid;
         h->timestamp = now_ms;
+        h->used = 1;
         ssf_history_index = (ssf_history_index + 1) % SSF_MAX_HISTORY;
     }
     
@@ -612,6 +649,9 @@ static void supersmartfilter_init(void)
     memset(ssf_peers, 0, sizeof(ssf_peers));
     memset(ssf_mc_table, 0, sizeof(ssf_mc_table));
     memset(&ssf_stats, 0, sizeof(ssf_stats));
+    ssf_history_index = 0;
+    ssf_peer_count = 0;
+    ssf_mc_count = 0;
     
     // Defaults
     ssf_cfg.filter_level = 2;

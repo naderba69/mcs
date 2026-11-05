@@ -35,9 +35,10 @@ struct ip_hacker_data *iplist_add( uint32_t ip )
 
 void iplist_newlogin( struct ip_hacker_data *iplist )
 {
-	if ( (iplist->lastseen+500000) < GetTickCount() ) iplist->nblogin = 0;
+	uint32_t ticks = (uint32_t)GetTickCount();
+	if ((uint32_t)(ticks - iplist->lastseen) > 500000u) iplist->nblogin = 0;
 
-	iplist->lastseen = GetTickCount();
+	iplist->lastseen = ticks;
 	iplist->nblogin++;
 }
 
@@ -49,7 +50,8 @@ void iplist_goodlogin( struct ip_hacker_data *iplist )
 int iplist_accept( struct ip_hacker_data *iplist )
 {
 	if (iplist->nblogin>9) {
-		if ( (iplist->lastseen+300000) < GetTickCount() ) return 1;
+		uint32_t ticks = (uint32_t)GetTickCount();
+		if ((uint32_t)(ticks - iplist->lastseen) > 300000u) return 1;
 		else return 0;
 	}
 	else return 1;

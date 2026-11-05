@@ -224,12 +224,13 @@ static int dcwstruct_seen_once(struct dcwstruct_table *t,
                                const uint8_t *key, uint32_t ticks_now)
 {
 	int i, freepos = -1, victim = -1;
-	uint32_t oldest = 0xFFFFFFFFu;
+	uint32_t oldest_age = 0;
 
 	if (!t) return DCWSTRUCT_REPORT_NEW;
 
 	for (i = 0; i < DCWSTRUCT_SLOTS; i++) {
 		struct dcwstruct_entry *e = &t->e[i];
+		uint32_t age;
 		if (!e->used) { if (freepos < 0) freepos = i; continue; }
 		if (e->srctype == srctype && e->srcid == srcid &&
 		    e->caid == caid && e->sid == sid && e->provid == provid &&
@@ -256,7 +257,9 @@ static int dcwstruct_seen_once(struct dcwstruct_table *t,
 			e->ticks = ticks_now;
 			return DCWSTRUCT_REPORT_AGAIN;
 		}
-		if (e->ticks < oldest) { oldest = e->ticks; victim = i; }
+		/* Compare elapsed ages, not absolute ticks: GetTickCount wraps. */
+		age = (uint32_t)(ticks_now - e->ticks);
+		if (victim < 0 || age > oldest_age) { oldest_age = age; victim = i; }
 	}
 
 	if (freepos >= 0) {

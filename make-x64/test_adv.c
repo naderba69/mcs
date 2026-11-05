@@ -268,6 +268,7 @@ static void test_cwquarantine(void)
     struct cwquarantine_table t;
     uint8_t cw[16] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
     uint8_t out[16];
+    uint32_t held_at=UINT32_MAX-1000u;
     int r;
 
     printf("\n== cwquarantine (CW Quarantine) ==\n");
@@ -275,16 +276,15 @@ static void test_cwquarantine(void)
 
     CHECK(cwquarantine_enabled(&t) == 1, "enabled with hold_secs=3");
 
-    r = cwquarantine_hold(&t, 0x1884, 0, 0x0065, cw, 100, 50, 0);
+    r = cwquarantine_hold(&t, 0x1884, 0, 0x0065, cw, held_at, 50, 0);
     CHECK(r == 1, "CW held in quarantine");
 
-    /* Can't release yet (not expired, not verified) */
-    r = cwquarantine_release(&t, 0x1884, 0, 0x0065, 101, out);
-    CHECK(r == 0, "can't release before quarantine period");
+    /* Three seconds are 3000 millisecond ticks, across uint32 wrap. */
+    r = cwquarantine_release(&t, 0x1884, 0, 0x0065, held_at+2999u, out);
+    CHECK(r == 0, "can't release before quarantine deadline across rollover");
 
-    /* Release after period */
-    r = cwquarantine_release(&t, 0x1884, 0, 0x0065, 104, out);
-    CHECK(r == 1, "released after quarantine period");
+    r = cwquarantine_release(&t, 0x1884, 0, 0x0065, held_at+3000u, out);
+    CHECK(r == 1, "released at quarantine deadline across rollover");
     CHECK(memcmp(out, cw, 16) == 0, "released CW matches original");
 
     /* Verify releases immediately */
@@ -292,6 +292,12 @@ static void test_cwquarantine(void)
     cwquarantine_verify(&t, 0x1884, 0, 0x0066, cw);
     r = cwquarantine_release(&t, 0x1884, 0, 0x0066, 201, out);
     CHECK(r == 1, "verified CW released immediately");
+
+    /* Expiry uses elapsed milliseconds, including across rollover. */
+    cwquarantine_hold(&t, 0x1884, 0, 0x0067, cw, held_at, 50, 0);
+    cwquarantine_expire(&t, held_at+3001u, 3000u);
+    CHECK(cwquarantine_find(&t,0x1884,0,0x0067)->expired_count == 1,
+          "quarantine age expiry is wrap-safe");
 }
 
 static void test_cwpropblock(void)
@@ -782,26 +788,34 @@ static void test_clientbuf(void)
     uint8_t cw1[16] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
     uint8_t cw2[16] = {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2};
     uint8_t out[16];
+    uint32_t first_at=UINT32_MAX-10000u;
     int r;
 
     printf("\n== clientbuf (Client CW Buffer) ==\n");
     clientbuf_init(&t, 3);
 
-    clientbuf_add(&t, 0x1884, 0, 0x0065, cw1, 100, 30);
-    clientbuf_add(&t, 0x1884, 0, 0x0065, cw2, 110, 30);
+    clientbuf_add(&t, 0x1884, 0, 0x0065, cw1, first_at, 30);
+    clientbuf_add(&t, 0x1884, 0, 0x0065, cw2, first_at+10u, 30);
 
-    r = clientbuf_get(&t, 0x1884, 0, 0x0065, 115, out);
-    CHECK(r == 1, "buffered CW retrieved");
-    CHECK(memcmp(out, cw2, 16) == 0, "retrieved most recent CW");
+    r = clientbuf_get(&t, 0x1884, 0, 0x0065, first_at+15u, out);
+    CHECK(r == 1, "buffered CW retrieved across rollover");
+    CHECK(memcmp(out, cw2, 16) == 0, "retrieved most recent CW across rollover");
+    CHECK(clientbuf_utilization(&t, 0x1884, 0, 0x0065, first_at+15u) == 2,
+          "utilization counts unexpired entries across rollover");
 
-    /* Expired */
-    r = clientbuf_get(&t, 0x1884, 0, 0x0065, 200, out);
-    CHECK(r == 0, "expired CW not retrieved");
+    /* The older entry expires first; the later one remains usable. */
+    r = clientbuf_get(&t, 0x1884, 0, 0x0065, first_at+30005u, out);
+    CHECK(r == 1 && memcmp(out, cw2, 16) == 0,
+          "expired old entry does not hide newer CW");
+    CHECK(clientbuf_utilization(&t, 0x1884, 0, 0x0065, first_at+30005u) == 1,
+          "utilization excludes expired old entry");
 
-    CHECK(clientbuf_utilization(&t, 0x1884, 0, 0x0065, 115) == 2,
-          "utilization = 2 before expiry");
-    CHECK(clientbuf_utilization(&t, 0x1884, 0, 0x0065, 200) == 0,
-          "utilization = 0 after expiry");
+    /* Exact expiry is reached at the deadline, even when it wrapped. */
+    r = clientbuf_get(&t, 0x1884, 0, 0x0065, first_at+30010u, out);
+    CHECK(r == 0, "CW not retrieved at exact wrapped expiry");
+    clientbuf_expire(&t, first_at+30010u);
+    CHECK(clientbuf_utilization(&t, 0x1884, 0, 0x0065, first_at+30010u) == 0,
+          "utilization is zero after wrapped expiry");
 }
 
 /* ===== MAIN ===== */

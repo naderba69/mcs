@@ -54,6 +54,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include "tick_math.h"
 #include "trust.h"
 
 #define TRUSTAGG_TABLE_SIZE  128   /* x ~40 bytes = ~5 KB of .bss */
@@ -72,6 +73,7 @@ struct trustagg_entry {
 	int      nsoft;        /* soft events aggregated                     */
 	int      ngood;        /* delivered keys clients kept                */
 	uint8_t  used;
+	uint8_t  rep_valid;     /* rep_ticks may legitimately be zero at tick wrap */
 };
 
 struct trustagg_table {
@@ -147,13 +149,15 @@ static inline int trustagg_note(struct trustagg_table *t, int ev,
 	if (!e) {
 		unsigned i = trustagg_index(srctype, srcid, caid);
 		unsigned probe, oldest = i;
-		uint32_t oldest_at = t->e[i].lastseen;
+		uint32_t oldest_age = tick32_elapsed(ticks_now, t->e[i].lastseen);
 
 		for (probe = 0; probe < TRUSTAGG_TABLE_SIZE; probe++) {
 			unsigned j = (i + probe) % TRUSTAGG_TABLE_SIZE;
+			uint32_t age;
 			if (!t->e[j].used) { oldest = j; break; }
-			if ((int32_t)(t->e[j].lastseen - oldest_at) < 0) {
-				oldest = j; oldest_at = t->e[j].lastseen;
+			age = tick32_elapsed(ticks_now, t->e[j].lastseen);
+			if (age > oldest_age) {
+				oldest = j; oldest_age = age;
 			}
 		}
 		e = &t->e[oldest];
@@ -208,11 +212,15 @@ static inline int trustagg_note(struct trustagg_table *t, int ev,
 	 * one inside the window stays quiet.
 	 */
 	if (e->score < TRUST_ACTIONABLE &&
-	    (e->rep_ticks == 0 ||
-	     (int32_t)(ticks_now - e->rep_ticks) >= (int32_t)TRUSTAGG_WINDOW_MS) &&
-	    (e->supp_until == 0 || (int32_t)(ticks_now - e->supp_until) >= 0)) {
+	    (!e->rep_valid ||
+	     tick32_elapsed(ticks_now, e->rep_ticks) >= TRUSTAGG_WINDOW_MS) &&
+	    (e->supp_until == 0 || tick32_deadline_reached(ticks_now, e->supp_until))) {
 		e->rep_ticks  = ticks_now;
+		e->rep_valid  = 1;
 		e->supp_until = ticks_now + TRUSTAGG_SUPPRESS_MS;
+		/* Zero means "no suppression"; avoid making that sentinel a live
+		 * deadline if the tick sum wraps exactly. One extra tick is safe. */
+		if (e->supp_until == 0) e->supp_until = 1;
 		return 1;
 	}
 	return 0;
@@ -233,7 +241,7 @@ static inline int trustagg_ask(struct trustagg_table *t,
 	struct trustagg_entry *e = trustagg_find(t, srctype, srcid, caid);
 	if (!e) return 1;
 	if (e->score >= TRUST_ACTIONABLE) return 1;
-	if (e->supp_until == 0 || (int32_t)(ticks_now - e->supp_until) >= 0)
+	if (e->supp_until == 0 || tick32_deadline_reached(ticks_now, e->supp_until))
 		return 1;
 	return 0;
 }
@@ -295,13 +303,15 @@ static int trustagg_restore(struct trustagg_table *t, int srctype, int srcid,
 	if (!e) {
 		unsigned i = trustagg_index(srctype, srcid, caid);
 		unsigned probe, oldest = i;
-		uint32_t oldest_at = t->e[i].lastseen;
+		uint32_t oldest_age = tick32_elapsed(now, t->e[i].lastseen);
 
 		for (probe = 0; probe < TRUSTAGG_TABLE_SIZE; probe++) {
 			unsigned j = (i + probe) % TRUSTAGG_TABLE_SIZE;
+			uint32_t age;
 			if (!t->e[j].used) { oldest = j; break; }
-			if ((int32_t)(t->e[j].lastseen - oldest_at) < 0) {
-				oldest = j; oldest_at = t->e[j].lastseen;
+			age = tick32_elapsed(now, t->e[j].lastseen);
+			if (age > oldest_age) {
+				oldest = j; oldest_age = age;
 			}
 		}
 		e = &t->e[oldest];
@@ -323,6 +333,7 @@ static int trustagg_restore(struct trustagg_table *t, int srctype, int srcid,
 	 * is the mechanism that re-arms or clears it, and it starts on ask. */
 	e->supp_until = 0;
 	e->rep_ticks  = 0;
+	e->rep_valid  = 0;
 	return 1;
 }
 

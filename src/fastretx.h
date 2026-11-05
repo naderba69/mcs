@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define FASTRETX_ENTRIES 64
 #define FASTRETX_RETX_MS 500  /* retransmit after 500ms */
@@ -78,13 +79,19 @@ static inline void fastretx_record_request(struct fastretx_table *t,
         }
     }
     if (free_slot < 0) {
-        /* Reuse oldest unanswered */
-        int oldest = 0;
-        for (i = 1; i < FASTRETX_ENTRIES; i++) {
-            if (t->entries[i].sent_at < t->entries[oldest].sent_at) {
+        /* Reuse the unanswered entry with greatest modulo elapsed age. */
+        int oldest = -1;
+        uint32_t oldest_age = 0;
+        for (i = 0; i < FASTRETX_ENTRIES; i++) {
+            uint32_t age;
+            if (t->entries[i].answered || !t->entries[i].used) continue;
+            age = tick32_elapsed(now, t->entries[i].sent_at);
+            if (oldest < 0 || age > oldest_age) {
                 oldest = i;
+                oldest_age = age;
             }
         }
+        if (oldest < 0) return;
         free_slot = oldest;
     }
 
@@ -120,7 +127,7 @@ static inline void fastretx_mark_answered(struct fastretx_table *t,
  * Returns: number of requests to retransmit.
  * Caller must iterate and retransmit.
  */
-static inline int fastretx_check(const struct fastretx_table *t,
+static inline int fastretx_check(struct fastretx_table *t,
                                   uint32_t now,
                                   uint16_t *caids, uint32_t *provids,
                                   uint16_t *sids, uint8_t (*ecm_hashes)[16],
@@ -130,24 +137,26 @@ static inline int fastretx_check(const struct fastretx_table *t,
     if (!fastretx_enabled(t)) return 0;
 
     for (i = 0; i < FASTRETX_ENTRIES && n < max_out; i++) {
-        const struct fastretx_entry *e = &t->entries[i];
+        struct fastretx_entry *e = &t->entries[i];
         uint32_t age_ms;
 
         if (!e->used || e->answered) continue;
+
+        /* now and sent_at are modulo millisecond ticks. */
+        age_ms = tick32_elapsed(now, e->sent_at);
+        if (age_ms < FASTRETX_RETX_MS * (e->retx_count + 1u)) continue;
         if (e->retx_count >= FASTRETX_MAX_RETRIES) {
-            ((struct fastretx_table *)t)->total_timeouts++;
+            t->total_timeouts++;
+            e->used = 0;
             continue;
         }
 
-        age_ms = (now - e->sent_at) * 1000;
-        if (age_ms >= FASTRETX_RETX_MS * (e->retx_count + 1)) {
-            caids[n] = e->caid;
-            provids[n] = e->provid;
-            sids[n] = e->sid;
-            memcpy(ecm_hashes[n], e->ecm_hash, 16);
-            server_ids[n] = e->server_id;
-            n++;
-        }
+        caids[n] = e->caid;
+        provids[n] = e->provid;
+        sids[n] = e->sid;
+        memcpy(ecm_hashes[n], e->ecm_hash, 16);
+        server_ids[n] = e->server_id;
+        n++;
     }
     return n;
 }

@@ -19,9 +19,11 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CWFEEDBACK_TABLE_SIZE 256
 #define CWFEEDBACK_WINDOW_SECS 5  /* if new ECM within 5s, CW was wrong */
+#define CWFEEDBACK_WINDOW_MS (CWFEEDBACK_WINDOW_SECS * 1000u)
 
 struct cwfeedback_entry {
     uint32_t client_ip;
@@ -70,11 +72,14 @@ static inline void cwfeedback_record_delivery(struct cwfeedback_table *t,
         }
     }
     if (free_slot < 0) {
-        /* Reuse oldest */
+        /* Reuse the delivery with greatest modulo elapsed age. */
         int oldest = 0;
+        uint32_t oldest_age = tick32_elapsed(now, t->entries[0].delivered_at);
         for (i = 1; i < CWFEEDBACK_TABLE_SIZE; i++) {
-            if (t->entries[i].delivered_at < t->entries[oldest].delivered_at) {
+            uint32_t age = tick32_elapsed(now, t->entries[i].delivered_at);
+            if (age > oldest_age) {
                 oldest = i;
+                oldest_age = age;
             }
         }
         free_slot = oldest;
@@ -112,7 +117,7 @@ static inline int cwfeedback_on_ecm(struct cwfeedback_table *t,
         if (e->client_ip != client_ip) continue;
         if (e->caid != caid || e->provid != provid || e->sid != sid) continue;
         /* Check if within feedback window */
-        if ((now - e->delivered_at) <= CWFEEDBACK_WINDOW_SECS) {
+        if (tick32_elapsed(now, e->delivered_at) <= CWFEEDBACK_WINDOW_MS) {
             e->failed = 1;
             failed_source = e->source_id;
             t->total_failures++;
@@ -151,7 +156,7 @@ static inline void cwfeedback_expire(struct cwfeedback_table *t,
     if (!t) return;
     for (i = 0; i < CWFEEDBACK_TABLE_SIZE; i++) {
         struct cwfeedback_entry *e = &t->entries[i];
-        if (e->used && (now - e->delivered_at) > max_age) {
+        if (e->used && tick32_elapsed(now, e->delivered_at) > max_age) {
             e->used = 0;
         }
     }
