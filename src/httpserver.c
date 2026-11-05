@@ -659,15 +659,20 @@ static void http_html_write(http_request *req, struct tcp_buffer_data *tcpbuf, i
 
 static void http_style_write(struct tcp_buffer_data *tcpbuf, int sock)
 {
+	int stylesheet_override;
+	/* Snapshot this setting and drop the local pin before socket I/O. A page
+	 * caller may retain an outer config-lifetime pin for other borrowed data. */
 	newcamd_config_read_lock();
-	if (strlen(cfg.stylesheet_file))
+	stylesheet_override = cfg.stylesheet_file[0] != 0;
+	newcamd_config_read_unlock();
+
+	if (stylesheet_override)
 		tcp_write(tcpbuf, sock, http_style, strlen(http_style)); /* operator override keeps the link */
 	else {
 		tcp_writestr(tcpbuf, sock, "<style type=\"text/css\">\n");
 		tcp_write(tcpbuf, sock, style_css, strlen(style_css));
 		tcp_writestr(tcpbuf, sock, "\n</style>\n");
 	}
-	newcamd_config_read_unlock();
 }
 
 
@@ -704,6 +709,8 @@ char *onoff( int a )
 	if (a) return yes; else return no;
 }
 
+/* Caller holds the config lifetime read pin; lockcache protects the peer/SMS
+ * list and is released before tcp_write_menu emits the snapshot. */
 int unreadsms()
 {
 	int nb = 0;
@@ -721,7 +728,48 @@ int unreadsms()
 
 void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 {
+	struct http_menu_snapshot {
+		int nodebug, noservers, nocache, noprofiles, nonewcamd;
+		int nomgcamd, nocccam, nocacheex, noeditor, norestart;
+		int has_servers, has_cache, has_profiles, has_mgcamd;
+		int has_cccam, has_cs378x, has_camd35, has_freecccam;
+		int autorefresh, unread_sms;
+	} snapshot;
+	/* Copy config/menu state and unread-SMS totals, then release both the
+	 * local lifetime pin and lockcache before emitting any bytes. The request
+	 * dispatcher may keep an outer lifetime pin for the rest of its page. */
 	newcamd_config_read_lock();
+	snapshot.nodebug = cfg.http.show.nodebug;
+	snapshot.noservers = cfg.http.show.noservers;
+	snapshot.nocache = cfg.http.show.nocache;
+	snapshot.noprofiles = cfg.http.show.noprofiles;
+	snapshot.nonewcamd = cfg.http.show.nonewcamd;
+	snapshot.nomgcamd = cfg.http.show.nomgcamd;
+	snapshot.nocccam = cfg.http.show.nocccam;
+	snapshot.nocacheex = cfg.http.show.nocacheex;
+	snapshot.noeditor = cfg.http.show.noeditor;
+	snapshot.norestart = cfg.http.show.norestart;
+	snapshot.has_servers = cfg.server != NULL;
+	snapshot.has_cache = cfg.cache.server != NULL;
+	snapshot.has_profiles = cfg.cardserver != NULL;
+#ifdef MGCAMD_SRV
+	snapshot.has_mgcamd = cfg.mgcamd.server != NULL;
+#endif
+#ifdef CCCAM_SRV
+	snapshot.has_cccam = cfg.cccam.server != NULL;
+#endif
+#ifdef CS378X_SRV
+	snapshot.has_cs378x = cfg.cs378x.server != NULL;
+#endif
+#ifdef CAMD35_SRV
+	snapshot.has_camd35 = cfg.camd35.server != NULL;
+#endif
+#ifdef FREECCCAM_SRV
+	snapshot.has_freecccam = cfg.freecccam.server.handle > 0;
+#endif
+	snapshot.autorefresh = cfg.http.autorefresh;
+	snapshot.unread_sms = (!snapshot.nocache && snapshot.has_cache) ? unreadsms() : 0;
+	newcamd_config_read_unlock();
 	char *cNormal = "<li><a href='%s'>%s</a></li>";
 	char *cSelected = "<li><a class=selected href='%s'>%s</a></li>";
 	char *cDisabled = "<li><a class=disabled href='%s'>%s</a></li>";
@@ -734,7 +782,7 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	sprintf( buf, class, "/", mlabel("Home","الرئيسية")); tcp_writestr(tcpbuf, sock, buf);
 
 	// Servers
-	if ( !cfg.http.show.nodebug ) {
+	if ( !snapshot.nodebug ) {
 		if (selected==PAGE_DEBUG) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/debug", mlabel("Debug","التنقيح")); tcp_writestr(tcpbuf, sock, buf);
 	}
@@ -743,18 +791,18 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	sprintf( buf, cNormal, "/threads", mlabel("Threads","الخيوط")); tcp_writestr(tcpbuf, sock, buf);
 
 	// Servers
-	if ( !cfg.http.show.noservers ) {
-		if (cfg.server!=NULL) { 
+	if ( !snapshot.noservers ) {
+		if (snapshot.has_servers) {
 			if (selected==PAGE_SERVERS) class = cSelected; else class = cNormal;
 		} else class = cDisabled;
 		sprintf( buf, class, "/servers", mlabel("Servers","الخوادم")); tcp_writestr(tcpbuf, sock, buf);
 	}
 	// Cache
-	if ( !cfg.http.show.nocache ) {
-		if (cfg.cache.server) {
+	if ( !snapshot.nocache ) {
+		if (snapshot.has_cache) {
 			if (selected==PAGE_CACHE) class = cSelected; else class = cNormal;
 		} else class = cDisabled;
-		int unread = unreadsms();
+		int unread = snapshot.unread_sms;
 		char cache[32]; sprintf(cache, "%s", mlabel("Cache","الكاش"));
 		if (unread) sprintf( cache, "%s (%d)", mlabel("Cache","الكاش"), unread);
 		sprintf( buf, class, "/cache", cache); tcp_writestr(tcpbuf, sock, buf);
@@ -765,21 +813,21 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 		sprintf( buf, class, "/biss", mlabel("BISS","BISS")); tcp_writestr(tcpbuf, sock, buf);
 	}
 	// Profiles
-	if (!cfg.http.show.noprofiles) {
-		if (cfg.cardserver!=NULL) {
+	if (!snapshot.noprofiles) {
+		if (snapshot.has_profiles) {
 			if (selected==PAGE_PROFILES) class = cSelected; else class = cNormal;
 		} else class = cDisabled;
 		sprintf( buf, class, "/profiles", mlabel("Profiles","الباقات")); tcp_writestr(tcpbuf, sock, buf);
 	}
 	// Newcamd
-	if ( !cfg.http.show.nonewcamd ) {
-		if (cfg.cardserver!=NULL) {
+	if ( !snapshot.nonewcamd ) {
+		if (snapshot.has_profiles) {
 			if (selected==PAGE_NEWCAMD) class = cSelected; else class = cNormal;
 		} else class = cDisabled;
 		sprintf( buf, class, "/newcamd", mlabel("Newcamd","نيوكامد")); tcp_writestr(tcpbuf, sock, buf);
 	}
 #ifdef MGCAMD_SRV
-	if ( !cfg.http.show.noservers && (cfg.mgcamd.server!=NULL) ) {
+	if ( !snapshot.noservers && (snapshot.has_mgcamd) ) {
 		if (selected==PAGE_MGCAMD) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/mgcamd", mlabel("Mgcamd","مجكامد")); tcp_writestr(tcpbuf, sock, buf);
 	}
@@ -787,7 +835,7 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 
 #ifdef CCCAM_SRV
 	// CCcam
-	if ( !cfg.http.show.nocccam && (cfg.cccam.server!=NULL) ) {
+	if ( !snapshot.nocccam && (snapshot.has_cccam) ) {
 		if (selected==PAGE_CCCAM) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/cccam", "CCcam"); tcp_writestr(tcpbuf, sock, buf);
 	}
@@ -795,7 +843,7 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 
 #ifdef CS378X_SRV
 	// cs378x
-	if (cfg.cs378x.server!=NULL) {
+	if (snapshot.has_cs378x) {
 		if (selected==PAGE_CS378X) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/cs378x", "Cs378x"); tcp_writestr(tcpbuf, sock, buf);
 	}
@@ -803,7 +851,7 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 
 #ifdef CAMD35_SRV
 	// camd35
-	if (cfg.camd35.server!=NULL) {
+	if (snapshot.has_camd35) {
 		if (selected==PAGE_CAMD35) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/camd35", "Camd35"); tcp_writestr(tcpbuf, sock, buf);
 	}
@@ -811,7 +859,7 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 
 #ifdef CACHEEX
 	// CacheEX
-	if ( !cfg.http.show.nocacheex ) {
+	if ( !snapshot.nocacheex ) {
 		if (selected==PAGE_CACHEEX) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/cacheex", "CacheEX"); tcp_writestr(tcpbuf, sock, buf);
 	}
@@ -826,16 +874,16 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 
 #ifdef FREECCCAM_SRV
 	// FreeCCcam
-	if (cfg.freecccam.server.handle>0) {
+	if (snapshot.has_freecccam) {
 		if (selected==PAGE_FREECCCAM) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/freecccam", "FreeCCcam"); tcp_writestr(tcpbuf, sock, buf);
 	}
 #endif
-	if (!cfg.http.show.noeditor) {
+	if (!snapshot.noeditor) {
 		if (selected==PAGE_EDITOR) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/editor", mlabel("Editor","المحرر")); tcp_writestr(tcpbuf, sock, buf);
 	}
-	if (!cfg.http.show.norestart) {
+	if (!snapshot.norestart) {
 		if (selected==PAGE_RESTART) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/restart", mlabel("Restart","إعادة تشغيل")); tcp_writestr(tcpbuf, sock, buf);
 		sprintf( buf, class, "/diagnostics", mlabel("Diagnostics","التشخيص")); tcp_writestr(tcpbuf, sock, buf);
@@ -843,7 +891,7 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 		sprintf( buf, class, "/server-stats", mlabel("Server Stats","إحصائيات الخوادم")); tcp_writestr(tcpbuf, sock, buf);
 		sprintf( buf, class, "/log-viewer", mlabel("Log Viewer","عارض السجلات")); tcp_writestr(tcpbuf, sock, buf);
 #ifdef CCCAM_SRV
-		if (!cfg.http.show.nocccam) { sprintf(buf, class, "/user-trace", mlabel("CCcam Trace", "متابعة CCcam")); tcp_writestr(tcpbuf, sock, buf); }
+		if (!snapshot.nocccam) { sprintf(buf, class, "/user-trace", mlabel("CCcam Trace", "متابعة CCcam")); tcp_writestr(tcpbuf, sock, buf); }
 #endif
 		sprintf( buf, class, "/cache-analytics", mlabel("Cache Analytics","تحليل الكاش")); tcp_writestr(tcpbuf, sock, buf);
 		sprintf( buf, class, "/auto-tuning", mlabel("Auto-Tuning","الضبط التلقائي")); tcp_writestr(tcpbuf, sock, buf);
@@ -859,21 +907,20 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	//
 	if ( (selected!=PAGE_RESTART)&&(selected!=PAGE_EDITOR) ) {
 		tcp_writestr(tcpbuf, sock, "<div align=right>Autorefresh <select onchange='setautorefresh(this.value);'>");
-		if (cfg.http.autorefresh==0) tcp_writestr(tcpbuf, sock, "<option value=0 selected>OFF</option>");
+		if (snapshot.autorefresh==0) tcp_writestr(tcpbuf, sock, "<option value=0 selected>OFF</option>");
 		else tcp_writestr(tcpbuf, sock, "<option value=0>OFF</option>");
 		int i;
 		for (i=1; i<=10; i++) {
-			if ( cfg.http.autorefresh==i ) sprintf( buf, "<option value=%d selected>%ds</option>", i*1000, i); else sprintf( buf, "<option value=%d>%ds</option>", i*1000, i);
+			if ( snapshot.autorefresh==i ) sprintf( buf, "<option value=%d selected>%ds</option>", i*1000, i); else sprintf( buf, "<option value=%d>%ds</option>", i*1000, i);
 			tcp_writestr(tcpbuf, sock, buf);
 		}
 
-		if ( cfg.http.autorefresh>10 ) {
-			sprintf( buf, "<option value=%d selected>%ds</option>", cfg.http.autorefresh*1000, cfg.http.autorefresh); 
+		if ( snapshot.autorefresh>10 ) {
+			sprintf( buf, "<option value=%d selected>%ds</option>", snapshot.autorefresh*1000, snapshot.autorefresh);
 			tcp_writestr(tcpbuf, sock, buf);
 		}
 		tcp_writestr(tcpbuf, sock, "</select></div>\n");
 	}
-	newcamd_config_read_unlock();
 }
 
 
@@ -1514,8 +1561,9 @@ struct http_server_detail_snapshot {
 	int cards_unavailable;
 };
 
-/* Take a bounded, value-only snapshot under locksrv. Never keep a card-list
- * pointer across an HTTP write: disconnect_srv() frees the list under this lock. */
+/* Take a bounded, value-only snapshot under locksrv and srv_cstat_lock.
+ * Never keep a card-list pointer across an HTTP write: disconnect_srv() frees
+ * the list under locksrv. */
 static void http_server_detail_snapshot_take(
 	struct server_data *srv, struct http_server_detail_snapshot *snapshot)
 {
@@ -1537,12 +1585,14 @@ static void http_server_detail_snapshot_take(
 #ifdef CCCAM_CLI
 	memcpy(snapshot->nodeid, srv->nodeid, sizeof(snapshot->nodeid));
 #endif
+	pthread_mutex_lock(&srv_cstat_lock);
 	for (index = 0; index < MAX_CSPORTS; index++) {
 		snapshot->cstat[index].csid = srv->cstat[index].csid;
 		snapshot->cstat[index].ecmnb = srv->cstat[index].ecmnb;
 		snapshot->cstat[index].ecmok = srv->cstat[index].ecmok;
 		snapshot->cstat[index].ecmoktime = srv->cstat[index].ecmoktime;
 	}
+	pthread_mutex_unlock(&srv_cstat_lock);
 	for (card = srv->card; card; card = card->next) {
 		if (snapshot->total_cards < 0x7fffffff) snapshot->total_cards++;
 #ifdef CCCAM_CLI
@@ -3076,6 +3126,7 @@ void http_send_cache_peer(int sock, http_request *req)
 
 	if (get_action == 3 || get_action == 4) {
 		struct cachepeer_data *live_peer;
+		int peer_found = 0;
 		pthread_mutex_lock(&prg.lockcache);
 		live_peer = getpeerbyid(get_id);
 		if (live_peer) {
@@ -3089,9 +3140,10 @@ void http_send_cache_peer(int sock, http_request *req)
 				live_peer->program[0] = 0;
 				live_peer->version[0] = 0;
 			}
+			peer_found = 1;
 		}
 		pthread_mutex_unlock(&prg.lockcache);
-		if (live_peer) http_send_ok(sock);
+		if (peer_found) http_send_ok(sock);
 		return;
 	}
 	if (get_action == 5) {
@@ -3994,6 +4046,11 @@ static void http_send_newcamd_client_inner(int sock, http_request *req)
 {
 	char http_buf[2048];
 	struct tcp_buffer_data tcpbuf;
+	struct cs_client_data client_snapshot;
+	ECM_DATA lastecm_snapshot;
+	ECM_DATA current_ecm_snapshot;
+	int have_lastecm_snapshot = 0;
+	int have_current_ecm_snapshot = 0;
 	char *str_id = isset_get( req, "id");
 	if (!str_id) return; //error
 	int get_id = atoi(str_id);
@@ -4033,7 +4090,11 @@ static void http_send_newcamd_client_inner(int sock, http_request *req)
 		return;
 	}
 	else if (get_action==5) {
-		if (cli->connection.status>0) http_send_text(sock,"connected"); else http_send_text(sock,"disconnected");
+		int connected;
+		if (newcamd_client_state_lock(cli) != 0) return;
+		connected = cli->connection.status > 0;
+		newcamd_client_state_unlock(cli);
+		if (connected) http_send_text(sock,"connected"); else http_send_text(sock,"disconnected");
 		return;
 	}
 	else if (get_action==7) {
@@ -4041,8 +4102,29 @@ static void http_send_newcamd_client_inner(int sock, http_request *req)
 		http_send_ok(sock);
 		return;
 	}
-	//
+	// Snapshot runtime state while protected; never keep the client mutex over
+	// template/style generation or a potentially blocking socket write.
 	if (newcamd_client_state_lock(cli) != 0) return;
+	memcpy(&client_snapshot, cli, sizeof(client_snapshot));
+	ecm_lock();
+	if (ecm_request_lifetime_matches(cli->lastecm.request, cli->lastecm.request,
+	                                 cli->lastecm.lifetime_id)) {
+		memcpy(&lastecm_snapshot, cli->lastecm.request, sizeof(lastecm_snapshot));
+		have_lastecm_snapshot = 1;
+	}
+	uint64_t current_lifetime_id =
+	    __atomic_load_n(&cli->ecm.lifetime_id, __ATOMIC_ACQUIRE);
+	if (cli->ecm.busy &&
+	    ecm_request_lifetime_matches(cli->ecm.request, cli->ecm.request,
+	                                 current_lifetime_id)) {
+		memcpy(&current_ecm_snapshot, cli->ecm.request, sizeof(current_ecm_snapshot));
+		have_current_ecm_snapshot = 1;
+	}
+	ecm_unlock();
+	newcamd_client_state_unlock(cli);
+	cli = &client_snapshot;
+	cli->lastecm.request = have_lastecm_snapshot ? &lastecm_snapshot : NULL;
+	cli->ecm.request = have_current_ecm_snapshot ? &current_ecm_snapshot : NULL;
 	tcp_init(&tcpbuf);
 	if (get_action==0) {
 		http_replyok_write(req, &tcpbuf, sock);
@@ -4172,7 +4254,7 @@ sprintf( http_buf,"<tr><td class=left>User name</td><td class=right>%s</td></tr>
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
 		// Server
-		if ( tick32_elapsed(GetTickCount(), cli->ecm.recvtime) < 20000u ) {
+		if ( tick32_elapsed(GetTickCount(), cli->ecm.recvtime) < 20000u && cli->lastecm.request ) {
 			// From ???
 			if (cli->lastecm.status) {
 				tcp_writestr(&tcpbuf, sock, "<tr><td>From ");
@@ -4257,7 +4339,6 @@ sprintf( http_buf,"<tr><td class=left>User name</td><td class=right>%s</td></tr>
 		tcp_writestr(&tcpbuf, sock, "</body></html>");
 	}
 	tcp_flush(&tcpbuf, sock);
-	newcamd_client_state_unlock(cli);
 }
 
 void http_send_newcamd_client(int sock, http_request *req)
@@ -7736,12 +7817,99 @@ void http_send_host(int sock, http_request *req)
 void http_send_threads(int sock, http_request *req)
 {
         char http_buf[2048];
+        char page_title[128];
+        int pid_mgcamd, pid_cccam;
+#ifdef CS378X_SRV
+        int pid_cs378x;
+#endif
+        pid_t pid_main, pid_config, pid_dns, pid_srv, pid_msg, pid_setdcw;
+        pid_t pid_cache, pid_date, pid_connect, pid_cs_msg;
+        int total_ecm_snapshot;
+#ifdef CACHEEX
+        pid_t pid_ccex_msg;
+#endif
         struct tcp_buffer_data tcpbuf;
+#ifdef CACHEEX
+        struct http_thread_server_row {
+                char host[256];
+                int port;
+                pid_t pid;
+        };
+        struct http_thread_server_row *server_rows = NULL;
+        struct server_data *srv;
+        int server_pool;
+        size_t server_count = 0, server_index = 0;
+        int server_rows_truncated = 0, server_rows_unavailable = 0;
+        const size_t server_limit = 4096;
+#endif
+        /* The /threads route is long-lived HTTP output, so copy all config and
+         * server values first instead of keeping the reload gate while writing. */
+        newcamd_config_read_lock_mutex(&prg.locksrv);
+        snprintf(page_title, sizeof(page_title), "%s", cfg.http.title);
+        pid_mgcamd = cfg.mgcamd.pid_recvmsg;
+        pid_cccam = cfg.cccam.pid_recvmsg;
+#ifdef CS378X_SRV
+        pid_cs378x = cfg.cs378x.pid_recvmsg;
+#endif
+#ifdef CACHEEX
+        for (server_pool = 0; server_pool < 2 && !server_rows_truncated;
+             server_pool++) {
+                for (srv = server_pool ? cfg.cacheexserver : cfg.server;
+                     srv; srv = srv->next) {
+                        if (!(srv->flags & FLAG_DELETE) && srv->cacheex_mode == 2) {
+                                if (server_count == server_limit) {
+                                        server_rows_truncated = 1;
+                                        break;
+                                }
+                                server_count++;
+                        }
+                }
+        }
+        if (server_count)
+                server_rows = calloc(server_count, sizeof(*server_rows));
+        if (server_rows) {
+                for (server_pool = 0; server_pool < 2 &&
+                     server_index < server_count; server_pool++) {
+                        for (srv = server_pool ? cfg.cacheexserver : cfg.server;
+                             srv && server_index < server_count; srv = srv->next) {
+                                if (!(srv->flags & FLAG_DELETE) && srv->cacheex_mode == 2) {
+                                        snprintf(server_rows[server_index].host,
+                                                 sizeof(server_rows[server_index].host),
+                                                 "%s", srv->host ? srv->host->name : "(unknown)");
+                                        server_rows[server_index].port = srv->port;
+                                        server_rows[server_index].pid = srv->pid;
+                                        server_index++;
+                                }
+                        }
+                }
+                server_count = server_index;
+        } else if (server_count) {
+                server_rows_unavailable = 1;
+        }
+#endif
+        pid_main = __atomic_load_n(&prg.pid_main, __ATOMIC_ACQUIRE);
+        pid_config = __atomic_load_n(&prg.pid_cfg, __ATOMIC_ACQUIRE);
+        pid_dns = __atomic_load_n(&prg.pid_dns, __ATOMIC_ACQUIRE);
+        pid_srv = __atomic_load_n(&prg.pid_srv, __ATOMIC_ACQUIRE);
+        pid_msg = __atomic_load_n(&prg.pid_msg, __ATOMIC_ACQUIRE);
+        pid_setdcw = __atomic_load_n(&prg.pid_setdcw, __ATOMIC_ACQUIRE);
+        pid_cache = __atomic_load_n(&prg.pid_cache, __ATOMIC_ACQUIRE);
+        pid_date = __atomic_load_n(&prg.pid_date, __ATOMIC_ACQUIRE);
+        pid_connect = __atomic_load_n(&prg.pid_connect, __ATOMIC_ACQUIRE);
+        pid_cs_msg = __atomic_load_n(&prg.pid_cs_msg, __ATOMIC_ACQUIRE);
+#ifdef CACHEEX
+        pid_ccex_msg = __atomic_load_n(&prg.pid_ccex_msg, __ATOMIC_ACQUIRE);
+#endif
+        newcamd_config_read_unlock_mutex(&prg.locksrv);
+        /* totalecm is mutated with lockecm; keep the web snapshot race-free. */
+        ecm_lock();
+        total_ecm_snapshot = totalecm;
+        ecm_unlock();
         tcp_init(&tcpbuf);
         http_replyok_write(req, &tcpbuf, sock);
         http_html_write(req, &tcpbuf, sock);
         tcp_write(&tcpbuf, sock, http_head, strlen(http_head) );
-        sprintf( http_buf, html_title, cfg.http.title, "threads"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+        snprintf(http_buf, sizeof(http_buf), html_title, page_title, "threads"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
         tcp_write(&tcpbuf, sock, http_link, strlen(http_link) );
         http_style_write(&tcpbuf, sock);
         tcp_write(&tcpbuf, sock, http_head_, strlen(http_head_) );
@@ -7750,50 +7918,64 @@ void http_send_threads(int sock, http_request *req)
 
 
 		tcp_writestr(&tcpbuf, sock, "<br>Load Average = ");
-		FILE *fp = fopen ("/proc/loadavg", "r");
-		fgets(http_buf, sizeof(http_buf), fp);
-		fclose(fp);
-		tcp_writestr(&tcpbuf, sock, http_buf);
+		FILE *fp = fopen("/proc/loadavg", "r");
+		if (fp) {
+			if (fgets(http_buf, sizeof(http_buf), fp)) tcp_writestr(&tcpbuf, sock, http_buf);
+			else tcp_writestr(&tcpbuf, sock, "unavailable");
+			fclose(fp);
+		} else tcp_writestr(&tcpbuf, sock, "unavailable");
 
-		// /proc/meminfo 
-		fp = fopen ("/proc/meminfo", "r");
-		fgets(http_buf, sizeof(http_buf), fp); tcp_writestr(&tcpbuf, sock, http_buf);
-		fgets(http_buf, sizeof(http_buf), fp); tcp_writestr(&tcpbuf, sock, http_buf);
-		fclose(fp);
+		// /proc/meminfo
+		fp = fopen("/proc/meminfo", "r");
+		if (fp) {
+			if (fgets(http_buf, sizeof(http_buf), fp)) tcp_writestr(&tcpbuf, sock, http_buf);
+			if (fgets(http_buf, sizeof(http_buf), fp)) tcp_writestr(&tcpbuf, sock, http_buf);
+			fclose(fp);
+		} else tcp_writestr(&tcpbuf, sock, "Memory information unavailable.<br>");
 
-		sprintf( http_buf, "<br>THREADID Main = %d",prg.pid_main ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br>THREADID Config = %d",prg.pid_cfg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID DNS = %d",prg.pid_dns ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID Servers Connections = %d",prg.pid_srv ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID Recv Messages = %d",prg.pid_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID SET DCW = %d",prg.pid_setdcw ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID Cache = %d",prg.pid_cache ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID Date = %d",prg.pid_date ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br>THREADID Main = %d",pid_main ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br>THREADID Config = %d",pid_config ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br> THREADID DNS = %d",pid_dns ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br> THREADID Servers Connections = %d",pid_srv ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br> THREADID Recv Messages = %d",pid_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br> THREADID SET DCW = %d",pid_setdcw ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br> THREADID Cache = %d",pid_cache ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br> THREADID Date = %d",pid_date ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
-		sprintf( http_buf, "<br> THREADID Connect Clients = %d",prg.pid_connect ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br> THREADID Connect Clients = %d",pid_connect ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
-		sprintf( http_buf, "<br> THREADID Newcamd messages = %d",prg.pid_cs_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID Mgcamd messages = %d",cfg.mgcamd.pid_recvmsg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID CCcam messages = %d",cfg.cccam.pid_recvmsg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br> THREADID Newcamd messages = %d",pid_cs_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br> THREADID Mgcamd messages = %d",pid_mgcamd ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br> THREADID CCcam messages = %d",pid_cccam ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 #ifdef CS378X_SRV
-		sprintf( http_buf, "<br> THREADID CS378X messages = %d",cfg.cs378x.pid_recvmsg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br> THREADID CS378X messages = %d",pid_cs378x ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 #endif
 #ifdef CACHEEX
-        sprintf( http_buf, "<br> THREADID Ccacheex messages = %d",prg.pid_ccex_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+        sprintf( http_buf, "<br> THREADID Ccacheex messages = %d",pid_ccex_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 #endif
 
-		// CACHEEX Servers
+		// CACHEEX Servers (render a value-only snapshot; no config/list locks here)
 #ifdef CACHEEX
-		struct server_data *srv = cfg.server;
-		while (srv) {
-			if ( !(srv->flags&FLAG_DELETE) && (srv->cacheex_mode==2) ) {
-		        sprintf( http_buf, "<br> THREADID Cacheex Server (%s:%d) =  %d", srv->host->name, srv->port, srv->pid );
-				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-			}
-			srv = srv->next;
-		}
+        for (server_index = 0; server_rows && server_index < server_count;
+             server_index++) {
+                char escaped_host[1537];
+                html_esc(escaped_host, (int)sizeof(escaped_host),
+                         server_rows[server_index].host);
+                snprintf(http_buf, sizeof(http_buf),
+                         "<br> THREADID Cacheex Server (%s:%d) =  %d",
+                         escaped_host, server_rows[server_index].port,
+                         (int)server_rows[server_index].pid);
+                tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+        }
+        if (server_rows_unavailable)
+                tcp_writestr(&tcpbuf, sock,
+                             "<br>CacheEx server thread snapshot is temporarily unavailable.");
+        else if (server_rows_truncated)
+                tcp_writestr(&tcpbuf, sock,
+                             "<br>CacheEx server thread list truncated at the safe snapshot limit.");
+        free(server_rows);
 #endif
-		sprintf( http_buf, "<br><br> TOTAL ECM REQUESTS = %d",totalecm ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<br><br> TOTAL ECM REQUESTS = %d",total_ecm_snapshot ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		tcp_flush(&tcpbuf, sock);
 }
 
@@ -8701,7 +8883,7 @@ void *gererClient(struct connect_data *param)
 
 	/* TASK R3 (D57): the optional allowlist closes the door before the
 	 * request is even parsed -- one line, said once, with the address. */
-	newcamd_config_read_lock();
+					newcamd_config_read_lock();
 	int ip_allowed = login_allowed(&cfg.http.allow, ip);
 	newcamd_config_read_unlock();
 	if ( !ip_allowed ) {
@@ -8763,7 +8945,7 @@ void *gererClient(struct connect_data *param)
 				 * no HTTP USER line served every page to everyone. Open only when
 				 * NEITHER is configured (what an unconfigured stock server did);
 				 * half-configured now requires Basic like a full one. */
-				newcamd_config_read_lock();
+					newcamd_config_read_lock();
 				auth_open = !cfg.http.user[0] && !cfg.http.pass[0];
 				newcamd_config_read_unlock();
 				if (auth_open) auth = 1;
@@ -8793,7 +8975,7 @@ void *gererClient(struct connect_data *param)
 							struct tm *nowtm = localtime(&nowtime);
 								sprintf(realpass,"%s:%s%d", cfg.http.user, cfg.http.pass,nowtm->tm_hour);
 */
-								newcamd_config_read_lock();
+					newcamd_config_read_lock();
 								snprintf(realpass, sizeof(realpass), "%s:%s", cfg.http.user, cfg.http.pass);
 								newcamd_config_read_unlock();
 								if (!strcmp(pass,realpass)) {
@@ -8809,11 +8991,12 @@ void *gererClient(struct connect_data *param)
 				}
 			}
 				if ( auth ) {
-					/* Pin the full config graph while any page traverses profiles,
-					 * server lists, or client lists. Nested page-level pins are safe. */
+					/* Pin config traversals for page handlers. /threads drops
+					 * this outer pin and takes its own bounded snapshot. */
 					newcamd_config_read_lock();
+					int config_read_pinned = 1;
 					login_note_success(ip); /* TASK R3 (D57): a good login resets the failure count */
-				req.sock = sock;
+					req.sock = sock;
 				req.ip = ip;
 				if (strcmp(req.path,"/")==0) http_send_index(sock,&req);
 				else if (strcmp(req.path,"/debug")==0) {
@@ -8954,6 +9137,10 @@ void *gererClient(struct connect_data *param)
 					http_send_host(sock,&req);
 				}
 				else if (strcmp(req.path,"/threads")==0) {
+					/* /threads takes its own value-only snapshot with the
+					 * config/runtime lock pair, then writes after both are gone. */
+					newcamd_config_read_unlock();
+					config_read_pinned = 0;
 					http_send_threads(sock,&req);
 				}
 				else if (strcmp(req.path,"/json")==0) { /* TASK R5 (D59) */
@@ -8989,8 +9176,8 @@ void *gererClient(struct connect_data *param)
 						}
 						file = file->next;
 					}
-					}
-					newcamd_config_read_unlock();
+				}
+				if (config_read_pinned) newcamd_config_read_unlock();
 				}
 				else { // send( client_sock, (char*)data, strlen(data),0);
 				//printf("%s\n", http_buf);

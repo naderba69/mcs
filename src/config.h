@@ -357,6 +357,7 @@ struct __attribute__ ((__packed__)) cs_client_data
 	//Last Used Share Saved data
 	struct {
 		ECM_DATA *request;
+		uint64_t lifetime_id; // exact generation for the saved ECM request
 		uint16_t caid;
 		uint32_t prov;
 		uint8_t provider_known;

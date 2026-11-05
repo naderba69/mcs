@@ -734,7 +734,7 @@ inline void srv_recvmsg( struct server_data *srv )
 
 void *recv_msg_thread(void *param)
 {
-	prg.pid_msg = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prg.tid_msg = pthread_self();
 	prctl(PR_SET_NAME,"ECM Thread",0,0,0);
 
@@ -823,7 +823,7 @@ void *recv_msg_thread(void *param)
 	uint64_t pfd_generation[MAX_PFD];
 	int pfdcount;
 
-	prg.pid_msg = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prg.tid_msg = pthread_self();
 	prctl(PR_SET_NAME,"ECM Thread",0,0,0);
 

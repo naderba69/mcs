@@ -7,7 +7,7 @@
 
 void *connect_cli_thread(void *param)
 {
-	prg.pid_connect = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_connect, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 
 	while(!prg.restart) {
 		uint64_t config_generation;

@@ -1511,8 +1511,10 @@ void *cc_recvmsg_thread(void *param)
 {
 	int i;
 
+	pthread_mutex_lock(&prg.locksrv);
 	cfg.cccam.pid_recvmsg = syscall(SYS_gettid);
-	prg.pid_cc_msg = syscall(SYS_gettid);
+	pthread_mutex_unlock(&prg.locksrv);
+	__atomic_store_n(&prg.pid_cc_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prctl(PR_SET_NAME,"CCcam RecvMSG",0,0,0);
 
 	struct epoll_event evlist[MAX_EPOLL_EVENTS]; // epoll recv events
@@ -1576,8 +1578,10 @@ void *cc_recvmsg_thread(void *param)
 	int pfdcount;
 	uint32_t thread_delay;
 
+	pthread_mutex_lock(&prg.locksrv);
 	cfg.cccam.pid_recvmsg = syscall(SYS_gettid);
-	prg.pid_cc_msg = syscall(SYS_gettid);
+	pthread_mutex_unlock(&prg.locksrv);
+	__atomic_store_n(&prg.pid_cc_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prctl(PR_SET_NAME,"CCcam RecvMSG",0,0,0);
 
 	while (!prg.restart) {

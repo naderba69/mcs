@@ -55,7 +55,7 @@ static void dns_resolve_hostname(const char hostname[256])
 
 void *dns_thread(void *param)
 {
-	prg.pid_dns = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_dns, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	//prg.tid_dns = pthread_self();
 	prctl(PR_SET_NAME,"Lookup",0,0,0);
 

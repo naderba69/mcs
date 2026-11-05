@@ -1157,10 +1157,11 @@ static uint32_t attest_ttl_ms(void)
 }
 
 /*
- * Record one receiver's attestation. Called from srv-newcamd on
- * RETRY_HARD with the DELIVERY-TIME source recorded in `lastecm`
- * (GR1) and the delivered bytes themselves. No-ops entirely unless
- * CACHE ATTEST is armed, so the default build is stock.
+ * Record one receiver's attestation. Called from protocol receive paths on
+ * RETRY_HARD with the DELIVERY-TIME source recorded in `lastecm` (GR1) and the
+ * delivered bytes. Those callers hold lockecm; attest_purge relies on that
+ * same lock to walk/update the ECM ring after its lockcache sweep. No-ops
+ * entirely unless CACHE ATTEST is armed, so the default build is stock.
  */
 static void attest_note(uint32_t clientid, const uint8_t *cw,
                         uint16_t caid, uint32_t provid, int provider_known,
@@ -2105,9 +2106,16 @@ uint32_t ecm_check_time = 0;
 
 
 
+/* Dedicated leaf lock for per-profile server counters. ECM receive handlers
+ * already own lockecm; do not add locksrv here (the no-thread ECM path must not
+ * take it). HTTP snapshots take this same lock while copying cstat. */
+pthread_mutex_t srv_cstat_lock = PTHREAD_MUTEX_INITIALIZER;
+
 void srv_cstatadd( struct server_data *srv, int csid, int ok, uint32_t ecmoktime)
 {
 	int i;
+	if (!srv) return;
+	pthread_mutex_lock(&srv_cstat_lock);
 	for(i=0; i<MAX_CSPORTS; i++) {
 		if (!srv->cstat[i].csid) {
 			srv->cstat[i].csid = csid;
@@ -2131,6 +2139,7 @@ void srv_cstatadd( struct server_data *srv, int csid, int ok, uint32_t ecmoktime
 			break;
 		}
 	}
+	pthread_mutex_unlock(&srv_cstat_lock);
 }
 
 
@@ -2535,9 +2544,11 @@ static void ledger_purge_proof(const struct ledger_event *ev)
  * TASK R30 (D81) -- the purge half of a filing, defined here because
  * cache_purge_sweep()'s DCW_ERROR mark is clustredcache.c's own. The
  * stored entry stops being served at once, exactly as a reuse proof
- * stops it (TASK 1.5); the sweep requires prg.lockcache, which the
- * client thread does not hold, so it is taken here -- attest_note has
- * already released the attestation lock, so no locks ever nest.
+ * stops it (TASK 1.5). The caller already holds lockecm; take lockcache
+ * only for the cache mark/sweep, following the established lockecm ->
+ * lockcache order, then release it before walking the ECM ring. attest_note
+ * released cwattest_lock before entering here, so no attestation-table lock
+ * is nested with either runtime lock.
  */
 static void attest_purge(int srctype, int srcid, const uint8_t *cw,
                          uint16_t caid, uint32_t provid, int provider_known,
@@ -3447,7 +3458,7 @@ OPTIONS\n\
 		//else mainprocess();
 	}
 
-	prg.pid_main = getpid();
+	__atomic_store_n(&prg.pid_main, (pid_t)getpid(), __ATOMIC_RELEASE);
 
 	prg.restart = 0;
 

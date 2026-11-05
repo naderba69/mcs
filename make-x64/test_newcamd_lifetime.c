@@ -14,6 +14,11 @@ static pthread_cond_t test_changed = PTHREAD_COND_INITIALIZER;
 static int reader_entered;
 static int release_reader;
 static int writer_entered;
+static pthread_mutex_t runtime_state_lock = PTHREAD_MUTEX_INITIALIZER;
+static int runtime_state_locked;
+static int release_runtime_state_lock;
+static int runtime_reader_started;
+static int runtime_reader_acquired;
 static unsigned int protected_count;
 static int shared_client;
 static int delivery_active;
@@ -63,6 +68,36 @@ static void *writer_thread(void *unused)
     pthread_cond_broadcast(&test_changed);
     pthread_mutex_unlock(&test_lock);
     newcamd_config_write_unlock();
+    return NULL;
+}
+
+static void *runtime_state_holder_thread(void *unused)
+{
+    (void)unused;
+    pthread_mutex_lock(&runtime_state_lock);
+    pthread_mutex_lock(&test_lock);
+    runtime_state_locked = 1;
+    pthread_cond_broadcast(&test_changed);
+    while (!release_runtime_state_lock)
+        pthread_cond_wait(&test_changed, &test_lock);
+    pthread_mutex_unlock(&test_lock);
+    pthread_mutex_unlock(&runtime_state_lock);
+    return NULL;
+}
+
+static void *runtime_state_reader_thread(void *unused)
+{
+    (void)unused;
+    pthread_mutex_lock(&test_lock);
+    runtime_reader_started = 1;
+    pthread_cond_broadcast(&test_changed);
+    pthread_mutex_unlock(&test_lock);
+    newcamd_config_read_lock_mutex(&runtime_state_lock);
+    pthread_mutex_lock(&test_lock);
+    runtime_reader_acquired = 1;
+    pthread_cond_broadcast(&test_changed);
+    pthread_mutex_unlock(&test_lock);
+    newcamd_config_read_unlock_mutex(&runtime_state_lock);
     return NULL;
 }
 
@@ -180,9 +215,10 @@ static void *close_thread(void *unused)
 int main(void)
 {
     pthread_t reader, writer, handoff_reader, handoff_writer, client_a, client_b;
-    pthread_t connect_waiter;
+    pthread_t connect_waiter, runtime_holder, runtime_reader;
     void *client_result_a = NULL, *client_result_b = NULL;
     int writer_blocked, close_still_waiting, connect_wait_blocked;
+    int runtime_gate_progress;
     uint64_t connect_token_a, connect_token_b;
 
     CHECK(!newcamd_keepalive_reply_timed_out(10999u, 1000u),
@@ -199,6 +235,32 @@ int main(void)
     newcamd_config_read_unlock();
     newcamd_config_read_unlock();
     CHECK(1, "nested read-side config pins can be released independently");
+
+    runtime_state_locked = release_runtime_state_lock = 0;
+    runtime_reader_started = runtime_reader_acquired = 0;
+    writer_entered = 0;
+    pthread_create(&runtime_holder, NULL, runtime_state_holder_thread, NULL);
+    pthread_mutex_lock(&test_lock);
+    while (!runtime_state_locked) pthread_cond_wait(&test_changed, &test_lock);
+    pthread_mutex_unlock(&test_lock);
+    pthread_create(&runtime_reader, NULL, runtime_state_reader_thread, NULL);
+    pthread_mutex_lock(&test_lock);
+    while (!runtime_reader_started) pthread_cond_wait(&test_changed, &test_lock);
+    pthread_mutex_unlock(&test_lock);
+    usleep(20000);
+    pthread_create(&writer, NULL, writer_thread, NULL);
+    usleep(20000);
+    pthread_mutex_lock(&test_lock);
+    runtime_gate_progress = writer_entered && !runtime_reader_acquired;
+    release_runtime_state_lock = 1;
+    pthread_cond_broadcast(&test_changed);
+    pthread_mutex_unlock(&test_lock);
+    pthread_join(runtime_holder, NULL);
+    pthread_join(runtime_reader, NULL);
+    pthread_join(writer, NULL);
+    CHECK(runtime_gate_progress && runtime_reader_acquired,
+          "config readers wait for a busy runtime mutex without pinning the reload gate");
+    writer_entered = 0;
 
     connect_wait_started = connect_wait_completed = 0;
     connect_token_a = server_connect_begin();

@@ -1,6 +1,6 @@
 void* thread_enddate(void *param)
 {
-	prg.pid_date = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_date, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prctl(PR_SET_NAME,"Expire Date Thread",0,0,0);
 
 	while (!prg.restart) {

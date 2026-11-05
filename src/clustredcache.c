@@ -4275,7 +4275,7 @@ void cache_check_peers(struct cacheserver_data *cache)
 
 void *cache_thread(void *param)
 {
-	prg.pid_cache = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_cache, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prg.tid_cache = pthread_self();
 	prctl(PR_SET_NAME,"Cache RecvMSG Thread",0,0,0);
 
@@ -4371,7 +4371,7 @@ void *cache_thread(void *param)
 
 void *cache_thread(void *param)
 {
-	prg.pid_cache = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_cache, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prg.tid_cache = pthread_self();
 	prctl(PR_SET_NAME,"Cache RecvMSG Thread",0,0,0);
 
@@ -4508,7 +4508,7 @@ void *cache_thread(void *param)
 
 void *cache_pipe_thread(void *param)
 {
-	prg.pid_cache_pipe = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_cache_pipe, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prg.tid_cache_pipe = pthread_self();
 	prctl(PR_SET_NAME,"Cache Pipe Thread",0,0,0);
 

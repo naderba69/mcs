@@ -336,42 +336,8 @@ void camd35_srv_recvmsg(struct server_data *srv)
 
 }
 
-// CACHEEX MODE 2
-void *camd35_srv_recvmsg_thread(struct server_data *srv)
-{
-	srv->pid = syscall(SYS_gettid);
+// CACHEEX MODE 2 is serviced by the generation-checked worker in th-srv.c.
 
-	while (!prg.restart) {
-		struct pollfd pfd;
-		int fd;
-		pthread_mutex_lock(&prg.locksrv);
-		fd = srv->handle;
-		pthread_mutex_unlock(&prg.locksrv);
-		if (fd<=0) {
-			srv->pid = 0;
-			return NULL;
-		}
-		pfd.fd = fd;
-		pfd.events = POLLIN | POLLPRI;
-		int retval = poll(&pfd, 1, 3009);
-		if (retval==0) continue; // timeout
-		if (retval<0) {
-			pthread_mutex_lock(&prg.locksrv);
-			if (srv->handle == fd) disconnect_srv(srv);
-			pthread_mutex_unlock(&prg.locksrv);
-			srv->pid = 0;
-			return NULL;
-		}
-		pthread_mutex_lock(&prg.locksrv);
-		if (srv->handle == fd) camd35_srv_recvmsg(srv);
-		pthread_mutex_unlock(&prg.locksrv);
-	}
-	return NULL;
-}
-
-
-///////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
 
 int camd35_connect_srv(struct server_data *srv, int fd)
 {
@@ -410,7 +376,7 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 				pthread_mutex_unlock(&prg.locksrv);
 				if (!server_connection_is_enabled(srv, fd)) return 0;
 				if (srv->cacheex_mode==2) {
-					if (!create_thread(PACKED_MPTR(srv, pthread_t, tid), (threadfn)camd35_srv_recvmsg_thread, srv)) {
+					if (!server_receive_thread_start(srv)) {
 						pthread_mutex_lock(&prg.locksrv);
 						if (srv->handle == fd) disconnect_srv(srv);
 						pthread_mutex_unlock(&prg.locksrv);

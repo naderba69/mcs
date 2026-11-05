@@ -65,7 +65,7 @@ static int wait_config_ready(void)
 
 void *reread_config_thread(void *param)
 {
-	prg.pid_cfg = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_cfg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	//prg.tid_cfg = pthread_self();
 	prctl(PR_SET_NAME,"Config Thread",0,0,0);
 

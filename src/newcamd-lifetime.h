@@ -2,6 +2,7 @@
 #define MCS_NEWCAMD_LIFETIME_H
 
 #include <stdint.h>
+#include <pthread.h>
 
 /*
  * The config read side protects borrowed cardserver/client pointers across
@@ -10,6 +11,10 @@
  */
 void newcamd_config_read_lock(void);
 void newcamd_config_read_unlock(void);
+/* Pair the lifetime pin with a runtime mutex without blocking on that mutex
+ * while holding the pin. Call only when this thread has no read pin yet. */
+void newcamd_config_read_lock_mutex(pthread_mutex_t *mutex);
+void newcamd_config_read_unlock_mutex(pthread_mutex_t *mutex);
 void newcamd_config_write_lock(void);
 void newcamd_config_write_unlock(void);
 

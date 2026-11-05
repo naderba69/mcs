@@ -838,7 +838,9 @@ void cs378x_recv_pipe()
 ///////////////////////////////////////////////////////////////////////////////
 void *cs378x_recvmsg_thread(void *param)
 {
+	pthread_mutex_lock(&prg.locksrv);
 	cfg.cs378x.pid_recvmsg = syscall(SYS_gettid);
+	pthread_mutex_unlock(&prg.locksrv);
 	prctl(PR_SET_NAME,"cs378x RecvMSG Thread",0,0,0);
 
 	while (!prg.restart) {
@@ -920,7 +922,9 @@ void cs378x_cacheex_recv_pipe()
 ///////////////////////////////////////////////////////////////////////////////
 void *cs378x_cacheex_recvmsg_thread(void *param)
 {
+	pthread_mutex_lock(&prg.locksrv);
 	cfg.cs378x.pid_recvmsg = syscall(SYS_gettid);
+	pthread_mutex_unlock(&prg.locksrv);
 	prctl(PR_SET_NAME,"cs378x RecvMSG Thread",0,0,0);
 
 	while (!prg.restart) {

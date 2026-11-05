@@ -1618,7 +1618,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 void *setdcw_thread(void *param)
 {
 
-	prg.pid_setdcw = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_setdcw, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prg.tid_setdcw = pthread_self();
 	prctl(PR_SET_NAME,"Set DCW",0,0,0);
 

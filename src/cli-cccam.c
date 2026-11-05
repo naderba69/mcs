@@ -44,8 +44,6 @@ int cc_sendinfo_srv(struct server_data *srv, int ismultics)
 // Return
 // 0: no error
 
-void *cacheex_cc_srv_recvmsg(struct server_data *srv);
-
 static char CCcam[] = "CCcam";
 static char CCcam_OScam[] = "CCcam/OScam";
 static char CCcam_MultiCS[] = "CCcam/MCS";
@@ -171,7 +169,7 @@ int cc_connect_srv(struct server_data *srv, int fd)
 #ifdef CACHEEX
 	if (srv->cacheex_mode==2) {
 		if (!server_connection_is_enabled(srv, fd)) return 0;
-		if (!create_thread( PACKED_MPTR(srv, pthread_t, tid), (threadfn)cacheex_cc_srv_recvmsg, srv )) {
+		if (!server_receive_thread_start(srv)) {
 			pthread_mutex_lock(&prg.locksrv);
 			if (srv->handle == fd) disconnect_srv(srv);
 			pthread_mutex_unlock(&prg.locksrv);
@@ -737,37 +735,6 @@ void cc_srv_recvmsg(struct server_data *srv)
 }
 
 
-// Receive messages from server
-// CACHEEX MODE 2
-void *cacheex_cc_srv_recvmsg(struct server_data *srv)
-{
-	srv->pid = syscall(SYS_gettid);
-
-	while (!prg.restart) {
-		struct pollfd pfd;
-		int fd;
-		pthread_mutex_lock(&prg.locksrv);
-		fd = srv->handle;
-		pthread_mutex_unlock(&prg.locksrv);
-		if (fd<=0) break;
-		pfd.fd = fd;
-		pfd.events = POLLIN | POLLPRI;
-		int retval = poll(&pfd, 1, 3005); // for 3seconds
-		if (retval==0) continue;
-		pthread_mutex_lock(&prg.locksrv);
-		if (srv->handle == fd) {
-			if (retval<0 || !(pfd.revents & (POLLIN|POLLPRI)))
-				disconnect_srv(srv);
-			else
-				cc_srv_recvmsg(srv);
-		}
-		pthread_mutex_unlock(&prg.locksrv);
-		if (retval<0 || !(pfd.revents & (POLLIN|POLLPRI))) break;
-	}
-
-	srv->pid = 0;
-	return NULL;
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 

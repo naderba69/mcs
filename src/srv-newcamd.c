@@ -32,12 +32,25 @@ static void cs_lastecm_save_request(struct cs_client_data *cli,
 	cli->lastecm.hash = delivery->hash;
 	cli->lastecm.tag = delivery->tag;
 	cli->lastecm.request = delivery->request;
+	cli->lastecm.lifetime_id = delivery->lifetime_id;
 	cli->lastecm.decodetime = sent_at - delivery->recvtime;
 #ifdef CACHEEX
 	memcpy(cli->lastecm.ecmd5, delivery->ecmd5, sizeof(cli->lastecm.ecmd5));
 	cli->lastecm.ecmlen = delivery->ecmlen;
 #endif
 }
+
+/* Caller holds lockecm: the pointer may name a recycled pool slot, so only
+ * return it while its recorded allocation generation still matches. */
+static ECM_DATA *cs_lastecm_request_locked(const struct cs_client_data *cli)
+{
+	ECM_DATA *request;
+	if (!cli) return NULL;
+	request = cli->lastecm.request;
+	return ecm_request_lifetime_matches(request, request,
+	                                    cli->lastecm.lifetime_id) ? request : NULL;
+}
+
 
 void cs_senddcw_cli(struct cs_client_data *cli, const struct ledger_delivery_snapshot *delivery);
 
@@ -62,6 +75,12 @@ struct cs_client_data *getnewcamdclientbyid(uint32_t id)
 
 ///////////////////////////////////////////////////////////////////////////////
 
+static void cs_mark_client_poll_update(struct cs_client_data *cli)
+{
+	if (cli && cli->cs)
+		__atomic_store_n(&cli->cs->newcamd.clipfd.update, 1, __ATOMIC_RELEASE);
+}
+
 static void cs_disconnect_cli_unlocked(struct cs_client_data *cli)
 {
 	uint32_t ticks;
@@ -78,6 +97,8 @@ static void cs_disconnect_cli_unlocked(struct cs_client_data *cli)
 		close(cli->handle);
 	}
 	cli->handle = -1;
+	cli->ipoll = -1;
+	cs_mark_client_poll_update(cli);
 	debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," newcamd: client '%s' disconnected\n", cli->user);
 }
 
@@ -178,9 +199,17 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 	while (cli) {
 		if (cli->userhash==hash)
 		if (!strcmp(cli->user,name)) {
-			if (IS_DISABLED(cli->flags)) { // Connect only enabled clients
+			/* prg.lockcli protects concurrent login attempts, not the
+			 * runtime fields shared with receive, disconnect, and HTTP paths. */
+			if (newcamd_client_state_lock(cli) != 0) {
 				pthread_mutex_unlock(&prg.lockcli);
+				close(sock);
+				return NULL;
+			}
+			if (IS_DISABLED(cli->flags)) { // Connect only enabled clients
 				debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: connection refused for client '%s' (%s), client disabled\n", cs->name, cli->user, ip2string(ip));
+				newcamd_client_state_unlock(cli);
+				pthread_mutex_unlock(&prg.lockcli);
 				close(sock);
 				return NULL;
 			}
@@ -196,7 +225,7 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		buf[1] = 0;
 		buf[2] = 0;
 		cs_message_send(sock, NULL, buf, 3, sessionkey); */
-			/* TASK 3.3 -- the login frame names the user, so echo it clamped:
+		/* TASK 3.3 -- the login frame names the user, so echo it clamped:
 		 * the wire guard above keeps it <=63; this is belt-and-braces for
 		 * any path that reaches the unknown-user line with a longer name. */
 		{ char uname[80]; int ul = (int)strlen((char*)&buf[3]);
@@ -207,7 +236,9 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		return NULL;
 	}
 
-	// Check password
+	// The matched client's state lock remains held through authentication and
+	// publication, so a concurrent stale-session disconnect or status action
+	// cannot race this replacement.
 	index += strlen(cli->user) +1;
 	__md5_crypt(cli->pass, "$1$abcdefgh$",passwdcrypt);
 	if (!strcmp(passwdcrypt,(char*)&buf[index])) {
@@ -218,17 +249,19 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 				cs_disconnect_cli_unlocked(cli);
 				if (cli->ip==ip) debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: Client '%s' (%s) already connected\n", cs->name,cli->user, ip2string(ip));
 				else {
-					pthread_mutex_unlock(&prg.lockcli);
 					debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: Client '%s' (%s) already connected with different ip, Connection closed (%s)\n", cs->name, cli->user, ip2string(cli->ip), ip2string(ip));
 					cli->nbloginerror++;
+					newcamd_client_state_unlock(cli);
+					pthread_mutex_unlock(&prg.lockcli);
 					close(sock);
 					return NULL;
 				}
 			}
 			else {
 				debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: Client '%s' just connected, new connection closed (%s)\n", cs->name, cli->user, ip2string(ip));
-				pthread_mutex_unlock(&prg.lockcli);
 				cli->nbloginerror++;
+				newcamd_client_state_unlock(cli);
+				pthread_mutex_unlock(&prg.lockcli);
 				close(sock);
 				return NULL;
 			}
@@ -259,10 +292,11 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		cli->lastactivity = GetTickCount();
 		cli->lastecmtime = 0;
 		cli->chkrecvtime = 0;
-			debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: client '%s' connected (%s)\n", cs->name, cli->user, ip2string(ip));
-			connected_client_id = cli->id;
-			pthread_mutex_unlock(&prg.lockcli);
-			cli->cs->newcamd.clipfd.update = 1;
+		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: client '%s' connected (%s)\n", cs->name, cli->user, ip2string(ip));
+		connected_client_id = cli->id;
+		cs_mark_client_poll_update(cli);
+		newcamd_client_state_unlock(cli);
+		pthread_mutex_unlock(&prg.lockcli);
 #ifdef EPOLL_NEWCAMD
 		/* Queue a stable client ID rather than a pointer that a later reload
 		 * could free before the receiver drains this pipe. */
@@ -272,7 +306,6 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 #endif
 	}
 	else {
-		pthread_mutex_unlock(&prg.lockcli);
 		// send NAK
 		buf[0] = MSG_CLIENT_2_SERVER_LOGIN_NAK;
 		buf[1] = 0;
@@ -280,6 +313,8 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		//cs_message_send(sock, NULL, buf, 3, sessionkey);
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: client '%s' wrong password (%s)\n", cs->name, cli->user, ip2string(ip));
 		cli->nbloginerror++;
+		newcamd_client_state_unlock(cli);
+		pthread_mutex_unlock(&prg.lockcli);
 		close(sock);
 	}
 	return NULL;
@@ -488,26 +523,21 @@ int cs_cli_getmsg(struct cs_client_data *cli,struct cs_custom_data *clicd, uint8
 	return 0;
 }
 
-void *cs_cli_recvmsg(struct cs_client_data *cli)
+static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
+                                   int *client_state_locked)
 {
 	struct cardserver_data *cs;
-	int client_state_locked = 1;
-	if (!cli || newcamd_client_state_lock(cli) != 0) return NULL;
+	if (!cli || !client_state_locked || !*client_state_locked) return NULL;
 	cs = cli->cs;
 	struct cs_custom_data clicd; // Custom data
+	ECM_DATA *ecm;
 	int len;
 	unsigned char buf[CWS_NETMSGSIZE];
 	unsigned char data[CWS_NETMSGSIZE]; // for other use
 
-	if (cli->handle<=0) {
-		newcamd_client_state_unlock(cli);
-		return NULL;
-	}
+	if (cli->handle<=0) return NULL;
 	len = cs_cli_getmsg(cli,&clicd,buf);
-	if (len<=0) {
-		newcamd_client_state_unlock(cli);
-		return NULL;
-	}
+	if (len<=0) return NULL;
 
 	uint32_t ticks = GetTickCount();
 	cli->chkrecvtime = 0;
@@ -547,7 +577,10 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 					//debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," newcamd: send card data to client '%s'\n", cli->user);
 					break;
 		case 0x80:
-		case 0x81:
+		case 0x81: {
+			struct ledger_delivery_snapshot immediate_delivery;
+			int have_immediate_delivery = 0;
+			int ecm_lock_held = 0;
 					//debugdump(buf, len, "ECM: ");
 					cli->lastecmtime = ticks;
 					cli->ecmnb++;
@@ -579,9 +612,10 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 
 					// ACCEPTED
 					ecm_lock(); //###
+					ecm_lock_held = 1;
 
 					// Search for ECM
-					ECM_DATA *ecm = search_ecmdata_any(cs, data,  len, clicd.sid, clicd.caid, clicd.provid, 1); // dont get failed ecm request from cache
+					ecm = search_ecmdata_any(cs, data,  len, clicd.sid, clicd.caid, clicd.provid, 1); // dont get failed ecm request from cache
 					int isnew =  ( ecm==NULL );
 
 					/*
@@ -854,7 +888,10 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						if (ecm->dcwstatus==STAT_DCW_FAILED) {
 							if (ecm->period > cs->option.dcw.retry) {
 								buf[1] = 0; buf[2] = 0;
-								cs_message_send( cli->handle, &clicd, buf, 3, cli->sessionkey);
+								ecm_unlock();
+								ecm_lock_held = 0;
+								if (!cs_message_send(cli->handle, &clicd, buf, 3, cli->sessionkey))
+									cs_disconnect_cli_unlocked(cli);
 								debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <|> decode failed to client '%s' ch %04x:%06x:%04x, already failed\n",cli->user, clicd.caid,clicd.provid,clicd.sid);
 							}
 							else {
@@ -879,7 +916,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 							if (!ecm->checktime) {
 #ifdef CHECK_NEXTDCW
 								if (cli->dcwcheck) {
-									checkfreeze_checkECM( ecm, cli->lastecm.request);
+									checkfreeze_checkECM(ecm, cs_lastecm_request_locked(cli));
 									if ( (ecm->dcwstatus==STAT_DCW_SUCCESS) && !checkfreeze_setdcw(ecm,ecm->cw) ) { // ??? last ecm is wrong
 										ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 										memset( ecm->cw, 0, 16 );
@@ -887,15 +924,15 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 										pipe_wakeup( prg.pipe.ecm[1] );
 									}
 									else {
-										CS_CAPTURE_CLIENT_DELIVERY(delivery, ecm, cli);
-										cs_senddcw_cli_locked(cli, delivery);
+										have_immediate_delivery = cs_capture_client_delivery_locked(
+											&immediate_delivery, ecm, cli);
 									}
 								}
 								else
 #endif
 								{
-									CS_CAPTURE_CLIENT_DELIVERY(delivery, ecm, cli);
-									cs_senddcw_cli_locked(cli, delivery);
+									have_immediate_delivery = cs_capture_client_delivery_locked(
+										&immediate_delivery, ecm, cli);
 								}
 							}
 #ifdef TESTCHANNEL
@@ -913,8 +950,10 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 							cs->ecmdenied++;
 							cli->ecmdenied++;
 							uint8_t failure[3] = { data[0], 0, 0 };
-							if (!cs_message_send(cli->handle, &clicd, failure, sizeof(failure), cli->sessionkey)) cs_disconnect_cli_unlocked(cli);
 							ecm_unlock();
+							ecm_lock_held = 0;
+							if (!cs_message_send(cli->handle, &clicd, failure, sizeof(failure), cli->sessionkey))
+								cs_disconnect_cli_unlocked(cli);
 							break;
 						}
 						cs->ecmaccepted++;
@@ -925,7 +964,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						ecm->cw1cycle = cw1cycle;
 						ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 #ifdef CHECK_NEXTDCW
-						if (cli->dcwcheck) checkfreeze_checkECM( ecm, cli->lastecm.request);
+						if (cli->dcwcheck) checkfreeze_checkECM(ecm, cs_lastecm_request_locked(cli));
 #endif
 						if (cs->option.fallowcache) {
 							ecm->waitcache = 1;
@@ -944,9 +983,15 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 #endif
 					}
 
-					ecm_unlock(); //###
+					if (ecm_lock_held) {
+						ecm_unlock(); //###
+						ecm_lock_held = 0;
+					}
+					if (have_immediate_delivery)
+						cs_senddcw_cli_locked(cli, &immediate_delivery);
 					if (isnew) wakeup_sendecm();
 					break;
+					}
 
 
 #ifdef SRV_CSCACHE
@@ -998,7 +1043,7 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 						/* The dispatch path locks client state. Do not hold this
 						 * client's state mutex while ecm_setdcw() fans out. */
 						newcamd_client_state_unlock(cli);
-						client_state_locked = 0;
+						*client_state_locked = 0;
 						ecm_setdcw(ecm, &buf[3], DCW_SOURCE_CSCLIENT, client_srcid);
 					}
 					else {	//TODO: check same dcw between cards
@@ -1026,8 +1071,17 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 					}
 				} // Switch
 
-		if (client_state_locked) newcamd_client_state_unlock(cli);
 		return NULL;
+}
+
+void *cs_cli_recvmsg(struct cs_client_data *cli)
+{
+	int client_state_locked = 1;
+	void *result;
+	if (!cli || newcamd_client_state_lock(cli) != 0) return NULL;
+	result = cs_cli_recvmsg_locked(cli, &client_state_locked);
+	if (client_state_locked) newcamd_client_state_unlock(cli);
+	return result;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1051,13 +1105,14 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli, const struct ledge
 	if (!cli || !delivery || !delivery->lifetime_id) return;
 	request = cli->ecm.request;
 	current_lifetime_id = __atomic_load_n(&cli->ecm.lifetime_id, __ATOMIC_ACQUIRE);
-	/* The per-client state lock is held by both dispatch paths. A pointer/hash
-	 * may be recycled, so compare the client's current generation directly to
-	 * the delivery generation as well as checking the request object's token. */
+	/* The client-state lock is held by every dispatch path. Its stored token
+	 * was captured while lockecm protected the ECM pool; compare it explicitly
+	 * with the snapshot token, then use pointer equality only as an additional
+	 * guard. Do not dereference delivery->request here: after lockecm is released
+	 * that pool slot may already have been recycled. */
 	if (current_lifetime_id != delivery->lifetime_id ||
 	    !newcamd_delivery_identity_matches(request, current_lifetime_id,
-	                                       delivery->request, delivery->lifetime_id) ||
-	    ecm_request_lifetime_id_load(request) != delivery->lifetime_id)
+	                                       delivery->request, delivery->lifetime_id))
 		return;
 	if (cli->ecm.status == STAT_DCW_SENT) {
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," +> cw send failed to client '%s', cw already sent\n", cli->user);
@@ -1172,12 +1227,17 @@ void cs_check_sendcw(ECM_DATA *ecm, const struct ledger_delivery_snapshot *deliv
 				struct cs_client_data *next = cli->next;
 				if (newcamd_client_state_lock(cli) == 0) {
 					ECM_DATA *request = cli->ecm.request;
-						if (!IS_DISABLED(cli->flags) && cli->handle != INVALID_SOCKET &&
-						    cli->ecm.busy && cli->ecm.status == STAT_ECM_SENT &&
-						    newcamd_delivery_identity_matches(
-						        request, __atomic_load_n(&cli->ecm.lifetime_id, __ATOMIC_ACQUIRE),
-						        delivery->request, delivery->lifetime_id) &&
-						    ecm_request_lifetime_id_load(request) == delivery->lifetime_id)
+					uint64_t client_lifetime_id =
+					    __atomic_load_n(&cli->ecm.lifetime_id, __ATOMIC_ACQUIRE);
+					/* This runs after the ECM pool lock has been released. The
+					 * client token and immutable delivery snapshot are safe to
+					 * compare here; do not dereference the recycled pool pointer. */
+					if (!IS_DISABLED(cli->flags) && cli->handle != INVALID_SOCKET &&
+					    cli->ecm.busy && cli->ecm.status == STAT_ECM_SENT &&
+					    client_lifetime_id == delivery->lifetime_id &&
+					    newcamd_delivery_identity_matches(
+					        request, client_lifetime_id,
+					        delivery->request, delivery->lifetime_id))
 						cs_senddcw_cli_locked(cli, delivery);
 					newcamd_client_state_unlock(cli);
 				}
@@ -1240,7 +1300,7 @@ void cs_recv_pipe()
 
 void *cs_recvmsg_thread(void *param)
 {
-	prg.pid_cs_msg = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_cs_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prctl(PR_SET_NAME,"Newcamd RecvMSG",0,0,0);
 
 	prg.epoll.newcamd = epoll_create( MAX_EPOLL_EVENTS );
@@ -1302,50 +1362,66 @@ void *cs_recvmsg_thread(void *param)
 {
 	struct pollfd pfd[MAX_PFD];
 	int pfdcount;
+	(void)param;
 
-	prg.pid_cs_msg = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_cs_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prctl(PR_SET_NAME,"Newcamd RecvMSG",0,0,0);
 
 	while (!prg.restart) {
 		newcamd_config_read_lock();
 		uint64_t config_generation = cfg.cache.generation;
 		pfdcount = 0;
-		// PIPE
 		pfd[pfdcount].fd = prg.pipe.newcamd[0];
 		pfd[pfdcount++].events = POLLIN | POLLPRI;
 
 		struct cardserver_data *cs = cfg.cardserver;
 		while (cs) {
-			if ( cs->option.fsharenewcamd )
-			if ( !IS_DISABLED(cs->newcamd.flags)&&(cs->newcamd.handle>0) ) {
-				if (cs->newcamd.clipfd.update||cs->newcamd.clipfd.count<0) {
+			if (cs->option.fsharenewcamd &&
+				!IS_DISABLED(cs->newcamd.flags) && cs->newcamd.handle > 0) {
+				int clients_changed = __atomic_exchange_n(
+					&cs->newcamd.clipfd.update, 0, __ATOMIC_ACQ_REL);
+				if (clients_changed || cs->newcamd.clipfd.count < 0) {
 					cs->newcamd.clipfd.count = 0;
 					struct cs_client_data *cli = cs->newcamd.client;
-					while (cli && (cs->newcamd.clipfd.count<NEWCAMD_MAX_PFD)) {
-						if ( !IS_DISABLED(cli->flags) && (cli->handle>0) && !(cli->flags&FLAG_WORKTHREAD) ) {
-							cli->ipoll = cs->newcamd.clipfd.count;
-							cs->newcamd.clipfd.pfd[cs->newcamd.clipfd.count].fd = cli->handle;
-							cs->newcamd.clipfd.pfd[cs->newcamd.clipfd.count++].events = POLLIN | POLLPRI;
-						} else cli->ipoll = -1;
+					while (cli && cs->newcamd.clipfd.count < NEWCAMD_MAX_PFD) {
+						if (newcamd_client_state_lock(cli) == 0) {
+							if (!IS_DISABLED(cli->flags) && cli->handle > 0 &&
+								!(cli->flags & FLAG_WORKTHREAD)) {
+								int slot = cs->newcamd.clipfd.count++;
+								cli->ipoll = slot;
+								cs->newcamd.clipfd.pfd[slot].fd = cli->handle;
+								cs->newcamd.clipfd.pfd[slot].events = POLLIN | POLLPRI;
+							} else cli->ipoll = -1;
+							newcamd_client_state_unlock(cli);
+						} else {
+							/* Keep rebuilding if a record could not be sampled. */
+							__atomic_store_n(&cs->newcamd.clipfd.update, 1,
+											__ATOMIC_RELEASE);
+						}
 						cli = cli->next;
 					}
-					cs->newcamd.clipfd.update = 0;
-					//debugf(getdbgflag(DBG_ERROR,0,0), " [%s] clients poll updated %d\n", cs->name, cs->newcamd.clipfd.count);
 				}
+
 				cs->newcamd.clipfd.ipoll = pfdcount;
-				if (cs->newcamd.clipfd.count>0) {
-					memcpy( &pfd[pfdcount], cs->newcamd.clipfd.pfd, cs->newcamd.clipfd.count * sizeof(struct pollfd) );
-					pfdcount += cs->newcamd.clipfd.count;
+				int copy_count = cs->newcamd.clipfd.count;
+				if (copy_count > MAX_PFD - pfdcount)
+					copy_count = MAX_PFD - pfdcount;
+				if (copy_count > 0) {
+					memcpy(&pfd[pfdcount], cs->newcamd.clipfd.pfd,
+						(size_t)copy_count * sizeof(struct pollfd));
+					pfdcount += copy_count;
 				}
-			} else cs->newcamd.clipfd.count = 0;
+			} else {
+				cs->newcamd.clipfd.count = 0;
+			}
 			cs = cs->next;
 		}
 
 		uint32_t thread_delay = cfg.delay.thread;
 		newcamd_config_read_unlock();
-		int retval = poll(pfd, pfdcount, 3012); // for 3seconds
+		int retval = poll(pfd, pfdcount, 3012);
 
-		if ( retval>0 ) {
+		if (retval > 0) {
 			if (thread_delay) usleep(thread_delay);
 			newcamd_config_read_lock();
 			if (config_generation != cfg.cache.generation) {
@@ -1353,36 +1429,50 @@ void *cs_recvmsg_thread(void *param)
 				continue;
 			}
 
-			// Newcamd Clients
 			cs = cfg.cardserver;
 			while (cs) {
-				if ( cs->option.fsharenewcamd )
-				if ( !IS_DISABLED(cs->newcamd.flags)&&(cs->newcamd.handle>0)&&(cs->newcamd.clipfd.count>0) ) {
-					//pthread_mutex_lock(&prg.lockcli);
+				if (cs->option.fsharenewcamd &&
+					!IS_DISABLED(cs->newcamd.flags) && cs->newcamd.handle > 0 &&
+					cs->newcamd.clipfd.count > 0) {
 					struct cs_client_data *cscli = cs->newcamd.client;
 					while (cscli) {
-						if ( !IS_DISABLED(cscli->flags)&&(cscli->handle>0) && (cscli->ipoll>=0) && (cscli->handle==pfd[cs->newcamd.clipfd.ipoll+cscli->ipoll].fd) ) {
-							if ( pfd[cs->newcamd.clipfd.ipoll+cscli->ipoll].revents & (POLLHUP|POLLNVAL) ) cs_disconnect_cli(cscli);
-							else if ( pfd[cs->newcamd.clipfd.ipoll+cscli->ipoll].revents & (POLLIN|POLLPRI) ) {
-								cs_cli_recvmsg(cscli);
+						struct cs_client_data *next = cscli->next;
+						if (newcamd_client_state_lock(cscli) == 0) {
+							int poll_index = -1;
+							int client_state_locked = 1;
+							if (!IS_DISABLED(cscli->flags) && cscli->handle > 0 &&
+								cscli->ipoll >= 0 &&
+								cscli->ipoll < cs->newcamd.clipfd.count) {
+								poll_index = cs->newcamd.clipfd.ipoll + cscli->ipoll;
+								if (poll_index > 0 && poll_index < pfdcount &&
+									cscli->handle == pfd[poll_index].fd) {
+									short revents = pfd[poll_index].revents;
+									if (revents & (POLLHUP | POLLNVAL | POLLERR))
+										cs_disconnect_cli_unlocked(cscli);
+									else if (revents & (POLLIN | POLLPRI))
+										cs_cli_recvmsg_locked(cscli, &client_state_locked);
+								}
 							}
+							if (client_state_locked)
+								newcamd_client_state_unlock(cscli);
+						} else {
+							__atomic_store_n(&cs->newcamd.clipfd.update, 1,
+											__ATOMIC_RELEASE);
 						}
-						cscli = cscli->next;
+						cscli = next;
 					}
-					//pthread_mutex_unlock(&prg.lockcli);
 				}
 				cs = cs->next;
 			}
-			//
-			if ( pfd[0].revents & (POLLIN|POLLPRI) ) cs_recv_pipe();
-			newcamd_config_read_unlock();
-		}
-			else if ( retval<0 ) {
-				debugf(0, " thread receive messages: poll error %d(errno=%d)\n", retval, errno);
-				usleep(99000);
-			}
 
+			if (pfd[0].revents & (POLLIN | POLLPRI)) cs_recv_pipe();
+			newcamd_config_read_unlock();
+		} else if (retval < 0) {
+			debugf(0, " thread receive messages: poll error %d(errno=%d)\n",
+				retval, errno);
+			usleep(99000);
 		}
+	}
 	return NULL;
 }
 

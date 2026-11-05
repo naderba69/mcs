@@ -48,6 +48,32 @@ void newcamd_config_read_unlock(void)
     if (pthread_mutex_unlock(&newcamd_config_gate) != 0) abort();
 }
 
+/* Acquire the config lifetime pin and a related runtime mutex without waiting
+ * on the mutex while the pin is held. This avoids a gate->mutex waiter blocking
+ * a runtime thread that owns the mutex and is itself waiting for the read gate.
+ * The caller must not already hold a config read pin or the mutex. */
+void newcamd_config_read_lock_mutex(pthread_mutex_t *mutex)
+{
+    int rc;
+    if (!mutex || newcamd_config_read_depth) abort();
+    for (;;) {
+        newcamd_config_read_lock();
+        rc = pthread_mutex_trylock(mutex);
+        if (rc == 0) return;
+        newcamd_config_read_unlock();
+        if (rc != EBUSY) abort();
+        if (pthread_mutex_lock(mutex) != 0) abort();
+        if (pthread_mutex_unlock(mutex) != 0) abort();
+    }
+}
+
+void newcamd_config_read_unlock_mutex(pthread_mutex_t *mutex)
+{
+    if (!mutex || !newcamd_config_read_depth) abort();
+    if (pthread_mutex_unlock(mutex) != 0) abort();
+    newcamd_config_read_unlock();
+}
+
 void newcamd_config_write_lock(void)
 {
     if (newcamd_config_read_depth || newcamd_config_write_depth) abort();

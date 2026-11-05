@@ -1738,11 +1738,13 @@ This section records the current implementation review, not a release sign-off.
   only alongside its lifetime generation. The snapshot registry takes
   `lockcache` in the established `lockecm -> lockcache` order. Reused ECM slots
   retire the old registry record before clearing the storage.
-- `srv_cstatadd()` is a caller-locked helper: all live protocol call sites are
-  reached under `prg.locksrv`, which also protects the HTTP cstat snapshot.
-  `disconnect_srv()` has the same runtime lock requirement. Config reload is
-  the sole exception: it owns the write lifetime gate, drains detached connect
-  workers, and owns `lockecm` exclusively before reclaiming runtime state.
+- `srv_cstatadd()` callers run under the ECM/config lifetime lock, not
+  `locksrv`. A dedicated leaf `srv_cstat_lock` now protects both counter updates
+  and the HTTP cstat snapshot, avoiding `locksrv` acquisition from the
+  no-thread ECM path. `disconnect_srv()` still requires `locksrv` for ordinary
+  callers. Config reload is the sole exception: it owns the write lifetime
+  gate, drains detached connect workers, and owns `lockecm` exclusively before
+  reclaiming runtime state.
 
 ### HTTP server-card list
 
@@ -1804,3 +1806,113 @@ cases); these were not suppressed. The two production link logs were
 warning-free. `git diff --check` also passed. The no-thread
 executable has not been run against a live configuration, so link success is
 not runtime certification.
+
+## §34 — CacheEx mode-2 receiver lifetime across configuration reload (2026-11-05)
+
+The three detached CacheEx mode-2 receive wrappers in the Camd35, CCcam, and
+CS378X client handlers previously retained `server_data *` across their poll
+loops. The reload path takes the config write lifetime gate and drains only
+outbound connection workers; it does not join/count these receive threads.
+`remove_servers()` can then disconnect and free a server record while a receiver
+is still in `poll()`. On wake, the old wrapper dereferenced `srv->handle` and
+other fields. This is a source-proven use-after-free path; no live crash was
+needed to establish the lifetime violation.
+
+The receiver job now contains only server ID, pool identity, protocol type,
+file descriptor, and the connection-generation token. Before every poll and
+after each event it resolves the record again under the config read lifetime
+pin and `prg.locksrv`, then dispatches only if the ID, pool, type, generation,
+connection state, and descriptor still match. The job does not carry a borrowed
+server pointer across `poll()`. The paired lock helper in
+`newcamd-lifetime.c` drops the config pin before waiting on a busy runtime
+mutex, then retries; this avoids adding a blocking gate-to-`locksrv` wait.
+Normal handler/`disconnect_srv()` lock contracts remain unchanged. No peer
+protocol messages or wire layouts changed.
+
+The authenticated `/threads` route releases its enclosing request-level read
+pin before entering the snapshot helper (which requires no pre-existing pin).
+The page copies CacheEx server thread rows from both server pools into a bounded
+value-only snapshot under the lifetime/runtime lock pair, then formats and
+writes those rows after releasing both locks. This retains web-based thread
+visibility without waiting on `locksrv` or holding runtime locks across HTTP
+I/O. The CS378X receiver
+thread-creation failure path also avoids closing a descriptor a second time
+after `disconnect_srv()` already closed it.
+
+Verification on 2026-11-05: standard x64 and `THREAD_DCW`-omitted x64 links
+both completed with exit 0; `make -C make-x64 -B test` completed with exit 0,
+and the Newcamd lifetime test covers a reader waiting on a busy runtime mutex
+while a reload writer proceeds. The targeted caller audits for cache peers,
+ECM status/store helpers, server disconnects, attestation, and Newcamd receive
+state are now recorded in §35. The tests do not simulate a live peer/reload
+race or include a race detector, so runtime stress validation remains
+outstanding. The project-wide review is not complete; the CCcam/CacheEx client
+poll loops still need a shared-runtime-field audit.
+
+## §35 — Follow-up lock audit and targeted fixes (2026-11-05)
+
+### Confirmed lock contracts
+
+- `getpeerbyid()` returns a borrowed pointer. Every live call site is now
+  accounted for: cache-side callers execute under `prg.lockcache`; the HTTP
+  disable/enable action re-resolves and uses the pointer only under that lock;
+  the other HTTP peer-detail call is in a commented-out block. SMS helpers
+  likewise copy state under `lockcache` before network or file I/O.
+- The active `ecm_request_set_dcwstatus()` callers and `store_ecmdata()` calls
+  run inside `ecm_lock()` / the ECM worker's exclusive section. Two legacy
+  setter calls in `clustredcache.c` are commented out. Cache snapshot
+  retirement continues to take `lockcache` in the established
+  `lockecm -> lockcache` order.
+- `attest_purge()` is called directly by `attest_note()` when a filing crosses
+  its threshold. All active protocol receive call sites reach `attest_note()`
+  after taking `ecm_lock()`; that lock also pins the config graph. The attestation
+  table mutex is released before the call. `attest_purge()` takes `lockcache`
+  only for the cache mark/sweep, releases it, then resets matching ECM entries
+  under the caller-held `lockecm`. This follows `lockecm -> lockcache`; it does
+  not nest the attestation-table mutex with either runtime lock.
+- Ordinary `disconnect_srv()` callers hold `prg.locksrv`; config reload is the
+  documented exception after draining connection workers and taking the config
+  write gate plus exclusive `lockecm`. `free_cardlist()`'s `srv->lock` protects
+  that list only and does not replace the caller contract.
+
+### Defect: `srv_cstatadd()` readers and writers used different locks
+
+The protocol call sites update `srv->cstat` while holding the ECM lock, not
+`locksrv`. The `/server` snapshot had read the same fields under `locksrv`, so
+the earlier documentation claiming that all writers held `locksrv` was wrong.
+A dedicated leaf `srv_cstat_lock` now serializes `srv_cstatadd()` updates with
+the HTTP snapshot copy. It deliberately does not acquire `locksrv`, preserving
+the no-thread ECM lock order. Config-lifetime pins protect the `srv` object's
+lifetime while either operation uses it.
+
+### HTTP output and remaining lifetime pin
+
+`http_style_write()` and `tcp_write_menu()` now take bounded value snapshots
+and release their function-local config/cache locks before writing. The menu
+copies the unread-SMS count under `lockcache`, then writes outside that lock.
+Some page dispatches still hold an *outer config lifetime read pin* so borrowed
+page data remains valid. That pin was not removed: releasing it safely requires
+value snapshots for those pages, not merely changing these two helpers.
+
+### CacheEx server poll snapshot
+
+The mode-3 CacheEx server poll builder now reads and updates `server_data`
+connection fields and `ipoll` under the config/runtime lock pair. It drops the
+config pin before waiting on `locksrv` and rechecks the config generation after
+reacquiring the pair, discarding a poll snapshot if reload crossed the gap.
+The CCcam/CacheEx **client** poll loops still need a complete audit of their
+shared `cc_client_data` runtime fields; this section does not claim those loops
+are race-free.
+
+### Verification and limits
+
+On 2026-11-05, the standard x64 build and the EPOLL x64 build exited 0. The
+`THREAD_DCW`-omitted x64 build with `CACHEEX` also exited 0, as did a separate
+x64 build without `CACHEEX`. `make -C make-x64 test` reported 1,259 checks in
+45 grouped summaries, 0 failed. HTTP smoke tests against both the standard and
+EPOLL binaries returned 200 for `/` and `/threads`, rendered the thread
+snapshot, and the empty-config check returned the expected exit 1. `git diff
+--check` passed. The legacy test build reports compiler-option/test-helper
+warnings; the no-`CACHEEX` build also reports a `LEDGER_CAPTURE_CLIENT_DELIVERY`
+macro redefinition warning. No live peer/reload stress test or sanitizer run
+was performed. The wider repository review remains in progress.

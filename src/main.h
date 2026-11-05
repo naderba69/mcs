@@ -1,4 +1,6 @@
 
+#include <pthread.h>
+
 struct ledger_delivery_snapshot;
 struct ecm_request;
 /* ECM mutex wrapper also pins the config graph before taking lockecm. */
@@ -18,11 +20,15 @@ void cs_getclimsg();
 /* Caller holds prg.locksrv, except config reload, which holds the write
  * lifetime gate, drains connect workers, and owns lockecm exclusively. */
 void disconnect_srv(struct server_data *srv);
-/* Caller holds prg.locksrv, which also protects the HTTP cstat snapshot. */
+/* cstat is protected by this leaf mutex; writers avoid locksrv so the
+ * lockecm-held no-thread ECM path never acquires locksrv. */
+extern pthread_mutex_t srv_cstat_lock;
 void srv_cstatadd(struct server_data *srv, int csid, int ok, uint32_t ecmoktime);
 void server_set_statmsg(struct server_data *srv, char *message);
 int server_connection_is_enabled(struct server_data *srv, int fd);
 int server_publish_connection_ready(struct server_data *srv, int fd);
+/* CacheEx mode-2 receiver threads retain an ID/generation token, not srv*. */
+int server_receive_thread_start(struct server_data *srv);
 /* Returns a borrowed cache-peer pointer; caller must hold prg.lockcache. */
 struct cachepeer_data *getpeerbyid(int id);
 /* HTTP CachePeer message/status operations re-resolve under lockcache. */

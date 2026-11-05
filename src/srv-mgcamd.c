@@ -1113,8 +1113,10 @@ void *mg_recvmsg_thread(void *param)
 {
 	int i;
 
+	pthread_mutex_lock(&prg.locksrv);
 	cfg.mgcamd.pid_recvmsg = syscall(SYS_gettid);
-	prg.pid_mg_msg = syscall(SYS_gettid);
+	pthread_mutex_unlock(&prg.locksrv);
+	__atomic_store_n(&prg.pid_mg_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prctl(PR_SET_NAME,"Mgcamd RecvMSG",0,0,0);
 
 	struct epoll_event evlist[MAX_EPOLL_EVENTS]; // epoll recv events
@@ -1179,8 +1181,10 @@ void *mg_recvmsg_thread(void *param)
 	int pfdcount;
 	uint32_t thread_delay;
 
+	pthread_mutex_lock(&prg.locksrv);
 	cfg.mgcamd.pid_recvmsg = syscall(SYS_gettid);
-	prg.pid_mg_msg = syscall(SYS_gettid);
+	pthread_mutex_unlock(&prg.locksrv);
+	__atomic_store_n(&prg.pid_mg_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prctl(PR_SET_NAME,"MGcamd RecvMSG",0,0,0);
 
 	while (!prg.restart) {

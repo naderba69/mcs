@@ -1,4 +1,301 @@
 ///////////////////////////////////////////////////////////////////////////////
+// CacheEx mode-2 receive workers
+///////////////////////////////////////////////////////////////////////////////
+
+#ifdef CACHEEX
+/* The protocol handlers are included before th-srv.c in main.c. */
+#ifdef CAMD35_CLI
+extern void camd35_srv_recvmsg(struct server_data *srv);
+#endif
+#ifdef CCCAM_CLI
+extern void cc_srv_recvmsg(struct server_data *srv);
+#endif
+#ifdef CS378X_CLI
+extern void *cs378x_srv_recvmsg(struct server_data *srv);
+#endif
+
+struct server_receive_job {
+	uint32_t server_id;
+	uint64_t generation;
+	int fd;
+	int cacheex_server;
+	int type;
+};
+
+static char *server_receive_poll_error_message(int error)
+{
+	static char bad_descriptor[] = "Receive poll failed: invalid socket";
+	static char bad_address[] = "Receive poll failed: invalid address";
+	static char bad_request[] = "Receive poll failed: invalid request";
+	static char no_memory[] = "Receive poll failed: system resources unavailable";
+	static char generic[] = "Receive poll failed";
+	switch (error) {
+		case EBADF: return bad_descriptor;
+		case EFAULT: return bad_address;
+		case EINVAL: return bad_request;
+		case ENOMEM: return no_memory;
+		default: return generic;
+	}
+}
+
+static char *server_receive_resource_message(void)
+{
+	static char message[] = "Receive poll waiting for system resources";
+	return message;
+}
+
+static char *server_receive_connected_message(void)
+{
+	static char message[] = "Connected";
+	return message;
+}
+
+static void server_receive_disconnect_locked(struct server_data *srv,
+                                             char *message, int error)
+{
+	disconnect_srv(srv);
+	srv->error = error;
+	srv->statmsg = message;
+}
+
+static int server_receive_socket_error(int fd)
+{
+	int error = 0;
+	socklen_t length = sizeof(error);
+	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &length) < 0)
+		return errno;
+	return error;
+}
+
+static int server_receive_type_supported(int type)
+{
+	switch (type) {
+#ifdef CAMD35_CLI
+		case TYPE_CAMD35: return 1;
+#endif
+#ifdef CCCAM_CLI
+		case TYPE_CCCAM: return 1;
+#endif
+#ifdef CS378X_CLI
+		case TYPE_CS378X: return 1;
+#endif
+		default: return 0;
+	}
+}
+
+/* Called only by a counted outbound connection worker. Config reload takes the
+ * write lifetime gate, then drains those workers before changing either list.
+ * The receiver job itself deliberately keeps no server_data pointer. */
+static int server_receive_server_pool(struct server_data *wanted,
+                                      int *cacheex_server)
+{
+	struct server_data *srv;
+	int in_server = 0, in_cacheex = 0;
+	for (srv = cfg.server; srv; srv = srv->next)
+		if (srv == wanted) { in_server = 1; break; }
+	for (srv = cfg.cacheexserver; srv; srv = srv->next)
+		if (srv == wanted) { in_cacheex = 1; break; }
+	if (in_server == in_cacheex) return 0;
+	*cacheex_server = in_cacheex;
+	return 1;
+}
+
+/* Caller owns the config read gate and prg.locksrv. */
+static struct server_data *server_receive_find_locked(
+	const struct server_receive_job *job)
+{
+	struct server_data *srv = job->cacheex_server ? cfg.cacheexserver : cfg.server;
+	while (srv) {
+		if (srv->id == job->server_id && srv->type == job->type &&
+		    srv->connect_generation == job->generation)
+			return srv;
+		srv = srv->next;
+	}
+	return NULL;
+}
+
+static int server_receive_connection_active(
+	const struct server_receive_job *job, pid_t thread_id, int publish_thread_id)
+{
+	struct server_data *srv;
+	int active = 0;
+	newcamd_config_read_lock_mutex(&prg.locksrv);
+	srv = server_receive_find_locked(job);
+	if (srv && srv->connection.status > 0 && srv->handle == job->fd &&
+	    !IS_DISABLED(srv->flags)) {
+		active = 1;
+		if (publish_thread_id) srv->pid = thread_id;
+	}
+	newcamd_config_read_unlock_mutex(&prg.locksrv);
+	return active;
+}
+
+static void server_receive_clear_thread_id(
+	const struct server_receive_job *job, pid_t thread_id)
+{
+	struct server_data *srv;
+	newcamd_config_read_lock_mutex(&prg.locksrv);
+	srv = server_receive_find_locked(job);
+	if (srv && srv->pid == thread_id) srv->pid = 0;
+	newcamd_config_read_unlock_mutex(&prg.locksrv);
+}
+
+/* Caller owns the config read gate and prg.locksrv. */
+static void server_receive_dispatch_locked(struct server_data *srv)
+{
+	switch (srv->type) {
+#ifdef CAMD35_CLI
+		case TYPE_CAMD35:
+			camd35_srv_recvmsg(srv);
+			return;
+#endif
+#ifdef CCCAM_CLI
+		case TYPE_CCCAM:
+			cc_srv_recvmsg(srv);
+			return;
+#endif
+#ifdef CS378X_CLI
+		case TYPE_CS378X:
+			(void)cs378x_srv_recvmsg(srv);
+			return;
+#endif
+		default:
+			disconnect_srv(srv);
+			return;
+	}
+}
+
+static int server_receive_process_event(
+	const struct server_receive_job *job, int poll_result, int poll_error,
+	short revents, pid_t thread_id)
+{
+	struct server_data *srv;
+	int keep_running = 0;
+	newcamd_config_read_lock_mutex(&prg.locksrv);
+	srv = server_receive_find_locked(job);
+	if (srv && srv->connection.status > 0 && srv->handle == job->fd &&
+	    !IS_DISABLED(srv->flags)) {
+		if (poll_result < 0) {
+			if (poll_error == EAGAIN || poll_error == ENOMEM) {
+				/* Resource pressure is local and may clear without reconnecting
+				 * a healthy peer. Keep the reason visible in the web server row. */
+				srv->error = poll_error;
+				srv->statmsg = server_receive_resource_message();
+			}
+			else {
+				server_receive_disconnect_locked(srv,
+					server_receive_poll_error_message(poll_error), poll_error);
+			}
+		}
+		else {
+			if (srv->statmsg == server_receive_resource_message()) {
+				srv->statmsg = server_receive_connected_message();
+				srv->error = 0;
+			}
+			if (poll_result > 0) {
+				int input_ready = (revents & (POLLIN | POLLPRI)) != 0;
+				if (revents & POLLNVAL) {
+					static char invalid_socket[] = "Receive socket is invalid";
+					server_receive_disconnect_locked(srv, invalid_socket, EBADF);
+				}
+				else {
+					if (input_ready) server_receive_dispatch_locked(srv);
+					/* poll is level-triggered. Drain any buffered final frames before
+					 * retiring HUP/ERR; disconnect once the terminal event remains
+					 * without readable data. */
+					if (srv->connection.status > 0 && srv->handle == job->fd &&
+					    !input_ready && (revents & (POLLERR | POLLHUP))) {
+						if (revents & POLLERR) {
+							int socket_error = server_receive_socket_error(job->fd);
+							static char remote_error[] = "Remote socket error";
+							if (!socket_error) socket_error = EIO;
+							server_receive_disconnect_locked(srv, remote_error,
+							                                  socket_error);
+						}
+						else {
+							static char remote_closed[] = "Remote peer closed connection";
+							server_receive_disconnect_locked(srv, remote_closed, 0);
+						}
+					}
+				}
+			}
+		}
+		keep_running = srv->connection.status > 0 && srv->handle == job->fd &&
+		               srv->connect_generation == job->generation;
+		if (!keep_running && srv->pid == thread_id) srv->pid = 0;
+	}
+	newcamd_config_read_unlock_mutex(&prg.locksrv);
+	return keep_running;
+}
+
+static void *server_receive_worker(void *param)
+{
+	struct server_receive_job *job = (struct server_receive_job *)param;
+	pid_t thread_id = (pid_t)syscall(SYS_gettid);
+	if (!server_receive_connection_active(job, thread_id, 1)) goto done;
+	while (!prg.restart) {
+		struct pollfd pfd;
+		int poll_result;
+		int poll_error = 0;
+		if (!server_receive_connection_active(job, thread_id, 0)) break;
+		pfd.fd = job->fd;
+		pfd.events = POLLIN | POLLPRI;
+		pfd.revents = 0;
+		poll_result = poll(&pfd, 1, job->type == TYPE_CCCAM ? 3005 : 3009);
+		if (poll_result < 0) {
+			poll_error = errno;
+			if (poll_error == EINTR) continue; /* A signal did not end the connection. */
+		}
+		if (!server_receive_process_event(job, poll_result, poll_error,
+		                                  pfd.revents, thread_id))
+			break;
+		if (poll_result < 0 && (poll_error == EAGAIN || poll_error == ENOMEM))
+			usleep(10000); /* Bound retries while local poll resources recover. */
+	}
+	done:
+	server_receive_clear_thread_id(job, thread_id);
+	free(job);
+	return NULL;
+}
+#endif /* CACHEEX */
+
+int server_receive_thread_start(struct server_data *srv)
+{
+#ifdef CACHEEX
+	struct server_receive_job *job;
+	int cacheex_server;
+	if (!srv || !server_receive_type_supported(srv->type) ||
+	    !server_receive_server_pool(srv, &cacheex_server))
+		return 0;
+	job = (struct server_receive_job *)malloc(sizeof(*job));
+	if (!job) return 0;
+	pthread_mutex_lock(&prg.locksrv);
+	if (srv->cacheex_mode != 2 || srv->connection.status <= 0 ||
+	    srv->handle <= 0 || !srv->connect_generation ||
+	    IS_DISABLED(srv->flags)) {
+		pthread_mutex_unlock(&prg.locksrv);
+		free(job);
+		return 0;
+	}
+	job->server_id = srv->id;
+	job->generation = srv->connect_generation;
+	job->fd = srv->handle;
+	job->cacheex_server = cacheex_server;
+	job->type = srv->type;
+	pthread_mutex_unlock(&prg.locksrv);
+	if (!create_thread(PACKED_MPTR(srv, pthread_t, tid),
+	                   server_receive_worker, job)) {
+		free(job);
+		return 0;
+	}
+	return 1;
+#else
+	(void)srv;
+	return 0;
+#endif
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // THREAD CONNECT TO SERVERS
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -298,7 +595,7 @@ void connect_server(struct server_data *srv)
 
 void *connect_servers(void *param)
 {
-	prg.pid_srv = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_srv, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prctl(PR_SET_NAME,"Server Conn",0,0,0);
 
 	while (!prg.restart) {

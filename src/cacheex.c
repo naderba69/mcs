@@ -369,7 +369,7 @@ int cacheex_check( struct cache_data *req )
 
 void *cacheex_recvmsg_thread(void *param)
 {
-	prg.pid_ccex_msg = syscall(SYS_gettid);
+	__atomic_store_n(&prg.pid_ccex_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 
 	struct pollfd pfd[CACHEEX_MAX_PFD];
 	uint64_t pfd_server_generation[CACHEEX_MAX_PFD];
@@ -400,7 +400,16 @@ void *cacheex_recvmsg_thread(void *param)
 			cccam = cccam->next;
 		}
 
-		// Servers mode 3
+		newcamd_config_read_unlock();
+
+		/* Server connection fields and ipoll are owned by locksrv. Reacquire
+		 * the config/runtime lock pair without waiting on locksrv while pinning
+		 * the graph, then discard this snapshot if a reload crossed the gap. */
+		newcamd_config_read_lock_mutex(&prg.locksrv);
+		if (config_generation != cfg.cache.generation) {
+			newcamd_config_read_unlock_mutex(&prg.locksrv);
+			continue;
+		}
 		struct server_data *srv = cfg.cacheexserver;
 		while (srv) {
 			srv->ipoll = -1;
@@ -413,7 +422,7 @@ void *cacheex_recvmsg_thread(void *param)
 			}
 			srv = srv->next;
 		}
-		newcamd_config_read_unlock();
+		newcamd_config_read_unlock_mutex(&prg.locksrv);
 
 		int retval = poll(pfd, pfdcount, 3005); // approximately 3 seconds
 		if (retval > 0) {

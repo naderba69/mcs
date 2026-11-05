@@ -186,46 +186,46 @@ void *telnetprocess(int *param )
 			if (parse_name(str)) {
 				uppercase(str);
 				if ( !strcmp(str, "CCCAM") ) {
-					sprintf( str, "/proc/%d/sched", prg.pid_cc_msg);
+					sprintf( str, "/proc/%d/sched", __atomic_load_n(&prg.pid_cc_msg, __ATOMIC_ACQUIRE));
 					FILE *fp = fopen ( str, "r");
 					while ( fgets(wbuf, sizeof(wbuf), fp) ) writes(fd, wbuf);
 					fclose(fp);
 				}
 				else if ( !strcmp(str, "NEWCAMD") ) {
-					sprintf( str, "/proc/%d/sched", prg.pid_cs_msg);
+					sprintf( str, "/proc/%d/sched", __atomic_load_n(&prg.pid_cs_msg, __ATOMIC_ACQUIRE));
 					FILE *fp = fopen ( str, "r");
 					while ( fgets(wbuf, sizeof(wbuf), fp) ) writes(fd, wbuf);
 					fclose(fp);
 				}
 				else if ( !strcmp(str, "ECM") ) {
-					sprintf( str, "/proc/%d/sched", prg.pid_msg);
+					sprintf( str, "/proc/%d/sched", __atomic_load_n(&prg.pid_msg, __ATOMIC_ACQUIRE));
 					FILE *fp = fopen ( str, "r");
 					while ( fgets(wbuf, sizeof(wbuf), fp) ) writes(fd, wbuf);
 					fclose(fp);
 				}
 				else if ( !strcmp(str, "MGCAMD") ) {
-					sprintf( str, "/proc/%d/sched", prg.pid_mg_msg);
+					sprintf( str, "/proc/%d/sched", __atomic_load_n(&prg.pid_mg_msg, __ATOMIC_ACQUIRE));
 					FILE *fp = fopen ( str, "r");
 					while ( fgets(wbuf, sizeof(wbuf), fp) ) writes(fd, wbuf);
 					fclose(fp);
 				}
 #ifdef CACHEEX
 				else if ( !strcmp(str, "CACHEEX") ) {
-					sprintf( str, "/proc/%d/sched", prg.pid_ccex_msg);
+					sprintf( str, "/proc/%d/sched", __atomic_load_n(&prg.pid_ccex_msg, __ATOMIC_ACQUIRE));
 					FILE *fp = fopen ( str, "r");
 					while ( fgets(wbuf, sizeof(wbuf), fp) ) writes(fd, wbuf);
 					fclose(fp);
 				}
 #endif
 				else if ( !strcmp(str, "CACHE") ) {
-					sprintf( str, "/proc/%d/sched", prg.pid_cache);
+					sprintf( str, "/proc/%d/sched", __atomic_load_n(&prg.pid_cache, __ATOMIC_ACQUIRE));
 					FILE *fp = fopen ( str, "r");
 					while ( fgets(wbuf, sizeof(wbuf), fp) ) writes(fd, wbuf);
 					fclose(fp);
 				}
 			}
 			else {
-				sprintf( str, "/proc/%d/sched", prg.pid_main);
+				sprintf( str, "/proc/%d/sched", __atomic_load_n(&prg.pid_main, __ATOMIC_ACQUIRE));
 				FILE *fp = fopen ( str, "r");
 				while ( fgets(wbuf, sizeof(wbuf), fp) ) writes(fd, wbuf);
 				fclose(fp);
