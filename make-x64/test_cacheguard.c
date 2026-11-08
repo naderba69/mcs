@@ -88,12 +88,22 @@ int main(void)
 
 	memset(&w, 0, sizeof(w));
 	CHECK(cg_window_event(&w, 0) == 1, "an event at tick 0 writes");
+	CHECK(cg_window_event(&w, 0) == 0 && w.count == 2,
+	      "repeated tick-zero events share one live window");
 	/* the tick-0 event opens at tick 1 (a zero would look like "no window"),
 	 * so its window is [1, 60001): one tick longer, by construction, once */
 	CHECK(cg_window_event(&w, CG_WINDOW_MS) == 0,
 	      "tick-0's window runs one tick long (opened at 1, not 0)");
 	CHECK(cg_window_event(&w, CG_WINDOW_MS + 1) == 1,
 	      "and it cannot hold the window open beyond that: it reopens at 60001");
+	{
+		uint32_t start = UINT32_MAX - 100u;
+		memset(&w, 0, sizeof(w));
+		CHECK(cg_window_event(&w, start) == 1 &&
+		      cg_window_event(&w, start + CG_WINDOW_MS - 1u) == 0 &&
+		      cg_window_event(&w, start + CG_WINDOW_MS) == 1,
+		      "cache-guard throttle expires correctly across tick rollover");
+	}
 
 	/* two kinds do not share a window */
 	{

@@ -18,9 +18,11 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define BLACKSCREEN_MAX_EVENTS 64
 #define BLACKSCREEN_WINDOW_SECS 10
+#define BLACKSCREEN_WINDOW_MS (BLACKSCREEN_WINDOW_SECS * 1000u)
 #define BLACKSCREEN_THRESHOLD 3
 
 struct blackscreen_event {
@@ -138,7 +140,8 @@ static inline int blackscreen_active(const struct blackscreen_table *t,
             t->events[i].provid == provid &&
             t->events[i].sid == sid &&
             !t->events[i].resolved) {
-            if ((now - t->events[i].last_detected) <= BLACKSCREEN_WINDOW_SECS) {
+            if (tick32_elapsed(now, t->events[i].last_detected) <=
+                BLACKSCREEN_WINDOW_MS) {
                 return 1;
             }
         }
@@ -153,7 +156,7 @@ static inline void blackscreen_expire(struct blackscreen_table *t,
     int i;
     if (!t) return;
     for (i = 0; i < t->count; i++) {
-        if ((now - t->events[i].last_detected) > max_age) {
+        if (tick32_elapsed(now, t->events[i].last_detected) > max_age) {
             t->events[i].resolved = 1;
         }
     }

@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CWFP_PEERS 64
 #define CWFP_WINDOW 100  /* last 100 CWs per peer */
@@ -61,27 +62,32 @@ cwfingerprint_find(struct cwfingerprint_table *t, int peer_id)
 }
 
 static inline struct cwfingerprint_peer *
-cwfingerprint_alloc(struct cwfingerprint_table *t, int peer_id)
+cwfingerprint_alloc(struct cwfingerprint_table *t, int peer_id, uint32_t now)
 {
-    int i, oldest = 0;
+    int i, oldest = -1;
+    uint32_t oldest_age = 0;
     struct cwfingerprint_peer *p;
 
+    if (!t) return 0;
     p = cwfingerprint_find(t, peer_id);
     if (p) return p;
 
     for (i = 0; i < CWFP_PEERS; i++) {
+        uint32_t age;
         if (!t->peers[i].used) {
             p = &t->peers[i];
             p->peer_id = peer_id;
             p->used = 1;
             return p;
         }
-        if (t->peers[i].last_update < t->peers[oldest].last_update) {
+        age = tick32_elapsed(now, t->peers[i].last_update);
+        if (oldest < 0 || age > oldest_age) {
             oldest = i;
+            oldest_age = age;
         }
     }
-    /* Reuse oldest */
-    p = &t->peers[oldest];
+    /* Reuse the peer with greatest modulo elapsed age. */
+    p = &t->peers[(oldest < 0) ? 0 : oldest];
     memset(p, 0, sizeof(*p));
     p->peer_id = peer_id;
     p->used = 1;
@@ -94,7 +100,7 @@ static inline void cwfingerprint_record_delivery(struct cwfingerprint_table *t,
 {
     struct cwfingerprint_peer *p;
     if (!t) return;
-    p = cwfingerprint_alloc(t, peer_id);
+    p = cwfingerprint_alloc(t, peer_id, now);
     if (!p) return;
     p->total_delivered++;
     p->window_delivered++;

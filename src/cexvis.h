@@ -43,7 +43,8 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "peer_origin.h"	/* the origin flags in the row key */
+#include "peer_origin.h"
+#include "tick_math.h"	/* the origin flags in the row key */
 
 #define CEXVIS_SLOTS	24
 #define CEXVIS_NAMELEN	32
@@ -116,9 +117,10 @@ static struct cexvis_row *cexvis_note(struct cexvis_tab *t, int origin,
 		uint32_t caid, uint32_t provid, uint16_t sid, uint32_t now)
 {
 	int i, free_i = -1, victim = -1;
+	uint32_t oldest_age = 0;
 	struct cexvis_row *r;
 
-	if (ev < 0 || ev >= CEXVIS_COUNT) return NULL;
+	if (!t || ev < 0 || ev >= CEXVIS_COUNT) return NULL;
 
 	for (i = 0; i < CEXVIS_SLOTS; i++) {
 		r = &t->row[i];
@@ -144,11 +146,15 @@ static struct cexvis_row *cexvis_note(struct cexvis_tab *t, int origin,
 			return r;
 		}
 		if (!r->used && free_i < 0) free_i = i;
-		/* the oldest USED row is the eviction victim (the ptguard
-		 * trap: an unclaimed slot can never be the oldest) */
-		if (r->used && (victim < 0 ||
-		    (int32_t)(r->last - t->row[victim].last) < 0))
-			victim = i;
+		/* Evict the greatest modulo-uint32 elapsed age; rollover does
+		 * not change which used row is oldest. */
+		if (r->used) {
+			uint32_t age = tick32_elapsed(now, r->last);
+			if (victim < 0 || age > oldest_age) {
+				victim = i;
+				oldest_age = age;
+			}
+		}
 	}
 	if (free_i < 0) {
 		free_i = victim;
@@ -182,10 +188,12 @@ static struct cexvis_row *cexvis_note(struct cexvis_tab *t, int origin,
 
 /* Copy the used rows (LRU order: most recently touched first). */
 __attribute__((unused))
-static int cexvis_copy(struct cexvis_tab *t, struct cexvis_row *out, int max)
+static int cexvis_copy(struct cexvis_tab *t, struct cexvis_row *out, int max,
+                       uint32_t now)
 {
 	int i, j, n = 0;
 
+	if (!t || !out || max <= 0) return 0;
 	for (i = 0; i < CEXVIS_SLOTS; i++)
 		if (t->row[i].used) n++;
 	if (n > max) n = max;
@@ -199,7 +207,8 @@ static int cexvis_copy(struct cexvis_tab *t, struct cexvis_row *out, int max)
 				if (out[k].origin == r->origin &&
 				    out[k].peerid == r->peerid) already = 1;
 			if (already) continue;
-			if (!best || (int32_t)(r->last - best->last) > 0)
+			if (!best || tick32_elapsed(now, r->last) <
+			             tick32_elapsed(now, best->last))
 				best = r;
 		}
 		if (!best) break;

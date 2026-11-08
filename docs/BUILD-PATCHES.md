@@ -69,6 +69,19 @@ r82a uses tentative definitions that must merge into one common symbol, so
 r82a declares functions mid-block after statements (C90 violation). `-std=gnu89`
 restores the historical behaviour instead of touching the sources.
 
+## B8 — link libm for the no-thread ECM path
+The `THREAD_DCW`-disabled build reaches math routines (`log`/`log2f`) that the
+usual threaded build does not pull into its link. The link rule now places
+`-lm` after the object list (so linkers using `--as-needed` retain it), before
+`-lpthread`. This is a local link dependency only; it does not change peer
+messages or runtime policy.
+
+**Verification (2026-11-05).** Full x64 link with `THREAD_DCW` omitted,
+`CLI_CSCACHE` and `CACHEEX` enabled completed with exit 0. The normal threaded
+x64 link and `make test` also completed with exit 0. The no-thread binary was
+not launched against a live configuration, so runtime behavior is not certified
+by this link check.
+
 ## Deliberately KEPT
 `-fpack-struct` is kept. MultiCS casts raw network buffers onto its structs, so
 removing it would change the wire layout and break compatibility with peers.

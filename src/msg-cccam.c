@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #ifdef WIN32
 
@@ -34,6 +35,35 @@
 #include "msg-cccam.h"
 #include "sockets.h"
 
+/* CCcam's stream cipher mutates sendblock for every byte. Serialize the
+ * entire encrypt-and-send operation for each shared sendblock, not merely the
+ * encryption call; otherwise two packets can reach the socket out of order. */
+#define CC_SEND_LOCK_COUNT 64
+static pthread_mutex_t cc_send_locks[CC_SEND_LOCK_COUNT];
+static pthread_once_t cc_send_locks_once = PTHREAD_ONCE_INIT;
+static int cc_send_locks_error;
+
+static void cc_send_locks_init(void)
+{
+	unsigned int i;
+	for (i = 0; i < CC_SEND_LOCK_COUNT; i++) {
+		int rc = pthread_mutex_init(&cc_send_locks[i], NULL);
+		if (rc != 0) {
+			while (i > 0) pthread_mutex_destroy(&cc_send_locks[--i]);
+			cc_send_locks_error = rc;
+			return;
+		}
+	}
+}
+
+static pthread_mutex_t *cc_send_lock_for_block(struct cc_crypt_block *block)
+{
+	uintptr_t key = (uintptr_t)block;
+	if (!block || pthread_once(&cc_send_locks_once, cc_send_locks_init) != 0 ||
+	    cc_send_locks_error)
+		return NULL;
+	return &cc_send_locks[(key >> 4) % CC_SEND_LOCK_COUNT];
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 inline void cc_crypt_swap(unsigned char *p1, unsigned char *p2)
@@ -261,10 +291,16 @@ int cc_msg_recv_nohead(int handle, struct cc_crypt_block *recvblock, uint8_t *bu
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-int cc_msg_send(int handle,struct cc_crypt_block *sendblock, cc_msg_cmd cmd, int len, uint8_t *buf)
+static int cc_msg_send_locked(int handle, struct cc_crypt_block *sendblock,
+                              cc_msg_cmd cmd, int len, uint8_t *buf)
 {
 	uint8_t netbuf[CC_MAXMSGSIZE];
-	memset(netbuf, 0, len+4);
+	int result;
+	if (handle < 0 || !sendblock || len < 0 ||
+	    (cmd == CC_MSG_NO_HEADER ? len > CC_MAXMSGSIZE : len > CC_MAXMSGSIZE - 4) ||
+	    (cmd == CC_MSG_NO_HEADER && len > 0 && !buf))
+		return 0;
+	memset(netbuf, 0, cmd == CC_MSG_NO_HEADER ? len : len + 4);
 	if (cmd == CC_MSG_NO_HEADER) memcpy(netbuf, buf, len);
 	else {
 		// build command message
@@ -283,7 +319,43 @@ int cc_msg_send(int handle,struct cc_crypt_block *sendblock, cc_msg_cmd cmd, int
 	}
 #endif
 	cc_encrypt(sendblock, netbuf, len);
-	return send_nonb(handle, netbuf, len, 100);
+	result = send_nonb(handle, netbuf, len, 100);
+	return result;
+}
+
+/* Keep CCcam's immediate post-packet cipher transition inside the same
+ * per-stream critical section as encryption and the socket write. CW replies
+ * need an additional 16-byte state advance; a separate cc_encrypt() after
+ * cc_msg_send() would allow another writer to interleave its packet. */
+static int cc_msg_send_transition(int handle, struct cc_crypt_block *sendblock,
+                                  cc_msg_cmd cmd, int len, uint8_t *buf,
+                                  uint8_t *followup, int followup_len)
+{
+	pthread_mutex_t *send_lock = cc_send_lock_for_block(sendblock);
+	int result;
+	if (handle < 0 || !send_lock || followup_len < 0 ||
+	    followup_len > CC_MAXMSGSIZE || (followup_len && !followup))
+		return 0;
+	if (pthread_mutex_lock(send_lock) != 0) return 0;
+	result = cc_msg_send_locked(handle, sendblock, cmd, len, buf);
+	if (result && followup_len) cc_encrypt(sendblock, followup, followup_len);
+	pthread_mutex_unlock(send_lock);
+	return result;
+}
+
+int cc_msg_send(int handle, struct cc_crypt_block *sendblock,
+                cc_msg_cmd cmd, int len, uint8_t *buf)
+{
+	return cc_msg_send_transition(handle, sendblock, cmd, len, buf, NULL, 0);
+}
+
+int cc_msg_send_and_encrypt(int handle, struct cc_crypt_block *sendblock,
+                            cc_msg_cmd cmd, int len, uint8_t *buf,
+                            uint8_t *followup, int followup_len)
+{
+	if (!followup || followup_len <= 0) return 0;
+	return cc_msg_send_transition(handle, sendblock, cmd, len, buf,
+	                              followup, followup_len);
 }
 
 

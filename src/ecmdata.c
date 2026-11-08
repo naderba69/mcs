@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stddef.h>
 #include "md5.h"
 #include "common.h"
 
@@ -59,6 +60,20 @@ struct ecm_request *ecmdata = NULL;
 int ecmindex = 0;
 /* store_ecmdata is called with lockecm held; never reset on config reload. */
 static uint64_t ecm_lifetime_sequence;
+
+/* Reuse invalidates the published generation before touching the rest of the
+ * slot. The reuse path retires any side-registry record first; this reset also
+ * handles newly malloc'd, not-yet-initialized storage, so it must not read the
+ * previous bytes of lifetime_id. */
+static void clear_ecm_request_slot(struct ecm_request *req)
+{
+	size_t lifetime_offset = offsetof(struct ecm_request, lifetime_id);
+	size_t lifetime_end = lifetime_offset + sizeof(req->lifetime_id);
+
+	__atomic_store_n(&req->lifetime_id, 0, __ATOMIC_RELEASE);
+	memset(req, 0, lifetime_offset);
+	memset((uint8_t *)req + lifetime_end, 0, sizeof(*req) - lifetime_end);
+}
 
 
 void init_ecmdata()
@@ -215,7 +230,7 @@ struct ecm_request *store_ecmdata_known(struct cardserver_data *cs,uint8_t *ecm,
 		new = malloc( sizeof(struct ecm_request) );
 		if (!new) goto allocation_failed;
 		totalecm++;
-		memset( new, 0,  sizeof(struct ecm_request) );
+		clear_ecm_request_slot(new);
 		new->next = NULL;
 		new->prev = NULL;
 		ecmdata = new; // it becomes the current one
@@ -225,7 +240,7 @@ struct ecm_request *store_ecmdata_known(struct cardserver_data *cs,uint8_t *ecm,
 		new = malloc( sizeof(struct ecm_request) );
 		if (!new) goto allocation_failed;
 		totalecm++;
-		memset( new, 0,  sizeof(struct ecm_request) );
+		clear_ecm_request_slot(new);
 
 		new->prev = ecmdata;
 		new->next = ecmdata;
@@ -237,11 +252,15 @@ struct ecm_request *store_ecmdata_known(struct cardserver_data *cs,uint8_t *ecm,
 	}
 	else {
 		new = ecmdata->prev;
-		if ( (new->recvtime+TIME_ECMALIVE*2) < ticks ) {
-			cs_delecmdata(new->cs, new);
+		if ((uint32_t)(ticks - new->recvtime) > (uint32_t)(TIME_ECMALIVE*2)) {
+			/* The slot is initialized and its old token still names the
+			 * registry record; retire it before clear_ecm_request_slot()
+			 * publishes generation zero. */
+			cache_ecm_snapshot_retire(new);
+			if (new->cs) cs_delecmdata(new->cs, new);
 			// cache is dead, add data to this one without allocating new data
 			struct ecm_request *tmp = new->prev; // store previous
-			memset( new, 0,  sizeof(struct ecm_request) );
+			clear_ecm_request_slot(new);
 			new->prev = tmp;
 			new->next = ecmdata;
 			ecmdata = new; // it becomes the current one			
@@ -251,7 +270,7 @@ struct ecm_request *store_ecmdata_known(struct cardserver_data *cs,uint8_t *ecm,
 			new = malloc( sizeof(struct ecm_request) );
 			if (!new) goto allocation_failed;
 			totalecm++;
-			memset( new, 0,  sizeof(struct ecm_request) );
+			clear_ecm_request_slot(new);
 			new->prev = ecmdata->prev;
 			new->next = ecmdata;
 			//
@@ -264,7 +283,7 @@ struct ecm_request *store_ecmdata_known(struct cardserver_data *cs,uint8_t *ecm,
 	}
 	cs_addecmdata(cs, new);
 	/* Exhaustion is fail-closed for queued CWs rather than reusing an ID. */
-	new->lifetime_id = ecm_lifetime_sequence == UINT64_MAX ? 0 : ++ecm_lifetime_sequence;
+	uint64_t lifetime_id = ecm_lifetime_sequence == UINT64_MAX ? 0 : ++ecm_lifetime_sequence;
 	//
 	memcpy( new->ecm, ecm, ecmlen);
 	new->cs = cs;
@@ -278,7 +297,7 @@ struct ecm_request *store_ecmdata_known(struct cardserver_data *cs,uint8_t *ecm,
 	if (ecmlen <= offset) offset = 0; /* truncated tunnel ECM: never hash past the end */
 	MD5( ecm+offset, ecmlen-offset, new->ecmd5);
 #endif
-	new->dcwstatus = STAT_DCW_WAIT;
+	ecm_request_set_dcwstatus(new, STAT_DCW_WAIT);
 	new->sid = sid;
 	new->caid = caid;
 	new->provid = provid;
@@ -290,6 +309,8 @@ struct ecm_request *store_ecmdata_known(struct cardserver_data *cs,uint8_t *ecm,
 	//new->dcwsrvtype = DCW_SOURCE_NONE;
 
 	new->period = 1; // First try
+	/* Publish only after the reused slot is fully initialized. */
+	__atomic_store_n(&new->lifetime_id, lifetime_id, __ATOMIC_RELEASE);
 
 #ifdef CHECK_NEXTDCW
 	//checkfreeze_storeECM(new);
@@ -350,7 +371,7 @@ struct ecm_request *search_ecmdata_any(struct cardserver_data *cs, uint8_t *ecm,
 	uint32_t ticks = GetTickCount();
 	struct ecm_request *req = cs->ecmdata;
 	while (req) {
-		if ( (req->recvtime+TIME_ECMALIVE) < ticks ) return NULL;
+		if ((uint32_t)(ticks - req->recvtime) > TIME_ECMALIVE) return NULL;
 
 		if (hash==req->hash)
 		if (ecmlen==req->ecmlen)
@@ -373,7 +394,7 @@ struct ecm_request *search_ecmdata_byhash( uint16_t caid, uint16_t sid,uint32_t 
 	uint32_t ticks = GetTickCount();
 	struct ecm_request *req = ecmdata;
 	while (req) {
-		if ( (req->recvtime+TIME_ECMALIVE) < ticks ) return NULL;
+		if ((uint32_t)(ticks - req->recvtime) > TIME_ECMALIVE) return NULL;
 
 		if (hash==req->hash)
 		if (caid==req->caid)
@@ -391,7 +412,7 @@ struct ecm_request *search_ecmdata_byecmd5( uint16_t caid, uint32_t provid, uint
 	uint32_t ticks = GetTickCount();
 	struct ecm_request *req = ecmdata;
 	while (req) {
-		if ( (req->recvtime+TIME_ECMALIVE) < ticks ) return NULL;
+		if ((uint32_t)(ticks - req->recvtime) > TIME_ECMALIVE) return NULL;
 
 		if (caid==req->caid)
 		if (ecm_provider_scope_matches(provid, 1, req))
@@ -619,7 +640,7 @@ void checkfreeze_storeECM(ECM_DATA *ecm)
 		uint32_t ticks = GetTickCount();
 		struct ecm_request *oldecm = ecm->csnext;
 		while (oldecm) {
-			if ( (oldecm->recvtime+TIME_ECMALIVE*2) < ticks ) break;
+			if ((uint32_t)(ticks - oldecm->recvtime) > (uint32_t)(TIME_ECMALIVE*2)) break;
 
 			if ( (oldecm->ecmlen==ecm->ecmlen)&&(oldecm->caid==ecm->caid)&&ecm_same_provider_scope(oldecm, ecm)&&(oldecm->sid==ecm->sid) ) {
 

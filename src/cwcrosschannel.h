@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CWCC_ENTRIES 128
 #define CWCC_CHANNELS_PER_CW 4  /* max channels per CW */
@@ -62,12 +63,16 @@ static inline struct cwcc_entry *
 cwcc_alloc(struct cwcc_table *t, const uint8_t cw[16], uint32_t now)
 {
     int i, oldest = 0;
+    uint32_t oldest_age;
     struct cwcc_entry *e;
 
+    if (!t || !cw) return 0;
     e = cwcc_find(t, cw);
     if (e) return e;
 
+    oldest_age = tick32_elapsed(now, t->entries[oldest].last_seen);
     for (i = 0; i < CWCC_ENTRIES; i++) {
+        uint32_t age;
         if (!t->entries[i].used) {
             e = &t->entries[i];
             memcpy(e->cw_prefix, cw, 8);
@@ -75,8 +80,10 @@ cwcc_alloc(struct cwcc_table *t, const uint8_t cw[16], uint32_t now)
             e->used = 1;
             return e;
         }
-        if (t->entries[i].last_seen < t->entries[oldest].last_seen) {
+        age = tick32_elapsed(now, t->entries[i].last_seen);
+        if (age > oldest_age) {
             oldest = i;
+            oldest_age = age;
         }
     }
     /* Reuse oldest */

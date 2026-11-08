@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define PARQUERY_MAX_SERVERS 8
 #define PARQUERY_ENTRIES 64
@@ -68,7 +69,7 @@ static inline int parquery_dispatch(struct parquery_table *t,
     int count;
 
     if (!parquery_enabled(t) || !ecm_hash) return 0;
-    if (server_count <= 0) return 0;
+    if (server_count <= 0 || !server_ids) return 0;
     if (server_count > PARQUERY_MAX_SERVERS) server_count = PARQUERY_MAX_SERVERS;
 
     /* Find free slot */
@@ -79,11 +80,14 @@ static inline int parquery_dispatch(struct parquery_table *t,
         }
     }
     if (free_slot < 0) {
-        /* Reuse oldest */
+        /* Reuse the request with greatest modulo elapsed age. */
         int oldest = 0;
+        uint32_t oldest_age = tick32_elapsed(now, t->entries[0].dispatched_at);
         for (i = 1; i < PARQUERY_ENTRIES; i++) {
-            if (t->entries[i].dispatched_at < t->entries[oldest].dispatched_at) {
+            uint32_t age = tick32_elapsed(now, t->entries[i].dispatched_at);
+            if (age > oldest_age) {
                 oldest = i;
+                oldest_age = age;
             }
         }
         free_slot = oldest;
@@ -158,7 +162,8 @@ static inline void parquery_expire(struct parquery_table *t,
     int i;
     if (!t) return;
     for (i = 0; i < PARQUERY_ENTRIES; i++) {
-        if (t->entries[i].used && (now - t->entries[i].dispatched_at) > max_age) {
+        if (t->entries[i].used &&
+            tick32_elapsed(now, t->entries[i].dispatched_at) > max_age) {
             t->entries[i].used = 0;
         }
     }

@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CWPREDICT_CHANNELS 64
 #define CWPREDICT_HISTORY 8  /* last 8 CW changes */
@@ -60,15 +61,18 @@ cwpredict_find(struct cwpredict_table *t, uint16_t caid,
 
 static inline struct cwpredict_channel *
 cwpredict_alloc(struct cwpredict_table *t, uint16_t caid,
-                uint32_t provid, uint16_t sid)
+                uint32_t provid, uint16_t sid, uint32_t now)
 {
-    int i, oldest = 0;
+    int i, oldest = -1;
+    uint32_t oldest_age = 0;
     struct cwpredict_channel *c;
 
+    if (!t) return 0;
     c = cwpredict_find(t, caid, provid, sid);
     if (c) return c;
 
     for (i = 0; i < CWPREDICT_CHANNELS; i++) {
+        uint32_t age;
         if (!t->channels[i].used) {
             c = &t->channels[i];
             c->caid = caid;
@@ -77,12 +81,14 @@ cwpredict_alloc(struct cwpredict_table *t, uint16_t caid,
             c->used = 1;
             return c;
         }
-        if (t->channels[i].last_change < t->channels[oldest].last_change) {
+        age = tick32_elapsed(now, t->channels[i].last_change);
+        if (oldest < 0 || age > oldest_age) {
             oldest = i;
+            oldest_age = age;
         }
     }
-    /* Reuse oldest */
-    c = &t->channels[oldest];
+    /* Reuse the channel with greatest elapsed age. */
+    c = &t->channels[(oldest < 0) ? 0 : oldest];
     memset(c, 0, sizeof(*c));
     c->caid = caid;
     c->provid = provid;
@@ -98,7 +104,7 @@ static inline void cwpredict_record_change(struct cwpredict_table *t,
 {
     struct cwpredict_channel *c;
     if (!t) return;
-    c = cwpredict_alloc(t, caid, provid, sid);
+    c = cwpredict_alloc(t, caid, provid, sid, now);
     if (!c) return;
 
     c->changes[c->change_head] = now;
@@ -107,13 +113,14 @@ static inline void cwpredict_record_change(struct cwpredict_table *t,
     c->last_change = now;
 }
 
-/* Compute the average cycle time (seconds between CW changes) */
-static inline uint32_t cwpredict_cycle_secs(const struct cwpredict_table *t,
-                                              uint16_t caid, uint32_t provid,
-                                              uint16_t sid)
+/* Compute the average cycle in the caller's tick units (R22 passes ms). */
+static inline uint32_t cwpredict_cycle_ms(const struct cwpredict_table *t,
+                                           uint16_t caid, uint32_t provid,
+                                           uint16_t sid)
 {
     const struct cwpredict_channel *c;
-    uint32_t total_interval = 0;
+    uint64_t total_interval = 0;
+    uint32_t start;
     int intervals = 0;
     int i;
 
@@ -121,51 +128,67 @@ static inline uint32_t cwpredict_cycle_secs(const struct cwpredict_table *t,
     c = cwpredict_find((struct cwpredict_table *)t, caid, provid, sid);
     if (!c || c->change_count < 2) return 0;
 
-    /* Calculate intervals between consecutive changes */
+    /* Walk ring entries in insertion order; zero is a valid tick value. */
+    start = (uint32_t)((c->change_head - c->change_count +
+                        CWPREDICT_HISTORY) % CWPREDICT_HISTORY);
     for (i = 1; i < c->change_count; i++) {
-        uint32_t prev_time = c->changes[i - 1];
-        uint32_t curr_time = c->changes[i];
-        if (curr_time > prev_time && prev_time > 0) {
-            total_interval += (curr_time - prev_time);
+        uint32_t prev_time = c->changes[(start + (uint32_t)i - 1u) % CWPREDICT_HISTORY];
+        uint32_t curr_time = c->changes[(start + (uint32_t)i) % CWPREDICT_HISTORY];
+        uint32_t interval = tick32_elapsed(curr_time, prev_time);
+        /* Intervals at or above half-range are not orderable as one tick era. */
+        if (interval > 0 && interval <= 0x7FFFFFFFu) {
+            total_interval += interval;
             intervals++;
         }
     }
 
     if (intervals == 0) return 0;
-    return total_interval / (uint32_t)intervals;
+    return (uint32_t)(total_interval / (uint32_t)intervals);
 }
 
-/* Predict when the next CW change will occur.
- * Returns: predicted timestamp, or 0 if no prediction available.
- */
-static inline uint32_t cwpredict_next(const struct cwpredict_table *t,
+/* Compatibility helper for callers that want whole seconds from ms ticks. */
+static inline uint32_t cwpredict_cycle_secs(const struct cwpredict_table *t,
+                                              uint16_t caid, uint32_t provid,
+                                              uint16_t sid)
+{
+    return cwpredict_cycle_ms(t, caid, provid, sid) / 1000u;
+}
+
+/* Return 1 when a prediction exists, even when its tick value wraps to zero. */
+static inline int cwpredict_next_valid(const struct cwpredict_table *t,
                                        uint16_t caid, uint32_t provid,
-                                       uint16_t sid)
+                                       uint16_t sid, uint32_t *predicted)
 {
     const struct cwpredict_channel *c;
     uint32_t cycle;
 
-    if (!t) return 0;
+    if (!t || !predicted) return 0;
     c = cwpredict_find((struct cwpredict_table *)t, caid, provid, sid);
-    if (!c || c->last_change == 0) return 0;
-
-    cycle = cwpredict_cycle_secs(t, caid, provid, sid);
+    if (!c || c->change_count == 0) return 0;
+    cycle = cwpredict_cycle_ms(t, caid, provid, sid);
     if (cycle == 0) return 0;
-
-    return c->last_change + cycle;
+    *predicted = c->last_change + cycle;
+    return 1;
 }
 
-/* Check if it's time to prefetch (CWPREDICT_EARLY_MS before predicted expiry) */
+/* Predict when the next CW change will occur, or 0 if no prediction exists. */
+static inline uint32_t cwpredict_next(const struct cwpredict_table *t,
+                                       uint16_t caid, uint32_t provid,
+                                       uint16_t sid)
+{
+    uint32_t predicted;
+    return cwpredict_next_valid(t, caid, provid, sid, &predicted) ? predicted : 0;
+}
+
+/* Check if the predicted change is within the early-prefetch interval. */
 static inline int cwpredict_should_prefetch(const struct cwpredict_table *t,
                                              uint16_t caid, uint32_t provid,
                                              uint16_t sid, uint32_t now)
 {
-    uint32_t predicted = cwpredict_next(t, caid, provid, sid);
-    if (predicted == 0) return 0;
-    /* Prefetch if we're within CWPREDICT_EARLY_MS of the predicted change */
-    /* Convert to milliseconds for comparison */
-    if ((now * 1000) + CWPREDICT_EARLY_MS >= (predicted * 1000)) return 1;
-    return 0;
+    uint32_t predicted, until;
+    if (!cwpredict_next_valid(t, caid, provid, sid, &predicted)) return 0;
+    until = tick32_elapsed(predicted, now);
+    return until <= CWPREDICT_EARLY_MS;
 }
 
 #endif /* MCS_CWPREDICT_H */

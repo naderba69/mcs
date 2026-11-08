@@ -253,22 +253,23 @@ static inline int tl_fade_fine(struct trust_table *t, uint32_t now,
 	if (!t || !grace_ms || !step_ms) return 0;
 	for (i = 0; i < TRUST_TABLE_SIZE; i++) {
 		struct trust_entry *e = &t->e[i];
-		uint32_t idle;
-		int delta, points;
+		uint32_t idle, points;
+		int delta;
 
 		if (!e->used) continue;
-		idle = (uint32_t)(now - e->lastseen);
-		if ((int32_t)(idle - grace_ms) < 0) continue;
-		points = (int)((idle - grace_ms) / step_ms);
-		if (points <= 0) continue;
+		idle = tick32_elapsed(now, e->lastseen);
+		if (idle < grace_ms) continue;
+		points = (idle - grace_ms) / step_ms;
+		if (points == 0) continue;
 		delta = e->score - TRUST_START;
 		if (delta == 0) continue;
 		if (delta > 0) {
-			int step = (delta < points) ? delta : points;
-			e->score -= step;
+			if (points >= (uint32_t)delta) e->score = TRUST_START;
+			else e->score -= (int)points;
 		} else {
-			int step = (-delta < points) ? -delta : points;
-			e->score += step;
+			uint32_t needed = (uint32_t)(-delta);
+			if (points >= needed) e->score = TRUST_START;
+			else e->score += (int)points;
 		}
 		moved++;
 	}
@@ -284,22 +285,23 @@ static inline int tl_fade_coarse(struct trustagg_table *t, uint32_t now,
 	if (!t || !grace_ms || !step_ms) return 0;
 	for (i = 0; i < TRUSTAGG_TABLE_SIZE; i++) {
 		struct trustagg_entry *e = &t->e[i];
-		uint32_t idle;
-		int delta, points;
+		uint32_t idle, points;
+		int delta;
 
 		if (!e->used) continue;
-		idle = (uint32_t)(now - e->lastseen);
-		if ((int32_t)(idle - grace_ms) < 0) continue;
-		points = (int)((idle - grace_ms) / step_ms);
-		if (points <= 0) continue;
+		idle = tick32_elapsed(now, e->lastseen);
+		if (idle < grace_ms) continue;
+		points = (idle - grace_ms) / step_ms;
+		if (points == 0) continue;
 		delta = e->score - TRUST_START;
 		if (delta == 0) continue;
 		if (delta > 0) {
-			int step = (delta < points) ? delta : points;
-			e->score -= step;
+			if (points >= (uint32_t)delta) e->score = TRUST_START;
+			else e->score -= (int)points;
 		} else {
-			int step = (-delta < points) ? -delta : points;
-			e->score += step;
+			uint32_t needed = (uint32_t)(-delta);
+			if (points >= needed) e->score = TRUST_START;
+			else e->score += (int)points;
 		}
 		moved++;
 	}

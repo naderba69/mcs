@@ -6,13 +6,14 @@
  * thread, which is the process.
  *
  * The table allocation is malloc(sizeof(struct cache_data)*1024) with
- * sizeof(struct cache_data)=94 in this x64 CACHEEX build (packed; cwcycle_t is
- * an enum = 4 bytes), so 94*1024 = 96256. GCC compiles the malloc+memset pair
- * into calloc(96256, 1) -- confirmed in the current binary's disassembly --
- * which is why this file interposes calloc and matches the TOTAL size.
- * 96256 is requested nowhere else in the tree, so every other allocation
- * passes through untouched and the bite proves the cache path specifically,
- * not general OOM behaviour.
+ * sizeof(struct cache_data)=102 in this x64 CACHEEX build (-fpack-struct;
+ * cwcycle_t is 4 bytes), so 102*1024 = 104448. The approved internal ECM
+ * lifetime token adds 8 bytes per slot; peer wire messages are unchanged.
+ * GCC compiles the malloc+memset pair into calloc(104448, 1), which is why
+ * this file interposes calloc and matches the TOTAL size. 104448 is requested
+ * nowhere else in the tree, so every other allocation passes through
+ * untouched and the bite proves the cache path specifically, not general OOM
+ * behaviour.
  *
  * LD_PRELOAD=.ca-bite.so <mcs> -C <cfg>
  */
@@ -24,7 +25,7 @@
 
 extern void *__libc_malloc(size_t size);
 
-#define CACHE_TABLE_SIZE 96256   /* 94 * 1024, see comment above */
+#define CACHE_TABLE_SIZE 104448  /* 102 * 1024, see comment above */
 
 static unsigned long ca_refused = 0;
 static unsigned long ca_passed  = 0;

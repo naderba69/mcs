@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define AUTOSWITCH_SOURCES 8
 #define AUTOSWITCH_CHANNELS 32
@@ -29,6 +30,7 @@ struct autoswitch_source {
     uint32_t deliveries;
     uint32_t successes;
     uint32_t failures;
+    uint32_t last_used;
     uint8_t used;
 };
 
@@ -39,6 +41,7 @@ struct autoswitch_channel {
     struct autoswitch_source sources[AUTOSWITCH_SOURCES];
     int current_source;
     uint32_t last_switch;
+    uint32_t last_used;
     uint32_t switch_count;
     uint8_t used;
 };
@@ -78,13 +81,16 @@ autoswitch_find(struct autoswitch_table *t, uint16_t caid,
 
 static inline struct autoswitch_channel *
 autoswitch_alloc(struct autoswitch_table *t, uint16_t caid,
-                 uint32_t provid, uint16_t sid)
+                 uint32_t provid, uint16_t sid, uint32_t now)
 {
     int i, oldest = 0;
     struct autoswitch_channel *c;
 
     c = autoswitch_find(t, caid, provid, sid);
-    if (c) return c;
+    if (c) {
+        c->last_used = now;
+        return c;
+    }
 
     for (i = 0; i < AUTOSWITCH_CHANNELS; i++) {
         if (!t->channels[i].used) {
@@ -93,11 +99,20 @@ autoswitch_alloc(struct autoswitch_table *t, uint16_t caid,
             c->provid = provid;
             c->sid = sid;
             c->current_source = -1;
+            c->last_used = now;
             c->used = 1;
             return c;
         }
-        if (t->channels[i].switch_count < t->channels[oldest].switch_count) {
-            oldest = i;
+    }
+    /* Reuse the channel with greatest modulo elapsed age. */
+    {
+        uint32_t oldest_age = tick32_elapsed(now, t->channels[0].last_used);
+        for (i = 1; i < AUTOSWITCH_CHANNELS; i++) {
+            uint32_t age = tick32_elapsed(now, t->channels[i].last_used);
+            if (age > oldest_age) {
+                oldest_age = age;
+                oldest = i;
+            }
         }
     }
     /* Reuse oldest */
@@ -107,6 +122,7 @@ autoswitch_alloc(struct autoswitch_table *t, uint16_t caid,
     c->provid = provid;
     c->sid = sid;
     c->current_source = -1;
+    c->last_used = now;
     c->used = 1;
     return c;
 }
@@ -124,29 +140,43 @@ autoswitch_find_source(struct autoswitch_channel *c, int source_id)
 }
 
 static inline struct autoswitch_source *
-autoswitch_alloc_source(struct autoswitch_channel *c, int source_id)
+autoswitch_alloc_source(struct autoswitch_channel *c, int source_id,
+                        uint32_t now)
 {
     int i, oldest = 0;
     struct autoswitch_source *s;
 
     s = autoswitch_find_source(c, source_id);
-    if (s) return s;
+    if (s) {
+        s->last_used = now;
+        return s;
+    }
 
     for (i = 0; i < AUTOSWITCH_SOURCES; i++) {
         if (!c->sources[i].used) {
             s = &c->sources[i];
             s->source_id = source_id;
+            s->last_used = now;
             s->used = 1;
             return s;
         }
-        if (c->sources[i].deliveries < c->sources[oldest].deliveries) {
-            oldest = i;
+    }
+    /* Reuse the source with greatest modulo elapsed age. */
+    {
+        uint32_t oldest_age = tick32_elapsed(now, c->sources[0].last_used);
+        for (i = 1; i < AUTOSWITCH_SOURCES; i++) {
+            uint32_t age = tick32_elapsed(now, c->sources[i].last_used);
+            if (age > oldest_age) {
+                oldest_age = age;
+                oldest = i;
+            }
         }
     }
     /* Reuse oldest */
     s = &c->sources[oldest];
     memset(s, 0, sizeof(*s));
     s->source_id = source_id;
+    s->last_used = now;
     s->used = 1;
     return s;
 }
@@ -155,15 +185,15 @@ autoswitch_alloc_source(struct autoswitch_channel *c, int source_id)
 static inline void autoswitch_record(struct autoswitch_table *t,
                                       uint16_t caid, uint32_t provid,
                                       uint16_t sid, int source_id,
-                                      int success)
+                                      int success, uint32_t now)
 {
     struct autoswitch_channel *c;
     struct autoswitch_source *s;
 
     if (!autoswitch_enabled(t)) return;
-    c = autoswitch_alloc(t, caid, provid, sid);
+    c = autoswitch_alloc(t, caid, provid, sid, now);
     if (!c) return;
-    s = autoswitch_alloc_source(c, source_id);
+    s = autoswitch_alloc_source(c, source_id, now);
     if (!s) return;
 
     s->deliveries++;
@@ -186,16 +216,20 @@ static inline int autoswitch_should(struct autoswitch_table *t,
 
     if (!autoswitch_enabled(t)) return -1;
     c = autoswitch_find(t, caid, provid, sid);
-    if (!c || c->current_source < 0) return -1;
+    if (!c) return -1;
+    c->last_used = now;
+    if (c->current_source < 0) return -1;
 
-    /* Check cooldown */
-    if (c->last_switch > 0 && (now - c->last_switch) < AUTOSWITCH_COOLDOWN) {
+    /* Check cooldown; switch_count distinguishes tick-zero from no switch. */
+    if (c->switch_count > 0 &&
+        tick32_elapsed(now, c->last_switch) < AUTOSWITCH_COOLDOWN) {
         return -1;
     }
 
     /* Get current source score */
     current = autoswitch_find_source(c, c->current_source);
     if (!current || current->deliveries < AUTOSWITCH_MIN_SAMPLES) return -1;
+    current->last_used = now;
     current_score = (int)((current->successes * 100) / current->deliveries);
 
     /* If current source is good enough, no switch */
@@ -205,7 +239,9 @@ static inline int autoswitch_should(struct autoswitch_table *t,
     for (i = 0; i < AUTOSWITCH_SOURCES; i++) {
         struct autoswitch_source *s = &c->sources[i];
         int score;
-        if (!s->used || s->source_id == c->current_source) continue;
+        if (!s->used) continue;
+        s->last_used = now;
+        if (s->source_id == c->current_source) continue;
         if (s->deliveries < AUTOSWITCH_MIN_SAMPLES) continue;
         score = (int)((s->successes * 100) / s->deliveries);
         if (score > best_score) {
@@ -219,6 +255,7 @@ static inline int autoswitch_should(struct autoswitch_table *t,
     /* Switch! */
     c->current_source = best->source_id;
     c->last_switch = now;
+    c->last_used = now;
     c->switch_count++;
     t->total_switches++;
     return best->source_id;
@@ -227,12 +264,16 @@ static inline int autoswitch_should(struct autoswitch_table *t,
 /* Set the current source for a channel */
 static inline void autoswitch_set_current(struct autoswitch_table *t,
                                            uint16_t caid, uint32_t provid,
-                                           uint16_t sid, int source_id)
+                                           uint16_t sid, int source_id,
+                                           uint32_t now)
 {
     struct autoswitch_channel *c;
     if (!t) return;
-    c = autoswitch_alloc(t, caid, provid, sid);
-    if (c) c->current_source = source_id;
+    c = autoswitch_alloc(t, caid, provid, sid, now);
+    if (c) {
+        c->current_source = source_id;
+        c->last_used = now;
+    }
 }
 
 #endif /* MCS_AUTOSWITCH_H */

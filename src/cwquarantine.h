@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CWQUARANTINE_RING_SIZE 4
 #define CWQUARANTINE_CHANNELS 16
@@ -37,6 +38,8 @@ struct cwquarantine_channel {
     uint16_t caid;
     uint32_t provid;
     uint16_t sid;
+    uint32_t last_used;
+    uint8_t used;
     struct cwquarantine_entry ring[CWQUARANTINE_RING_SIZE];
     int head;
     uint32_t held_count;
@@ -71,7 +74,7 @@ cwquarantine_find(struct cwquarantine_table *t, uint16_t caid,
     if (!t) return 0;
     for (i = 0; i < CWQUARANTINE_CHANNELS; i++) {
         struct cwquarantine_channel *c = &t->channels[i];
-        if (c->caid == caid && c->provid == provid && c->sid == sid) {
+        if (c->used && c->caid == caid && c->provid == provid && c->sid == sid) {
             return c;
         }
     }
@@ -80,24 +83,44 @@ cwquarantine_find(struct cwquarantine_table *t, uint16_t caid,
 
 static inline struct cwquarantine_channel *
 cwquarantine_alloc(struct cwquarantine_table *t, uint16_t caid,
-                   uint32_t provid, uint16_t sid)
+                   uint32_t provid, uint16_t sid, uint32_t now)
 {
-    int i, oldest = 0;
+    int i, free_slot = -1, oldest = -1;
     struct cwquarantine_channel *c;
 
     c = cwquarantine_find(t, caid, provid, sid);
-    if (c) return c;
+    if (c) {
+        c->last_used = now;
+        return c;
+    }
 
-    for (i = 1; i < CWQUARANTINE_CHANNELS; i++) {
-        if (t->channels[i].held_count < t->channels[oldest].held_count) {
-            oldest = i;
+    for (i = 0; i < CWQUARANTINE_CHANNELS; i++) {
+        if (!t->channels[i].used) {
+            free_slot = i;
+            break;
         }
     }
-    c = &t->channels[oldest];
+    if (free_slot < 0) {
+        /* Replace the channel with greatest modulo elapsed age. */
+        uint32_t oldest_age = 0;
+        for (i = 0; i < CWQUARANTINE_CHANNELS; i++) {
+            uint32_t age = tick32_elapsed(now, t->channels[i].last_used);
+            if (oldest < 0 || age > oldest_age) {
+                oldest = i;
+                oldest_age = age;
+            }
+        }
+        free_slot = oldest;
+    }
+    if (free_slot < 0) return 0;
+
+    c = &t->channels[free_slot];
     memset(c, 0, sizeof(*c));
     c->caid = caid;
     c->provid = provid;
     c->sid = sid;
+    c->last_used = now;
+    c->used = 1;
     return c;
 }
 
@@ -117,7 +140,7 @@ static inline int cwquarantine_hold(struct cwquarantine_table *t,
     if (!cwquarantine_enabled(t)) return 0;
     if (!cw) return 0;
 
-    c = cwquarantine_alloc(t, caid, provid, sid);
+    c = cwquarantine_alloc(t, caid, provid, sid, now);
     if (!c) return 0;
 
     /* Check for duplicate */
@@ -131,7 +154,9 @@ static inline int cwquarantine_hold(struct cwquarantine_table *t,
     e = &c->ring[c->head];
     memcpy(e->cw, cw, 16);
     e->held_at = now;
-    e->expires_at = now + (uint32_t)t->hold_secs;
+    /* `now` is a 32-bit millisecond tick; the public hold setting is seconds.
+     * Ten seconds is safely inside the signed half-range for deadline checks. */
+    e->expires_at = now + (uint32_t)t->hold_secs * 1000u;
     e->confidence = confidence;
     e->verified = verified;
     e->used = 1;
@@ -157,11 +182,14 @@ static inline int cwquarantine_release(struct cwquarantine_table *t,
     c = cwquarantine_find(t, caid, provid, sid);
     if (!c) return 0;
 
+    c->last_used = now;
+
     for (i = 0; i < CWQUARANTINE_RING_SIZE; i++) {
         struct cwquarantine_entry *e = &c->ring[i];
         if (!e->used || e->released) continue;
-        /* Only release if quarantine period has passed or CW is verified */
-        if (now < e->expires_at && !e->verified) continue;
+        /* Only release if quarantine period has passed or CW is verified.
+         * Hold deadlines are at most ten seconds, inside the signed half-range. */
+        if (!tick32_deadline_reached(now, e->expires_at) && !e->verified) continue;
         if (!best || e->confidence > best->confidence) {
             best = e;
         }
@@ -182,10 +210,10 @@ static inline void cwquarantine_expire(struct cwquarantine_table *t,
     if (!t) return;
     for (i = 0; i < CWQUARANTINE_CHANNELS; i++) {
         struct cwquarantine_channel *c = &t->channels[i];
-        if (!c->caid) continue;
+        if (!c->used) continue;
         for (j = 0; j < CWQUARANTINE_RING_SIZE; j++) {
             struct cwquarantine_entry *e = &c->ring[j];
-            if (e->used && !e->released && (now - e->held_at) > max_age) {
+            if (e->used && !e->released && tick32_elapsed(now, e->held_at) > max_age) {
                 e->released = 1;
                 c->expired_count++;
             }

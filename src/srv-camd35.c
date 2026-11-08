@@ -68,10 +68,14 @@ void *camd35_connect_cli_thread(void *param);
 // SEND DCW
 ///////////////////////////////////////////////////////////////////////////////
 
-void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_data *cli)
+void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_data *cli, const struct ledger_delivery_snapshot *delivery)
 {
 	uint8_t buf[CC_MAXMSGSIZE];
 	uint32_t ticks = GetTickCount();
+#ifdef CACHEEX
+	if (!delivery || !delivery->lifetime_id ||
+	    delivery->lifetime_id != __atomic_load_n(&cli->ecm.lifetime_id, __ATOMIC_ACQUIRE)) return;
+#endif
 
 	if (cli->ecm.status==STAT_DCW_SENT) {
 		debugf(getdbgflag(DBG_CAMD35,0,cli->id)," +> cw send failed to camd35 client '%s', cw already sent\n", cli->user); 
@@ -88,59 +92,118 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 		return;
 	}
 
+#ifdef CACHEEX
+	ECM_DATA *ecm = NULL;
+	uint16_t response_caid = delivery->caid;
+	uint32_t response_provid = delivery->provid;
+	uint8_t response_provider_known = delivery->provider_known;
+	uint16_t response_sid = delivery->sid;
+	uint32_t response_hash = delivery->hash;
+	uint8_t response_tag = delivery->tag;
+	uint32_t response_profile = delivery->profile_id;
+	uint32_t response_recvtime = delivery->recvtime;
+#else
 	ECM_DATA *ecm = cli->ecm.request;
+	uint16_t response_caid = ecm->caid;
+	uint32_t response_provid = ecm->provid;
+	uint8_t response_provider_known = ecm->provider_known;
+	uint16_t response_sid = ecm->sid;
+	uint32_t response_hash = ecm->hash;
+	uint8_t response_tag = ecm->ecm[0];
+	uint32_t response_profile = ecm->cs ? (uint32_t)ecm->cs->id : 0;
+	uint32_t response_recvtime = cli->ecm.recvtime;
+#endif
 	//FREEZE
-	int samechannel = (cli->lastecm.caid==ecm->caid)&&(cli->lastecm.prov==ecm->provid)&&(cli->lastecm.sid==ecm->sid);
+	int samechannel = (cli->lastecm.caid==response_caid)&&(cli->lastecm.prov==response_provid)&&(cli->lastecm.sid==response_sid);
 	int enablefreeze=0;
 	if (samechannel) {
-		if ( (cli->lastecm.hash!=ecm->hash)&&(cli->lastecm.tag!=ecm->ecm[0]) )
-		if ( (cli->lastecm.status==1)&&(cli->lastdcwtime+200<ticks) ) enablefreeze = 1;
+		if ( (cli->lastecm.hash!=response_hash)&&(cli->lastecm.tag!=response_tag) )
+		if (cli->lastecm.status==1 && (uint32_t)(ticks-cli->lastdcwtime)>200u) enablefreeze = 1;
 	} else cli->zap++;
 	//
-	cli->lastecm.caid = ecm->caid;
-	cli->lastecm.prov = ecm->provid;
-	cli->lastecm.provider_known = ecm->provider_known;
-	cli->lastecm.sid = ecm->sid;
-	cli->lastecm.hash = ecm->hash;
-	cli->lastecm.tag = ecm->ecm[0];
-	cli->lastecm.decodetime = ticks-cli->ecm.recvtime;
+	cli->lastecm.caid = response_caid;
+	cli->lastecm.prov = response_provid;
+	cli->lastecm.provider_known = response_provider_known;
+	cli->lastecm.sid = response_sid;
+	cli->lastecm.hash = response_hash;
+	cli->lastecm.tag = response_tag;
+	cli->lastecm.decodetime = ticks-response_recvtime;
+#ifdef CACHEEX
+	cli->lastecm.request = delivery->request;
+#else
 	cli->lastecm.request = cli->ecm.request;
+#endif
 
 	memset( buf, 0xFF, 20+16);
 	// SID
-	buf[8] = (ecm->sid>>8) & 0xFF;
-	buf[9] = (ecm->sid) & 0xFF;
+	buf[8] = (response_sid>>8) & 0xFF;
+	buf[9] = (response_sid) & 0xFF;
 	// CAID
-	buf[10] = (ecm->caid>>8) & 0xFF;
-	buf[11] = (ecm->caid) & 0xFF;
+	buf[10] = (response_caid>>8) & 0xFF;
+	buf[11] = (response_caid) & 0xFF;
 	// PROVID
-	buf[12] = (ecm->provid>>24) & 0xFF;
-	buf[13] = (ecm->provid>>16) & 0xFF;
-	buf[14] = (ecm->provid>>8) & 0xFF;
-	buf[15] = (ecm->provid) & 0xFF;
+	buf[12] = (response_provid>>24) & 0xFF;
+	buf[13] = (response_provid>>16) & 0xFF;
+	buf[14] = (response_provid>>8) & 0xFF;
+	buf[15] = (response_provid) & 0xFF;
 	// PIN
 	buf[16] = (cli->ecm.pin>>8);
 	buf[17] = cli->ecm.pin & 0xFF;
 
+#ifdef CACHEEX
+	if (delivery->status == STAT_DCW_SUCCESS) {
+#else
 	if ( (ecm->dcwstatus==STAT_DCW_SUCCESS)&&(ecm->hash==cli->ecm.hash) ) {
-		cli->lastecm.dcwsrctype = ecm->dcwsrctype;
-		cli->lastecm.dcwsrcid = ecm->dcwsrcid;
-		/* TASK R31 (D82): name the delivered key on the record, as
-		 * srv-newcamd does -- receiver attestation files BYTES, so
-		 * the bytes themselves must be remembered. */
-		memcpy( cli->lastecm.dcw, ecm->cw, 16 );
-		cli->lastecm.status=1;
-		cli->ecmok++;
-		cli->lastdcwtime = ticks;
-		cli->ecmoktime += ticks-cli->ecm.recvtime;
-		//cli->lastecmoktime = ticks-cli->ecm.recvtime;
-
+#endif
+		uint32_t sent_at;
+#ifdef CACHEEX
+		buf[8] = delivery->sid >> 8; buf[9] = delivery->sid;
+		buf[10] = delivery->caid >> 8; buf[11] = delivery->caid;
+		buf[12] = delivery->provid >> 24;
+		buf[13] = delivery->provid >> 16;
+		buf[14] = delivery->provid >> 8; buf[15] = delivery->provid;
+#endif
+		cli->lastecm.status=0;
+		cli->lastecm.dcwsrctype = DCW_SOURCE_NONE;
+		cli->lastecm.dcwsrcid = 0;
+		memset(cli->lastecm.dcw, 0, sizeof(cli->lastecm.dcw));
+#ifdef CACHEEX
+		memset(cli->lastecm.ecmd5, 0, sizeof(cli->lastecm.ecmd5));
+		cli->lastecm.ecmlen = 0;
+#endif
 		buf[0] = CAMD_ECM_REPLY;
 		buf[1] = 16;
-		// ECM
-		memcpy( buf+20, ecm->cw, 16 );
-		camd35_sendto( camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf, 20+16);
-		debugf(getdbgflagpro(DBG_CAMD35,0,cli->id,ecm->cs->id)," => cw to camd35 client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-cli->ecm.recvtime);
+#ifdef CACHEEX
+		memcpy(buf+20, delivery->cw, 16);
+#else
+		memcpy(buf+20, ecm->cw, 16);
+#endif
+		if (!camd35_sendto(camd35->handle, cli->ip, cli->port,
+		                   &cli->encryptkey, cli->ucrc, buf, 20+16)) {
+			/* UDP has no delivery retry after this event; retire the request
+			 * without recording a send or blaming its source. */
+			cli->ecm.busy = 0;
+			cli->ecm.status = STAT_DCW_SENT;
+			debugf(getdbgflag(DBG_CAMD35,0,cli->id),
+			       " => cw send failed to camd35 client '%s'\n", cli->user);
+			return;
+		}
+		sent_at = GetTickCount();
+#ifdef CACHEEX
+		LEDGER_DELIVERY_TO_LASTECM(cli->lastecm, *delivery);
+#else
+		cli->lastecm.dcwsrctype = ecm->dcwsrctype;
+		cli->lastecm.dcwsrcid = ecm->dcwsrcid;
+		memcpy(cli->lastecm.dcw, ecm->cw, sizeof(cli->lastecm.dcw));
+#endif
+		cli->lastecm.status=1;
+		cli->ecmok++;
+		cli->lastdcwtime = sent_at;
+		cli->ecmoktime += sent_at-response_recvtime;
+#ifdef CACHEEX
+		ledger_note_delivered(delivery, sent_at);
+#endif
+		debugf(getdbgflagpro(DBG_CAMD35,0,cli->id,response_profile)," => cw to camd35 client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, response_caid,response_provid,response_sid, sent_at-response_recvtime);
 	}
 	else { //if (ecm->data->dcwstatus==STAT_DCW_FAILED)
 		if (enablefreeze) {
@@ -149,10 +212,15 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 		cli->lastecm.dcwsrctype = DCW_SOURCE_NONE;
 		cli->lastecm.dcwsrcid = 0;
 		cli->lastecm.status=0;
+		memset(cli->lastecm.dcw, 0, sizeof(cli->lastecm.dcw));
+#ifdef CACHEEX
+		memset(cli->lastecm.ecmd5, 0, sizeof(cli->lastecm.ecmd5));
+		cli->lastecm.ecmlen = 0;
+#endif
 		buf[0] = 0x44;
 		buf[1] = 0;
 		camd35_sendto( camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf, 20);
-		debugf(getdbgflagpro(DBG_CAMD35,0,cli->id,ecm->cs->id)," |> decode failed to camd35 client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-cli->ecm.recvtime);
+		debugf(getdbgflagpro(DBG_CAMD35,0,cli->id,response_profile)," |> decode failed to camd35 client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, response_caid,response_provid,response_sid, GetTickCount()-response_recvtime);
 	}
 	cli->ecm.busy=0;
 	cli->ecm.status = STAT_DCW_SENT;
@@ -161,15 +229,22 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 ///////////////////////////////////////////////////////////////////////////////
 
 // Check sending cw to clients
-void camd35_check_sendcw(ECM_DATA *ecm)
+void camd35_check_sendcw(ECM_DATA *ecm, const struct ledger_delivery_snapshot *delivery)
 {
+#ifdef CACHEEX
+	if (!delivery) return;
+#endif
 	struct camd35_server_data *camd35 = cfg.camd35.server;
 	while (camd35) {
 		if ( !IS_DISABLED(camd35->flags) && (camd35->handle>0) ) {
 			struct camd35_client_data *cli = camd35->client;
 			while (cli) {
-				if ( !IS_DISABLED(cli->flags)&&(cli->ecm.busy)&&(cli->ecm.request==ecm) ) {
-					camd35_senddcw_cli(camd35, cli );
+				#ifdef CACHEEX
+				if (!IS_DISABLED(cli->flags) && __atomic_load_n(&cli->ecm.lifetime_id, __ATOMIC_ACQUIRE)==delivery->lifetime_id) {
+#else
+				if (!IS_DISABLED(cli->flags) && cli->ecm.busy && cli->ecm.request==ecm && cli->ecm.hash==ecm->hash) {
+#endif
+					camd35_senddcw_cli(camd35, cli, delivery );
 				}
 				cli = cli->next;
 			}
@@ -187,6 +262,9 @@ void camd35_store_ecmclient(ECM_DATA *ecm, struct camd35_client_data *cli)
 	uint32_t ticks = GetTickCount();
 	cli->ecm.recvtime = ticks;
 	cli->ecm.request = ecm;
+#ifdef CACHEEX
+	__atomic_store_n(&cli->ecm.lifetime_id, ecm_request_lifetime_id_load(ecm), __ATOMIC_RELEASE);
+#endif
     cli->ecm.status = STAT_ECM_SENT;
 	ecm_addip(ecm, cli->ip);
 
@@ -302,7 +380,9 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			// Look for cardserver
 			cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
 			if ( !cs || !cs->option.fallowcacheex ) {
+				pthread_mutex_lock(&prg.lockcacheex);
 				cli->cacheex.badcw++;
+				pthread_mutex_unlock(&prg.lockcacheex);
 				break;
 			}
 			if ((buf[23]&0xFE)==0x80) cacheex.tag = buf[23]; else cacheex.tag = 0;
@@ -310,9 +390,11 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			//if ( !checkECMD5(cacheex.ecmd5) ) cli->cacheex.totalcsp++;
 			cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 			if (!cacheex_check(&cacheex)) break;
+			pthread_mutex_lock(&prg.lockcacheex);
 			cli->cacheex.got[0]++;
 			int uphop = buf[60];
 			if (uphop<10) cli->cacheex.got[uphop]++;
+			pthread_mutex_unlock(&prg.lockcacheex);
 			//
 			pthread_mutex_lock( &prg.lockcache );
 			int res = cache_setdcw( &cacheex, cw, NO_CYCLE, PEER_CAMD35_CLIENT | cli->id );
@@ -382,8 +464,13 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			}
 #endif
 			pthread_mutex_unlock( &prg.lockcache );
+			cache_peerrep_save_after_unlock();
 			if (res&DCW_ERROR) {
-				if ( !(res&DCW_SKIP)) cli->cacheex.badcw++;
+				if ( !(res&DCW_SKIP)) {
+					pthread_mutex_lock(&prg.lockcacheex);
+					cli->cacheex.badcw++;
+					pthread_mutex_unlock(&prg.lockcacheex);
+				}
 			}
 			else if (res&DCW_CYCLE) {
 				if ( cs->option.cacheex.maxhop>uphop ) {
@@ -409,7 +496,9 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			break;
 
 		case CAMD_ECM_REQUEST:
+#ifdef CACHEEX
 			if (cli->cacheex_mode) break;
+#endif
 			cli->ecmnb++;
 			cli->lastecmtime = ticks;
 			//Check for card availability
@@ -460,7 +549,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			}
 
 			// ACCEPTED
-			pthread_mutex_lock(&prg.lockecm); //###
+			ecm_lock(); //###
 			// Search for ECM
 			ECM_DATA *ecm = search_ecmdata_any(cs, ecmdata,  ecmlen, sid, caid, provid, 1); // dont get failed ecm request from cache
 			/* TASK R31 (D82) -- receiver attestation tap, mirroring
@@ -476,11 +565,15 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			 * key failed; counting it filed good keys as bad. */
 			if ( (cli->lastecm.caid==caid) && (cli->lastecm.prov==provid) && (cli->lastecm.sid==sid) && cli->lastecm.status
 				&& ecm && (ecm->hash==cli->lastecm.hash) && (ecm->ecm[0]==cli->lastecm.tag) ) {
-				if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD )
+				if ( retry_classify( ticks, cli->lastdcwtime, cli->lastecm.status, retry_window_ms, soft_fail_window_ms )==RETRY_HARD ) {
 					attest_note( ATTEST_TAG_CAMD35 | (uint32_t)cli->id, cli->lastecm.dcw,
 						cli->lastecm.caid, cli->lastecm.prov,
 						cli->lastecm.provider_known, cli->lastecm.sid,
 						cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid, ticks );
+#ifdef CACHEEX
+					LEDGER_NOTE_CLIENT_FAILURE(ecm, cli->lastecm, cli->lastdcwtime, ticks);
+#endif
+				}
 			}
 			int isnew =  ( ecm==NULL );
 			if (ecm) {
@@ -499,7 +592,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 						cli->ecm.busy=1;
 						cli->ecm.pin = pin;
 						cli->ecm.hash = ecm->hash;
-						ecm->dcwstatus = STAT_DCW_WAIT;
+						ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 						ecm->cachestatus = 0; //ECM_CACHE_NONE; // Resend Request
 						ecm->checktime = 1; // Check NOW
 						pipe_wakeup( prg.pipe.ecm[1] );
@@ -521,20 +614,22 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 					if (!ecm->checktime) {
 						if (cli->dcwcheck) {
 							if ( (ecm->dcwstatus==STAT_DCW_SUCCESS) && !checkfreeze_setdcw(ecm,ecm->cw) ) { // ??? last ecm is wrong
-								ecm->dcwstatus = STAT_DCW_WAIT;
+								ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 								memset( ecm->cw, 0, 16 );
 								ecm->checktime = 1; // Wakeup Now
 								pipe_wakeup( prg.pipe.ecm[1] );
 							}
 							else {
-								pthread_mutex_unlock(&prg.lockecm);
-								camd35_senddcw_cli(camd35,cli);
+								LEDGER_CAPTURE_CLIENT_DELIVERY(delivery, ecm, cli);
+								ecm_unlock();
+								camd35_senddcw_cli(camd35,cli,delivery);
 								break;
 							}
 						}
 						else {
-							pthread_mutex_unlock(&prg.lockecm);
-							camd35_senddcw_cli(camd35,cli);
+							LEDGER_CAPTURE_CLIENT_DELIVERY(delivery, ecm, cli);
+							ecm_unlock();
+							camd35_senddcw_cli(camd35,cli,delivery);
 							break;
 						}
 					}
@@ -549,7 +644,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 					buf[4] = 0x44;
 					buf[5] = 0;
 					camd35_sendto(camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf+4, 20);
-					pthread_mutex_unlock(&prg.lockecm);
+					ecm_unlock();
 					break;
 				}
 				cs->ecmaccepted++;
@@ -559,20 +654,20 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 				cli->ecm.busy=1;
 				cli->ecm.hash = ecm->hash;
 				ecm->cw1cycle = cw1cycle;
-				ecm->dcwstatus = STAT_DCW_WAIT;
+				ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 #ifdef CHECK_NEXTDCW
 				if (cli->dcwcheck) checkfreeze_checkECM( ecm, cli->lastecm.request);
 #endif
 				if (cs->option.fallowcache) {
 					ecm->waitcache = 1;
-					ecm->dcwstatus = STAT_DCW_WAITCACHE;
+					ecm_request_set_dcwstatus(ecm, STAT_DCW_WAITCACHE);
 					ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
 					pipe_cache_find(ecm, cs);
 				}
 				else ecm->checktime = 1; // Check NOW
 				pipe_wakeup( prg.pipe.ecm[1] );
 			}
-			pthread_mutex_unlock(&prg.lockecm);
+			ecm_unlock();
 			if (isnew) wakeup_sendecm();
 			break;	//camd35_process_ecm(mbuf, n);
 
@@ -586,10 +681,13 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 ///////////////////////////////////////////////////////////////////////////////
 void *camd35_recvmsg_thread(void *param)
 {
-	while (1) {
+	while (!prg.restart) {
 		struct pollfd pfd[MAX_CSPORTS];
 		int pfdcount = 0;
+		uint64_t config_generation;
 
+		newcamd_config_read_lock();
+		config_generation = cfg.cache.generation;
 		struct camd35_server_data *camd35 = cfg.camd35.server;
 		while (camd35) {
 			if (camd35->handle>0) {
@@ -600,9 +698,15 @@ void *camd35_recvmsg_thread(void *param)
 			camd35 = camd35->next;
 		}
 
+		newcamd_config_read_unlock();
 		if (pfdcount>0) {
 			int retval = poll(pfd, pfdcount, 3000);
 			if (retval>0) {
+				newcamd_config_read_lock();
+				if (config_generation != cfg.cache.generation) {
+					newcamd_config_read_unlock();
+					continue;
+				}
 				struct camd35_server_data *camd35 = cfg.camd35.server;
 				while (camd35) {
 					if ( (camd35->handle>0) && (camd35->ipoll>=0) && (camd35->handle==pfd[camd35->ipoll].fd) ) {
@@ -611,8 +715,9 @@ void *camd35_recvmsg_thread(void *param)
 							camd35_recvmsg( camd35 );
 						}
 					}
-					camd35 = camd35->next;
-				}
+						camd35 = camd35->next;
+					}
+					newcamd_config_read_unlock();
 			} else if (retval<0) usleep(99000);
 		} else sleep(1);
 	}

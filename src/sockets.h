@@ -7,7 +7,7 @@ char *iptoa(char *dest, unsigned int ip );
 int SetSocketTimeout(SOCKET sockid, int milliseconds);
 int SetSocketNoDelay(SOCKET sock);
 int SetSocketKeepalive(SOCKET sock);
-void SetSoketNonBlocking(SOCKET sock);
+int SetSoketNonBlocking(SOCKET sock);
 int SetSocketReuseAddr(int sock);
 // UDP CONNECTION
 int CreateServerSockUdp(int port, uint32_t ip);

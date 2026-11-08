@@ -203,7 +203,7 @@ static struct rotation_entry *rotation_entry_get(struct rotation_table *t,
 {
 	struct rotation_entry *e;
 	int i, freepos = -1, victim = -1;
-	uint32_t oldest = 0xFFFFFFFFu;
+	uint32_t oldest_age = 0;
 
 	if (!t) return NULL;
 
@@ -212,7 +212,8 @@ static struct rotation_entry *rotation_entry_get(struct rotation_table *t,
 
 	for (i = 0; i < ROTATION_SLOTS; i++) {
 		if (t->e[i].inuse) {
-			if (t->e[i].ticks < oldest) { oldest = t->e[i].ticks; victim = i; }
+			uint32_t age = (uint32_t)(ticks_now - t->e[i].ticks);
+			if (victim < 0 || age > oldest_age) { oldest_age = age; victim = i; }
 		}
 		else if (freepos < 0) freepos = i;
 	}

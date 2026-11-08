@@ -4,6 +4,7 @@
 #include "common.h"
 #include "safe-time.h"
 #include "cwtime.h"   /* TASK 2.3: CWT_MAX_FLOOR, so the clamp and the module agree */
+#include "newcamd-lifetime.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -170,37 +171,105 @@ void sid_arrange( struct sid_chid_ecmlen_data *sids, int max )
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// HOST LIST
+// HOST LIST AND ADDRESS STATE
 ///////////////////////////////////////////////////////////////////////////////
-void *dns_child_thread(struct host_data *host);
-
-struct host_data *add_host( struct config_data *cfg, char *hostname)
+void host_state_snapshot(const struct host_data *host, uint32_t *ip,
+                         uint32_t *clip, uint32_t *checkiptime)
 {
-	struct host_data *host = cfg->host;
+	if (ip) *ip = 0;
+	if (clip) *clip = 0;
+	if (checkiptime) *checkiptime = 0;
+	if (!host) return;
+	pthread_mutex_lock(&prg.lockdnsth);
+	if (ip) *ip = host->ip;
+	if (clip) *clip = host->clip;
+	if (checkiptime) *checkiptime = host->checkiptime;
+	pthread_mutex_unlock(&prg.lockdnsth);
+}
+
+uint32_t host_ip_snapshot(const struct host_data *host)
+{
+	uint32_t ip;
+	host_state_snapshot(host, &ip, NULL, NULL);
+	return ip;
+}
+
+void host_ip_set(struct host_data *host, uint32_t ip)
+{
+	if (!host) return;
+	pthread_mutex_lock(&prg.lockdnsth);
+	host->ip = ip;
+	pthread_mutex_unlock(&prg.lockdnsth);
+}
+
+void host_checkiptime_set(struct host_data *host, uint32_t checkiptime)
+{
+	if (!host) return;
+	pthread_mutex_lock(&prg.lockdnsth);
+	host->checkiptime = checkiptime;
+	pthread_mutex_unlock(&prg.lockdnsth);
+}
+
+void host_schedule_checkiptime_before(struct host_data *host, uint32_t deadline)
+{
+	if (!host) return;
+	pthread_mutex_lock(&prg.lockdnsth);
+	if (host->checkiptime > deadline) host->checkiptime = deadline;
+	pthread_mutex_unlock(&prg.lockdnsth);
+}
+
+int host_record_client_ip(struct host_data *host, uint32_t client_ip,
+                          uint32_t retry_deadline)
+{
+	int rejected = 0;
+	if (!host) return 0;
+	pthread_mutex_lock(&prg.lockdnsth);
+	host->clip = client_ip;
+	if (host->ip && host->ip != client_ip) {
+		if (host->checkiptime > retry_deadline)
+			host->checkiptime = retry_deadline;
+		rejected = 1;
+	}
+	pthread_mutex_unlock(&prg.lockdnsth);
+	return rejected;
+}
+
+struct host_data *add_host(struct config_data *cfg, char *hostname)
+{
+	struct host_data *host;
+	if (!cfg || !hostname) return NULL;
+	pthread_mutex_lock(&prg.lockdnsth);
 	// Search
-	while (host) {
-		if ( !strcmp(host->name, hostname) ) return host;
-		host = host->next;
+	for (host = cfg->host; host; host = host->next) {
+		if (!strcmp(host->name, hostname)) {
+			pthread_mutex_unlock(&prg.lockdnsth);
+			return host;
+		}
 	}
 	// Create
-	host = malloc( sizeof(struct host_data) );
-	memset( host, 0, sizeof(struct host_data) );
-	strcpy( host->name, hostname );
-	host->ip = 0;
-	host->checkiptime = 0;
+	host = malloc(sizeof(struct host_data));
+	if (!host) {
+		pthread_mutex_unlock(&prg.lockdnsth);
+		return NULL;
+	}
+	memset(host, 0, sizeof(struct host_data));
+	snprintf(host->name, sizeof(host->name), "%s", hostname);
 	host->next = cfg->host;
 	cfg->host = host;
-	//dns_child_thread( host );
+	pthread_mutex_unlock(&prg.lockdnsth);
 	return host;
 }
 
-void free_allhosts( struct config_data *cfg )
+void free_allhosts(struct config_data *cfg)
 {
+	if (!cfg) return;
+	pthread_mutex_lock(&prg.lockdnsth);
 	while (cfg->host) {
 		struct host_data *host = cfg->host;
 		cfg->host = host->next;
 		free(host);
 	}
+	pthread_mutex_unlock(&prg.lockdnsth);
 }
 
 #if defined(CAMD35_SRV) || defined(CAMD35_CLI) || defined(CS378X_SRV) || defined(CS378X_CLI)
@@ -278,6 +347,7 @@ void init_config(struct config_data *cfg)
 	cfg->clientid = 1;
 	cfg->serverid = 1;
 	cfg->cardserverid = 0x64; // Start like in CCcam 
+	cfg->cache.generation = 1;
 
 	cfg->newcamd.clientid = 0;
 	cfg->newcamd.dcwcheck = 1;
@@ -6773,8 +6843,9 @@ void remove_newcamd_clients(struct cardserver_data *cs)
 	while (cs->newcamd.client) {
 		struct cs_client_data *cli = cs->newcamd.client;
 		cs->newcamd.client = cli->next;
-		// FREE 
-		if (cli->handle>0) close(cli->handle);
+		// The reload write barrier has drained all borrowers. Disconnect through
+		// the client-state lock before releasing the packed client record.
+		if (cli->handle > 0) cs_disconnect_cli(cli);
 		while (cli->info) {
 			struct client_info_data *info = cli->info;
 			cli->info = info->next;
@@ -6843,6 +6914,30 @@ void update_cardserver_newcamd_clients(struct cardserver_data *cs, struct cardse
 
 #include "pipe.h"
 
+
+#ifdef MULTITHREADED
+static void pipe_send_card_snapshot(int fd, uint8_t command,
+                                    const struct cardserver_data *cs)
+{
+	struct pipe_card_snapshot snapshot;
+	uint8_t message[1 + sizeof(snapshot)];
+	int i, count, len;
+	if (fd < 0 || !cs) return;
+	memset(&snapshot, 0, sizeof(snapshot));
+	snapshot.profile_id = cs->id;
+	snapshot.caid = cs->card.caid;
+	snapshot.share_flags = (cs->option.fsharecccam ? PIPE_CARD_SHARE_CCCAM : 0) |
+	                       (cs->option.fsharemgcamd ? PIPE_CARD_SHARE_MGCAMD : 0);
+	count = cs->card.nbprov;
+	if (count < 0) count = 0;
+	if (count > CARD_MAXPROV) count = CARD_MAXPROV;
+	if (count > PIPE_CARD_MAX_PROVIDERS) count = PIPE_CARD_MAX_PROVIDERS;
+	snapshot.provider_count = (uint16_t)count;
+	for (i = 0; i < count; i++) snapshot.provider_ids[i] = cs->card.prov[i].id;
+	len = pipe_encode_card_message(message, sizeof(message), command, &snapshot);
+	if (len > 0) pipe_send(fd, message, len);
+}
+#endif
 
 int cs_same_card( struct cardserver_data *cs1, struct cardserver_data *cs2)
 {
@@ -6933,11 +7028,8 @@ void update_cardserver(struct config_data *cfg, struct config_data *newcfg)
 #ifdef MULTITHREADED
 			// SEND DEL SHARE TO CCCAM/MGCAMD CLIENTS
 			debugf(0, " DEL share [%s] id:%d  caid:%04x\n", cs->name, cs->id, cs->card.caid);
-			uint8_t buf[16];
-			buf[0] = PIPE_CARD_DEL;
-			memcpy( buf+1, &cs, sizeof(void*) );
-			pipe_send( prg.pipe.cccam[1], buf, 1+sizeof(void*) );
-			pipe_send( prg.pipe.mgcamd[1], buf, 1+sizeof(void*) );
+				pipe_send_card_snapshot(prg.pipe.cccam[1], PIPE_CARD_DEL, cs);
+				pipe_send_card_snapshot(prg.pipe.mgcamd[1], PIPE_CARD_DEL, cs);
 #endif
 			if (prev) prev->next = cs->next; else cfg->cardserver = cs->next;
 			cfg_addprofile(newcfg, cs);
@@ -6949,19 +7041,14 @@ void update_cardserver(struct config_data *cfg, struct config_data *newcfg)
 	cs = newcfg->cardserver;
 	while (cs) {
 		if (cs->flags&FLAG_DISCONNECT) {
-			uint8_t buf[16];
-			// SEND DEL SHARE TO CCCAM/MGCAMD CLIENTS
-			debugf(0, " DEL share [%s] id:%d  caid:%04x\n", cs->name, cs->id, cs->card.caid);
-			buf[0] = PIPE_CARD_DEL;
-			memcpy( buf+1, &cs, sizeof(void*) );
-			if (cs->option.fsharecccam) pipe_send( prg.pipe.cccam[1], buf, 1+sizeof(void*) );
-			if (cs->option.fsharemgcamd) pipe_send( prg.pipe.mgcamd[1], buf, 1+sizeof(void*) );
-			// SEND ADD SHARE TO CCCAM/MGCAMD CLIENTS
-			debugf(0, " ADD share [%s] id:%d  caid:%04x\n", cs->name, cs->id, cs->card.caid);
-			buf[0] = PIPE_CARD_ADD;
-			memcpy( buf+1, &cs, sizeof(void*) );
-			if (cs->option.fsharecccam) pipe_send( prg.pipe.cccam[1], buf, 1+sizeof(void*) );
-			if (cs->option.fsharemgcamd) pipe_send( prg.pipe.mgcamd[1], buf, 1+sizeof(void*) );
+				// SEND DEL SHARE TO CCCAM/MGCAMD CLIENTS using a stable card snapshot.
+				debugf(0, " DEL share [%s] id:%d  caid:%04x\n", cs->name, cs->id, cs->card.caid);
+				if (cs->option.fsharecccam) pipe_send_card_snapshot(prg.pipe.cccam[1], PIPE_CARD_DEL, cs);
+				if (cs->option.fsharemgcamd) pipe_send_card_snapshot(prg.pipe.mgcamd[1], PIPE_CARD_DEL, cs);
+				// SEND ADD SHARE TO CCCAM/MGCAMD CLIENTS using the replacement snapshot.
+				debugf(0, " ADD share [%s] id:%d  caid:%04x\n", cs->name, cs->id, cs->card.caid);
+				if (cs->option.fsharecccam) pipe_send_card_snapshot(prg.pipe.cccam[1], PIPE_CARD_ADD, cs);
+				if (cs->option.fsharemgcamd) pipe_send_card_snapshot(prg.pipe.mgcamd[1], PIPE_CARD_ADD, cs);
 		} 
 		cs = cs->next;
 	}
@@ -7064,12 +7151,12 @@ void remove_servers(struct config_data *cfg)
 	while (cfg->server) {
 		struct server_data *srv = cfg->server;
 		cfg->server = srv->next;
-		pthread_mutex_destroy( &srv->lock );
 		if (srv->connection.status>0) disconnect_srv(srv);
 		// Sids
 		if (srv->sids) free(srv->sids);
 		// Cards
 		free_cardlist(srv->card);
+		pthread_mutex_destroy( &srv->lock );
 		//
 		free( srv );
 	}
@@ -7077,12 +7164,12 @@ void remove_servers(struct config_data *cfg)
 	while (cfg->cacheexserver) {
 		struct server_data *srv = cfg->cacheexserver;
 		cfg->cacheexserver = srv->next;
-		pthread_mutex_destroy( &srv->lock );
 		if (srv->connection.status>0) disconnect_srv(srv);
 		// Sids
 		if (srv->sids) free(srv->sids);
 		// Cards
 		free_cardlist(srv->card);
+		pthread_mutex_destroy( &srv->lock );
 		//
 		free( srv );
 	}
@@ -7465,11 +7552,60 @@ void dcw_badlist_commit(struct dcw_data *list)
 	dcw_badlist_publish(flat, n);
 }
 
+/* A removed cardserver is held in newcfg only until this reload finishes.
+ * Active ECM pool entries can still point at it, so retire their cache snapshot
+ * and clear that borrowed profile pointer before the old node is freed. The ECM
+ * engine will observe cs == NULL on its next scheduled check and fail the
+ * request through the normal client-reply path. */
+static int config_profile_is_retired(const struct config_data *newcfg,
+                                     const struct cardserver_data *profile)
+{
+	const struct cardserver_data *retired = newcfg->cardserver;
+	while (retired) {
+		if (retired == profile && (retired->flags & FLAG_DELETE)) return 1;
+		retired = retired->next;
+	}
+	return 0;
+}
+
+static void invalidate_retired_profile_ecms(const struct config_data *newcfg)
+{
+	ECM_DATA *ecm = ecmdata;
+	if (!ecm) return;
+	do {
+		ECM_DATA *next = ecm->next;
+		if (ecm->cs && config_profile_is_retired(newcfg, ecm->cs)) {
+			cache_ecm_snapshot_retire(ecm);
+			ecm->cs = NULL;
+			ecm->csnext = NULL;
+			ecm->csprev = NULL;
+			if (ecm->dcwstatus == STAT_DCW_WAIT ||
+			    ecm->dcwstatus == STAT_DCW_WAITCACHE) {
+				ecm->statusmsg = "Profile removed during config reload";
+				ecm->checktime = 1;
+			}
+		}
+		ecm = next;
+	} while (ecm && ecm != ecmdata);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 void reread_config( struct config_data *cfg )
 {
 	void *pointer; // temp use
 	struct config_data newcfg;
+
+	/* A reload mutates and later reclaims cardserver/client nodes borrowed by
+	 * Newcamd workers, ECM delivery, and the status UI. Wait for those readers
+	 * to leave their read-side sections instead of guessing with sleep(1). */
+	newcamd_config_write_lock();
+	/* Detached outbound connection workers borrow server and host records until
+	 * their handshake completes. The write gate prevents new workers starting;
+	 * drain existing ones before changing or freeing those records. */
+	server_connect_wait_idle();
+	/* ECM_DATA retains cardserver pointers; serialize profile replacement and
+	 * reclamation with the ECM worker/response critical section. */
+	ecm_lock_config_exclusive();
 
 	// Remove files data from current config
 	free_chinfo(cfg);
@@ -7477,12 +7613,18 @@ void reread_config( struct config_data *cfg )
 	free_providers(cfg);
 
 	init_config(&newcfg);
+	pthread_mutex_lock(&prg.lockdnsth);
 	newcfg.host = cfg->host;
+	pthread_mutex_unlock(&prg.lockdnsth);
 	//usleep( 100000 );
 
 	read_config( &newcfg );
 
+	/* DNS owns host-list traversal under lockdnsth; publish the reloaded head
+	 * under the same lock so it cannot observe a torn list pointer. */
+	pthread_mutex_lock(&prg.lockdnsth);
 	cfg->host = newcfg.host;
+	pthread_mutex_unlock(&prg.lockdnsth);
 	cfg->files = newcfg.files;
 	// Files+Data
 	strcpy(cfg->stylesheet_file,newcfg.stylesheet_file);
@@ -7568,6 +7710,7 @@ void reread_config( struct config_data *cfg )
 	update_cache_servers( cfg, &newcfg );
 
 	update_cardserver( cfg, &newcfg );
+	invalidate_retired_profile_ecms(&newcfg);
 	/* Commit all global DCW gates together, after profile policies are staged. */
 	cfg->dcw_filters = newcfg.dcw_filters;
 	dcw_filter_globals_publish(&newcfg);
@@ -7593,7 +7736,7 @@ void reread_config( struct config_data *cfg )
 	// FREE NEWCFG
 	///////////////////////////////////////////////////////////////////////////
 
-	sleep( 1 );
+	// Newcamd readers are excluded by the config lifetime write lock.
 
 	// http Server
 	if (newcfg.http.handle>0) close(newcfg.http.handle);
@@ -7749,6 +7892,18 @@ void reread_config( struct config_data *cfg )
 		cache = cache->next;
 	}
 
+	/* Assign stable IDs and open/validate the reloaded listeners while readers
+	 * remain excluded. This also ensures a connection event can never expose a
+	 * newly-added server with ID zero between reload and check_config(). */
+	cfg_set_id_counters(cfg);
+	check_config(cfg);
+
+	/* Invalidate queued cache datagrams from any retired profile graph. The
+	 * worker resolves (id, handle, generation) under the matching read gate. */
+	cfg->cache.generation++;
+	if (!cfg->cache.generation) cfg->cache.generation = 1;
+	ecm_unlock_config_exclusive();
+	newcamd_config_write_unlock();
 }
 
 

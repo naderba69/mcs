@@ -16,6 +16,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CWEMERGENCY_CHANNELS 32
 #define CWEMERGENCY_THRESHOLD 3  /* consecutive failures before emergency */
@@ -27,6 +28,7 @@ struct cwemergency_channel {
     uint16_t sid;
     uint32_t consecutive_failures;
     uint32_t last_trigger;
+    uint32_t last_used;
     uint32_t total_triggers;
     uint8_t used;
 };
@@ -66,7 +68,7 @@ cwemergency_find(struct cwemergency_table *t, uint16_t caid,
 
 static inline struct cwemergency_channel *
 cwemergency_alloc(struct cwemergency_table *t, uint16_t caid,
-                  uint32_t provid, uint16_t sid)
+                  uint32_t provid, uint16_t sid, uint32_t now)
 {
     int i, oldest = 0;
     struct cwemergency_channel *c;
@@ -80,19 +82,28 @@ cwemergency_alloc(struct cwemergency_table *t, uint16_t caid,
             c->caid = caid;
             c->provid = provid;
             c->sid = sid;
+            c->last_used = now;
             c->used = 1;
             return c;
         }
-        if (t->channels[i].total_triggers < t->channels[oldest].total_triggers) {
-            oldest = i;
+    }
+    /* Reuse the entry with greatest modulo elapsed age. */
+    {
+        uint32_t oldest_age = tick32_elapsed(now, t->channels[0].last_used);
+        for (i = 1; i < CWEMERGENCY_CHANNELS; i++) {
+            uint32_t age = tick32_elapsed(now, t->channels[i].last_used);
+            if (age > oldest_age) {
+                oldest_age = age;
+                oldest = i;
+            }
         }
     }
-    /* Reuse oldest */
     c = &t->channels[oldest];
     memset(c, 0, sizeof(*c));
     c->caid = caid;
     c->provid = provid;
     c->sid = sid;
+    c->last_used = now;
     c->used = 1;
     return c;
 }
@@ -100,25 +111,27 @@ cwemergency_alloc(struct cwemergency_table *t, uint16_t caid,
 /* Record a failure for a channel */
 static inline void cwemergency_record_failure(struct cwemergency_table *t,
                                                 uint16_t caid, uint32_t provid,
-                                                uint16_t sid)
+                                                uint16_t sid, uint32_t now)
 {
     struct cwemergency_channel *c;
     if (!cwemergency_enabled(t)) return;
-    c = cwemergency_alloc(t, caid, provid, sid);
+    c = cwemergency_alloc(t, caid, provid, sid, now);
     if (!c) return;
     c->consecutive_failures++;
+    c->last_used = now;
 }
 
 /* Record a success — reset failure counter */
 static inline void cwemergency_record_success(struct cwemergency_table *t,
                                                uint16_t caid, uint32_t provid,
-                                               uint16_t sid)
+                                               uint16_t sid, uint32_t now)
 {
     struct cwemergency_channel *c;
     if (!t) return;
     c = cwemergency_find(t, caid, provid, sid);
     if (!c) return;
     c->consecutive_failures = 0;
+    c->last_used = now;
 }
 
 /* Check if emergency source should be triggered.
@@ -138,12 +151,14 @@ static inline int cwemergency_trigger(struct cwemergency_table *t,
     if (c->consecutive_failures < CWEMERGENCY_THRESHOLD) return 0;
 
     /* Check cooldown */
-    if (c->last_trigger > 0 && (now - c->last_trigger) < CWEMERGENCY_COOLDOWN) {
+    if (c->total_triggers > 0 &&
+        tick32_elapsed(now, c->last_trigger) < CWEMERGENCY_COOLDOWN) {
         return 0;
     }
 
     /* Trigger! */
     c->last_trigger = now;
+    c->last_used = now;
     c->total_triggers++;
     t->total_triggers++;
     c->consecutive_failures = 0;  /* reset after trigger */

@@ -133,21 +133,57 @@ That fallback is mandatory and is asserted by a test.
 
 ---
 
-## D6 — Cache entry layout
+## D6 — Cache entry layout (original decision)
 
-**Decision.** No change to `struct cache_data` / `struct cw_cache_data`.
+**Original decision.** No change to `struct cache_data` / `struct cw_cache_data`.
 Origin tracking already exists (`cw_cache_data.peerid`, `nbpeers`). Trust
 state lives in a **separate** fixed-size table keyed
 `(source_type, source_id, caid, provid, sid)`.
 
-**Why.** The cache layout is shared with the wire protocol and is
-`__attribute__((__packed__))`; changing it is a structurally risky change
-under Workflow rule 4, and it is unnecessary because the data we need is
-already there.
+**Why.** The cache layout is packed and structurally sensitive. The original
+trust work did not need a layout change; the later, narrowly approved lifetime
+identity exception is recorded separately as D6A below. `cw_cache_data` and
+peer wire records remain unchanged.
 
-**Risk.** None to the cache.
+---
 
-**Rollback.** n/a.
+## D6A — Approved ECM lifetime identity in internal cache pipes
+
+**Approval.** The project owner explicitly approved adding one
+`uint64_t ecm_lifetime_id` to `struct cache_data` and carrying it in the
+internal ECM/cache pipe messages, specifically to prevent a delayed pipe
+message from being applied after an ECM pool slot has been reused. This is a
+single-purpose exception to D6/E2, not blanket approval for other cache-layout
+or peer-protocol changes.
+
+**Decision.** Pair each serialized ECM pointer with its nonzero lifetime ID in
+both internal pipe directions. Receivers require the pointer and generation to
+match before applying a message; retained cache waiters and profile reads are
+also generation-checked. ECM slot reuse invalidates the published generation
+before reset and publishes the new generation after initialization. Cache
+workers use aligned atomics for the generation, waiter-live mirror and cached
+profile pointer; they do not read mutable `dcwstatus`/`cs` fields without
+`lockecm` or take `lockecm` while holding `lockcache`. The mirror/pointer live
+only in the internal ECM request object and are not serialized.
+
+**Boundary.** This changes only in-process pipe payloads and `struct cache_data`;
+the extra ECM-side atomics do not change cache-entry or peer wire layouts. It
+does **not** change the CacheEX/CSP peer wire protocol or `struct
+cw_cache_data`. The internal message lengths are validated before decoding, in
+both `CACHEEX` and non-`CACHEEX` builds.
+
+**Memory cost.** One extra 64-bit field adds 8 bytes per cache entry: 8 KiB per
+1024-slot CAID table. With the x64 `-fpack-struct` `CACHEEX` build, the entry
+increases from 94 to 102 bytes and the table from 96,256 to 104,448 bytes.
+The cache-allocation bite test tracks the new size.
+
+**Risk.** Cache-table memory use increases by the stated amount. The internal
+pipe format changes in lockstep between its senders and receivers; exact-length
+checks reject old/malformed payload shapes rather than misdecode them. Peer
+wire compatibility is unchanged.
+
+**Rollback.** Revert the cache field, internal serialization/length checks and
+generation guards together; restore the allocation-bite size and its test.
 
 ---
 
@@ -202,10 +238,12 @@ Worth noting: the upstream author clearly considered this, because the matching
 lock pair is present but commented out at `srv-newcamd.c:1139` and `:1150`.
 
 
-### E2 — Anything touching `struct cache_data` layout
+### E2 — Other changes touching `struct cache_data` layout
 
-Not planned. Recorded so that if a later task seems to need it, it comes to you
-first.
+D6A records the one approved exception: the lifetime-generation field required
+for exact internal ECM/cache pipe identity. Every other `struct cache_data` or
+`struct cw_cache_data` layout change remains unapproved and must be escalated
+before implementation. No peer-wire layout change is authorized.
 
 ### D7 — `DCWFILTER` gates are global, not per-profile
 
@@ -1652,22 +1690,23 @@ layout; ~94 KiB in the current x64 CACHEEX build) with no NULL checks;
 `cw_cache_data`, no checks — and every caller dereferenced the results.
 The cache path is hot and it is the process: one failed allocation was a
 SIGSEGV on the cache thread. Proven, not assumed: an LD_PRELOAD interposer
-(`tests/ca-bite.c`) refuses exactly the cache-table allocation. In the
-2026-09-26 88-byte layout that was calloc(90112); the current packed x64
-CACHEEX layout is 94 bytes, so the matching allocation is calloc(96256).
-The original bite matched the then-shipped binary's disassembly and killed
-the 3.3 binary with exit 139 on the first honest client ECM. The current
-size-matched bite makes the fixed binary survive with bounded
-`CACHE: out of memory` lines for two ECMs.
+(`tests/ca-bite.c`) refuses exactly the cache-table allocation. When D34 was
+written, the 2026-09-26 88-byte layout requested calloc(90112), and the then-
+current packed x64 CACHEEX layout was 94 bytes (calloc(96256)). D6A later
+approved the narrowly scoped `ecm_lifetime_id` field; the current layout is
+102 bytes and the matching table allocation is 104448 bytes. The original
+bite matched the then-shipped binary's disassembly and killed the 3.3 binary
+with exit 139 on the first honest client ECM. The size-matched bite makes the
+fixed binary survive with bounded `CACHE: out of memory` lines for two ECMs.
 
 **Decision 1 — guard at birth, drop one event.** Fourteen guards, one per
 allocation and one per caller that dereferences what an allocation
 returned. On failure the caller drops the ONE event it was holding: a find
 (the ECM keeps its own cachetimeout and falls back to the card servers), a
 request to peers, a reply's remembered copy, one peer's agreement report.
-No pool, no freelist, no struct or layout change — the reserved categories
-stay untouched by choice, and GR9 holds: nothing blocks, nothing queues,
-bounded memory only.
+No pool, no freelist, no peer-wire layout change — the narrowly approved
+internal generation field is documented in D6A. GR9 holds: nothing blocks,
+nothing queues, bounded memory only.
 
 **Decision 2 — the table exists before it can be found.** In
 `getcachetabbycaid()` the node is linked into `cachelist` only after its
@@ -1771,20 +1810,17 @@ hunks, search `TASK 3.6`:
    if a newer waiter re-armed the entry, the older ECM's death must not
    disarm it.
 2. The two death moments call it, with the death committed FIRST:
-   `ecm_setdcwdata()` after the SUCCESS commit (setdcw thread, inside
-   lockecm — lockecm-then-lockcache, the order the `cache_check_cw`
-   walk already uses; audited: nothing acquires lockecm while holding
-   lockcache) and `ecm_faileddcw()` after the FAILED commit (ecm
-   thread, lock-free context it already owns; the clear takes lockcache
-   alone, no nesting, no cycle).
-3. The three arm sites refuse a waiter that is already SUCCESS/FAILED
-   (`cache_sendpipe_armable`, read under lockcache). This closes the
-   only real race — death before the FIND/REQUEST is drained from the
-   pipe — by ordering: the FAILED/SUCCESS commit precedes the clear,
-   and arm decisions are serialized against the clear by lockcache, so
-   "clear ran, then arm" cannot happen with a dead waiter. With
-   cachetimeout 0 (the default) that race window is real upstream
-   timing, not theory.
+   `ecm_setdcwdata()` after the SUCCESS commit and `ecm_faileddcw()` after
+   the FAILED commit. Both are reached with `lockecm` held; clearing takes
+   `lockcache` in the established `lockecm -> lockcache` order. Cache workers
+   do not take `lockecm` while holding `lockcache`.
+3. The three arm sites use `cache_sendpipe_armable`, which samples the
+   aligned atomic lifetime token and waiter-live mirror rather than reading
+   mutable `dcwstatus` without `lockecm`. The FAILED/SUCCESS transition
+   publishes the mirror as dead before the clear, and the clear serializes
+   with pipe-arm decisions under `lockcache`. With cachetimeout 0 (the
+   default) that death-before-pipe-drain race is real upstream timing, not
+   theory.
 
 Never cleared at WAITCACHE-to-WAIT: a WAIT waiter is still servable
 (`ecm_setdcwdata` accepts any non-SUCCESS ECM), so the arm stays the
@@ -1792,13 +1828,13 @@ delivery path until SUCCESS or FAILED. That is the constraint "clear
 only when the waiting ECM is answered or gone, never earlier", kept
 literally. No timer, no sweep (the constraint forbade a timer).
 
-**Recorded, not changed:** upstream's PIPE_CACHE_FIND_SUCCESS handler
-checks caid/hash/sid but not `dcwstatus`, so an in-flight push racing a
-FAILED commit can still flip the dead ECM to SUCCESS and push to its
-clients — a pre-existing microseconds-wide window, orthogonal to the
-arm; the `DCW_SENT`-per-cwdata semantics (a key pushed to a LIVE waiter
-stays unservable to the NEXT waiter after a re-arm) is upstream's own
-design and remains — this task removes only the death-driven burial.
+**Terminal-delivery check.** The current `PIPE_CACHE_FIND_SUCCESS` handler
+checks the captured lifetime and cache key under `lockecm`, refuses a FAILED
+ECM, and the Set-DCW worker revalidates lifetime plus terminal status before
+commit. This closes the queued-push-after-failure path; success remains
+idempotent. The `DCW_SENT`-per-cwdata behavior (a key pushed to a live waiter
+stays unservable to the next waiter after a re-arm) remains a separate cache
+policy and is not changed by this lifetime repair.
 
 **Tests:** live target `sp` (16730-16733, sp-peer.c): the peer records
 the server's request, stays silent until the cache-only waiter is dead,
@@ -4105,6 +4141,151 @@ green, `prof` 5/5, `cfgcheck` 4 checks ok.
 
 ---
 
+## D107 (R44) — Publish server card lists under `locksrv`; make no-thread link complete
+
+**Defects found during the follow-up audit.** The HTTP `/server` snapshot and
+row renderer traverse `srv->card` under `prg.locksrv`, but the initial card
+records in the Newcamd, Camd35, and CS378X connect handshakes were linked without
+that mutex. The no-thread link also exposed a missing `ecm_setdcw_marked`
+implementation and references to `log`/`log2f` without libm.
+
+**Decision and fix.** Treat `srv->card` runtime publication as a `locksrv`
+contract: all three handshake insertions now hold that lock, matching the HTTP
+readers and the protocol handlers. Config reload remains the documented
+exception because it holds the write lifetime gate, drains connect workers,
+and owns `lockecm` exclusively. Camd35/CS378X initial-card allocations are
+checked before dereference. The no-thread ECM-pipe consumer now has its own
+marked-CW entry point and applies the same configured cache-cycle mismatch
+check without acquiring `locksrv` while holding `lockecm`. `-lm` is linked
+after the object list. Peer wire formats and messages were not changed.
+
+**Follow-up lock audit (corrected in D109).** Active `ecm_request_set_dcwstatus()`
+callers were checked for `lockecm` ownership; `put_ecm2cache()` and cache-snapshot
+paths use the established `lockecm -> lockcache` order. The earlier assertion
+that `srv_cstatadd()` callers held `locksrv` was incorrect: protocol readers
+hold the ECM lock instead. D109 adds a dedicated leaf mutex shared by cstat
+writers and the HTTP snapshot, without adding `locksrv` acquisition to the
+no-thread ECM path. Peer wire messages were not changed; the no-thread handler
+still applies the same configured cycle policy as the threaded handler.
+
+**Verification (2026-11-05).** Standard x64 link: exit 0, no compiler
+warnings/errors in the captured log. Full x64 link with `THREAD_DCW` omitted
+and `CLI_CSCACHE`/`CACHEEX` enabled: exit 0, no compiler warnings/errors in
+the captured log. Forced `make -C make-x64 -B test`: 28 suites, 1,028 checks
+passed, 0 failed. The test build emitted 132 compiler-warning diagnostics
+(including compatibility flags, unused test/header helpers and parameters,
+sign comparisons, bounded-string-copy, and deliberate short-buffer cases); these
+were not suppressed. The two production link logs were warning-free. `git diff --check`: passed. The no-thread binary has not
+been run against a live configuration; live ECM-pipe back-pressure and
+queue-saturation stress tests remain outstanding.
+
+**Risk.** The no-thread marked-CW branch is compile/link-verified but not
+runtime-tested here. A full deferred-reply queue logs and drops an item rather
+than blocking under `lockecm`; the destination peer may then time out. The
+cache-peer HTTP/runtime race and the DNS-host-state race are now closed by
+shared ownership locks (`lockcache` and `lockdnsth`) and value-only snapshots;
+the resolver does not retain those locks while doing DNS I/O. Peer-reputation
+file persistence is deferred until after `lockcache` is released. These lock
+changes are build/test-verified but have not been exercised under live network
+load or a race detector.
+
+**Rollback.** Revert D107 as one unit only if a reviewed replacement restores
+safe card-list publication and a complete supported no-thread link path.
 
 ---
 
+## D108 (R45) — Resolve CacheEx mode-2 receiver state across reloads
+
+**Defect confirmed from lifecycle tracing.** Camd35, CCcam, and CS378X each
+created a detached CacheEx mode-2 receive thread with a raw `server_data *`.
+The reload path obtains the config write lifetime gate, waits for outbound
+connection workers, and then can reclaim removed server records; it neither
+counts nor joins these receive workers. A receiver blocked in `poll()` could
+therefore wake after reclamation and read `srv->handle`, status, or protocol
+state through a freed pointer. This is a proven lifetime flaw from the control
+flow and reclamation sites, though no live crash or race-detector trace was
+captured.
+
+**Fix.** A receive job now owns only copied values: server ID, pool (normal or
+CacheEx), protocol type, socket descriptor, and per-connection generation.
+Before polling and after every event, the worker resolves the current server
+under the config lifetime read pin and `locksrv`; it handles data or disconnects
+only if every identity field and the active connection still match. It never
+uses a `server_data *` after releasing the protected lookup. The creator's
+existing connection-worker count protects its one-time pool lookup until the
+job has been created; reload drains that worker before mutating either list.
+Peer messages, frame shapes, and wire compatibility are unchanged.
+
+**Lock-order and diagnostics.** `newcamd_config_read_lock_mutex()` pairs a
+config read pin with a stable runtime mutex using try-lock/retry: if the mutex is
+busy, it releases the pin before waiting on that mutex. This avoids a blocking
+wait on `locksrv` while pinning the config graph. The authenticated `/threads` route releases its enclosing request-level read
+pin before taking a bounded value-only snapshot of thread rows from both server
+pools under that pair; the page releases both locks before formatting or socket
+writes. CS378X thread
+creation failure no longer returns an error that would make the caller close a
+socket already closed by `disconnect_srv()`.
+
+**Verification (2026-11-05).** Standard x64 link and full x64 link with
+`THREAD_DCW` omitted (while retaining `CACHEEX`) both exited 0. Forced
+`make -C make-x64 -B test` exited 0; the added Newcamd-lifetime regression
+assertion confirms a reader waiting for a busy runtime mutex does not pin the
+reload gate, and all tests in that target passed. `git diff --check` passed.
+The legacy build still emits its existing compiler-option/test-helper warning
+diagnostics; no source warning/error was reported for the edited runtime files.
+
+**Limits and remaining review.** No live peer-plus-reload stress run or
+ThreadSanitizer/AddressSanitizer race test was performed. The callsite audits
+for `getpeerbyid()`, `srv_cstatadd()`, `ecm_request_set_dcwstatus()`,
+`store_ecmdata()`, `disconnect_srv()`, Newcamd receive locks, and the
+`attest_note()` → `attest_purge()` path are recorded in D109. The full project
+review is not complete: the CCcam/CacheEx client poll loops still need a
+caller-by-caller audit of shared client runtime fields, and live concurrency
+stress tests remain outstanding.
+
+
+---
+
+## D109 (R46) — Synchronize server cstat and close the targeted caller audit
+
+**Defect.** `srv_cstatadd()` updates `srv->cstat` from protocol receive handlers
+while they hold `lockecm`; the HTTP `/server` detail snapshot read the same
+counters under `locksrv`. Those are different mutexes, so the previous
+caller-lock assumption was false and the read/write pair was not synchronized.
+
+**Fix.** Add `srv_cstat_lock` as a dedicated leaf mutex. `srv_cstatadd()` holds it
+for each counter update, and `http_server_detail_snapshot_take()` holds it while
+copying the counter array. No `locksrv` acquisition was added to the ECM path,
+including the no-thread build. The outer config lifetime pin keeps the server
+object alive for both writers and readers.
+
+**Caller audit.** `getpeerbyid()` returns a borrowed pointer: every active
+production caller is protected by `lockcache`; the remaining old HTTP reference
+is in commented-out code. Active `ecm_request_set_dcwstatus()` and
+`store_ecmdata()` sites hold the ECM lock. `attest_note()` calls
+`attest_purge()` directly after releasing its table mutex; all active protocol
+receive callers hold `lockecm`, which pins `cfg.cardserver`. The purge takes
+`lockcache` for the sweep in the established `lockecm -> lockcache` order,
+releases it, then updates ECM entries under the still-held `lockecm`.
+Ordinary `disconnect_srv()` callers hold `locksrv`; reload remains the explicit
+exception after worker quiescence and exclusive config/ECM ownership. The
+`free_cardlist()`-local `srv->lock` does not replace that caller lock.
+
+`http_style_write()` and `tcp_write_menu()` copy the settings they need and
+release their local locks before output. Some page handlers retain the outer
+config lifetime read pin because they still borrow config-owned data; removing
+that pin requires snapshotting those page data structures and was intentionally
+not attempted here. CacheEx mode-3 server poll state now uses the paired
+config/`locksrv` snapshot with generation revalidation. The CCcam/CacheEx client
+poll loops remain a separate unresolved shared-runtime audit; this decision
+does not claim project-wide race freedom.
+
+**Verification (2026-11-05).** Standard x64 and EPOLL x64 builds exited 0. The
+x64 build with `THREAD_DCW` omitted and `CACHEEX` enabled exited 0; a separate
+x64 build without `CACHEEX` also exited 0. `make -C make-x64 test` reported
+1,259 checks in 45 grouped summaries, 0 failed. HTTP smoke tests on both the
+standard and EPOLL binaries verified `/` and `/threads` return 200 and render
+the thread snapshot; the empty-config check returned exit 1 as expected.
+`git diff --check` passed. Legacy test compiler-option/helper warnings remain;
+the no-`CACHEEX` compile emitted one `LEDGER_CAPTURE_CLIENT_DELIVERY` macro
+redefinition warning. No sanitizer or live peer/reload stress test was run.

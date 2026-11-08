@@ -16,6 +16,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define UDPFAST_PENDING_SIZE 64
 #define UDPFAST_RETX_MS 200
@@ -82,13 +83,17 @@ static inline uint32_t udpfast_send(struct udpfast_table *t,
         }
     }
     if (free_slot < 0) {
-        /* Reuse oldest */
-        int oldest = 0;
-        for (i = 1; i < UDPFAST_PENDING_SIZE; i++) {
-            if (t->pending[i].sent_at < t->pending[oldest].sent_at) {
+        /* Reuse the pending packet with greatest modulo elapsed age. */
+        int oldest = -1;
+        uint32_t oldest_age = 0;
+        for (i = 0; i < UDPFAST_PENDING_SIZE; i++) {
+            uint32_t age = tick32_elapsed(now, t->pending[i].sent_at);
+            if (oldest < 0 || age > oldest_age) {
                 oldest = i;
+                oldest_age = age;
             }
         }
+        if (oldest < 0) return 0;
         free_slot = oldest;
     }
 
@@ -123,7 +128,7 @@ static inline void udpfast_ack(struct udpfast_table *t, uint32_t seq)
 /* Check for packets that need retransmission.
  * Returns: number of packets to retransmit.
  */
-static inline int udpfast_check_retx(const struct udpfast_table *t,
+static inline int udpfast_check_retx(struct udpfast_table *t,
                                       uint32_t now,
                                       uint32_t *seqs, uint8_t **datas,
                                       int *data_lens,
@@ -134,24 +139,26 @@ static inline int udpfast_check_retx(const struct udpfast_table *t,
     if (!udpfast_enabled(t)) return 0;
 
     for (i = 0; i < UDPFAST_PENDING_SIZE && n < max_out; i++) {
-        const struct udpfast_pending *p = &t->pending[i];
+        struct udpfast_pending *p = &t->pending[i];
         uint32_t age_ms;
 
         if (!p->used || p->acked) continue;
+
+        /* now and sent_at are millisecond uint32 ticks. */
+        age_ms = tick32_elapsed(now, p->sent_at);
+        if (age_ms < UDPFAST_RETX_MS * (p->retx_count + 1u)) continue;
         if (p->retx_count >= UDPFAST_MAX_RETRIES) {
-            ((struct udpfast_table *)t)->total_timeouts++;
+            t->total_timeouts++;
+            p->used = 0;
             continue;
         }
 
-        age_ms = (now - p->sent_at) * 1000;
-        if (age_ms >= UDPFAST_RETX_MS * (p->retx_count + 1)) {
-            seqs[n] = p->seq;
-            datas[n] = (uint8_t *)p->data;
-            data_lens[n] = p->data_len;
-            dest_ips[n] = p->dest_ip;
-            dest_ports[n] = p->dest_port;
-            n++;
-        }
+        seqs[n] = p->seq;
+        datas[n] = (uint8_t *)p->data;
+        data_lens[n] = p->data_len;
+        dest_ips[n] = p->dest_ip;
+        dest_ports[n] = p->dest_port;
+        n++;
     }
     return n;
 }
@@ -179,7 +186,8 @@ static inline void udpfast_expire(struct udpfast_table *t,
     int i;
     if (!t) return;
     for (i = 0; i < UDPFAST_PENDING_SIZE; i++) {
-        if (t->pending[i].used && (now - t->pending[i].sent_at) > max_age) {
+        if (t->pending[i].used &&
+            tick32_elapsed(now, t->pending[i].sent_at) > max_age) {
             t->pending[i].used = 0;
         }
     }

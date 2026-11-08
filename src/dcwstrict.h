@@ -15,6 +15,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <pthread.h>
+#include "tick_math.h"
 
 // ============================================================================
 // Configuration
@@ -113,9 +114,10 @@ static inline int dcwstrict_check_stale(const uint8_t cw[16], uint16_t caid,
     for (i = 0; i < dcwstrict_stale_count; i++) {
         struct dcwstrict_stale_entry *e = &dcwstrict_stale_table[i];
         
-        // Check time window
-        if ((now_ms - e->timestamp_ms) > DCWSTRICT_STALE_WINDOW_MS) {
-            continue;  // Expired
+        // Empty entries and expired entries cannot match a stale key.
+        if (e->hit_count == 0 ||
+            tick32_elapsed(now_ms, e->timestamp_ms) > DCWSTRICT_STALE_WINDOW_MS) {
+            continue;
         }
         
         // Check channel match
@@ -137,39 +139,43 @@ static inline int dcwstrict_check_stale(const uint8_t cw[16], uint16_t caid,
 static inline void dcwstrict_add_stale(const uint8_t cw[16], uint16_t caid,
                                         uint32_t provid, uint16_t sid, uint32_t now_ms)
 {
-    // Find empty or expired slot
     int i;
     int slot = -1;
-    
+    uint32_t oldest_age = 0;
+
+    /* Reuse an empty or expired slot first. */
     for (i = 0; i < DCWSTRICT_MAX_STALE_ENTRIES; i++) {
         struct dcwstrict_stale_entry *e = &dcwstrict_stale_table[i];
-        
-        if (e->timestamp_ms == 0 || (now_ms - e->timestamp_ms) > DCWSTRICT_STALE_WINDOW_MS) {
+        if (e->hit_count == 0 ||
+            tick32_elapsed(now_ms, e->timestamp_ms) > DCWSTRICT_STALE_WINDOW_MS) {
             slot = i;
             break;
         }
     }
-    
+
     if (slot == -1) {
-        // Table full, overwrite oldest
-        slot = 0;
-        uint32_t oldest = dcwstrict_stale_table[0].timestamp_ms;
-        for (i = 1; i < DCWSTRICT_MAX_STALE_ENTRIES; i++) {
-            if (dcwstrict_stale_table[i].timestamp_ms < oldest) {
-                oldest = dcwstrict_stale_table[i].timestamp_ms;
+        /* Full table: replace the entry with greatest elapsed age. */
+        for (i = 0; i < DCWSTRICT_MAX_STALE_ENTRIES; i++) {
+            uint32_t age = tick32_elapsed(now_ms,
+                                          dcwstrict_stale_table[i].timestamp_ms);
+            if (slot == -1 || age > oldest_age) {
+                oldest_age = age;
                 slot = i;
             }
         }
     }
-    
-    struct dcwstrict_stale_entry *e = &dcwstrict_stale_table[slot];
-    memcpy(e->cw, cw, 16);
-    e->caid = caid;
-    e->provid = provid;
-    e->sid = sid;
-    e->timestamp_ms = now_ms;
-    e->hit_count = 1;
-    
+
+    if (slot < 0) return;
+    {
+        struct dcwstrict_stale_entry *e = &dcwstrict_stale_table[slot];
+        memcpy(e->cw, cw, 16);
+        e->caid = caid;
+        e->provid = provid;
+        e->sid = sid;
+        e->timestamp_ms = now_ms;
+        e->hit_count = 1;
+    }
+
     if (slot >= dcwstrict_stale_count) {
         dcwstrict_stale_count = slot + 1;
     }
@@ -290,6 +296,7 @@ static void dcwstrict_init(void)
 {
     memset(&dcwstrict_cfg, 0, sizeof(dcwstrict_cfg));
     memset(dcwstrict_stale_table, 0, sizeof(dcwstrict_stale_table));
+    dcwstrict_stale_count = 0;
     memset(&dcwstrict_stats, 0, sizeof(dcwstrict_stats));
     
     // Defaults

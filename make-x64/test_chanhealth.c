@@ -148,6 +148,22 @@ int main(void)
 	r = chanhealth_lookup(&t, 0x0100, 0x000000, 0x0100, now);
 	ok(r && r->delivered == 0 && r->used == 1 && r->sid == 0x0100,
 	   "the evicted channel comes back with fresh counters (the victim was the oldest)");
+	{
+		uint32_t tick = 100u;
+		memset(&t, 0, sizeof(t));
+		for (i = 0; i < CHANHEALTH_SLOTS; i++) {
+			uint32_t age = (i == 0) ? 3000000000u : (uint32_t)(i + 1);
+			chanhealth_note(&t, CWLOG_DELIVERED, 0x0100, 0,
+			                (uint16_t)(0x0300 + i), tick - age);
+		}
+		chanhealth_note(&t, CWLOG_DELIVERED, 0x0100, 0, 0x0999, tick);
+		r = chanhealth_lookup(&t, 0x0100, 0, 0x0300, tick);
+		ok(r && r->delivered == 0,
+		   "wrap-safe channel eviction replaces the greatest unsigned elapsed age");
+		r = chanhealth_lookup(&t, 0x0100, 0, 0x0301, tick);
+		ok(r && r->delivered == 1,
+		   "wrap-safe channel eviction preserves recently touched rows");
+	}
 
 	/* --- the copy bound --- */
 	memset(&t, 0, sizeof(t));

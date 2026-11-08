@@ -81,9 +81,10 @@ void *thread_twin()
 	while (1) {
 		for(chn=0; chn<cfg.twin.chninfo.count; chn++) {
 			uint32_t ticks = GetTickCount();
+			uint32_t age = ticks - cfg.twin.chninfo.data[chn].ecm.rtime;
 			if ( !cfg.twin.chninfo.data[chn].ecm.rtime ) continue;
-			if ( (cfg.twin.chninfo.data[chn].ecm.rtime+2500) > ticks ) continue;
-			if ( (cfg.twin.chninfo.data[chn].ecm.rtime+8000) < ticks ) continue;
+			if ( age < 2500u ) continue;
+			if ( age > 8000u ) continue;
 
 			if ( !twin_send(chn,cw) ) {
  				if ( !twin_send(chn,cw) ) continue;

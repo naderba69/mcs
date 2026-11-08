@@ -73,6 +73,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include "tick_math.h"
 
 /* One evidence line per (source, CAID) per window, like the crossing
  * sentence's budget. Rows and counters are per-event; the line is not. */
@@ -146,22 +147,26 @@ static int ptg_line_due(struct ptg_linetab *t, int site, int srctype, int srcid,
                         uint16_t caid, uint32_t now)
 {
 	int i, free_i = -1, victim = -1;
-	uint32_t oldest = 0;
+	uint32_t oldest_age = 0;
 
+	if (!t) return 1;
 	for (i = 0; i < PTG_LINE_SLOTS; i++) {
 		struct ptg_lineslot *s = &t->s[i];
 		if (s->used && s->site == site && s->srctype == srctype &&
 		    s->srcid == srcid && s->caid == caid) {
-			if ((int32_t)(now - s->last) >= (int32_t)PTG_LINE_WINDOW_MS) {
+			if (tick32_elapsed(now, s->last) >= PTG_LINE_WINDOW_MS) {
 				s->last = now;
 				return 1;
 			}
 			return 0;
 		}
 		if (!s->used && free_i < 0) free_i = i;
-		if (s->used && (victim < 0 || (int32_t)(s->last - oldest) < 0)) {
-			oldest = s->last;
-			victim = i;
+		if (s->used) {
+			uint32_t age = tick32_elapsed(now, s->last);
+			if (victim < 0 || age > oldest_age) {
+				oldest_age = age;
+				victim = i;
+			}
 		}
 	}
 	{

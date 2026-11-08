@@ -119,6 +119,27 @@ int main(void)
 		CHECK(trustagg_ask(&ta, 1, 5, 0x1884, 1100 + 3000 + 56000) == 1,
 		      "and the peer is askable again the moment it is above the line");
 	}
+	{
+		struct trust_table wrapped_fine;
+		struct trustagg_table wrapped_coarse;
+		uint32_t now = 100u;
+		uint32_t seen = now - 3000000000u;
+		struct trust_entry *fe;
+		struct trustagg_entry *ce;
+		memset(&wrapped_fine, 0, sizeof(wrapped_fine));
+		memset(&wrapped_coarse, 0, sizeof(wrapped_coarse));
+		trust_record(&wrapped_fine, TRUST_EV_PROOF, 1, 55, 0x1884, 1, 0x65, seen);
+		trust_record(&wrapped_fine, TRUST_EV_PROOF, 1, 55, 0x1884, 1, 0x65, seen);
+		trustagg_note(&wrapped_coarse, TRUST_EV_PROOF, 1, 55, 0x1884, seen, NULL);
+		trustagg_note(&wrapped_coarse, TRUST_EV_PROOF, 1, 55, 0x1884, seen, NULL);
+		CHECK(tl_fade_fine(&wrapped_fine, now, 1u, 1u) == 1 &&
+		      tl_fade_coarse(&wrapped_coarse, now, 1u, 1u) == 1,
+		      "both tiers age evidence older than the signed half-range");
+		fe = trust_find(&wrapped_fine, 1, 55, 0x1884, 1, 0x65);
+		ce = trustagg_find(&wrapped_coarse, 1, 55, 0x1884);
+		CHECK(fe && ce && fe->score == TRUST_START && ce->score == TRUST_START,
+		      "long wrap-safe silence returns fine and coarse scores to neutral");
+	}
 
 	/* --- 2. the round trip ------------------------------------------------ */
 	memset(&tf, 0, sizeof(tf));

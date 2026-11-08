@@ -154,7 +154,7 @@ OBJECTS = $(OUTPUT)/sha1.o $(OUTPUT)/sha256.o $(OUTPUT)/des.o $(OUTPUT)/md5.o $(
 	$(OUTPUT)/dcw.o $(OUTPUT)/convert.o $(OUTPUT)/tools.o $(OUTPUT)/debug.o $(OUTPUT)/parser.o $(OUTPUT)/ipdata.o \
 	$(OUTPUT)/threads.o $(OUTPUT)/sockets.o $(OUTPUT)/msg-newcamd.o $(OUTPUT)/msg-cccam.o $(OUTPUT)/msg-radegast.o $(OUTPUT)/config.o \
 	$(OUTPUT)/ecmdata.o $(OUTPUT)/httpserver.o $(OUTPUT)/telnet.o $(OUTPUT)/main.o \
-	$(OUTPUT)/loginthrottle.o $(OUTPUT)/peerrep.o $(OUTPUT)/cwconsensus.o $(OUTPUT)/monjson.o $(OUTPUT)/biss.o \
+	$(OUTPUT)/newcamd-lifetime.o $(OUTPUT)/loginthrottle.o $(OUTPUT)/peerrep.o $(OUTPUT)/cwconsensus.o $(OUTPUT)/monjson.o $(OUTPUT)/biss.o \
 	$(OUTPUT)/server-health.o $(OUTPUT)/ecm-optimizations.o $(OUTPUT)/advanced-optimizations.o $(OUTPUT)/caid-optimizations.o $(OUTPUT)/ecm-provider-config.o \
 	$(OUTPUT)/diagnostics.o $(OUTPUT)/debug-ecm.o $(OUTPUT)/server-stats.o $(OUTPUT)/log-viewer.o $(OUTPUT)/safe-time.o $(OUTPUT)/packed-time.o $(OUTPUT)/user-trace.o $(OUTPUT)/cache-analytics.o $(OUTPUT)/auto-tuning.o $(OUTPUT)/web-dashboard.o
 
@@ -177,7 +177,7 @@ $(OUTPUT):
 	@mkdir -p $(OUTPUT)
 
 link: $(OBJECTS)
-	$(CC) -o $(OUTPUT)/$(NAME) $(LFLAGS) $(OBJECTS) -lpthread
+	$(CC) -o $(OUTPUT)/$(NAME) $(LFLAGS) $(OBJECTS) -lm -lpthread
 
 # TASK R29 (D80): every object depends on every header. The pattern rule
 # used to name only the .c file, so editing a shared header (config.h

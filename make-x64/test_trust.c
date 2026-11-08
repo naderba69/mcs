@@ -206,27 +206,38 @@ int main(void)
 
 	/* ---- a full table evicts the longest-unseen, not the worst-scored ---- */
 	/*
-	 * The first version of this test failed, and the test was wrong rather than
-	 * the engine. Its fill loop used `(uint16_t)(1000 + i)` for i in 0..255, which
-	 * reaches sid 1100 -- the same SID as the worst-scored source -- so the loop
-	 * touched that entry and made it the most recently seen. Asserting it survived
-	 * eviction after that proved nothing.
-	 *
-	 * The real property is that eviction picks the longest-unseen and NOT the
-	 * lowest-scored. So: record a badly-scored source that is recent, then fill the
-	 * table with 256 entries that are all older and none of which collide with its
-	 * key. A lowest-score policy would evict the bad source; a longest-unseen
-	 * policy keeps it.
+	 * Fill 255 distinct, older entries first, then insert and lower a recent
+	 * source in the final slot. The next insertion must evict an older source,
+	 * not the one with the lowest score.
 	 */
 	trust_reset(&t);
+	for (i = 0; i < TRUST_TABLE_SIZE - 1; i++)
+		trust_record(&t, TRUST_EV_NONE, SRCTYPE, SRCID, CAID, PROV,
+		             (uint16_t)(4000 + i), 1000u + i);
 	trust_record(&t, TRUST_EV_PROOF, SRCTYPE, SRCID, CAID, PROV, SID, 5000);
 	trust_record(&t, TRUST_EV_PROOF, SRCTYPE, SRCID, CAID, PROV, SID, 5000);
-	check("the worst-scored source is recorded first",
+	check("the worst-scored source is recorded last and recent",
 		trust_score(&t, SRCTYPE, SRCID, CAID, PROV, SID), TRUST_FLOOR);
-	for (i = 0; i < TRUST_TABLE_SIZE; i++)
-		trust_record(&t, TRUST_EV_NONE, SRCTYPE, SRCID, CAID, PROV, (uint16_t)(4000 + i), 1000u + i);
+	trust_record(&t, TRUST_EV_NONE, SRCTYPE, SRCID + 1, CAID, PROV, 7000, 5001);
 	check("eviction is longest-unseen, not lowest-score",
 		trust_score(&t, SRCTYPE, SRCID, CAID, PROV, SID), TRUST_FLOOR);
+
+	/* The oldest and newest timestamps straddle more than the signed
+	 * half-range as well as uint32 rollover; eviction must use elapsed age. */
+	trust_reset(&t);
+	{
+		uint32_t now = 100u;
+		for (i = 0; i < TRUST_TABLE_SIZE; i++) {
+			uint32_t age = (i == 0) ? 3000000000u : (uint32_t)(i + 1);
+			trust_record(&t, TRUST_EV_NONE, SRCTYPE, 10000 + i, CAID,
+			             PROV, (uint16_t)(6000 + i), now - age);
+		}
+		trust_record(&t, TRUST_EV_NONE, SRCTYPE, 20000, CAID, PROV, 7000, now);
+		check("wrap-safe eviction drops the entry with greatest unsigned age",
+			trust_score(&t, SRCTYPE, 10000, CAID, PROV, 6000), -1);
+		check("wrap-safe eviction preserves a recently seen entry",
+			trust_score(&t, SRCTYPE, 10001, CAID, PROV, 6001), TRUST_START);
+	}
 
 	/* ---- the table is a fixed .bss object, nothing is malloc'd (GR9) ---- */
 	check("table depth", TRUST_TABLE_SIZE, 256);

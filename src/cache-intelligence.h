@@ -35,6 +35,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <time.h>
+#include "tick_math.h"
 
 /* ============================================================================
  * CONFIGURATION
@@ -110,26 +111,49 @@ typedef struct {
 typedef struct {
     uint32_t peer_id;          /* Peer identifier (IP or hash) */
     uint32_t ip;               /* Peer IP address */
-    
+
     /* Global trust (across all channels) */
     int trust_global;          /* Global trust score (0-100) */
     uint32_t total_requests;   /* Total ECMs sent to this peer */
     uint32_t total_success;    /* Total correct CWs received */
     uint32_t total_failure;    /* Total wrong CWs received */
     uint32_t total_timeout;    /* Total timeouts */
-    
+
     /* Performance metrics */
     uint32_t avg_latency_ms;   /* Average response time */
     uint32_t last_response_ms; /* Last response time */
     uint32_t last_seen;        /* Last time peer responded (ticks) */
-    
+
     /* Ban status */
-    uint32_t ban_until;        /* Ban expiry time (0 = not banned) */
-    
+    uint32_t ban_until;        /* 32-bit monotonic deadline; may wrap to zero */
+    uint8_t ban_active;        /* Explicit state; deadline value is not a sentinel */
+
     /* Tier (auto-calculated from trust) */
     ci_tier_t tier;
-    
+
 } ci_peer_stats_t;
+
+/* Select the peer with greatest unsigned idle age; event counters mark unused slots. */
+static inline int ci_peer_victim_index(const ci_peer_stats_t *peers,
+                                       int count, uint32_t now)
+{
+    int i;
+    int oldest = -1;
+    uint32_t max_age = 0;
+
+    if (!peers || count <= 0) return -1;
+    for (i = 0; i < count; i++) {
+        uint32_t age;
+        if (peers[i].total_requests == 0 && peers[i].total_success == 0 &&
+            peers[i].total_failure == 0 && peers[i].total_timeout == 0) return i;
+        age = tick32_elapsed(now, peers[i].last_seen);
+        if (oldest < 0 || age > max_age) {
+            oldest = i;
+            max_age = age;
+        }
+    }
+    return oldest;
+}
 
 /* Per-channel peer history entry */
 typedef struct {
@@ -144,48 +168,70 @@ typedef struct {
 /* Per-channel statistics */
 typedef struct {
     ci_channel_key_t key;      /* Channel identifier */
-    
+
     /* Best and worst peers for this channel */
     ci_channel_peer_t best[CI_MAX_CHANNEL_PEERS];
     ci_channel_peer_t worst[CI_MAX_CHANNEL_PEERS];
     int best_count;
     int worst_count;
-    
+
     /* Channel statistics */
     uint32_t total_ecms;       /* Total ECMs for this channel */
     uint32_t total_success;    /* Total successful decodes */
     uint32_t total_failure;    /* Total failed decodes */
     uint32_t avg_decode_ms;    /* Average decode time */
-    
+
     /* CW cycle detection */
     uint32_t cycle_ms;         /* Detected CW cycle time */
     uint8_t last_tag;          /* Last ECM tag (0x80 or 0x81) */
     uint32_t last_cw_time;     /* Time of last CW received */
+    uint8_t has_cw_time;       /* tick zero is a valid CW timestamp */
     uint8_t last_cw[16];       /* Last CW received */
-    
+
     /* Activity tracking */
     uint32_t last_active;      /* Last time this channel was active */
     int active;                /* Is this channel currently being watched? */
-    
+
 } ci_channel_stats_t;
+
+/* Select the channel with greatest unsigned idle age; total_ecms marks unused slots. */
+static inline int ci_channel_victim_index(const ci_channel_stats_t *channels,
+                                          int count, uint32_t now)
+{
+    int i;
+    int oldest = -1;
+    uint32_t max_age = 0;
+
+    if (!channels || count <= 0) return -1;
+    for (i = 0; i < count; i++) {
+        uint32_t age;
+        if (channels[i].total_ecms == 0) return i;
+        age = tick32_elapsed(now, channels[i].last_active);
+        if (oldest < 0 || age > max_age) {
+            oldest = i;
+            max_age = age;
+        }
+    }
+    return oldest;
+}
 
 /* Per-CAID pattern detection */
 typedef struct {
     uint16_t caid;
-    
+
     /* CW cycle pattern */
     uint32_t cycle_ms;         /* Detected cycle time for this CAID */
     uint8_t tag_pattern;       /* 0x00=unknown, 0x01=alternating, 0x02=same */
-    
+
     /* Timing statistics */
     uint32_t avg_cw_interval;  /* Average time between CW changes */
     uint32_t min_cw_interval;  /* Minimum observed interval */
     uint32_t max_cw_interval;  /* Maximum observed interval */
-    
+
     /* Known-good CW patterns for this CAID */
     uint32_t sample_count;     /* Number of CWs analyzed */
     float avg_entropy;         /* Average entropy of good CWs */
-    
+
 } ci_caid_pattern_t;
 
 /* Known-fake CW database entry */
@@ -208,6 +254,51 @@ typedef struct {
     int valid;                 /* Is this entry valid? */
 } ci_predict_entry_t;
 
+/* Entry deadlines use the same 32-bit modular clock as ci_now_ms(). */
+static inline int ci_predict_entry_live(const ci_predict_entry_t *entry,
+                                        uint32_t now)
+{
+    return entry && entry->valid &&
+           !tick32_deadline_reached(now, entry->valid_until);
+}
+
+/* Reuse invalid/expired slots first; otherwise evict the soonest-to-expire. */
+static inline int ci_predict_victim_index(const ci_predict_entry_t *entries,
+                                          int count, uint32_t now)
+{
+    int i;
+    int invalid = -1;
+    int oldest_expired = -1;
+    int soonest_expiry = -1;
+    uint32_t max_expired_age = 0;
+
+    if (!entries || count <= 0) return -1;
+
+    for (i = 0; i < count; i++) {
+        const ci_predict_entry_t *entry = &entries[i];
+        if (!entry->valid) {
+            if (invalid < 0) invalid = i;
+            continue;
+        }
+
+        if (tick32_deadline_reached(now, entry->valid_until)) {
+            uint32_t expired_age = tick32_elapsed(now, entry->valid_until);
+            if (oldest_expired < 0 || expired_age > max_expired_age) {
+                oldest_expired = i;
+                max_expired_age = expired_age;
+            }
+        } else if (soonest_expiry < 0 ||
+                   tick32_deadline_before(entry->valid_until,
+                                          entries[soonest_expiry].valid_until)) {
+            soonest_expiry = i;
+        }
+    }
+
+    if (invalid >= 0) return invalid;
+    if (oldest_expired >= 0) return oldest_expired;
+    return soonest_expiry;
+}
+
 /* History entry for peer activity log */
 typedef struct {
     uint32_t timestamp;
@@ -224,23 +315,23 @@ typedef struct {
     /* Peer database */
     ci_peer_stats_t peers[CI_MAX_PEERS];
     int peer_count;
-    
+
     /* Channel database */
     ci_channel_stats_t channels[CI_MAX_CHANNELS];
     int channel_count;
-    
+
     /* CAID patterns */
     ci_caid_pattern_t caids[CI_MAX_CAIDS];
     int caid_count;
-    
+
     /* Known-fake CW database */
     ci_fake_cw_t fake_cws[256];
     int fake_cw_count;
-    
+
     /* Predictive cache */
     ci_predict_entry_t predict[CI_MAX_PREDICT_BUFFER];
     int predict_count;
-    
+
     /* Global statistics */
     uint64_t total_ecms_processed;
     uint64_t total_cw_accepted;
@@ -248,14 +339,14 @@ typedef struct {
     uint64_t total_cw_predicted;   /* CWs served from predictive cache */
     uint64_t total_peers_skipped;  /* Peers skipped due to low trust */
     uint64_t total_bandwidth_saved;/* Estimated bytes saved */
-    
+
     /* System state */
     uint32_t init_time;
     int enabled;
-    
+
     /* Thread safety */
     pthread_mutex_t lock;
-    
+
 } ci_state_t;
 
 static ci_state_t g_ci = { .enabled = 0 };
@@ -282,7 +373,7 @@ static inline float ci_cw_entropy(const uint8_t cw[16]) {
     int freq[256] = {0};
     int i;
     for (i = 0; i < 16; i++) freq[cw[i]]++;
-    
+
     float entropy = 0.0f;
     for (i = 0; i < 256; i++) {
         if (freq[i] > 0) {
@@ -341,16 +432,17 @@ static inline uint32_t ci_now_ms(void) {
  * ============================================================================ */
 
 /* Find or create peer entry */
-static inline ci_peer_stats_t *ci_find_or_create_peer(uint32_t peer_id) {
+static inline ci_peer_stats_t *ci_find_or_create_peer(uint32_t peer_id,
+                                                       uint32_t now) {
     int i;
-    
+
     /* Search existing */
     for (i = 0; i < g_ci.peer_count; i++) {
         if (g_ci.peers[i].peer_id == peer_id) {
             return &g_ci.peers[i];
         }
     }
-    
+
     /* Create new */
     if (g_ci.peer_count < CI_MAX_PEERS) {
         ci_peer_stats_t *p = &g_ci.peers[g_ci.peer_count++];
@@ -360,17 +452,11 @@ static inline ci_peer_stats_t *ci_find_or_create_peer(uint32_t peer_id) {
         p->tier = CI_TIER_B;
         return p;
     }
-    
-    /* Table full — evict oldest inactive peer */
-    uint32_t oldest_time = UINT32_MAX;
-    int oldest_idx = 0;
-    for (i = 0; i < g_ci.peer_count; i++) {
-        if (g_ci.peers[i].last_seen < oldest_time) {
-            oldest_time = g_ci.peers[i].last_seen;
-            oldest_idx = i;
-        }
-    }
-    
+
+    /* Table full — evict the peer with the greatest wrap-safe idle age. */
+    int oldest_idx = ci_peer_victim_index(g_ci.peers, g_ci.peer_count, now);
+    if (oldest_idx < 0) return NULL;
+
     ci_peer_stats_t *p = &g_ci.peers[oldest_idx];
     memset(p, 0, sizeof(*p));
     p->peer_id = peer_id;
@@ -392,17 +478,17 @@ static inline ci_peer_stats_t *ci_find_peer(uint32_t peer_id) {
 
 /* Find or create channel entry */
 static inline ci_channel_stats_t *ci_find_or_create_channel(
-    uint16_t caid, uint32_t provid, uint16_t sid) {
+    uint16_t caid, uint32_t provid, uint16_t sid, uint32_t now) {
     int i;
     ci_channel_key_t key = { .caid = caid, .provid = provid, .sid = sid };
-    
+
     /* Search existing */
     for (i = 0; i < g_ci.channel_count; i++) {
         if (ci_channel_equal(&g_ci.channels[i].key, &key)) {
             return &g_ci.channels[i];
         }
     }
-    
+
     /* Create new */
     if (g_ci.channel_count < CI_MAX_CHANNELS) {
         ci_channel_stats_t *ch = &g_ci.channels[g_ci.channel_count++];
@@ -412,17 +498,12 @@ static inline ci_channel_stats_t *ci_find_or_create_channel(
         ch->active = 1;
         return ch;
     }
-    
-    /* Table full — evict oldest inactive channel */
-    uint32_t oldest_time = UINT32_MAX;
-    int oldest_idx = 0;
-    for (i = 0; i < g_ci.channel_count; i++) {
-        if (g_ci.channels[i].last_active < oldest_time) {
-            oldest_time = g_ci.channels[i].last_active;
-            oldest_idx = i;
-        }
-    }
-    
+
+    /* Table full — evict the channel with the greatest wrap-safe idle age. */
+    int oldest_idx = ci_channel_victim_index(g_ci.channels,
+                                              g_ci.channel_count, now);
+    if (oldest_idx < 0) return NULL;
+
     ci_channel_stats_t *ch = &g_ci.channels[oldest_idx];
     memset(ch, 0, sizeof(*ch));
     ch->key = key;
@@ -481,9 +562,11 @@ static inline const char *ci_tier_name(ci_tier_t tier) {
 /* Check if peer is banned */
 static inline int ci_peer_is_banned(ci_peer_stats_t *peer, uint32_t now) {
     if (!peer) return 1;
-    if (peer->ban_until > now) return 1;
+    if (peer->ban_active && !tick32_deadline_reached(now, peer->ban_until)) return 1;
     /* Auto-unban if ban expired */
-    if (peer->tier == CI_TIER_BANNED && peer->ban_until <= now && peer->ban_until > 0) {
+    if (peer->ban_active && peer->tier == CI_TIER_BANNED &&
+        tick32_deadline_reached(now, peer->ban_until)) {
+        peer->ban_active = 0;
         peer->ban_until = 0;
         peer->tier = ci_trust_to_tier(peer->trust_global);
     }
@@ -498,23 +581,23 @@ static inline int ci_peer_is_banned(ci_peer_stats_t *peer, uint32_t now) {
 static inline ci_cw_status_t ci_validate_cw(
     const uint8_t cw[16],
     uint16_t caid, uint32_t provid, uint16_t sid) {
-    
+
     /* Check 1: Null CW */
     if (ci_cw_is_null(cw)) return CI_CW_NULL;
-    
+
     /* Check 2: Half-zero CW */
     if (ci_cw_half_zero(cw)) return CI_CW_HALF_ZERO;
-    
+
     /* Check 3: Duplicate halves */
     if (ci_cw_duplicate_halves(cw)) return CI_CW_DUPLICATE;
-    
+
     /* Check 4: Repeating bytes */
     if (ci_cw_has_repeat(cw)) return CI_CW_REPEAT;
-    
+
     /* Check 5: Low entropy (fake CW indicator) */
     float entropy = ci_cw_entropy(cw);
     if (entropy < CI_ENTROPY_MAX_FAKE) return CI_CW_LOW_ENTROPY;
-    
+
     /* Check 6: Known-fake database */
     int i;
     for (i = 0; i < g_ci.fake_cw_count; i++) {
@@ -525,7 +608,7 @@ static inline ci_cw_status_t ci_validate_cw(
             }
         }
     }
-    
+
     return CI_CW_VALID;
 }
 
@@ -547,9 +630,10 @@ static inline const char *ci_cw_status_name(ci_cw_status_t status) {
 static inline void ci_add_fake_cw(
     const uint8_t cw[16],
     uint16_t caid, uint32_t provid) {
-    
+    uint32_t now = ci_now_ms();
+
     pthread_mutex_lock(&g_ci.lock);
-    
+
     /* Check if already exists */
     int i;
     for (i = 0; i < g_ci.fake_cw_count; i++) {
@@ -559,33 +643,35 @@ static inline void ci_add_fake_cw(
             return;
         }
     }
-    
+
     /* Add new entry */
     if (g_ci.fake_cw_count < 256) {
         ci_fake_cw_t *f = &g_ci.fake_cws[g_ci.fake_cw_count++];
         memcpy(f->cw, cw, 16);
         f->caid = caid;
         f->provid = provid;
-        f->detected_time = ci_now_ms();
+        f->detected_time = now;
         f->hit_count = 1;
     } else {
-        /* Evict oldest entry */
-        uint32_t oldest = UINT32_MAX;
-        int oldest_idx = 0;
+        /* Evict the entry with greatest modulo elapsed age. */
+        uint32_t oldest_age = 0;
+        int oldest_idx = -1;
         for (i = 0; i < g_ci.fake_cw_count; i++) {
-            if (g_ci.fake_cws[i].detected_time < oldest) {
-                oldest = g_ci.fake_cws[i].detected_time;
+            uint32_t age = tick32_elapsed(now, g_ci.fake_cws[i].detected_time);
+            if (oldest_idx < 0 || age > oldest_age) {
+                oldest_age = age;
                 oldest_idx = i;
             }
         }
+        if (oldest_idx < 0) oldest_idx = 0;
         ci_fake_cw_t *f = &g_ci.fake_cws[oldest_idx];
         memcpy(f->cw, cw, 16);
         f->caid = caid;
         f->provid = provid;
-        f->detected_time = ci_now_ms();
+        f->detected_time = now;
         f->hit_count = 1;
     }
-    
+
     pthread_mutex_unlock(&g_ci.lock);
 }
 
@@ -596,11 +682,11 @@ static inline void ci_add_fake_cw(
 /* Find or create channel-peer entry */
 static inline ci_channel_peer_t *ci_find_channel_peer(
     ci_channel_stats_t *ch, uint32_t peer_id, int is_best) {
-    
+
     ci_channel_peer_t *list = is_best ? ch->best : ch->worst;
     int count = is_best ? ch->best_count : ch->worst_count;
     int i;
-    
+
     for (i = 0; i < count; i++) {
         if (list[i].peer_id == peer_id) {
             return &list[i];
@@ -612,9 +698,9 @@ static inline ci_channel_peer_t *ci_find_channel_peer(
 /* Update channel-peer trust */
 static inline void ci_update_channel_peer(
     ci_channel_stats_t *ch, uint32_t peer_id, int success, uint32_t now) {
-    
+
     if (!ch) return;
-    
+
     /* Update best peers list */
     if (success) {
         ci_channel_peer_t *cp = ci_find_channel_peer(ch, peer_id, 1);
@@ -667,7 +753,7 @@ static inline void ci_update_channel_peer(
             cp->last_failure = now;
             cp->trust = 0;
         }
-        
+
         /* Also update in best list (reduce trust) */
         cp = ci_find_channel_peer(ch, peer_id, 1);
         if (cp) {
@@ -690,57 +776,57 @@ static inline void ci_record_success(
     uint32_t peer_id,
     uint16_t caid, uint32_t provid, uint16_t sid,
     uint32_t latency_ms) {
-    
+
     if (!g_ci.enabled) return;
-    
+
     uint32_t now = ci_now_ms();
-    
+
     pthread_mutex_lock(&g_ci.lock);
-    
+
     /* Update peer stats */
-    ci_peer_stats_t *peer = ci_find_or_create_peer(peer_id);
+    ci_peer_stats_t *peer = ci_find_or_create_peer(peer_id, now);
     if (peer) {
         peer->total_success++;
         peer->total_requests++;
         peer->last_response_ms = latency_ms;
         peer->last_seen = now;
-        
+
         /* Reward: increase trust */
         peer->trust_global += CI_REWARD_SUCCESS;
         if (peer->trust_global > CI_TRUST_MAX) peer->trust_global = CI_TRUST_MAX;
-        
+
         /* Update average latency */
         if (peer->avg_latency_ms == 0) {
             peer->avg_latency_ms = latency_ms;
         } else {
             peer->avg_latency_ms = (peer->avg_latency_ms * 7 + latency_ms) / 8;
         }
-        
+
         /* Recalculate tier */
         peer->tier = ci_trust_to_tier(peer->trust_global);
     }
-    
+
     /* Update channel stats */
-    ci_channel_stats_t *ch = ci_find_or_create_channel(caid, provid, sid);
+    ci_channel_stats_t *ch = ci_find_or_create_channel(caid, provid, sid, now);
     if (ch) {
         ch->total_success++;
         ch->total_ecms++;
         ch->last_active = now;
-        
+
         /* Update average decode time */
         if (ch->avg_decode_ms == 0) {
             ch->avg_decode_ms = latency_ms;
         } else {
             ch->avg_decode_ms = (ch->avg_decode_ms * 7 + latency_ms) / 8;
         }
-        
+
         /* Update channel-peer relationship */
         ci_update_channel_peer(ch, peer_id, 1, now);
     }
-    
+
     g_ci.total_cw_accepted++;
     g_ci.total_ecms_processed++;
-    
+
     pthread_mutex_unlock(&g_ci.lock);
 }
 
@@ -749,53 +835,54 @@ static inline void ci_record_failure(
     uint32_t peer_id,
     uint16_t caid, uint32_t provid, uint16_t sid,
     ci_cw_status_t reason) {
-    
+
     if (!g_ci.enabled) return;
-    
+
     uint32_t now = ci_now_ms();
-    
+
     pthread_mutex_lock(&g_ci.lock);
-    
+
     /* Update peer stats */
-    ci_peer_stats_t *peer = ci_find_or_create_peer(peer_id);
+    ci_peer_stats_t *peer = ci_find_or_create_peer(peer_id, now);
     if (peer) {
         peer->total_failure++;
         peer->total_requests++;
         peer->last_seen = now;
-        
+
         /* Penalty: decrease trust */
         peer->trust_global -= CI_PENALTY_FAILURE;
         if (peer->trust_global < CI_TRUST_MIN) peer->trust_global = CI_TRUST_MIN;
-        
+
         /* Auto-ban if trust drops to threshold */
         if (peer->trust_global <= CI_PENALTY_BAN_THRESH) {
             peer->ban_until = now + CI_BAN_DURATION_MS;
+            peer->ban_active = 1;
             peer->tier = CI_TIER_BANNED;
         } else {
             peer->tier = ci_trust_to_tier(peer->trust_global);
         }
     }
-    
+
     /* Update channel stats */
-    ci_channel_stats_t *ch = ci_find_or_create_channel(caid, provid, sid);
+    ci_channel_stats_t *ch = ci_find_or_create_channel(caid, provid, sid, now);
     if (ch) {
         ch->total_failure++;
         ch->total_ecms++;
         ch->last_active = now;
-        
+
         /* Update channel-peer relationship */
         ci_update_channel_peer(ch, peer_id, 0, now);
     }
-    
+
     /* If CW was a known pattern, add to fake DB */
     if (reason == CI_CW_KNOWN_FAKE || reason == CI_CW_REPEAT ||
         reason == CI_CW_LOW_ENTROPY) {
         /* CW will be added to fake DB by caller if needed */
     }
-    
+
     g_ci.total_cw_rejected++;
     g_ci.total_ecms_processed++;
-    
+
     pthread_mutex_unlock(&g_ci.lock);
 }
 
@@ -803,23 +890,25 @@ static inline void ci_record_failure(
 static inline void ci_record_timeout(
     uint32_t peer_id,
     uint16_t caid, uint32_t provid, uint16_t sid) {
-    
+
     if (!g_ci.enabled) return;
-    
+
+    uint32_t now = ci_now_ms();
+
     pthread_mutex_lock(&g_ci.lock);
-    
-    ci_peer_stats_t *peer = ci_find_or_create_peer(peer_id);
+
+    ci_peer_stats_t *peer = ci_find_or_create_peer(peer_id, now);
     if (peer) {
         peer->total_timeout++;
         peer->total_requests++;
-        
+
         /* Small penalty for timeout */
         peer->trust_global -= CI_PENALTY_TIMEOUT;
         if (peer->trust_global < CI_TRUST_MIN) peer->trust_global = CI_TRUST_MIN;
-        
+
         peer->tier = ci_trust_to_tier(peer->trust_global);
     }
-    
+
     pthread_mutex_unlock(&g_ci.lock);
 }
 
@@ -831,16 +920,16 @@ static inline void ci_record_timeout(
 static inline int ci_get_best_peers(
     uint16_t caid, uint32_t provid, uint16_t sid,
     uint32_t *peer_ids, int *peer_tiers, int max_peers) {
-    
+
     if (!g_ci.enabled) return 0;
-    
+
     uint32_t now = ci_now_ms();
     int count = 0;
-    
+
     pthread_mutex_lock(&g_ci.lock);
-    
+
     ci_channel_stats_t *ch = ci_find_channel(caid, provid, sid);
-    
+
     if (ch && ch->best_count > 0) {
         /* Use channel-specific best peers */
         int i;
@@ -853,7 +942,7 @@ static inline int ci_get_best_peers(
             }
         }
     }
-    
+
     /* Fill remaining slots with globally trusted peers */
     if (count < max_peers) {
         /* Sort all peers by global trust (descending) */
@@ -861,7 +950,7 @@ static inline int ci_get_best_peers(
         for (i = 0; i < g_ci.peer_count && count < max_peers; i++) {
             ci_peer_stats_t *peer = &g_ci.peers[i];
             if (ci_peer_is_banned(peer, now)) continue;
-            
+
             /* Check if already in list */
             int already = 0;
             int j;
@@ -872,7 +961,7 @@ static inline int ci_get_best_peers(
                 }
             }
             if (already) continue;
-            
+
             /* Only add Tier A or B peers */
             if (peer->tier == CI_TIER_A || peer->tier == CI_TIER_B) {
                 peer_ids[count] = peer->peer_id;
@@ -881,11 +970,11 @@ static inline int ci_get_best_peers(
             }
         }
     }
-    
+
     g_ci.total_peers_skipped += (g_ci.peer_count - count);
-    
+
     pthread_mutex_unlock(&g_ci.lock);
-    
+
     return count;
 }
 
@@ -893,25 +982,25 @@ static inline int ci_get_best_peers(
 static inline int ci_should_skip_peer(
     uint32_t peer_id,
     uint16_t caid, uint32_t provid, uint16_t sid) {
-    
+
     if (!g_ci.enabled) return 0;
-    
+
     uint32_t now = ci_now_ms();
-    
+
     pthread_mutex_lock(&g_ci.lock);
-    
+
     ci_peer_stats_t *peer = ci_find_peer(peer_id);
     if (!peer) {
         pthread_mutex_unlock(&g_ci.lock);
         return 0; /* Unknown peer — don't skip */
     }
-    
+
     /* Skip banned peers */
     if (ci_peer_is_banned(peer, now)) {
         pthread_mutex_unlock(&g_ci.lock);
         return 1;
     }
-    
+
     /* Skip Tier C peers if we have better options */
     if (peer->tier == CI_TIER_C) {
         ci_channel_stats_t *ch = ci_find_channel(caid, provid, sid);
@@ -921,7 +1010,7 @@ static inline int ci_should_skip_peer(
             return 1;
         }
     }
-    
+
     pthread_mutex_unlock(&g_ci.lock);
     return 0;
 }
@@ -930,19 +1019,19 @@ static inline int ci_should_skip_peer(
 static inline uint32_t ci_get_peer_timeout(
     uint32_t peer_id,
     uint16_t caid, uint32_t provid, uint16_t sid) {
-    
+
     if (!g_ci.enabled) return 2000; /* Default 2 seconds */
-    
+
     pthread_mutex_lock(&g_ci.lock);
-    
+
     ci_peer_stats_t *peer = ci_find_peer(peer_id);
     if (!peer) {
         pthread_mutex_unlock(&g_ci.lock);
         return CI_TIMEOUT_TIER_B; /* Default for unknown peers */
     }
-    
+
     uint32_t timeout = ci_tier_timeout(peer->tier);
-    
+
     /* Adjust based on average latency */
     if (peer->avg_latency_ms > 0) {
         /* Use 2x average latency as timeout, but within tier limits */
@@ -951,7 +1040,7 @@ static inline uint32_t ci_get_peer_timeout(
             timeout = latency_based;
         }
     }
-    
+
     pthread_mutex_unlock(&g_ci.lock);
     return timeout;
 }
@@ -964,10 +1053,10 @@ static inline uint32_t ci_get_peer_timeout(
 static inline void ci_detect_cycle(
     uint16_t caid, uint32_t provid, uint16_t sid,
     uint8_t ecmtag, uint32_t now) {
-    
+
     ci_caid_pattern_t *pat = NULL;
     int i;
-    
+
     /* Find CAID pattern */
     for (i = 0; i < g_ci.caid_count; i++) {
         if (g_ci.caids[i].caid == caid) {
@@ -975,7 +1064,7 @@ static inline void ci_detect_cycle(
             break;
         }
     }
-    
+
     /* Create new if not found */
     if (!pat && g_ci.caid_count < CI_MAX_CAIDS) {
         pat = &g_ci.caids[g_ci.caid_count++];
@@ -983,39 +1072,41 @@ static inline void ci_detect_cycle(
         pat->caid = caid;
         pat->cycle_ms = CI_CYCLE_DEFAULT_MS;
     }
-    
+
     if (!pat) return;
-    
+
     /* Update channel cycle info */
     ci_channel_stats_t *ch = ci_find_channel(caid, provid, sid);
     if (ch) {
-        if (ch->last_cw_time > 0) {
-            uint32_t interval = now - ch->last_cw_time;
-            
-            /* Update CAID timing statistics */
-            if (pat->avg_cw_interval == 0) {
-                pat->avg_cw_interval = interval;
-                pat->min_cw_interval = interval;
-                pat->max_cw_interval = interval;
-            } else {
-                pat->avg_cw_interval = (pat->avg_cw_interval * 7 + interval) / 8;
-                if (interval < pat->min_cw_interval) pat->min_cw_interval = interval;
-                if (interval > pat->max_cw_interval) pat->max_cw_interval = interval;
+        if (ch->has_cw_time) {
+            uint32_t interval = tick32_elapsed(now, ch->last_cw_time);
+            if (interval > 0) {
+                /* Update CAID timing statistics */
+                if (pat->avg_cw_interval == 0) {
+                    pat->avg_cw_interval = interval;
+                    pat->min_cw_interval = interval;
+                    pat->max_cw_interval = interval;
+                } else {
+                    pat->avg_cw_interval = (pat->avg_cw_interval * 7 + interval) / 8;
+                    if (interval < pat->min_cw_interval) pat->min_cw_interval = interval;
+                    if (interval > pat->max_cw_interval) pat->max_cw_interval = interval;
+                }
+
+                /* Update channel cycle estimate */
+                ch->cycle_ms = pat->avg_cw_interval;
             }
-            
-            /* Update channel cycle estimate */
-            ch->cycle_ms = pat->avg_cw_interval;
         }
-        
+
         /* Detect tag alternation pattern */
         if (ch->last_tag != 0 && ch->last_tag != ecmtag) {
             pat->tag_pattern = 0x01; /* Alternating */
         } else if (ch->last_tag == ecmtag && ch->last_tag != 0) {
             pat->tag_pattern = 0x02; /* Same */
         }
-        
+
         ch->last_tag = ecmtag;
         ch->last_cw_time = now;
+        ch->has_cw_time = 1;
     }
 }
 
@@ -1026,13 +1117,14 @@ static inline void ci_predict_store(
     const uint8_t cw[16],
     uint32_t peer_id,
     uint32_t valid_for_ms) {
-    
+
     if (!g_ci.enabled) return;
-    
+    if (valid_for_ms > 0x7FFFFFFFu) valid_for_ms = 0x7FFFFFFFu;
+
     uint32_t now = ci_now_ms();
-    
+
     pthread_mutex_lock(&g_ci.lock);
-    
+
     /* Check if entry already exists for this channel+tag */
     int i;
     for (i = 0; i < g_ci.predict_count; i++) {
@@ -1051,7 +1143,7 @@ static inline void ci_predict_store(
             return;
         }
     }
-    
+
     /* Add new entry */
     if (g_ci.predict_count < CI_MAX_PREDICT_BUFFER) {
         ci_predict_entry_t *e = &g_ci.predict[g_ci.predict_count++];
@@ -1065,15 +1157,9 @@ static inline void ci_predict_store(
         e->valid_until = now + valid_for_ms;
         e->valid = 1;
     } else {
-        /* Evict oldest expired entry */
-        int oldest_idx = -1;
-        uint32_t oldest_time = UINT32_MAX;
-        for (i = 0; i < g_ci.predict_count; i++) {
-            if (g_ci.predict[i].valid_until < oldest_time) {
-                oldest_time = g_ci.predict[i].valid_until;
-                oldest_idx = i;
-            }
-        }
+        /* Prefer reusable slots, then the oldest expired, then earliest expiry. */
+        int oldest_idx = ci_predict_victim_index(g_ci.predict,
+                                                  g_ci.predict_count, now);
         if (oldest_idx >= 0) {
             ci_predict_entry_t *e = &g_ci.predict[oldest_idx];
             e->channel.caid = caid;
@@ -1087,7 +1173,7 @@ static inline void ci_predict_store(
             e->valid = 1;
         }
     }
-    
+
     pthread_mutex_unlock(&g_ci.lock);
 }
 
@@ -1097,13 +1183,13 @@ static inline int ci_predict_fetch(
     uint8_t ecmtag,
     uint8_t cw_out[16],
     uint32_t *peer_id_out) {
-    
+
     if (!g_ci.enabled) return 0;
-    
+
     uint32_t now = ci_now_ms();
-    
+
     pthread_mutex_lock(&g_ci.lock);
-    
+
     int i;
     for (i = 0; i < g_ci.predict_count; i++) {
         ci_predict_entry_t *e = &g_ci.predict[i];
@@ -1112,7 +1198,7 @@ static inline int ci_predict_fetch(
             e->channel.provid == provid &&
             e->channel.sid == sid &&
             e->predicted_tag == ecmtag &&
-            e->valid_until > now) {
+            ci_predict_entry_live(e, now)) {
             /* Found a valid pre-fetched CW! */
             memcpy(cw_out, e->cw, 16);
             if (peer_id_out) *peer_id_out = e->peer_id;
@@ -1122,7 +1208,7 @@ static inline int ci_predict_fetch(
             return 1;
         }
     }
-    
+
     pthread_mutex_unlock(&g_ci.lock);
     return 0;
 }
@@ -1148,13 +1234,14 @@ static inline uint8_t ci_predict_next_tag(uint16_t caid, uint8_t current_tag) {
 static inline int ci_should_preload(
     uint16_t caid, uint32_t provid, uint16_t sid,
     uint32_t now) {
-    
+
     ci_channel_stats_t *ch = ci_find_channel(caid, provid, sid);
-    if (!ch || ch->last_cw_time == 0) return 0;
-    
-    uint32_t time_since_cw = now - ch->last_cw_time;
-    uint32_t preload_threshold = ch->cycle_ms - CI_PRELOAD_ADVANCE_MS;
-    
+    if (!ch || !ch->has_cw_time) return 0;
+
+    uint32_t time_since_cw = tick32_elapsed(now, ch->last_cw_time);
+    uint32_t preload_threshold = (ch->cycle_ms > CI_PRELOAD_ADVANCE_MS) ?
+                                 ch->cycle_ms - CI_PRELOAD_ADVANCE_MS : 0;
+
     return (time_since_cw >= preload_threshold);
 }
 
@@ -1181,9 +1268,9 @@ static inline void ci_get_stats(
     uint64_t *ecms, uint64_t *accepted, uint64_t *rejected,
     uint64_t *predicted, uint64_t *skipped,
     int *peer_count, int *channel_count, int *fake_cw_count) {
-    
+
     pthread_mutex_lock(&g_ci.lock);
-    
+
     if (ecms) *ecms = g_ci.total_ecms_processed;
     if (accepted) *accepted = g_ci.total_cw_accepted;
     if (rejected) *rejected = g_ci.total_cw_rejected;
@@ -1192,16 +1279,16 @@ static inline void ci_get_stats(
     if (peer_count) *peer_count = g_ci.peer_count;
     if (channel_count) *channel_count = g_ci.channel_count;
     if (fake_cw_count) *fake_cw_count = g_ci.fake_cw_count;
-    
+
     pthread_mutex_unlock(&g_ci.lock);
 }
 
 /* Print status summary */
 static inline void ci_print_status(void) {
     pthread_mutex_lock(&g_ci.lock);
-    
+
     uint32_t uptime_s = (ci_now_ms() - g_ci.init_time) / 1000;
-    
+
     /* Count peers by tier */
     int tier_a = 0, tier_b = 0, tier_c = 0, tier_banned = 0;
     int i;
@@ -1213,9 +1300,9 @@ static inline void ci_print_status(void) {
             case CI_TIER_BANNED: tier_banned++; break;
         }
     }
-    
+
     pthread_mutex_unlock(&g_ci.lock);
-    
+
     /* Use fprintf for status output */
     fprintf(stderr, " [CI] Cache Intelligence Status (uptime: %us)\n", uptime_s);
     fprintf(stderr, "   Peers: %d total (A:%d B:%d C:%d Banned:%d)\n",
@@ -1234,39 +1321,41 @@ static inline void ci_print_status(void) {
 /* Periodic cleanup — call every 60 seconds */
 static inline void ci_tick(uint32_t now) {
     if (!g_ci.enabled) return;
-    
+
     pthread_mutex_lock(&g_ci.lock);
-    
+
     /* Clean up expired predictive entries */
     int i;
     for (i = 0; i < g_ci.predict_count; i++) {
-        if (g_ci.predict[i].valid && g_ci.predict[i].valid_until < now) {
+        if (g_ci.predict[i].valid &&
+            tick32_deadline_reached(now, g_ci.predict[i].valid_until)) {
             g_ci.predict[i].valid = 0;
         }
     }
-    
+
     /* Auto-unban peers whose ban has expired */
     for (i = 0; i < g_ci.peer_count; i++) {
         if (g_ci.peers[i].tier == CI_TIER_BANNED &&
-            g_ci.peers[i].ban_until > 0 &&
-            g_ci.peers[i].ban_until <= now) {
+            g_ci.peers[i].ban_active &&
+            tick32_deadline_reached(now, g_ci.peers[i].ban_until)) {
+            g_ci.peers[i].ban_active = 0;
             g_ci.peers[i].ban_until = 0;
             g_ci.peers[i].trust_global = CI_TRUST_INITIAL / 2; /* Half trust after ban */
             g_ci.peers[i].tier = ci_trust_to_tier(g_ci.peers[i].trust_global);
         }
     }
-    
+
     /* Decay trust for inactive peers (slow decay: -1 per tick) */
     for (i = 0; i < g_ci.peer_count; i++) {
-        if (g_ci.peers[i].last_seen > 0 &&
-            (now - g_ci.peers[i].last_seen) > 3600000) { /* Inactive > 1 hour */
+        if (g_ci.peers[i].total_requests > 0 &&
+            tick32_elapsed(now, g_ci.peers[i].last_seen) > 3600000u) { /* Inactive > 1 hour */
             if (g_ci.peers[i].trust_global > CI_TRUST_INITIAL) {
                 g_ci.peers[i].trust_global--;
                 g_ci.peers[i].tier = ci_trust_to_tier(g_ci.peers[i].trust_global);
             }
         }
     }
-    
+
     pthread_mutex_unlock(&g_ci.lock);
 }
 

@@ -16,6 +16,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "tick_math.h"
 
 #define CACHEWARM_MAX_CHANNELS 20
 #define CACHEWARM_COOLDOWN_SECS 30
@@ -25,8 +26,10 @@ struct cachewarm_channel {
     uint32_t provid;
     uint16_t sid;
     uint32_t last_request;
+    uint32_t last_used;
     uint32_t request_count;
     uint8_t has_cached_cw;
+    uint8_t last_request_valid;
 };
 
 struct cachewarm_table {
@@ -54,7 +57,8 @@ static inline int cachewarm_enabled(const struct cachewarm_table *t)
 /* Update channel statistics (call from dcwstats hook) */
 static inline void cachewarm_update(struct cachewarm_table *t,
                                      uint16_t caid, uint32_t provid,
-                                     uint16_t sid, int has_cache)
+                                     uint16_t sid, int has_cache,
+                                     uint32_t now)
 {
     int i, slot = -1;
     if (!t) return;
@@ -74,23 +78,27 @@ static inline void cachewarm_update(struct cachewarm_table *t,
         if (t->count < CACHEWARM_MAX_CHANNELS) {
             slot = t->count++;
         } else {
-            /* Replace least-requested channel */
-            int min_idx = 0;
+            /* Replace the channel with greatest modulo elapsed age. */
+            uint32_t oldest_age = tick32_elapsed(now, t->channels[0].last_used);
+            int oldest = 0;
             for (i = 1; i < t->count; i++) {
-                if (t->channels[i].request_count < t->channels[min_idx].request_count) {
-                    min_idx = i;
+                uint32_t age = tick32_elapsed(now, t->channels[i].last_used);
+                if (age > oldest_age) {
+                    oldest_age = age;
+                    oldest = i;
                 }
             }
-            slot = min_idx;
+            slot = oldest;
         }
+        memset(&t->channels[slot], 0, sizeof(t->channels[slot]));
         t->channels[slot].caid = caid;
         t->channels[slot].provid = provid;
         t->channels[slot].sid = sid;
-        t->channels[slot].request_count = 0;
     }
 
     t->channels[slot].request_count++;
     t->channels[slot].has_cached_cw = has_cache ? 1 : 0;
+    t->channels[slot].last_used = now;
 }
 
 /* Tick function — call periodically (e.g., every 10 seconds).
@@ -103,7 +111,8 @@ static inline int cachewarm_tick(struct cachewarm_table *t,
                                   uint16_t *sids, int max_out)
 {
     int i, n = 0;
-    if (!cachewarm_enabled(t)) return 0;
+    if (!cachewarm_enabled(t) || !caids || !provids || !sids || max_out <= 0)
+        return 0;
 
     /* Sort by request_count descending (simple bubble sort) */
     int sorted[CACHEWARM_MAX_CHANNELS];
@@ -124,12 +133,15 @@ static inline int cachewarm_tick(struct cachewarm_table *t,
     for (i = 0; i < t->count && n < t->top_n && n < max_out; i++) {
         struct cachewarm_channel *c = &t->channels[sorted[i]];
         if (c->has_cached_cw) continue;
-        if ((now - c->last_request) < CACHEWARM_COOLDOWN_SECS) continue;
+        if (c->last_request_valid &&
+            tick32_elapsed(now, c->last_request) < CACHEWARM_COOLDOWN_SECS) continue;
 
         caids[n] = c->caid;
         provids[n] = c->provid;
         sids[n] = c->sid;
         c->last_request = now;
+        c->last_request_valid = 1;
+        c->last_used = now;
         t->total_requests++;
         n++;
     }
