@@ -4,6 +4,7 @@
 #include "dcwstats.h"	/* TASK 3.12: home-page readout, same names as telnet */
 #endif
 #include "peerrep.h"	/* TASK R5 (D59): the ladder section of /json */
+#include "r48-source-reputation.h" /* R48 evidence snapshot types */
 #include "monjson.h"	/* TASK R5 (D59): the pure /json document builder */
 #ifdef MCS_DCWSTATS
 #include "cwlog.h"	/* TASK R11 (D65): the /cwlog page + /json section */
@@ -3310,6 +3311,49 @@ void http_send_cache_peer(int sock, http_request *req)
 
 ///////////////////////////////////////////////////////////////////////////////
 
+struct newcamd_web_client_state {
+	char user[64];
+	uint32_t flags;
+	int handle;
+	int connection_status;
+	uint32_t ip;
+	uint32_t connection_time;
+	uint32_t lastseen;
+	uint32_t last_ecm_time;
+};
+
+/* HTTP list builders must snapshot under client state and release it before
+ * formatting or writing to the HTTP socket. The config read pin held by their
+ * callers keeps the client record and its immutable links alive. */
+static int newcamd_web_client_snapshot(struct cs_client_data *cli,
+                                       struct newcamd_web_client_state *state)
+{
+	if (!cli || !state || newcamd_client_state_lock(cli) != 0) return 0;
+	memcpy(state->user, cli->user, sizeof(state->user));
+	state->flags = cli->flags;
+	state->handle = cli->handle;
+	state->connection_status = cli->connection.status;
+	state->ip = cli->ip;
+	state->connection_time = cli->connection.time;
+	state->lastseen = cli->connection.lastseen;
+	state->last_ecm_time = cli->lastecmtime;
+	newcamd_client_state_unlock(cli);
+	return 1;
+}
+
+static int newcamd_web_client_matches_list(struct cs_client_data *cli,
+                                           int list, uint32_t ticks)
+{
+	struct newcamd_web_client_state state;
+	if (!newcamd_web_client_snapshot(cli, &state)) return 0;
+	if (list == LIST_ALL) return 1;
+	if (list == LIST_CONNECTED) return state.connection_status > 0;
+	if (list == LIST_ACTIVE)
+		return state.connection_status > 0 &&
+		       tick32_elapsed(ticks, state.last_ecm_time) < 20000u;
+	return 0;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 void getprofilecells(struct cardserver_data *cs, char cell[11][2048])
 {
@@ -3363,9 +3407,12 @@ void getprofilecells(struct cardserver_data *cs, char cell[11][2048])
 	int j=0;
 	struct cs_client_data *usr = cs->newcamd.client;
 	while (usr) {
+		struct cs_client_data *next = usr->next;
+		struct newcamd_web_client_state client_state;
 		i++;
-		if (usr->handle>0) j++;
-		usr = usr->next;
+		if (newcamd_web_client_snapshot(usr, &client_state) &&
+		    client_state.handle > 0) j++;
+		usr = next;
 	}
 	getstatcell2(j,i,cell[8]);
 	// CELL9 # Caid:Providers
@@ -3567,22 +3614,28 @@ void http_send_profiles(int sock, http_request *req)
 
 void cs_clients( struct cardserver_data *cs, int *total, int *connected, int *active )
 {
+	uint32_t ticks = GetTickCount();
 	*total = 0;
 	*connected = 0;
 	*active = 0;
 	struct cs_client_data *cli=cs->newcamd.client;
 	while (cli) {
+		struct cs_client_data *next = cli->next;
+		struct newcamd_web_client_state client_state;
 		(*total)++;
-		if (cli->connection.status>0) {
+		if (newcamd_web_client_snapshot(cli, &client_state) &&
+		    client_state.connection_status > 0) {
 			(*connected)++;
-			if ( tick32_elapsed(GetTickCount(), cli->lastecmtime) < 20000u ) (*active)++;
+			if (tick32_elapsed(ticks, client_state.last_ecm_time) < 20000u)
+				(*active)++;
 		}
-		cli=cli->next;
+		cli = next;
 	}
 }
 
 void cs_allclients( int *total, int *connected, int *active )
 {
+	uint32_t ticks = GetTickCount();
 	*total = 0;
 	*connected = 0;
 	*active = 0;
@@ -3591,12 +3644,16 @@ void cs_allclients( int *total, int *connected, int *active )
 	while (cs) {
 		struct cs_client_data *cli = cs->newcamd.client;
 		while (cli) {
+			struct cs_client_data *next = cli->next;
+			struct newcamd_web_client_state client_state;
 			(*total)++;
-			if (cli->connection.status>0) {
+			if (newcamd_web_client_snapshot(cli, &client_state) &&
+			    client_state.connection_status > 0) {
 				(*connected)++;
-				if ( tick32_elapsed(GetTickCount(), cli->lastecmtime) < 20000u ) (*active)++;
+				if (tick32_elapsed(ticks, client_state.last_ecm_time) < 20000u)
+					(*active)++;
 			}
-			cli=cli->next;
+			cli = next;
 		}
 		cs = cs->next;
 	}
@@ -3673,11 +3730,21 @@ char* str_laststatus[] = { "NOK", "OK" };
 
 void getnewcamdclientcells(struct cs_client_data *cli, char cell[10][2048])
 {
+	struct cs_client_data client_snapshot;
 	char temp[2048];
 	char et1[1024], et2[1024];	/* R35 text-field scratch */
 	unsigned int ticks = GetTickCount();
 	unsigned int d;
-	if (!cli || newcamd_client_state_lock(cli) != 0) return;
+	if (!cli) return;
+	if (newcamd_client_state_lock(cli) != 0) {
+		memset(cell, 0, 10 * sizeof(cell[0]));
+		strcpy(cell[0], "--");
+		strcpy(cell[9], "offline");
+		return;
+	}
+	memcpy(&client_snapshot, cli, sizeof(client_snapshot));
+	newcamd_client_state_unlock(cli);
+	cli = &client_snapshot;
 	// CELL0 # User name
 	sprintf( cell[0],"<a href='/newcamdclient?id=%d'>%s</a>", cli->id, escf(et1,cli->user));
 	// CELL1 # PROGRAM ID
@@ -3765,7 +3832,6 @@ void getnewcamdclientcells(struct cs_client_data *cli, char cell[10][2048])
 	sprintf( temp," <img title='Debug' src='debug.png' OnClick=\"imgrequest('/newcamdclient?id=%d&action=debug',this);\">",cli->id);
 	strcat( cell[8], temp );
 	strcat( cell[8], "</span>");
-	newcamd_client_state_unlock(cli);
 }
 
 static void http_send_newcamd_inner(int sock, http_request *req) // page, div, row
@@ -3821,24 +3887,32 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 			uint32_t ticks = GetTickCount();
 			struct cs_client_data *cli = srv->newcamd.client;
 			while (cli) {
-				tcp_writestr(&tcpbuf, sock, "<user>");
-				{ char hesc[512]; html_esc(hesc,(int)sizeof(hesc),cli->user);
-				sprintf(http_buf, "<name>%s</name>", hesc); }
-				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-				if (cli->connection.status>0) {
-					tcp_writestr(&tcpbuf, sock, "<status>1</status>");
-					sprintf( http_buf,"<ip>%s</ip>", (char*)ip2string(cli->ip) ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-					char *p = getcountrycodebyip(cli->ip);
-					if (p) sprintf(http_buf, "<country>%s</country>", p); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-					uint32_t d = (ticks - cli->connection.time)/1000;
-					sprintf(http_buf, "<connected>%02dd %02d:%02d:%02d</connected>", d/(3600*24), (d/3600)%24, (d/60)%60, d%60); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-				}
-				else {
-					sprintf(http_buf, "<status>%d</status>",cli->flags&0x0E);
+				struct cs_client_data *next = cli->next;
+				struct newcamd_web_client_state client_state;
+				if (newcamd_web_client_snapshot(cli, &client_state)) {
+					tcp_writestr(&tcpbuf, sock, "<user>");
+					{ char hesc[512]; html_esc(hesc,(int)sizeof(hesc),client_state.user);
+					  snprintf(http_buf, sizeof(http_buf), "<name>%s</name>", hesc); }
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+					if (client_state.connection_status > 0) {
+						tcp_writestr(&tcpbuf, sock, "<status>1</status>");
+						snprintf(http_buf, sizeof(http_buf), "<ip>%s</ip>", (char*)ip2string(client_state.ip));
+						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+						char *p = getcountrycodebyip(client_state.ip);
+						if (p) snprintf(http_buf, sizeof(http_buf), "<country>%s</country>", p);
+						else snprintf(http_buf, sizeof(http_buf), "<country></country>");
+						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+						uint32_t d = (ticks - client_state.connection_time)/1000;
+						snprintf(http_buf, sizeof(http_buf), "<connected>%02dd %02d:%02d:%02d</connected>", d/(3600*24), (d/3600)%24, (d/60)%60, d%60);
+						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+					}
+					else {
+						snprintf(http_buf, sizeof(http_buf), "<status>%d</status>", client_state.flags&0x0E);
+						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+					}
+					tcp_writestr(&tcpbuf, sock, "</user>");
 				}
-				tcp_writestr(&tcpbuf, sock, "</user>");
-				cli = cli->next;
+				cli = next;
 			}
 			tcp_writestr(&tcpbuf, sock, "\n</newcamd>");
 
@@ -3934,7 +4008,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 
 		if (get_list==LIST_ACTIVE) {
 			while (cli) {
-				if ( (cli->connection.status>0)&&(tick32_elapsed(GetTickCount(), cli->lastecmtime) < 20000u) ) {
+				if (newcamd_web_client_matches_list(cli, LIST_ACTIVE, GetTickCount())) {
 					if (alt==1) alt=2; else alt=1;
 					getnewcamdclientcells(cli, cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
@@ -3956,7 +4030,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 		}
 		else if (get_list==LIST_CONNECTED) {
 			while (cli) {
-				if (cli->connection.status>0) {
+				if (newcamd_web_client_matches_list(cli, LIST_CONNECTED, GetTickCount())) {
 					if (alt==1) alt=2; else alt=1;
 					getnewcamdclientcells(cli, cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
@@ -3984,7 +4058,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 				sprintf( http_buf, "<tr><td class=alt3 colspan=9>%s (%d)</td></tr>\n", cs->name, active); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cs->newcamd.client;
 				while (cli) {
-					if ( (cli->connection.status>0)&&(tick32_elapsed(GetTickCount(), cli->lastecmtime) < 20000u) ) {
+					if (newcamd_web_client_matches_list(cli, LIST_ACTIVE, GetTickCount())) {
 						if (alt==1) alt=2; else alt=1;
 						getnewcamdclientcells(cli, cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
@@ -4010,7 +4084,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 				sprintf( http_buf, "<tr><td class=alt3 colspan=9>%s (%d)</td></tr>\n", cs->name, connected); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cs->newcamd.client;
 				while (cli) {
-					if (cli->connection.status>0) {
+					if (newcamd_web_client_matches_list(cli, LIST_CONNECTED, GetTickCount())) {
 						if (alt==1) alt=2; else alt=1;
 						getnewcamdclientcells(cli, cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
@@ -8146,10 +8220,11 @@ void http_send_editor(int sock, http_request *req, int index)
 static void http_send_cwlog(int sock, struct http_request *req)
 {
 	struct cwlog_entry rows[CWLOG_CAP];
+	struct r48_source_rep_snapshot r48_rows[MONJSON_MAX_R48_REPS];
 	char hex[33];
 	char http_buf[2048];
 	struct tcp_buffer_data tcpbuf;
-	int n, i, on;
+	int n, i, on, nr48;
 
 	(void)req; /* the shell writers read the request themselves */
 	tcp_init(&tcpbuf);
@@ -8166,6 +8241,9 @@ static void http_send_cwlog(int sock, struct http_request *req)
 
 	on = dcwstats_on;
 	n = on ? cwlog_snapshot(rows, CWLOG_CAP) : 0;
+	nr48 = r48_source_rep_snapshot_live(GetTickCount(), r48_rows,
+	                                    MONJSON_MAX_R48_REPS);
+	if (nr48 > MONJSON_MAX_R48_REPS) nr48 = MONJSON_MAX_R48_REPS;
 
 	tcp_writestr(&tcpbuf, sock, "<h2>");
 	tcp_writestr(&tcpbuf, sock, mlabel("Cache CW verdicts", "أحكام كاش على مفاتيح CW"));
@@ -8209,10 +8287,64 @@ static void http_send_cwlog(int sock, struct http_request *req)
 			   : mlabel("recording is off -- turn on DCW STATS", "التسجيل مطفأ -- فعّل DCW STATS"));
 		tcp_writestr(&tcpbuf, sock, http_buf);
 	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n");
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("R48 source reputation (reference evidence)",
+	                                  "سمعة مصادر R48 (دليل المرجع)"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<p>");
+	sprintf(http_buf, "%s %d. %s",
+		mlabel("Observed source/CAID/provider records:", "سجلات مصدر/كايد/مزود المرصودة:"),
+		nr48,
+		mlabel("No row means no measured evidence, not a bad source. CACHE EVIDENCE is opt-in per profile.",
+		       "غياب السجل يعني عدم وجود دليل مقاس، لا أن المصدر سيئ. CACHE EVIDENCE اختياري لكل بروفايل."));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	tcp_writestr(&tcpbuf, sock, "</p>\n<table class=module style='font-size:0.85em; white-space:nowrap;'><tr>");
+	sprintf(http_buf, "<th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th>",
+		mlabel("source", "المصدر"), mlabel("channel/provider", "الكايد/المزوّد"),
+		mlabel("score", "السمعة"), mlabel("reference matches", "مطابقات المرجع"),
+		mlabel("reference proofs", "إثباتات المرجع"), mlabel("last evidence age", "عمر آخر دليل"),
+		mlabel("proof age / clean samples after proof", "عمر الإثبات / العينات النظيفة بعده"),
+		mlabel("provider scope", "نطاق المزوّد"), mlabel("ordering delay", "تأخير الترتيب"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	tcp_writestr(&tcpbuf, sock, "</tr>\n");
+	for (i = 0; i < nr48; i++) {
+		const struct r48_source_rep_snapshot *r = &r48_rows[i];
+		const char *source_name = r->srctype == DCW_SOURCE_CACHE ? "cache" :
+		                          r->srctype == DCW_SOURCE_SERVER ? "line" : "other";
+		const char *provider_scope = r->provider_known ?
+		    mlabel("known", "معلوم") : mlabel("unknown", "مجهول");
+		const char *delay_text = r->rank_delayed ?
+		    mlabel("delayed until 15m + clean reference", "مؤخر حتى 15د + دليل نظيف") :
+		    mlabel("none", "لا يوجد");
+		char proof_text[64];
+		uint32_t now_ms = GetTickCount();
+		if (r->proofs)
+			snprintf(proof_text, sizeof(proof_text), "%lus / %u",
+			         (unsigned long)(tick32_elapsed(now_ms, r->last_proof_ms) / 1000u),
+			         (unsigned)r->clean_after_proof);
+		else
+			snprintf(proof_text, sizeof(proof_text), "- / %u",
+			         (unsigned)r->clean_after_proof);
+		sprintf(http_buf,
+			"<tr><td>%s/%08x</td><td>%04x:%08x</td><td>%u/100</td>"
+			"<td>%u</td><td>%u</td><td>+%lus</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",
+			source_name, (unsigned)r->srcid, r->caid,
+			(unsigned)r->provid, (unsigned)r->score,
+			(unsigned)r->matches, (unsigned)r->proofs,
+			(unsigned long)(tick32_elapsed(now_ms, r->last_evidence_ms) / 1000u),
+			proof_text, provider_scope, delay_text);
+		tcp_writestr(&tcpbuf, sock, http_buf);
+	}
+	if (nr48 == 0) {
+		sprintf(http_buf, "<tr><td colspan=9>%s</td></tr>\n",
+			mlabel("No reference-confirmed source evidence recorded yet.",
+			       "لم يُسجّل دليل مصدر مؤكد بالمرجع بعد."));
+		tcp_writestr(&tcpbuf, sock, http_buf);
+	}
 	tcp_writestr(&tcpbuf, sock, "</table>\n<p style='font-size:0.8em;'>");
 	tcp_writestr(&tcpbuf, sock, mlabel(
-		"newest first &middot; the ring keeps the last 100 verdicts &middot; machine readout: /json (section cwlog)",
-		"الأحدث أولاً &middot; الحلقة تحفظ آخر 100 حكم &middot; القراءة الآلية: /json (قسم cwlog)"));
+		"newest first &middot; the ring keeps the last 100 verdicts &middot; machine readout: /json (sections cwlog and r48_source_reputation)",
+		"الأحدث أولاً &middot; الحلقة تحفظ آخر 100 حكم &middot; القراءة الآلية: /json (قسما cwlog وr48_source_reputation)"));
 	tcp_writestr(&tcpbuf, sock, "</p>\n</body></html>\n");
 	tcp_flush(&tcpbuf, sock);
 }
@@ -8230,13 +8362,17 @@ static void http_send_json(int sock, struct http_request *req)
 	char buf[MONJSON_BUF_MAX];
 	struct monjson_peer peers[MONJSON_MAX_PEERS];
 	struct monjson_rep reps[MONJSON_MAX_REPS];
+	struct monjson_r48_rep r48_reps[MONJSON_MAX_R48_REPS];
+	struct r48_source_rep_snapshot r48_raw[MONJSON_MAX_R48_REPS];
 	/* TASK R11 (D65): the verdict-ring rows live at FUNCTION scope on
 	 * purpose -- in.logs keeps pointing at them after the fill block
 	 * below ends; a block-scope array here segfaulted the -O2 build. */
 	struct monjson_cwl cwlrows[MONJSON_MAX_LOGS];
 	struct monjson_in in;
-	int npeers = 0, nreps = 0;
+	int npeers = 0, nreps = 0, nr48_reps = 0;
 	memset(&in, 0, sizeof(in));
+	memset(r48_reps, 0, sizeof(r48_reps));
+	memset(r48_raw, 0, sizeof(r48_raw));
 
 	struct cacheserver_data *cache;
 	pthread_mutex_lock(&prg.lockcache);
@@ -8269,7 +8405,7 @@ static void http_send_json(int sock, struct http_request *req)
 		for (i = 0; i < n; i++) {
 			uint32_t ip; uint16_t port; int stage, events;
 			char reason[MONJSON_REASON_MAX];
-			if (!peerrep_get(i, &ip, &port, &stage, &events, reason, sizeof(reason))) break;
+			if (!peerrep_get(i, GetTickCount(), &ip, &port, &stage, &events, reason, sizeof(reason))) break;
 			struct monjson_rep *r = &reps[nreps++];
 			r->ip = ip; r->port = port; r->stage = stage; r->events = events;
 			snprintf(r->reason, sizeof(r->reason), "%s", reason);
@@ -8282,6 +8418,29 @@ static void http_send_json(int sock, struct http_request *req)
 					break;
 				}
 			}
+		}
+	}
+
+	/* R48 D111 evidence is copied through the lock-owning API; this route is
+	 * an existing authenticated web diagnostic, not a new endpoint. */
+	nr48_reps = r48_source_rep_snapshot_live(GetTickCount(), r48_raw,
+	                                         MONJSON_MAX_R48_REPS);
+	if (nr48_reps > MONJSON_MAX_R48_REPS) nr48_reps = MONJSON_MAX_R48_REPS;
+	{
+		int i;
+		for (i = 0; i < nr48_reps; i++) {
+			r48_reps[i].provid = r48_raw[i].provid;
+			r48_reps[i].matches = r48_raw[i].matches;
+			r48_reps[i].proofs = r48_raw[i].proofs;
+			r48_reps[i].last_evidence_ms = r48_raw[i].last_evidence_ms;
+			r48_reps[i].last_proof_ms = r48_raw[i].last_proof_ms;
+			r48_reps[i].clean_after_proof = r48_raw[i].clean_after_proof;
+			r48_reps[i].rank_delayed = r48_raw[i].rank_delayed;
+			r48_reps[i].srcid = r48_raw[i].srcid;
+			r48_reps[i].srctype = r48_raw[i].srctype;
+			r48_reps[i].caid = r48_raw[i].caid;
+			r48_reps[i].score = r48_raw[i].score;
+			r48_reps[i].provider_known = r48_raw[i].provider_known;
 		}
 	}
 
@@ -8338,6 +8497,7 @@ static void http_send_json(int sock, struct http_request *req)
 	in.uptime = GetTickCount()/1000;
 	in.now = (long)time(NULL);
 	in.nreps = nreps; in.reps = reps;
+	in.nr48_reps = nr48_reps; in.r48_reps = r48_reps;
 	in.npeers = npeers; in.peers = peers;
 
 	int len = monjson_build(buf, sizeof(buf), &in);
@@ -8566,6 +8726,7 @@ static const char *trace_type_name(enum user_trace_event_type type)
     case USER_TRACE_VALIDATED: return "اجتاز مرحلة تحقق";
     case USER_TRACE_CACHE: return "حركة كاش";
     case USER_TRACE_DISPATCH_SKIPPED: return "تجاوز إرسال جماعي";
+    case USER_TRACE_SOURCE_TRANSPORT: return "حالة اتصال المصدر";
     case USER_TRACE_REJECTED: return "رفض استجابة";
     case USER_TRACE_FAILED: return "فشل";
     case USER_TRACE_DELIVERED: return "أرسلت استجابة CW";
@@ -8585,6 +8746,14 @@ static const char *trace_detail_ar(const char *detail)
     if (!strcmp(detail, "CW rejected by DCW CHECK: zero half with previous decode")) return "رفض DCW CHECK نصف CW الصفري بعد وجود فك سابق";
     if (!strcmp(detail, "CW rejected by DCW CHECK: inconsistent with recorded cycle")) return "رفض DCW CHECK CW لعدم توافقها مع الدورة المسجلة؛ لا يثبت ذلك خطأ المصدر";
     if (!strcmp(detail, "CW not applied: ECM already succeeded")) return "لم تُطبق CW: كان ECM قد نجح مسبقًا";
+    if (!strcmp(detail, "late candidate passed validation; CW not reapplied to clients")) return "اجتاز المرشح المتأخر فحوص القبول؛ لم تُعَد CW إلى العملاء";
+    if (!strcmp(detail, "accepted cache candidate matched accepted line-server CW; D-1 credit recorded")) return "تطابقت CW الكاش المقبولة مع CW مقبولة من خادم الخط لهوية ECM نفسها؛ سُجل رصيد D-1";
+    if (!strcmp(detail, "Newcamd CW packet reached decoder; request matching not yet checked")) return "وصلت حزمة CW من Newcamd إلى خيط المصدر؛ لم يُتحقق بعد من الطلب المطابق أو صلاحية CW";
+    if (!strcmp(detail, "Newcamd response discarded: server had no outstanding request")) return "أُسقطت استجابة Newcamd: لا يوجد طلب معلّق لهذا المصدر";
+    if (!strcmp(detail, "Newcamd response discarded: message ID mismatch")) return "أُسقطت استجابة Newcamd: معرّف الرسالة لا يطابق الطلب المعلّق";
+    if (!strcmp(detail, "Newcamd response discarded: ECM request pointer is missing")) return "أُسقطت استجابة Newcamd: مؤشر طلب ECM غير موجود";
+    if (!strcmp(detail, "Newcamd response discarded: ECM request lifetime or hash mismatch")) return "أُسقطت استجابة Newcamd: عمر طلب ECM أو بصمته لا يطابق الطلب المعلّق";
+    if (!strcmp(detail, "Newcamd source disconnected while an ECM response was pending")) return "انقطع مصدر Newcamd بينما كان رد ECM معلّقاً؛ لم تُثبت صلاحية CW";
     if (!strcmp(detail, "cache CW not applied: ECM already failed")) return "لم تُطبق CW من الكاش: كان ECM قد فشل مسبقًا";
     if (!strcmp(detail, "cache rejected: CacheEX BLOCK_FAKE_CW gate")) return "رفض الكاش CW عند بوابة CacheEX BLOCK_FAKE_CW";
     if (!strcmp(detail, "cache rejected: cache entry unavailable")) return "رفض الكاش الرد لتعذر إنشاء أو إيجاد سجل الكاش";
@@ -8666,6 +8835,7 @@ static const char *trace_detail_ar(const char *detail)
     if (!strcmp(detail, "cache rejected: CacheEX local-only gate")) return "رفض الكاش CW بسبب CacheEX local-only";
     if (!strcmp(detail, "cache lookup invoked; pipe delivery and result not confirmed")) return "طُلب بحث الكاش؛ وصول الطلب والنتيجة غير مؤكدين";
     if (!strcmp(detail, "cache peer request invoked; pipe delivery not confirmed")) return "طُلب إرسال بحث إلى نظراء الكاش؛ وصول الطلب غير مؤكد";
+    if (!strncmp(detail, "cache peer request skipped:", 27)) return "تُجاوز طلب نظراء الكاش؛ قيم البوابات في التفاصيل";
     if (!strcmp(detail, "cache peer retry invoked; pipe delivery not confirmed")) return "طُلبت إعادة البحث لدى نظراء الكاش؛ وصول الطلب غير مؤكد";
     if (!strcmp(detail, "Newcamd retry send reported success")) return "أفادت دالة الإرسال بنجاح إعادة الطلب إلى Newcamd";
     return "";

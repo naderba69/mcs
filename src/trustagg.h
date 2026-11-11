@@ -35,8 +35,9 @@
  * REQUESTS for that CAID — not a disconnect (the standing rule), not a
  * refusal, and pushes/replies are untouched. The brake is a suppression
  * window: for TRUSTAGG_SUPPRESS_MS the peer is not asked, then ONE request
- * goes through anyway, and if the peer answers with keys clients keep,
- * TRUST_EV_GOOD climbs it back above the line exactly as trust.h intends.
+ * goes through anyway, but an accepted answer earns TRUST_EV_GOOD only after
+ * an independently accepted line-server reference matches it in the same
+ * ledger ECM; an answer that merely reaches clients cannot restore the score.
  * A suppressed peer that keeps poisoning is re-armed by its very next event;
  * a suppressed peer that went quiet costs the server one request per window.
  *

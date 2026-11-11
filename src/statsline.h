@@ -61,10 +61,10 @@ struct stats_snapshot {
 	int           trust_live;         /* sources with a trust entry */
 
 	/*
-	 * TASK 2.1 -- the agreement ledger. Four counters and a miss counter,
-	 * because the interesting number is not "how many disputes" but the ratio
-	 * between them: a proof is a dispute the client confirmed, and a miss is
-	 * one the ledger could not place at all.
+	 * TASK 2.1 / R48 D-1 -- ledger evidence. `agr_agree` counts only an
+	 * accepted non-reference CW matching an accepted line-server anchor;
+	 * peer-peer offers are not credited. A proof is a disputed delivered key
+	 * contradicted by that reference and confirmed by client failure.
 	 */
 	unsigned long agr_agree;          /* two sources produced the same key */
 	unsigned long agr_dispute;        /* two sources disagreed             */

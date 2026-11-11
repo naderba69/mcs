@@ -252,11 +252,11 @@ void *telnetprocess(int *param )
 			else {
 				int i, n = peerrep_count();
 				uint32_t ip; uint16_t port; int stage, events; char reason[32];
-				static const char *const sn[] = { "monitor", "distrust", "isolate", "ban" };
+				static const char *const sn[] = { "monitor", "temporary-distrust-15m", "temporary-isolate-60m", "legacy-ban-threshold-temporary-isolate-60m" };
 				sprintf(wbuf, "peerrep: ON\r\n");
 				writes(fd, wbuf);
 				for (i=0; i<n; i++) {
-					if (!peerrep_get(i, &ip, &port, &stage, &events, reason, sizeof(reason))) break;
+					if (!peerrep_get(i, GetTickCount(), &ip, &port, &stage, &events, reason, sizeof(reason))) break;
 					sprintf(wbuf, "%u.%u.%u.%u:%u\tstage=%s\tevents=%d\tlast='%s'\r\n",
 						0xFF&(ip), 0xFF&(ip>>8), 0xFF&(ip>>16), 0xFF&(ip>>24), port,
 						sn[stage & 3], events, reason);

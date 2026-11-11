@@ -359,6 +359,10 @@ void cc_srv_recvmsg(struct server_data *srv)
 			predictive_warming_record(ecm->caid, ecm->provid, ecm->sid);
 			ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
 			}
+			else if (ecm->dcwsrctype == DCW_SOURCE_CACHE) {
+				/* D111 D-1: queue a late line reply as a reference candidate only. */
+				ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
+			}
 
 					ecm_unlock(); //###
 					wakeup_sendecm(); // Wakeup ecm waiting for availabe servers

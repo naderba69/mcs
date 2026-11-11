@@ -80,9 +80,11 @@
  * TRUST_EV_PROOF is definitive (TASK 1.3's CW reuse, plus the two proofs Phase 2
  * adds). GR3 allows hard action on these; this engine only moves a score.
  *
- * TRUST_EV_GOOD is a delivered control word that the client did not immediately
- * re-ask for. Without it the score could only fall, which would make every
- * source eventually actionable and the whole scheme useless.
+ * TRUST_EV_GOOD is emitted only for an accepted candidate that matches an
+ * independently accepted line-server reference in the same ledger ECM. A
+ * delivery that merely avoids an immediate retry is not positive evidence.
+ * Without corroborated GOOD events the score could only fall, which would make
+ * every source eventually actionable and the whole scheme useless.
  */
 #define TRUST_EV_NONE   0   /* ask only; returns the score, writes nothing */
 #define TRUST_EV_GOOD   1

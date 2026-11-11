@@ -4289,3 +4289,336 @@ the thread snapshot; the empty-config check returned exit 1 as expected.
 `git diff --check` passed. Legacy test compiler-option/helper warnings remain;
 the no-`CACHEEX` compile emitted one `LEDGER_CAPTURE_CLIENT_DELIVERY` macro
 redefinition warning. No sanitizer or live peer/reload stress test was run.
+
+---
+
+## D111 (R48) — Operator-controlled scope and safety gates
+
+**Authority and provenance.** The operator's supplied D111 remains the
+controlling R48 specification. Its full source text is not reproduced in this
+repository; this entry records only the explicit constraints preserved in the
+current work request and must not be read as an expanded or replacement spec.
+Where this summary is silent, D111—not an inferred implementation preference—
+controls.
+
+**Mandatory first gate.** The first R48 acceptance item is a prerequisite for
+later R48 behavior. It must pass before a later item can be treated as accepted;
+passing helper-level tests alone is not a production gate. Keep every remaining
+debt explicit and do not call R48 complete while any required gate is open.
+
+**D-1 positive-match boundary.** A positive match is source-typed on both sides:
+the helper receives the candidate source class and the reference source class.
+For R48's cache-evidence path, the accepted candidate must be cache-origin and
+the accepted reference must be a line-server source for the same ECM identity.
+A non-cache candidate must neither consume the match credit nor create/update a
+cache-source reputation fact. Hash or pointer equality alone is not an exact
+ECM identity when pool storage can be reused; use the request lifetime or
+`ecmd5` in the send/evidence context. Deferred cache replies use
+`cache_reply_buf`.
+
+**Safety/compatibility boundary.** New R48 behavior is opt-in and defaults OFF;
+`CACHE EVIDENCE` remains OFF in shipped profiles. Do not change shipped profile
+behavior, invent CAID timeout values, or flatten per-CAID package differences.
+Do not change peer or client wire protocols or add public interfaces. Negative
+memory and conservative attestation remain unchanged unless a reproduced test
+proves a defect and guards the correction. D-4 is partial; no implementation or
+test result may be represented as completing its remaining rungs.
+
+**Review gate.** Review changed and new files before any production/release
+claim. Show verified results before pushing or updating the PR; do not merge
+without a specific request. Local implementation and tests may proceed while
+these gates remain open.
+
+---
+
+## D112 (R48, in progress) — Reference-scoped source ranking; only D-4's first rung is built
+
+**Updated:** 2026-10-10. This is a partial R48 implementation record, not a
+completion or release decision. D111 remains controlling. No R49 experiment or
+CAID graduation is authorized by this entry.
+
+**Current verification status:** the latest `make -C tests all` invocation
+reached the `fk` target and timed out after 1800 seconds; no successful exit is
+established for the full suite on the current tree. The later targets were run
+separately and are recorded below. Older full-suite PASS notes in this entry are
+historical checkpoints, not evidence that the latest `all` run completed.
+
+**Opt-in boundary.** `CACHE EVIDENCE` is a per-profile fact-collection and
+ranking switch. It defaults OFF, and the shipped profile files leave it OFF.
+With it OFF, the historical cache-selection path is retained; no peer wire
+format, client protocol, or new web endpoint is introduced. `cfgcheck` covers
+the default-off condition. The working change set does not authorize changing
+shipped profile timeouts or substituting a guessed value for a CAID preset.
+
+The per-candidate ledger latches opt-in on the candidate's first successful
+acceptance. If that acceptance happens while OFF, a later acceptance after an
+OFF-to-ON config transition does not retroactively arm the old observation or
+emit a duplicate D-1 match. The initial latch-check run was 113/113; after the
+typed source fence, the latest `test_ledger` run is 119/119 (see the verification
+delta below).
+
+**Reference-scoped facts.** The fixed 128-row table is keyed by source type,
+source ID, CAID, provider-presence and provider value. Peer/peer agreement and
+unaccepted offers do not update it. A positive event is accepted only after an
+accepted `DCW_SOURCE_CACHE` candidate matches an accepted `DCW_SOURCE_SERVER`
+reference for the same ledger ECM identity. The production drain passes both
+source types explicitly; an accepted non-cache candidate cannot consume this
+credit or create a cache-reputation row. A negative event is consumed only from
+the ledger's accepted-line-reference proof path, not from a retry alone. The score is a
+Q8 EWMA, neutral at 50, alpha 1/8 per fact, with one-minute steps toward neutral.
+The LRU-like bounded table can evict facts; it is volatile and is not persisted.
+The eviction counter is not yet part of the truth board.
+
+**Selector.** When armed, FIND applies the existing cache eligibility, cycle,
+threshold, consensus, and prefetch gates first, then ranks candidates already
+present for that lookup by source score. A tie uses carried line-origin, stable
+source ID, then CW bytes; a tie also schedules the existing verification path.
+It does not wait for later arrivals. An unknown source remains neutral. The
+first D-4 rung assigns rank zero for 15 minutes after a proof and continues the
+rank delay until at least one strictly later clean reference match is recorded.
+This changes ordering only: it never deletes or excludes a candidate, so if all
+candidates are delayed the stable tie-break still returns a candidate.
+Out-of-order ledger timestamps do not count as clean exit samples; same-tick
+proofs conservatively reset the clean-sample count.
+
+**Diagnostics.** The existing authenticated `/json` and `/cwlog` surfaces expose
+the bounded source/provider evidence snapshot. The CWLOG panel includes proof
+age, clean-after-proof count, provider scope, and the current rank-delay state.
+These are source-reputation facts only; they are not yet the full D111 truth
+board (package state, quarantine ledger, blind-provider state, sample budget,
+false-anchor alert, or storm state).
+
+**Earlier verification record (before the current Newcamd/opt-in-latch delta).** Focused source-reputation tests cover provider scoping,
+decay, 15-minute boundaries and wrap, clean-sample release, stale/out-of-order
+samples, same-tick proofs, and non-exclusion when all candidates are delayed.
+`test_monjson` covers the evidence fields. The live `cache-cross-provider`
+harness covers candidate ranking and the all-delayed non-empty selection. The
+stats web smoke checks the `/json` snapshot and the CWLOG evidence/proof-timing
+panel. `make -C tests all` then completed with exit 0 after the final same-tick
+proof-boundary change and production rebuild; its final R48 integration scripts
+reported PASS for `cache-cross-provider` (candidate rank, handoff, FIFO/evidence,
+late-line/fallback/provider safeguards) and `cache-cross-gates` (rejected source
+CW cannot cross-relay, valid source still can). The full suite also completed the
+web/CWLOG and cfgcheck targets. Advisory warnings remain in legacy helpers,
+document-reference content checks, and blind-config checks, as recorded in the
+report. This is test-suite evidence only: no R48 acceptance gate is inferred from
+it. The bounded 421-second `tests/soak.sh` run then passed (426 s elapsed, 133
+ECMs, no connection failures, RSS 5,732 KB at 2 minutes and 5,988 KB max/end;
+Telnet/web counters matched, total 1,395). Four isolated production-flavour
+smokes passed for stock, stats, queue, and queue-stats; `/cwlog` also passed on
+both stats flavours. This is not a field p95 or an extended 1,200-second soak.
+`MANIFEST-md5` was regenerated over 802 paths (the tracked tree plus 13 new
+intended deliverables; the manifest excludes itself) and `md5sum -c` passed
+802/802; the final `git diff --check` also passed. This closes only the listed
+verification steps, not the full line-by-line review or any open R48 acceptance
+gate.
+
+**Verification delta — Newcamd ACK race and lock-scope follow-up (2026-10-10).**
+The transport still reserves a per-client send token under state and serializes
+established-session write/close with a separate I/O guard. The state lock is
+released before waiting for that guard or calling `cs_message_send()`; the CW
+path compares `cli->ecm.lifetime_id` with the immutable delivery snapshot under
+state after reacquiring it. For login ACK, a new per-client `login_pending`
+reservation preserves duplicate-login exclusion while `prg.lockcli` is released
+before TCP send/poll. The real-socket `tests/newcamd-ack-race.sh` passed on both the rebuilt poll
+binary and production `src/x64/multics` with EPOLL enabled. On poll, historical
+measurements were **2.376 ms** and **3.646 ms** during ACK poll **#7**; the latest
+poll run measured **2.015 ms** during poll **#6** at **+1,737 us**. The EPOLL
+production run measured **1.843 ms** during poll **#6** at **+5,434 us**. Both
+build paths proved EAGAIN on a saturated TCP send queue, prompt rejection of a
+duplicate login while the first ACK was held, the production 100 ms poll
+timeout, and LOGIN_ACK for a fresh login before the first peer's delayed RST.
+The server remained alive. These are targeted ACK-lock interleavings, not proof
+of every dispatch, fd-reuse, or reload ordering.
+
+For the initial handshake, the accept path snapshots the profile ID and config
+generation under the read pin; the worker resolves the profile and copies its
+key, then releases the pin for the init-key send and `cs_message_receive()`.
+After LOGIN is received it reacquires the pin, rejects a changed generation,
+re-resolves the profile ID, and compares the current key with the snapshot before
+using profile/client configuration. `make -C tests newcamd-config-reload` passed:
+a controlled client stopped after receiving the keymod and before sending LOGIN;
+a temporary config reload was observed through authenticated HTTP `/` within
+the 2.5-second gate, then that old-generation LOGIN was closed without a
+usable answer, and the server stayed alive. The latest poll run measured the
+page change at **2.0 ms**; the production EPOLL run measured **2.8 ms**, both
+inside that gate. This verifies only the reload-during-pre-LOGIN path; it does
+not cover every fd-reuse or reload/dispatch interleaving.
+
+The read pin is still held during post-LOGIN credential validation and ACK
+send/publication. `login_pending` preserves duplicate exclusion, and both the
+client-state lock and `prg.lockcli` are released around ACK TCP I/O/poll; the
+config lifetime pin is not. `cs_message_send()` passes 100 to `send_nonb()`, but
+the helper ignores `to`; an individual no-progress poll returns failure at 100
+ms, while repeated partial progress or repeated EINTR has no overall deadline.
+The live tests exercise the no-progress timeout, not the repeated-progress case.
+No claim is made that every Newcamd lock, fd-reuse race, or reload interleaving
+is proven safe.
+
+**HTTP lifetime follow-up after the recorded full-suite run.** A line review of
+Newcamd’s authenticated `/newcamd`/profile list rendering found runtime fields
+read without the per-client state lock. The list/count paths now copy the small
+status fields under that lock and release it before formatting or HTTP writes;
+the row-cell builder copies the client snapshot and renders only after unlocking.
+The x64 source build and `make-x64` build both exited 0; `make -C tests ncclient`
+passed its six-stage handshake/ECM exchange; and
+`make -C tests xs BIN=../make-x64/x64/multics` passed the two-view escaped-name
+assertion and page checks. These are local regression results, not a field
+measurement or race-detector proof. The first `xs` invocation failed before the harness was rebuilt; the precise
+cause was not isolated. Rebuilding `ncclient` and rerunning `xs` with the current
+binary passed. Do not treat this sequence as proof of the initial failure’s
+cause or as evidence that the ACK backpressure/race debt is closed.
+
+The prior full `make -C tests all` run **completed with exit 0** after the
+candidate opt-in latch was added; the newer source-type-guard run is recorded
+below. Its R48 cross-provider and cross-gate scripts passed. The FZ2 synchronization
+assertion queried the existing authenticated
+`/json` and `/cache` web surfaces: it observed `Sent REQ` increase while `ecm_ok`
+was unchanged and the client remained active, before accepting the pending-ECM
+state. The helper uses web responses, not server/client logs; this is integration
+fixture evidence, not a field or live-customer diagnosis. `ncclient` drove the
+real server through two ECM exchanges and got the expected decode-failed result
+without a card server. `make -C make-x64 test` also exited 0 at that checkpoint;
+`test_ledger` was then 113/113, including OFF→ON on the same candidate, and
+`test_newcamd_lifetime` passed its 20 synthetic checks. The corrected `make -C
+tests cfgcheck` passed both shipped files and its timeout-range checks; expected
+cache-only/no-line-anchor warnings remain visible.
+
+`make -C src target=x64 link -j2` exited 0. `release-queue`,
+`release-queue-stats`, `release`, and `release-stats` all exited 0 on the current
+source; the four resulting binaries passed the `/`, `/threads`, and `/json`
+smokes, and both stats flavours passed `/cwlog`. A prior bounded 421-second
+soak (426 seconds elapsed, 133 ECMs, 1,391 matching web/Telnet counters, RSS
+5,740 KB at baseline/max/end) remains historical and was not repeated after the
+opt-in latch. At that earlier checkpoint, `make -C tests docrefs` exited 0
+(344 references checked, 0 out of range; 117 advisory content warnings), and
+the corrected cfgcheck target exited 0. The manifest then covered 802 intended
+paths and verified 802/802; `git diff --check` passed. These historical checks do
+not prove full Newcamd lock safety, complete source review, or any R48 acceptance
+gate.
+
+**Latest verification delta — typed D-1 source fence and targeted regressions (2026-10-10).** The ledger helper now requires both candidate and reference source classes; production passes `DCW_SOURCE_CACHE` and `DCW_SOURCE_SERVER`. `make -C make-x64 test` completed with exit 0, including `test_ledger` at **119/119** after the non-cache-candidate regression; the Newcamd lifetime model checks also passed, but remain synthetic. Build warnings were non-fatal.
+
+The latest `make -C tests all` attempt ran for 1800 seconds and timed out while starting `fk`; it has no successful exit code and is **not** a full-suite PASS. `make -C tests fk` was then run separately and passed **3/3**. A separate invocation of `fz at md sc qv cf rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates` exited 0. Its explicit summaries include `fz 2/2`, `at 3/3`, `md 3/3`, `sc 9/9`, and `qv 4/4`; the R41/R43 rotation/retry checks and Radegast, CacheEX-provider, cache-check, cross-provider, and cross-gate scripts also passed. These separate target results do not turn the timed-out `all` invocation into a full-suite PASS.
+
+The FZ2 pending-state assertion passed within the separate `fz` target using only authenticated `/cache` and `/json`: the web response showed `Sent REQ` increasing from 0 to 1, no received reply or hit yet, and an active client before confirming ECM pending. The gate fails if web state does not show pending. No `.ce-*` files, server logs, or ordinary client pages were used to establish that state, and web settings were not changed. This is fixture-level integration evidence, not field diagnosis.
+
+Newcamd's real-socket ACK and pre-LOGIN reload tests passed on both poll and production EPOLL builds. Latest poll measurements: ACK page **2.015 ms** during poll #6 (+1,737 us), reload page **2.0 ms**. Production EPOLL measurements: ACK page **1.843 ms** during poll #6 (+5,434 us), reload page **2.8 ms**. Both ACK tests observed real EAGAIN, the 100 ms no-progress poll timeout, duplicate-login rejection, and a fresh LOGIN_ACK before the first peer's delayed RST. Reload tests rejected a LOGIN from the pre-reload generation. `make -C tests smoke ncclient newcamd-config-reload newcamd-ack-race BIN=../src/x64/multics` exited 0; `ncclient` completed the real handshake and two ECM requests, receiving the expected decode-failed response because no card server was configured. These targeted runs do not prove all fd-reuse, dispatch, partial-progress, or reload interleavings.
+
+`make -C src target=x64 link -j2` exited 0 with EPOLL enabled; its HTTP smoke passed. `make-x64` release targets and stock/stats/queue/queue-stats smoke results recorded above are local checks, not field evidence. The 421-second soak remains historical and was not repeated. Current `docrefs`, `cfgcheck`, manifest, and whitespace results are listed in the R48 report after their latest rerun; none closes the outstanding line-by-line review or an R48 acceptance gate.
+
+**Verification delta — CCcam lock-scope follow-up (2026-10-10).**
+The local CCcam send/receive paths now use the separate client I/O guard to
+serialize writes, close, and final session attachment. Touched paths acquire
+I/O before short client-state sections; the shared send helper drops client
+state before `cc_msg_send()`/`cc_msg_send_and_encrypt()` (which can wait in
+`send_nonb()`/`poll`) and reacquires it before publishing or disconnecting.
+The receive helper likewise releases client state around `cc_peekmsg()` and
+`cc_msg_recv()` while retaining the I/O guard. The default `cc_peekmsg()` path
+previously used `nonblock_recv()`, which could consume only part of a TCP frame
+and then discard those bytes on the next readiness event. That dead helper was
+removed; `cc_peekmsg()` now keeps partial encrypted bytes in `msg->data` and
+advances cipher state only after each complete header/body segment. A socketpair
+regression fragments both header and body and checks retained bytes and cipher
+state (6/6 passed). The already-failed ECM reply and ECM-allocation-failure
+reply now occur after `ecm_unlock()`; DCW delivery also captures its immutable
+snapshot and releases `ecm_lock` before socket output. CCcam `lastecm` and
+sent-status updates happen only after a successful response write. CacheEX
+mode-2 pushes share the same writer/teardown guard.
+
+The post-attach CLI-info ACK, server-info and initial card-add writes now carry
+the accepting worker's expected socket/generation and are skipped if that
+session has been replaced; `cardsent` is likewise published only after a
+state-locked generation check. The `sendversion` predicate now compares the
+three handshake bytes rather than assigning into the live version string.
+Within the touched CCcam paths, the acquisition order is I/O guard then short
+client-state sections; client state is dropped around socket read/write and
+`poll`, and `ecm_lock` is dropped before response writes. This is not a complete
+cross-protocol lock-order/deadlock proof: the config read pin remains held over
+dispatch, and the optional `RECVMSG_PEEK` receive can retain the I/O guard during
+a receive wait without retaining client state.
+
+`make -C src target=x64 link -B -j2` exited 0 on this tree. Its defines include
+`EPOLL_NEWCAMD` and `EPOLL_ECM`, not `EPOLL_CCCAM`, so this build exercises the
+CCcam poll implementation, not the optional CCcam epoll dispatcher. The targeted
+`cccam-trace-success.py` run passed `mode=full`; `cccam-setdcw-recycle.py`
+passed `before-snapshot` and `before-commit` with reused-slot success/old-CW
+`0 0` in both; `cccam-setdcw-trace-identity.py` passed `zero` and `different`.
+`make -C make-x64 test` exited 0 and `test_ledger` was 119/119, including the
+D-1 non-cache-candidate guard. `test_cccam_session` passed generation, stale-event,
+wrap and EPOLL-token helper checks; the new `test_cccam_peekmsg` passed 6/6
+fragmented-header/body and cipher-state assertions. These CCcam tests cover
+trace, queued-ECM identity/reuse, and parser fragmentation, not live reconnect
+races, lock contention or socket backpressure.
+
+The CCcam review remains partial. A nonzero 32-bit session generation is now
+assigned on final attachment. Poll snapshots carry both descriptor and
+generation; dispatch revalidates both under the per-client I/O/state guards.
+The optional `EPOLL_CCCAM` event token carries stable client ID plus generation,
+and CacheEX mode 2 uses the same generation-aware poll/receive/disconnect path
+without holding `prg.locksrv` across client dispatch; the CacheEX server branch
+retains its required `locksrv` section. CacheEX mode-3 workers receive the
+socket/generation captured by the accepting thread, release client state before
+`poll()`, and revalidate before receive/disconnect. Worker creation also holds
+the I/O guard across the final session check and `tid` publication, so a stale
+startup cannot race a replacement worker's ID write. The pure helper regression
+checks stale-generation rejection with a reused descriptor, epoll token
+round-trip, zero skipping at wrap, and concurrent uniqueness across wrap.
+
+The production x64 build exercises CCcam's poll path, not `EPOLL_CCCAM`; an
+`-fsyntax-only` build with `EPOLL_CCCAM` passed, and a temporary out-of-tree
+build with `-DEPOLL_CCCAM` passed `cccam-trace-success.py` in `full` mode, but
+no forced stale-event or live reconnect integration test was run. The CCcam integration tests listed
+above do not prove event-generation dispatch under a real reconnect race. The
+32-bit generation may eventually repeat after a full counter cycle, and object
+lifetime is a separate concern: the detached incoming `cc_connect_cli` and
+`freecc_connect_cli` workers now hold the config read pin for the whole
+handshake via a wrapper, so reload cannot reclaim server/config underneath
+them; `server_connect_wait_idle()` covers outbound `th-srv` workers only. The
+pin's reload latency was not measured. The
+config read pin is retained while event dispatch runs, including any bounded
+socket wait; its reload latency was not measured. Direct FreeCCcam writes in
+`src/srv-freecccam.c` were not brought under the CCcam I/O guard. The two parser
+failure branches were source-reviewed and compiled, but no targeted test forces
+send backpressure there or asserts dynamically that `ecm_lock` is already
+released. An out-of-tree ASan/UBSan build passed `cccam-trace-success.py` in
+`full`, `half`, and `non09half` modes, but no standalone CCcam send-fault or
+lock-contention test was performed. These changes reduce stale event application; they do not prove
+session-race, reload, object-lifetime, or project-wide safety.
+
+**Separate timeout audit — unchanged and unresolved.**
+`provider_config_init()` remains commented out in `src/main.c` with the existing
+“DISABLED - causes segfault” note; the global `provider_cfg_tab` therefore has
+no initialized provider entries at startup, and the fallback-timeout values in
+`ecm-provider-config.h` are not established as active production settings. No
+timeout path or table initialization was changed. The interaction among the
+provider fallback helper, the ECM worker deadline, and the Set-DCW client-send
+time gate still needs a focused test and call-order review before anyone enables
+that table or treats its fallback values as effective.
+
+**Known limitations and open decisions (not silently treated as green).** This
+entry does NOT implement the rest of D-4: two-conflict channel quarantine,
+provider quarantine on reuse or statistically significant error rate, confidence
+intervals/severity weighting, key-rotation freeze/relearning, the fixed
+pre-event 30%-weight cap, or clean-sample exits for those quarantines. D-3's
+budgeted sample engine, random audit bursts and warm-line pulses are not built.
+Blind rescue to an alternate cluster, runtime blindness detection, late-vs-wrong
+classification, false-anchor alarm, provider-level anchor/cycle inheritance,
+storm guard, full truth-board counters, complete monotonic-fact audit, and cold
+start budgeting remain open. The required fault-injection gates (including
+3-honest-vs-47-Sybil, UDP spoof recovery, slow drip, silent black, and false
+anchor) have not all been demonstrated. The separate ledger-consumer and
+same-uplink peer-credit audits, and the CCcam/CacheEx client poll-loop audit,
+remain open. No measured field p95, extended 1,200-second soak, or full
+CAID-by-CAID protection recommendation is claimed here; the bounded 421-second
+soak result is recorded above.
+
+**Risk.** A bounded table can forget evidence on eviction; an unverified source
+may still be selected (deliberately, to preserve the non-empty response rule);
+and a missing clean sample keeps its ordering at zero past 15 minutes without
+hard-blocking it. The feature is opt-in and the shipped profiles remain OFF.
+
+**Rollback.** Set `CACHE EVIDENCE: OFF` in the affected profile to restore the
+historical FIND ordering and stop collecting new R48 facts. For a source-level
+rollback, revert the R48 reputation/selector/UI files together; do not roll back
+unrelated lifetime, queue, or prior local changes as part of that operation.

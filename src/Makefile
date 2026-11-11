@@ -156,7 +156,7 @@ OBJECTS = $(OUTPUT)/sha1.o $(OUTPUT)/sha256.o $(OUTPUT)/des.o $(OUTPUT)/md5.o $(
 	$(OUTPUT)/ecmdata.o $(OUTPUT)/httpserver.o $(OUTPUT)/telnet.o $(OUTPUT)/main.o \
 	$(OUTPUT)/newcamd-lifetime.o $(OUTPUT)/loginthrottle.o $(OUTPUT)/peerrep.o $(OUTPUT)/cwconsensus.o $(OUTPUT)/monjson.o $(OUTPUT)/biss.o \
 	$(OUTPUT)/server-health.o $(OUTPUT)/ecm-optimizations.o $(OUTPUT)/advanced-optimizations.o $(OUTPUT)/caid-optimizations.o $(OUTPUT)/ecm-provider-config.o \
-	$(OUTPUT)/diagnostics.o $(OUTPUT)/debug-ecm.o $(OUTPUT)/server-stats.o $(OUTPUT)/log-viewer.o $(OUTPUT)/safe-time.o $(OUTPUT)/packed-time.o $(OUTPUT)/user-trace.o $(OUTPUT)/cache-analytics.o $(OUTPUT)/auto-tuning.o $(OUTPUT)/web-dashboard.o
+	$(OUTPUT)/diagnostics.o $(OUTPUT)/debug-ecm.o $(OUTPUT)/server-stats.o $(OUTPUT)/log-viewer.o $(OUTPUT)/safe-time.o $(OUTPUT)/packed-time.o $(OUTPUT)/user-trace.o $(OUTPUT)/cache-analytics.o $(OUTPUT)/auto-tuning.o $(OUTPUT)/web-dashboard.o $(OUTPUT)/cache-window.o
 
 # TASK R6 (D60): the bounded cache queue compiles ONLY under CACHE_QUEUE
 # (pass CACHE_QUEUE=1 to make). The default build's OBJECTS line is
@@ -194,14 +194,19 @@ HDRS = $(wildcard ../src/*.h) $(wildcard *.h)
 $(OUTPUT)/safe-time.o: ../src/safe-time.c $(HDRS) | $(OUTPUT)
 	$(CC) -c $(CFLAGS) -fno-pack-struct $< -o $@
 
+# The R48 window owns private statistical structs, not wire/config structs.
+# Keep their uint32_t members naturally aligned even in packed-protocol builds.
+$(OUTPUT)/cache-window.o: ../src/cache-window.c $(HDRS) | $(OUTPUT)
+	$(CC) -c $(CFLAGS) -fno-pack-struct $< -o $@
+
 $(OUTPUT)/%.o: ../src/%.c $(HDRS) | $(OUTPUT)
 	$(CC) -c $(CFLAGS) $< -o $@
 
 $(OUTPUT)/httpserver.o: ../src/httpserver.h ../src/httpbuffer.c ../src/httpserver.c
 
-$(OUTPUT)/main.o: ../src/main.c ../src/common.h ../src/httpserver.h ../src/config.h ../src/clustredcache.c ../src/cacheex.c ../src/pipe.c ../src/pipe.h \
+$(OUTPUT)/main.o: ../src/main.c ../src/common.h ../src/httpserver.h ../src/config.h ../src/cache-window.h ../src/clustredcache.c ../src/cacheex.c ../src/pipe.c ../src/pipe.h \
 	../src/setdcw.c ../src/loadbalance.c ../src/th-ecm.c ../src/th-cfg.c ../src/th-dns.c ../src/th-date.c ../src/th-srv.c \
-	../src/srv-cccam.c ../src/srv-newcamd.c ../src/srv-mgcamd.c ../src/srv-radegast.c ../src/srv-freecccam.c ../src/srv-camd35.c ../src/srv-cs378x.c \
+	../src/srv-cccam.c ../src/cccam-session.h ../src/srv-newcamd.c ../src/srv-mgcamd.c ../src/srv-radegast.c ../src/srv-freecccam.c ../src/srv-camd35.c ../src/srv-cs378x.c \
 	../src/cli-common.c ../src/cli-cccam.c ../src/cli-newcamd.c ../src/cli-radegast.c ../src/cli-camd35.c ../src/cli-cs378x.c
 
 all:

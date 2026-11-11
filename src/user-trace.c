@@ -8,7 +8,11 @@ static pthread_mutex_t trace_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t trace_config_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct user_trace_target target;
 static struct user_trace_event events[USER_TRACE_CAPACITY];
-struct shared_link { uint64_t attempt, instance; uint32_t hash; };
+struct shared_link {
+    uint64_t attempt, instance;
+    uint32_t hash;
+    int client_result_recorded;
+};
 static struct shared_link links[USER_TRACE_MAX_LINKS];
 static uint64_t generation, next_attempt, next_sequence, overwritten, dropped_links, dropped_events;
 static uint64_t next_instance, csp_unattributed_short;
@@ -220,7 +224,8 @@ static size_t shared_event(uint64_t instance, enum user_trace_event_type type,
     if (!instance || (type != USER_TRACE_SENT && type != USER_TRACE_REJECTED &&
                       type != USER_TRACE_FAILED && type != USER_TRACE_SOURCE_REPLY &&
                       type != USER_TRACE_VALIDATED && type != USER_TRACE_CACHE &&
-                      type != USER_TRACE_DISPATCH_SKIPPED)) return 0;
+                      type != USER_TRACE_DISPATCH_SKIPPED &&
+                      type != USER_TRACE_SOURCE_TRANSPORT)) return 0;
     pthread_mutex_lock(&trace_lock);
     if (active) {
         for (i = 0; i < USER_TRACE_MAX_LINKS; ++i) {
@@ -283,11 +288,23 @@ void user_trace_unbind_shared(uint64_t session, uint64_t attempt)
     pthread_mutex_unlock(&trace_lock);
 }
 
+void user_trace_unbind_shared_instance(uint64_t instance)
+{
+    size_t i;
+    if (!instance) return;
+    pthread_mutex_lock(&trace_lock);
+    for (i = 0; i < USER_TRACE_MAX_LINKS; ++i) {
+        if (links[i].attempt && links[i].instance == instance)
+            memset(&links[i], 0, sizeof(links[i]));
+    }
+    pthread_mutex_unlock(&trace_lock);
+}
+
 static int client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
                          enum user_trace_event_type type, int source_type,
                          int source_id, uint32_t elapsed_ms, const char *detail, const uint8_t *cw)
 {
-    size_t i, found = USER_TRACE_MAX_LINKS, matches = 0;
+    size_t i, found = USER_TRACE_MAX_LINKS, pending = 0;
     struct user_trace_event event = {0};
     int result = 0;
     if (!instance || (type != USER_TRACE_FAILED && type != USER_TRACE_DELIVERED &&
@@ -295,21 +312,24 @@ static int client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
     pthread_mutex_lock(&trace_lock);
     if (!active || client_id != target.client_id) goto done;
     for (i = 0; i < USER_TRACE_MAX_LINKS; ++i) {
-        if (links[i].attempt && links[i].instance == instance && links[i].hash == hash) { found = i; ++matches; }
+        if (links[i].attempt && links[i].instance == instance && links[i].hash == hash &&
+            !links[i].client_result_recorded) {
+            found = i;
+            ++pending;
+        }
     }
-    if (matches > 1) {
-        /* A duplicate live association is ambiguous: never guess which
-         * client attempt received this completion. Make the loss visible. */
+    if (pending > 1) {
+        /* Several client attempts share this ECM, and the delivery snapshot
+         * has no attempt token. Never guess; retain the ECM links so later
+         * shared source events can still be attributed. */
         ++dropped_events;
         for (i = 0; i < USER_TRACE_MAX_LINKS; ++i) {
-            if (links[i].attempt && links[i].instance == instance && links[i].hash == hash) {
-                memset(&links[i], 0, sizeof(links[i]));
-                ++dropped_links;
-            }
+            if (links[i].attempt && links[i].instance == instance && links[i].hash == hash)
+                links[i].client_result_recorded = 1;
         }
         goto done;
     }
-    if (!matches) goto done;
+    if (!pending) goto done;
     if (count == USER_TRACE_CAPACITY && events[next_index].type == USER_TRACE_RECEIVED &&
         events[next_index].attempt == links[found].attempt) {
         ++dropped_links;
@@ -329,8 +349,8 @@ static int client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
         strncpy(event.detail, detail, sizeof(event.detail) - 1);
         event.detail[sizeof(event.detail) - 1] = '\0';
     }
-    memset(&links[found], 0, sizeof(links[found]));
     append_locked(&event);
+    links[found].client_result_recorded = 1;
     result = 1;
 done:
     pthread_mutex_unlock(&trace_lock);

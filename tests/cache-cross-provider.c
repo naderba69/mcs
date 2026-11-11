@@ -21,6 +21,7 @@ static struct cardserver_data cache_test_profile;
 static int fail_pipe_monotonic_clock;
 static int reject_profile_cw;
 static unsigned pipe_clock_calls;
+static uint32_t test_now_ms=10000;
 struct cafamily_tab cafamily_tab;
 int __real_clock_gettime(clockid_t clock_id, struct timespec *value);
 int __wrap_clock_gettime(clockid_t clock_id, struct timespec *value)
@@ -61,22 +62,58 @@ int __wrap_poll(struct pollfd *fds, nfds_t nfds, int timeout)
     }
     return __real_poll(fds, nfds, timeout);
 }
-uint32_t GetTickCount(void) { return 10000; }
+uint32_t GetTickCount(void) { return test_now_ms; }
 uint32_t getdbgflag(int a,int b,int c) { (void)a;(void)b;(void)c;return 0; }
 void debugf(uint32_t flag, char *fmt, ...) { (void)flag;(void)fmt; }
+size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type type,
+                               int source_type, int source_id,
+                               uint32_t elapsed_ms, const char *detail)
+{ (void)instance;(void)type;(void)source_type;(void)source_id;(void)elapsed_ms;(void)detail; return 0; }
 int acceptDCW_profile_ecm_trace_reason(uint8_t *cw, struct cardserver_data *cs,
                                        uint16_t caid, uint32_t provid, uint16_t sid,
                                        int *reason, int *exemption)
 { (void)cw;(void)caid;(void)sid; profile_checks++; last_profile=cs; last_profile_provider=provid;
   if (reason) *reason=reject_profile_cw ? DCW_INVALID_CHECKSUM : DCW_VALID;
   if (exemption) *exemption=0; return !reject_profile_cw; }
+int acceptDCW_profile_ecm_reason(uint8_t *cw, struct cardserver_data *cs,
+                                 uint16_t caid, uint32_t provid, uint16_t sid,
+                                 int *reason)
+{ int exemption=0; return acceptDCW_profile_ecm_trace_reason(cw,cs,caid,provid,sid,reason,&exemption); }
 int checksumDCW(uint8_t *cw) { (void)cw; return 1; }
 int isbadDCW(uint8_t *cw) { (void)cw; return 0; }
+/* The isolated Set-DCW worker test has no connected transports/clients. Keep
+ * those branches linkable without allowing them to affect the in-memory CW. */
+uint32_t getdbgflagpro(int a,int b,int c,int d) { (void)a;(void)b;(void)c;(void)d;return 0; }
+int cs_message_send(int a,struct cs_custom_data *b,unsigned char *c,int d,unsigned char *e)
+{ (void)a;(void)b;(void)c;(void)d;(void)e;return 1; }
+void cc_crypt_cw(uint8_t *a,uint32_t b,uint8_t *c) { (void)a;(void)b;(void)c; }
+int cc_msg_send(int a,struct cc_crypt_block *b,cc_msg_cmd c,int d,uint8_t *e)
+{ (void)a;(void)b;(void)c;(void)d;(void)e;return 1; }
+int cc_msg_send_and_encrypt(int a,struct cc_crypt_block *b,cc_msg_cmd c,
+                            int d,uint8_t *e,uint8_t *f,int g)
+{ (void)a;(void)b;(void)c;(void)d;(void)e;(void)f;(void)g;return 1; }
+int user_trace_client_result(uint32_t a,uint64_t b,uint32_t c,
+                             enum user_trace_event_type d,int e,int f,
+                             uint32_t g,const char *h)
+{ (void)a;(void)b;(void)c;(void)d;(void)e;(void)f;(void)g;(void)h;return 0; }
+int user_trace_client_cw(uint32_t a,uint64_t b,uint32_t c,int d,int e,
+                         uint32_t f,const char *g,const uint8_t h[16])
+{ (void)a;(void)b;(void)c;(void)d;(void)e;(void)f;(void)g;(void)h;return 0; }
+void free_cardlist(struct cs_card_data *a) { (void)a; }
+void host_checkiptime_set(struct host_data *a,uint32_t b) { (void)a;(void)b; }
+void AES_encrypt(const unsigned char *a,unsigned char *b,const AES_KEY *c)
+{ (void)a;(void)b;(void)c; }
+void debughex(uint8_t *a,int b) { (void)a;(void)b; }
+void dcw_filter_globals_snapshot(int *a,int *b,int *c,int *d)
+{ if(a)*a=0;if(b)*b=0;if(c)*c=0;if(d)*d=0; }
+void hex32(int a,char *b) { (void)a;if(b)b[0]=0; }
+int rdgd_message_send(int a,unsigned char *b,int c) { (void)a;(void)b;(void)c;return -1; }
 int dcw_profile_cycle_enabled(struct cardserver_data *cs) { (void)cs; return 0; }
-int peerrep_note(uint32_t ip,uint16_t port,const char *reason) { (void)ip;(void)port;(void)reason;return 0; }
+int peerrep_on;
+int peerrep_note(uint32_t ip,uint16_t port,const char *reason,uint32_t now_ms) { (void)ip;(void)port;(void)reason;(void)now_ms;return 0; }
 void peerrep_save(void) {}
-int peerrep_stage(uint32_t ip,uint16_t port) { (void)ip;(void)port;return 0; }
-int peerrep_ask_ok(uint32_t ip,uint16_t port) { (void)ip;(void)port;return 1; }
+int peerrep_stage(uint32_t ip,uint16_t port,uint32_t now_ms) { (void)ip;(void)port;(void)now_ms;return 0; }
+int peerrep_ask_ok(uint32_t ip,uint16_t port,uint32_t now_ms) { (void)ip;(void)port;(void)now_ms;return 1; }
 void cwconsensus_set_min_sources(int n) { (void)n; }
 int cwconsensus_verdict(uint16_t caid,uint16_t sid,uint32_t provid,int provider_known,
                         uint32_t hash,uint8_t tag,const uint8_t *cw,int peerid,int weight,
@@ -106,6 +143,17 @@ void user_trace_cache_observation(uint16_t a,uint32_t b,uint16_t c,uint32_t d,in
   if (!strcmp(f,"cache provider collision: explicit cached provider differs from local request; conflicting operation skipped")) { assert(g == NULL); conflicts++; }
   if (!strcmp(f,"cache provider collision: known numeric providers differ; cross-cache relay skipped")) { assert(g == NULL); record_conflicts++; }
   if (!strcmp(f,"cache provider collision: explicit incoming provider conflicts with known cache/local provider; CW refused")) { source_conflicts++; }
+}
+/* config.c owns this production helper; the isolated cache harness supplies
+ * the same synchronized snapshot contract without linking the full config TU. */
+uint32_t host_ip_snapshot(const struct host_data *host)
+{
+    uint32_t ip=0;
+    if (!host) return 0;
+    pthread_mutex_lock(&prg.lockdnsth);
+    ip=host->ip;
+    pthread_mutex_unlock(&prg.lockdnsth);
+    return ip;
 }
 int isnullDCW(uint8_t *cw) { uint8_t z[16]={0}; return !memcmp(cw,z,16); }
 int similarcw(uint8_t *a,uint8_t *b) { int i, n=0; for(i=0;i<8;i++) if(a[i]==b[i])n++; return n>3; }
@@ -155,10 +203,26 @@ static void *write_pipe_all(void *arg)
     return NULL;
 }
 
+/* Advance exactly one message through D107's deferred ECM->cache queue. The
+ * fixture calls this only after an enqueue, avoiding pop()'s intentional wait
+ * for future work while preserving the production framing/receiver path. */
+static void cache_pipe_out_flush_one_for_test(void)
+{
+    uint8_t message[CACHE_PIPE_QUEUE_PAYLOAD_MAX];
+    size_t len=0;
+    assert(cache_pipe_queue_pop(&cache_pipe_out_queue,message,&len));
+    assert(len>0 && len<=sizeof(message));
+    assert(pipe_send(prg.pipe.cache[1],message,(int)len)==(int)len+4);
+}
+
 int main(void)
 {
     test_send_nonb_poll_eintr();
     assert(pthread_mutex_init(&prg.lockcache,NULL)==0);
+    assert(pthread_mutex_init(&prg.lockecm,NULL)==0);
+    assert(pthread_mutex_init(&prg.locksrv,NULL)==0);
+    assert(pthread_mutex_init(&prg.lockdnsth,NULL)==0);
+    assert(pthread_mutex_init(&prg.lockcacheex,NULL)==0);
     struct cache_data **table = getcachetabbycaid(0x1884);
     struct cache_data target = {0}, incoming = {0};
     ECM_DATA relay_waiter={0};
@@ -225,30 +289,53 @@ int main(void)
         close(fds[0]); close(fds[1]);
         free(expected); free(actual);
     }
-    /* A full nonblocking pipe must not leave pipe_send spinning forever.
-     * Exercise the cache-lock case explicitly: the caller currently holds
-     * lockcache during this bounded EAGAIN wait, then takes the restart path. */
+    /* A cache->ECM hand-off is mandatory even though a raw zero-byte pipe
+     * timeout is stream-safe. The production cache wrapper must request restart
+     * when this non-reconstructable notification is lost. Verify bounded
+     * ETIMEDOUT, unchanged pipe contents, and a retry after worker reset. */
     {
-        int fds[2], flags;
+        int fds[2], flags, send_error, i;
         uint8_t fill[4096] = {0}, message[3]={0x11,0x22,0x33};
+        uint8_t drained_bytes[4096], decoded[sizeof(message)];
         struct timespec start, end;
         double elapsed_ms;
+        size_t fill_total=0, drained=0;
         ssize_t n;
         assert(pipe(fds)==0);
         flags=fcntl(fds[1],F_GETFL,0);
         assert(flags>=0 && fcntl(fds[1],F_SETFL,flags|O_NONBLOCK)==0);
-        do { n=write(fds[1],fill,sizeof(fill)); } while (n>0);
-        assert(n<0 && (errno==EAGAIN || errno==EWOULDBLOCK));
+        do {
+            n=write(fds[1],fill,sizeof(fill));
+            if (n>0) fill_total+=(size_t)n;
+        } while (n>0);
+        assert(fill_total>0 && n<0 && (errno==EAGAIN || errno==EWOULDBLOCK));
         prg.restart=0;
         pthread_mutex_lock(&prg.lockcache);
         assert(clock_gettime(CLOCK_MONOTONIC,&start)==0);
-        assert(pipe_send(fds[1],message,sizeof(message))==-1);
+        assert(cache_ecm_pipe_send_required(fds[1],message,sizeof(message))==-1);
+        send_error=errno;
         assert(clock_gettime(CLOCK_MONOTONIC,&end)==0);
         elapsed_ms=(end.tv_sec-start.tv_sec)*1000.0+
                    (end.tv_nsec-start.tv_nsec)/1000000.0;
         pthread_mutex_unlock(&prg.lockcache);
-        assert(elapsed_ms < 500.0 && prg.restart);
-        prg.restart=0;
+        assert(elapsed_ms < 500.0 && send_error==ETIMEDOUT && prg.restart);
+        flags=fcntl(fds[0],F_GETFL,0);
+        assert(flags>=0 && fcntl(fds[0],F_SETFL,flags|O_NONBLOCK)==0);
+        while (drained<fill_total) {
+            size_t want=fill_total-drained;
+            if (want>sizeof(drained_bytes)) want=sizeof(drained_bytes);
+            n=read(fds[0],drained_bytes,want);
+            if (n<0 && errno==EINTR) continue;
+            assert(n>0);
+            for (i=0; i<n; i++) assert(drained_bytes[i]==0);
+            drained+=(size_t)n;
+        }
+        n=read(fds[0],drained_bytes,1);
+        assert(n<0 && (errno==EAGAIN || errno==EWOULDBLOCK));
+        prg.restart=0; /* simulate the worker restarted after the failed hand-off */
+        assert(pipe_send(fds[1],message,sizeof(message))==7 && !prg.restart);
+        assert(pipe_recv(fds[0],decoded,sizeof(decoded))==(int)sizeof(message));
+        assert(!memcmp(message,decoded,sizeof(message)));
         close(fds[0]); close(fds[1]);
     }
     /* If the monotonic source fails while a full pipe requires EAGAIN retry,
@@ -277,10 +364,12 @@ int main(void)
         close(fds[0]); close(fds[1]);
     }
     /* Repeated poll interruptions after EAGAIN still have to observe the
-     * monotonic retry deadline instead of extending the cache-lock hold. */
+     * monotonic retry deadline instead of extending the bounded send. */
     {
-        int fds[2], flags;
+        int fds[2], flags, send_error;
         uint8_t fill[4096] = {0}, message[3]={0x11,0x22,0x33};
+        struct timespec start, end;
+        double elapsed_ms;
         ssize_t n;
         assert(pipe(fds)==0);
         flags=fcntl(fds[1],F_GETFL,0);
@@ -291,9 +380,15 @@ int main(void)
         pipe_poll_eintr_calls=0;
         force_pipe_poll_eintr=1;
         errno=0;
-        assert(pipe_send(fds[1],message,sizeof(message))==-1);
+        assert(clock_gettime(CLOCK_MONOTONIC,&start)==0);
+        assert(cache_ecm_pipe_send_required(fds[1],message,sizeof(message))==-1);
+        send_error=errno;
         force_pipe_poll_eintr=0;
-        assert(errno==ETIMEDOUT && pipe_poll_eintr_calls>0 && prg.restart);
+        assert(clock_gettime(CLOCK_MONOTONIC,&end)==0);
+        elapsed_ms=(end.tv_sec-start.tv_sec)*1000.0+
+                   (end.tv_nsec-start.tv_nsec)/1000000.0;
+        assert(send_error==ETIMEDOUT && pipe_poll_eintr_calls>0 &&
+               pipe_poll_eintr_calls<20 && elapsed_ms<500.0 && prg.restart);
         prg.restart=0;
         close(fds[0]); close(fds[1]);
     }
@@ -368,10 +463,13 @@ int main(void)
         memset(cache_ecm_snapshots,0,sizeof(cache_ecm_snapshots));
     }
     /* FIND_SUCCESS sender and receiver must agree on every serialized byte,
-     * including the newly added CW-cycle marker. */
+     * including the cycle marker and cumulative local-origin mask. */
     {
-        uint8_t wire[64], sent_cw[16], received_cw[16];
+        uint8_t wire[64], sent_cw[16], received_cw[16], decoded_origin=0;
+        uint8_t source_mask=(uint8_t)(CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER|
+                                      CACHE_ORIGIN_BATCH);
         int marker=NO_CYCLE, wire_len;
+        uint8_t verify_line=0;
         uint32_t decoded_peer=0;
         struct cache_data sent={0}, received={0};
         int base_len=12+(int)sizeof(void*)+(int)sizeof(uint64_t);
@@ -381,20 +479,68 @@ int main(void)
         sent.ecm_lifetime_id=UINT64_C(0x1020304050607080);
         memset(wire,0x5a,sizeof(wire));
         assert(put_cache2ecm(PIPE_CACHE_FIND_SUCCESS,wire,(size_t)(base_len+4+16),
-                             &sent,sent_cw,UINT32_C(0x92345678),CW1CYCLE)==0);
+                             &sent,sent_cw,UINT32_C(0x92345678),CW1CYCLE,
+                             source_mask)==0);
         assert(wire[0]==0x5a && wire[base_len+4+16-1]==0x5a);
-        wire_len=put_cache2ecm(PIPE_CACHE_FIND_SUCCESS,wire,sizeof(wire),&sent,sent_cw,
-                               UINT32_C(0x92345678),CW1CYCLE);
-        assert(!get_cache2ecm(wire,(size_t)wire_len-1u,&received,received_cw,&marker,
-                              &decoded_peer));
-        assert(get_cache2ecm(wire,(size_t)wire_len,&received,received_cw,&marker,
-                             &decoded_peer));
-        assert(wire_len==base_len+4+16+1 &&
-               wire_len==12+(int)sizeof(void*)+(int)sizeof(uint64_t)+4+16+1);
+        assert(put_cache2ecm(PIPE_CACHE_FIND_SUCCESS,wire,sizeof(wire),&sent,sent_cw,
+                             UINT32_C(0x92345678),CW1CYCLE,0x80u)==0);
+		wire_len=put_cache2ecm_with_verify(PIPE_CACHE_FIND_SUCCESS,wire,
+		                       sizeof(wire),&sent,sent_cw,UINT32_C(0x92345678),
+		                       CW1CYCLE,source_mask,1);
+		assert(!put_cache2ecm_with_verify(PIPE_CACHE_FIND_SUCCESS,wire,
+		       sizeof(wire),&sent,sent_cw,UINT32_C(0x92345678),3,
+		       source_mask,0));
+		assert(!get_cache2ecm_with_verify(wire,(size_t)wire_len-1u,&received,
+		       received_cw,&marker,&decoded_peer,&decoded_origin,&verify_line));
+		assert(get_cache2ecm_with_verify(wire,(size_t)wire_len,&received,
+		       received_cw,&marker,&decoded_peer,&decoded_origin,&verify_line));
+		assert(wire_len==base_len+(int)CACHE_PIPE_FIND_SUCCESS_EXTRA_LEN &&
+		       wire_len==12+(int)sizeof(void*)+(int)sizeof(uint64_t)+
+		                 4+16+1+1+1 && verify_line==1);
         assert(decoded_peer==UINT32_C(0x92345678) && marker==CW1CYCLE &&
-               received.ecm==&relay_waiter &&
+               decoded_origin==source_mask && received.ecm==&relay_waiter &&
                received.ecm_lifetime_id==sent.ecm_lifetime_id &&
                !memcmp(received_cw,sent_cw,sizeof(sent_cw)));
+        wire[base_len+4+16]=3u; /* invalid cycle marker must fail closed */
+        assert(!get_cache2ecm_with_verify(wire,(size_t)wire_len,&received,
+               received_cw,&marker,&decoded_peer,&decoded_origin,&verify_line));
+        wire[base_len+4+16]=CW1CYCLE;
+        wire[wire_len-1]=0x80u;
+        assert(!get_cache2ecm(wire,(size_t)wire_len,&received,received_cw,&marker,
+                              &decoded_peer,&decoded_origin));
+    }
+    /* The accepted cache candidate then crosses the separate Set-DCW queue;
+     * its provenance is a value snapshot, never read later from a recycled ECM. */
+    {
+        uint8_t message[64], sent_cw[16], decoded_cw[16];
+        uint8_t sent_origin=(uint8_t)(CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER|
+                                      CACHE_ORIGIN_BATCH);
+        uint8_t decoded_origin=0;
+        ECM_DATA source={0}, *decoded_ecm=NULL;
+        int length, parsed, srctype=0, srcid=0, cycle=NO_CYCLE;
+        uint64_t trace=0, lifetime=0;
+        memset(sent_cw,0x4a,sizeof(sent_cw));
+        source.trace_instance=UINT64_C(0x1122334455667788);
+        __atomic_store_n(&source.lifetime_id,UINT64_C(0x2f11),__ATOMIC_RELEASE);
+        length=put_setdcwdata(message,&source,sent_cw,DCW_SOURCE_CACHE,
+                              PEER_CSP|92,CW1CYCLE,sent_origin);
+        assert(length==1+2*(int)sizeof(int)+(int)sizeof(void*)+16+1+1+
+                      2*(int)sizeof(uint64_t));
+        parsed=get_setdcwdata(message,&decoded_ecm,decoded_cw,&srctype,&srcid,
+                              &cycle,&decoded_origin,&trace,&lifetime);
+        assert(parsed==length && decoded_ecm==&source &&
+               srctype==DCW_SOURCE_CACHE && srcid==(PEER_CSP|92) &&
+               cycle==CW1CYCLE && decoded_origin==sent_origin &&
+               trace==source.trace_instance && lifetime==source.lifetime_id &&
+               !memcmp(decoded_cw,sent_cw,sizeof(sent_cw)));
+        assert(put_setdcwdata(message,&source,sent_cw,DCW_SOURCE_CACHE,
+                              PEER_CSP|92,3,sent_origin)==0);
+        message[1+2*sizeof(int)+sizeof(void*)+16]=3u;
+        assert(!get_setdcwdata(message,&decoded_ecm,decoded_cw,&srctype,&srcid,
+                               &cycle,&decoded_origin,&trace,&lifetime));
+        message[1+2*sizeof(int)+sizeof(void*)+16]=CW1CYCLE;
+        assert(put_setdcwdata(message,&source,sent_cw,DCW_SOURCE_CACHE,
+                              PEER_CSP|92,CW1CYCLE,0x80u)==0);
     }
     {
         uint8_t wire[80], cache_wire[80], prevcw[16], decoded_cw[16];
@@ -404,6 +550,7 @@ int main(void)
         struct cache_data cache_record={0}, cache_decoded={0};
         struct cardserver_data local_profile={0};
         int cache_len, cache_mark=NO_CYCLE;
+        uint8_t cache_origin=0;
         ECM_DATA local={0};
 
 #ifdef CACHEEX
@@ -411,6 +558,7 @@ int main(void)
 #endif
         local.ecm[0]=0x80; local.sid=0x1136; local.caid=0x1884;
         local.hash=0x12345678; local.provid=0; local.cw1cycle=0x80;
+        local.recvtime=123456u;
         local.provider_known=1;
         __atomic_store_n(&local.lifetime_id, UINT64_C(0x1122334455667788), __ATOMIC_RELEASE);
         ecm_request_set_dcwstatus(&local,STAT_DCW_WAIT);
@@ -436,6 +584,12 @@ int main(void)
                decoded.provid==0 && decoded.cwcycle==CW1CYCLE &&
                decoded.ecm==&local && decoded.ecm_lifetime_id==local.lifetime_id &&
                ecm_request_lifetime_matches(decoded.ecm,&local,decoded.ecm_lifetime_id));
+        {
+                uint8_t saved_marker=wire[15];
+                wire[15]=(uint8_t)((saved_marker&0x80u)|3u);
+                assert(get_ecm2cache(wire,wire_len,&decoded,NULL)<0);
+                wire[15]=saved_marker;
+        }
 
         memset(prevcw,0x6d,sizeof(prevcw));
         wire_len=put_ecm2cache(PIPE_CACHE_FIND,wire,sizeof(wire),&local,0,prevcw);
@@ -451,10 +605,11 @@ int main(void)
         cache_record.tag=0x80; cache_record.sid=local.sid; cache_record.caid=local.caid;
         cache_record.hash=local.hash; cache_record.ecm=&local;
         cache_record.ecm_lifetime_id=local.lifetime_id;
-        cache_len=put_cache2ecm(PIPE_CACHE_FIND_FAILED,cache_wire,sizeof(cache_wire),&cache_record,NULL,0,0);
+        cache_len=put_cache2ecm(PIPE_CACHE_FIND_FAILED,cache_wire,sizeof(cache_wire),&cache_record,NULL,0,0,0);
         assert(cache_len==12+(int)sizeof(void*)+(int)sizeof(uint64_t));
-        assert(!get_cache2ecm(cache_wire,(size_t)cache_len-1u,&cache_decoded,NULL,NULL,NULL));
-        assert(get_cache2ecm(cache_wire,(size_t)cache_len,&cache_decoded,NULL,NULL,NULL));
+        assert(!get_cache2ecm(cache_wire,(size_t)cache_len-1u,&cache_decoded,NULL,NULL,NULL,NULL));
+        assert(get_cache2ecm(cache_wire,(size_t)cache_len,&cache_decoded,NULL,NULL,NULL,&cache_origin));
+        assert(cache_origin==0);
         assert(cache_decoded.ecm==&local &&
                cache_decoded.ecm_lifetime_id==local.lifetime_id &&
                ecm_request_lifetime_matches(cache_decoded.ecm,&local,
@@ -462,11 +617,14 @@ int main(void)
 
         memset(local.cw,0x27,sizeof(local.cw));
         cache_len=put_cache2ecm(PIPE_CACHE_FIND_SUCCESS,cache_wire,sizeof(cache_wire),&cache_record,
-                                local.cw,17,CW1CYCLE);
+                                local.cw,17,CW1CYCLE,CACHE_ORIGIN_LINE_SERVER);
         memset(decoded_cw,0,sizeof(decoded_cw));
-        assert(cache_len==12+(int)sizeof(void*)+(int)sizeof(uint64_t)+4+16+1);
-        assert(get_cache2ecm(cache_wire,(size_t)cache_len,&cache_decoded,decoded_cw,&cache_mark,NULL));
-        assert(cache_mark==CW1CYCLE && !memcmp(decoded_cw,local.cw,16));
+        assert(cache_len==12+(int)sizeof(void*)+(int)sizeof(uint64_t)+
+                         CACHE_PIPE_FIND_SUCCESS_EXTRA_LEN);
+        assert(get_cache2ecm(cache_wire,(size_t)cache_len,&cache_decoded,decoded_cw,
+                             &cache_mark,NULL,&cache_origin));
+        assert(cache_mark==CW1CYCLE && cache_origin==CACHE_ORIGIN_LINE_SERVER &&
+               !memcmp(decoded_cw,local.cw,16));
 
         local.provider_known=0; local.cw1cycle=0;
         wire_len=put_ecm2cache(PIPE_CACHE_FIND,wire,sizeof(wire),&local,0,NULL);
@@ -476,13 +634,18 @@ int main(void)
         /* A non-null pointer decoded from a pipe must be checked by address
          * and generation in the side table before any dereference. */
         pthread_mutex_lock(&prg.lockcache);
-        assert(!cache_ecm_snapshot_read_locked((ECM_DATA *)(uintptr_t)1u,
-                                                local.lifetime_id,NULL,NULL));
-        assert(cache_ecm_snapshot_read_locked(&local,local.lifetime_id,NULL,NULL));
+        {
+                uint32_t snapshot_recvtime=0;
+                assert(!cache_ecm_snapshot_read_locked((ECM_DATA *)(uintptr_t)1u,
+                                                        local.lifetime_id,NULL,NULL,NULL));
+                assert(cache_ecm_snapshot_read_locked(&local,local.lifetime_id,
+                                                      NULL,NULL,&snapshot_recvtime));
+                assert(snapshot_recvtime==local.recvtime);
+        }
         pthread_mutex_unlock(&prg.lockcache);
         cache_ecm_snapshot_retire(&local);
         pthread_mutex_lock(&prg.lockcache);
-        assert(!cache_ecm_snapshot_read_locked(&local,local.lifetime_id,NULL,NULL));
+        assert(!cache_ecm_snapshot_read_locked(&local,local.lifetime_id,NULL,NULL,NULL));
         pthread_mutex_unlock(&prg.lockcache);
 
         assert(!cache_consensus_provider_scope(&scope,&scope_provider) && scope_provider==0);
@@ -508,6 +671,48 @@ int main(void)
     cfg.cache.gate_localonly=0;
     cfg.cache.gate_blockfake=0;
     cfg.cache.gate_cwcheck=0;
+    /* Exercise the production cache-entry -> ECM IPC, not just its codec: the
+     * selected cwdata provenance must survive the asynchronous FIND_SUCCESS
+     * frame together with the peer ID, CW, and cycle marker. */
+    {
+        ECM_DATA waiter={0};
+        struct cardserver_data profile={0};
+        struct cache_data entry={0}, decoded={0};
+        struct cw_cache_data candidate={0};
+        uint8_t frame[1024], candidate_cw[16], decoded_cw[16], origin=0;
+        int frame_len, mark=NO_CYCLE;
+        uint32_t peerid=0;
+        uint64_t lifetime=UINT64_C(0x2f01);
+        waiter.ecm[0]=0x80; waiter.caid=0x1884; waiter.sid=0x2711;
+        waiter.hash=0x81234567; waiter.provid=0x010203; waiter.provider_known=1;
+        waiter.recvtime=9000;
+        __atomic_store_n(&waiter.lifetime_id,lifetime,__ATOMIC_RELEASE);
+        ecm_request_set_dcwstatus(&waiter,STAT_DCW_WAIT);
+        assert(cache_ecm_snapshot_publish(&waiter,&profile));
+        memset(candidate_cw,0x6c,sizeof(candidate_cw));
+        memcpy(candidate.cw,candidate_cw,sizeof(candidate.cw));
+        candidate.cwcycle=CW1CYCLE;
+        candidate.origin_mask=(uint8_t)(CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER|
+                                        CACHE_ORIGIN_BATCH);
+        entry.tag=waiter.ecm[0]; entry.sid=waiter.sid; entry.onid=1;
+        entry.caid=waiter.caid; entry.hash=waiter.hash; entry.provid=waiter.provid;
+        entry.ecm=&waiter; entry.ecm_lifetime_id=lifetime;
+        entry.flags=CACHE_FLAG_SENDPIPE; entry.cwdata=&candidate;
+        pthread_mutex_lock(&prg.lockcache);
+        pipe_cache2ecm_find_success(&entry,candidate_cw,PEER_CSP|91);
+        pthread_mutex_unlock(&prg.lockcache);
+        frame_len=pipe_recv(prg.pipe.ecm[0],frame,sizeof(frame));
+        assert(frame_len==12+(int)sizeof(void*)+(int)sizeof(uint64_t)+
+                          (int)CACHE_PIPE_FIND_SUCCESS_EXTRA_LEN);
+        assert(get_cache2ecm(frame,(size_t)frame_len,&decoded,decoded_cw,&mark,
+                             &peerid,&origin));
+        assert(peerid==(uint32_t)(PEER_CSP|91) && mark==CW1CYCLE &&
+               origin==(CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER|CACHE_ORIGIN_BATCH) &&
+               decoded.ecm==&waiter && decoded.ecm_lifetime_id==lifetime &&
+               !memcmp(decoded_cw,candidate_cw,sizeof(candidate_cw)));
+        cache_ecm_snapshot_retire(&waiter);
+        sends=0; /* Ignore the serializer's observation in later relay totals. */
+    }
 #ifdef CACHEEX
     /* Cache offers rejected before the ECM Set-DCW pipe still enter the
      * candidate ledger only when an exact live request identity is available.
@@ -555,7 +760,7 @@ int main(void)
                ledger_entry->candidate[0].srcid==(PEER_CSP|31) &&
                !ledger_entry->candidate[0].accepted &&
                !ledger_entry->candidate[0].delivered);
-        assert(ledger_next_proof(&ledger_tab,&identity,10000,&ledger_event)==LEDGER_NONE);
+        assert(ledger_next_proof(&ledger_tab,&identity,10000,DCW_SOURCE_SERVER,&ledger_event)==LEDGER_NONE);
 
         /* A CacheEX provider collision is still observed under the distinct
          * provider identity when its ECMD5 matches the local ECM. */
@@ -570,7 +775,7 @@ int main(void)
         assert(ledger_entry && ledger_entry->nslot==1 &&
                !ledger_entry->candidate[0].accepted &&
                !ledger_entry->candidate[0].delivered);
-        assert(ledger_next_proof(&ledger_tab,&offered_identity,10000,&ledger_event)==LEDGER_NONE);
+        assert(ledger_next_proof(&ledger_tab,&offered_identity,10000,DCW_SOURCE_SERVER,&ledger_event)==LEDGER_NONE);
 
         /* A different CacheEX ECMD5 is not attributed to this active waiter,
          * even though its 32-bit cache key collides. */
@@ -628,13 +833,18 @@ int main(void)
         ledger_init(&ledger_tab);
         assert(ledger_candidate(&ledger_tab,&original,offered,DCW_SOURCE_SERVER,77,10000,&event)==LEDGER_NONE);
         assert(ledger_accept(&ledger_tab,&original,offered,accepted,
-                             DCW_SOURCE_SERVER,77,10000,&event)==LEDGER_ACCEPTED);
-        assert(ledger_delivery_snapshot_capture(&delivery,&sent));
+                             DCW_SOURCE_SERVER,77,10000,DCW_SOURCE_SERVER,&event)==LEDGER_ACCEPTED);
+        __atomic_store_n(&sent.lifetime_id,UINT64_C(0x1001),__ATOMIC_RELEASE);
+        pthread_mutex_lock(&prg.lockecm);
+        assert(ledger_delivery_snapshot_capture_locked(&delivery,&sent));
+        pthread_mutex_unlock(&prg.lockecm);
+        assert(delivery.lifetime_id==UINT64_C(0x1001));
         memset(&saved_delivery,0,sizeof(saved_delivery));
         LEDGER_DELIVERY_TO_LASTECM(saved_delivery,delivery);
         sent.ecm[0]=0x81; sent.caid=0x0500; sent.sid=0x4321;
         sent.hash=0x10203040; sent.provid=0x6789; sent.provider_known=1;
         memset(sent.ecmd5,0x96,sizeof(sent.ecmd5));
+        __atomic_store_n(&sent.lifetime_id,UINT64_C(0x1002),__ATOMIC_RELEASE);
         memset(sent.cw,0xa3,sizeof(sent.cw));
         sent.dcwsrctype=DCW_SOURCE_CACHE; sent.dcwsrcid=PEER_CSP|99;
         assert(ledger_identity_from_ecm(&replacement,&sent));
@@ -681,12 +891,14 @@ int main(void)
         pipe_cache_request(&piped,&profile); /* publish and queue generation 1 */
         cache_ecm_snapshot_retire(&piped); /* production reuse retires before clear */
         __atomic_store_n(&piped.lifetime_id,second_id,__ATOMIC_RELEASE);
+        cache_pipe_out_flush_one_for_test();
         pthread_mutex_lock(&prg.lockcache);
         cache_pipe_recvmsg();
         pthread_mutex_unlock(&prg.lockcache);
         assert(cache_fetch(&lookup)==NULL); /* stale request did not allocate */
 
         pipe_cache_request(&piped,&profile); /* publish and queue generation 2 */
+        cache_pipe_out_flush_one_for_test();
         pthread_mutex_lock(&prg.lockcache);
         cache_pipe_recvmsg();
         pthread_mutex_unlock(&prg.lockcache);
@@ -700,6 +912,7 @@ int main(void)
         pipe_cache_request(&piped,&profile); /* queued generation 2 */
         cache_ecm_snapshot_retire(&piped);
         __atomic_store_n(&piped.lifetime_id,UINT64_C(0x203),__ATOMIC_RELEASE);
+        cache_pipe_out_flush_one_for_test();
         pthread_mutex_lock(&prg.lockcache);
         cache_pipe_recvmsg();
         pthread_mutex_unlock(&prg.lockcache);
@@ -719,6 +932,8 @@ int main(void)
         struct cardserver_data profile={0};
         uint8_t cache_reply_buf[80], undersized_reply_buf[80], frame[80], decoded_cw[16], byte;
         int reply_len, decoded_len;
+        uint8_t inherited_origin=(uint8_t)(CACHE_ORIGIN_LINE_SERVER|
+                                           CACHE_ORIGIN_BATCH);
         uint64_t reply_lifetime=UINT64_C(0x2f01);
 
         assert(pipe(fds)==0);
@@ -729,31 +944,474 @@ int main(void)
         profile.option.cachesendrep=1;
         reply.ecm[0]=0x80; reply.caid=0x1884; reply.provid=0x123456;
         reply.sid=0x1136; reply.hash=0x76543210; reply.provider_known=1;
-        reply.dcwsrctype=DCW_SOURCE_CACHE;
+        reply.dcwsrctype=DCW_SOURCE_CACHE; reply.dcwsrcid=PEER_CSP|17;
         memset(reply.cw,0x4d,sizeof(reply.cw));
         __atomic_store_n(&reply.lifetime_id,reply_lifetime,__ATOMIC_RELEASE);
         ecm_request_set_dcwstatus(&reply,STAT_DCW_SUCCESS);
         memset(undersized_reply_buf,0xa7,sizeof(undersized_reply_buf));
         assert(pipe_cache_reply(&reply,&profile,undersized_reply_buf,
-                                (size_t)cache_ecm_pipe_base_len()+16u)==0);
+                                (size_t)cache_ecm_pipe_base_len()+
+                                CACHE_PIPE_REPLY_CW_LEN+
+                                CACHE_PIPE_REPLY_TRAILER_LEN-1u,
+                                inherited_origin)==0);
         assert(undersized_reply_buf[0]==0xa7 && !(reply.cachestatus&ECM_CACHE_REP));
-        reply_len=pipe_cache_reply(&reply,&profile,cache_reply_buf,sizeof(cache_reply_buf));
-        assert(reply_len==cache_ecm_pipe_base_len()+17);
+        reply_len=pipe_cache_reply(&reply,&profile,cache_reply_buf,
+                                   sizeof(cache_reply_buf),inherited_origin);
+        assert(reply_len==cache_ecm_pipe_base_len()+
+               CACHE_PIPE_REPLY_CW_LEN+CACHE_PIPE_REPLY_TRAILER_LEN);
         assert(reply.cachestatus&ECM_CACHE_REP);
-        assert(pipe_cache_reply(&reply,&profile,cache_reply_buf,sizeof(cache_reply_buf))==0);
+        assert(pipe_cache_reply(&reply,&profile,cache_reply_buf,
+                                sizeof(cache_reply_buf),inherited_origin)==0);
         read_result=(int)read(fds[0],&byte,1);
         assert(read_result==-1 && (errno==EAGAIN || errno==EWOULDBLOCK));
 
         pipe_cache_reply_send(cache_reply_buf,reply_len);
+        cache_pipe_out_flush_one_for_test();
         assert(pipe_recv(fds[0],frame,sizeof(frame))==reply_len);
         assert(get_ecm2cache(frame,reply_len-1,&decoded,decoded_cw)<0);
         decoded_len=get_ecm2cache(frame,reply_len,&decoded,decoded_cw);
-        assert(decoded_len+1==reply_len && frame[decoded_len]==1);
+        assert(decoded_len+(int)CACHE_PIPE_REPLY_TRAILER_LEN==reply_len &&
+               frame[decoded_len+CACHE_PIPE_REPLY_FROM_CACHE_OFFSET]==1 &&
+               frame[decoded_len+CACHE_PIPE_REPLY_ORIGIN_MASK_OFFSET]==
+                   (CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER|CACHE_ORIGIN_BATCH));
         assert(decoded.ecm==&reply && decoded.ecm_lifetime_id==reply_lifetime &&
                !memcmp(decoded_cw,reply.cw,sizeof(decoded_cw)));
+
+        /* A line-server answer crosses the same internal pipe with a distinct
+         * source class; no peer-protocol byte or peer-origin guess is involved. */
+        {
+            ECM_DATA line_reply={0};
+            uint64_t line_lifetime=UINT64_C(0x2f02);
+            int line_len, line_decoded_len;
+            line_reply.ecm[0]=0x80; line_reply.caid=0x1884;
+            line_reply.provid=0x123456; line_reply.sid=0x1137;
+            line_reply.hash=0x76543211; line_reply.provider_known=1;
+            line_reply.dcwsrctype=DCW_SOURCE_SERVER; line_reply.dcwsrcid=3;
+            memset(line_reply.cw,0x4e,sizeof(line_reply.cw));
+            __atomic_store_n(&line_reply.lifetime_id,line_lifetime,__ATOMIC_RELEASE);
+            ecm_request_set_dcwstatus(&line_reply,STAT_DCW_SUCCESS);
+            line_len=pipe_cache_reply(&line_reply,&profile,cache_reply_buf,
+                                      sizeof(cache_reply_buf),0);
+            assert(line_len==cache_ecm_pipe_base_len()+
+                   CACHE_PIPE_REPLY_CW_LEN+CACHE_PIPE_REPLY_TRAILER_LEN);
+            pipe_cache_reply_send(cache_reply_buf,line_len);
+            cache_pipe_out_flush_one_for_test();
+            assert(pipe_recv(fds[0],frame,sizeof(frame))==line_len);
+            line_decoded_len=get_ecm2cache(frame,line_len,&decoded,decoded_cw);
+            assert(line_decoded_len+(int)CACHE_PIPE_REPLY_TRAILER_LEN==line_len &&
+                   frame[line_decoded_len+CACHE_PIPE_REPLY_FROM_CACHE_OFFSET]==0 &&
+                   frame[line_decoded_len+CACHE_PIPE_REPLY_ORIGIN_MASK_OFFSET]==
+                       CACHE_ORIGIN_LINE_SERVER);
+            assert(decoded.ecm==&line_reply &&
+                   decoded.ecm_lifetime_id==line_lifetime &&
+                   !memcmp(decoded_cw,line_reply.cw,sizeof(decoded_cw)));
+            cache_ecm_snapshot_retire(&line_reply);
+        }
         cache_ecm_snapshot_retire(&reply);
         prg.pipe.cache[0]=prg.pipe.cache[1]=-1;
         close(fds[0]); close(fds[1]);
+    }
+    /* R48 D-1 selects among already-cached candidates by source reputation,
+     * then stable source order, only when CACHE EVIDENCE is armed. The OFF path
+     * retains the old arrival/list-order sends. */
+    {
+        int cache_fds[2], bucket, saved_threshold, saved_filter, saved_consensus;
+        int saved_cachepref, saved_sends, frame_len, find_len, mark;
+        uint32_t saved_alivetime, source_peer;
+        uint8_t find_frame[128], result_frame[1024], first_cw[16], second_cw[16];
+        uint8_t result_cw[16], origin, verify_line=0;
+        struct cache_data cached={0}, decoded={0}, *old_bucket;
+        struct cardserver_data profile={0};
+        struct cw_cache_data first={0}, second={0};
+        struct r48_source_rep_table saved_reputation;
+        ECM_DATA lookup={0};
+        struct pollfd ready;
+        uint64_t lifetime=UINT64_C(0x48a001);
+        int i;
+
+        assert(pipe(cache_fds)==0);
+        prg.pipe.cache[0]=cache_fds[0]; prg.pipe.cache[1]=cache_fds[1];
+        saved_threshold=cfg.cache.threshold;
+        saved_filter=cfg.cache.filter;
+        saved_consensus=cfg.cache.consensus;
+        saved_alivetime=cfg.cache.alivetime;
+        saved_cachepref=cachepref_enabled;
+        saved_sends=sends;
+        memcpy(&saved_reputation,&r48_source_rep_tab,sizeof(saved_reputation));
+        cfg.cache.threshold=1; cfg.cache.filter=0; cfg.cache.consensus=0;
+        cfg.cache.alivetime=45000; cachepref_enabled=0;
+        profile.id=48; profile.option.cache_evidence=1;
+        memset(first_cw,0x31,sizeof(first_cw));
+        memset(second_cw,0x72,sizeof(second_cw));
+        first.next=&second;
+        memcpy(first.cw,first_cw,sizeof(first.cw));
+        memcpy(second.cw,second_cw,sizeof(second.cw));
+        first.status=second.status=DCW_CYCLE|DCW_PEER_READY;
+        first.cwcycle=second.cwcycle=CW1CYCLE;
+        first.peerid=PEER_CSP|99; second.peerid=PEER_CSP|22;
+        first.nbpeers=second.nbpeers=1;
+        first.origin_mask=second.origin_mask=CACHE_ORIGIN_PEER;
+        cached.tag=0x80; cached.caid=0x1884; cached.sid=0x3a71;
+        cached.hash=0x48d11101; cached.provid=0x123456;
+        cached.provider_known=1; cached.local_provider_set=1;
+        cached.local_provider=0x123456; cached.recvtime=GetTickCount();
+        cached.cwdata=&first;
+        bucket=cached.sid&MAX_CACHE_INDEX;
+        old_bucket=table[bucket]; cached.next=old_bucket;
+        table[bucket]=&cached;
+
+        /* A high-evidence source wins even though it is later in the linked
+         * list; a proof-only source loses. */
+        r48_source_rep_init(&r48_source_rep_tab);
+        pthread_mutex_lock(&trust_lock);
+        for (i=0; i<5; i++) {
+            assert(r48_source_rep_note(&r48_source_rep_tab,DCW_SOURCE_CACHE,
+                (int)second.peerid,cached.caid,cached.provid,1,
+                R48_SOURCE_REP_REFERENCE_MATCH,9900u+(uint32_t)i));
+            assert(r48_source_rep_note(&r48_source_rep_tab,DCW_SOURCE_CACHE,
+                (int)first.peerid,cached.caid,cached.provid,1,
+                R48_SOURCE_REP_REFERENCE_PROOF,9900u+(uint32_t)i));
+        }
+        pthread_mutex_unlock(&trust_lock);
+        lookup.ecm[0]=0x80; lookup.caid=cached.caid; lookup.sid=cached.sid;
+        lookup.hash=cached.hash; lookup.provid=cached.provid; lookup.provider_known=1;
+        __atomic_store_n(&lookup.lifetime_id,lifetime,__ATOMIC_RELEASE);
+        ecm_request_set_dcwstatus(&lookup,STAT_DCW_WAIT);
+        assert(cache_ecm_snapshot_publish(&lookup,&profile));
+        find_len=put_ecm2cache(PIPE_CACHE_FIND,find_frame,sizeof(find_frame),
+                               &lookup,0,NULL);
+        assert(find_len>0 && pipe_send(cache_fds[1],find_frame,find_len)==find_len+4);
+        pthread_mutex_lock(&prg.lockcache);
+        cache_pipe_recvmsg();
+        pthread_mutex_unlock(&prg.lockcache);
+        frame_len=pipe_recv(prg.pipe.ecm[0],result_frame,sizeof(result_frame));
+        assert(frame_len>0 && get_cache2ecm_with_verify(result_frame,(size_t)frame_len,
+            &decoded,result_cw,&mark,&source_peer,&origin,&verify_line));
+        assert(source_peer==(uint32_t)second.peerid && mark==CW1CYCLE &&
+               origin==CACHE_ORIGIN_PEER && !memcmp(result_cw,second_cw,16) &&
+               verify_line==0);
+        assert(!(first.status&DCW_SENT) && (second.status&DCW_SENT));
+        ready.fd=prg.pipe.ecm[0]; ready.events=POLLIN; ready.revents=0;
+        assert(poll(&ready,1,0)==0); /* Exactly one candidate was selected. */
+
+        /* When every candidate is still under the D-4 rank delay, selection
+         * remains non-empty: both get rank zero, then the stable source-ID tie
+         * break chooses peer 22 and schedules the reference verification. */
+        cache_ecm_snapshot_retire(&lookup);
+        r48_source_rep_init(&r48_source_rep_tab);
+        first.status=second.status=DCW_CYCLE|DCW_PEER_READY;
+        pthread_mutex_lock(&trust_lock);
+        for (i=0; i<2; i++) {
+            assert(r48_source_rep_note(&r48_source_rep_tab,DCW_SOURCE_CACHE,
+                (int)first.peerid,cached.caid,cached.provid,1,
+                R48_SOURCE_REP_REFERENCE_PROOF,9900u+(uint32_t)i));
+            assert(r48_source_rep_note(&r48_source_rep_tab,DCW_SOURCE_CACHE,
+                (int)second.peerid,cached.caid,cached.provid,1,
+                R48_SOURCE_REP_REFERENCE_PROOF,9900u+(uint32_t)i));
+        }
+        pthread_mutex_unlock(&trust_lock);
+        lifetime++;
+        __atomic_store_n(&lookup.lifetime_id,lifetime,__ATOMIC_RELEASE);
+        ecm_request_set_dcwstatus(&lookup,STAT_DCW_WAIT);
+        assert(cache_ecm_snapshot_publish(&lookup,&profile));
+        find_len=put_ecm2cache(PIPE_CACHE_FIND,find_frame,sizeof(find_frame),
+                               &lookup,0,NULL);
+        assert(find_len>0 && pipe_send(cache_fds[1],find_frame,find_len)==find_len+4);
+        pthread_mutex_lock(&prg.lockcache);
+        cache_pipe_recvmsg();
+        pthread_mutex_unlock(&prg.lockcache);
+        frame_len=pipe_recv(prg.pipe.ecm[0],result_frame,sizeof(result_frame));
+        assert(frame_len>0 && get_cache2ecm_with_verify(result_frame,(size_t)frame_len,
+            &decoded,result_cw,&mark,&source_peer,&origin,&verify_line));
+        assert(source_peer==(uint32_t)second.peerid &&
+               !memcmp(result_cw,second_cw,16) && verify_line==1);
+        assert(!(first.status&DCW_SENT) && (second.status&DCW_SENT));
+        ready.revents=0;
+        assert(poll(&ready,1,0)==0);
+
+        /* Unknown sources are neutral, not bad; a stable source-ID tie-break
+         * chooses peer 22 despite peer 99 being first in arrival order. */
+        cache_ecm_snapshot_retire(&lookup);
+        r48_source_rep_init(&r48_source_rep_tab);
+        first.status=second.status=DCW_CYCLE|DCW_PEER_READY;
+        first.peerid=PEER_CSP|99; second.peerid=PEER_CSP|22;
+        lifetime++;
+        __atomic_store_n(&lookup.lifetime_id,lifetime,__ATOMIC_RELEASE);
+        ecm_request_set_dcwstatus(&lookup,STAT_DCW_WAIT);
+        assert(cache_ecm_snapshot_publish(&lookup,&profile));
+        find_len=put_ecm2cache(PIPE_CACHE_FIND,find_frame,sizeof(find_frame),
+                               &lookup,0,NULL);
+        assert(find_len>0 && pipe_send(cache_fds[1],find_frame,find_len)==find_len+4);
+        pthread_mutex_lock(&prg.lockcache);
+        cache_pipe_recvmsg();
+        pthread_mutex_unlock(&prg.lockcache);
+        frame_len=pipe_recv(prg.pipe.ecm[0],result_frame,sizeof(result_frame));
+        assert(frame_len>0 && get_cache2ecm_with_verify(result_frame,(size_t)frame_len,
+            &decoded,result_cw,&mark,&source_peer,&origin,&verify_line));
+        assert(source_peer==(uint32_t)second.peerid &&
+               !memcmp(result_cw,second_cw,16) && verify_line==1);
+        ready.revents=0;
+        assert(poll(&ready,1,0)==0);
+
+        /* OFF is the default contract: even a seeded higher reputation does
+         * not reorder or reduce the legacy two-candidate handoff. */
+        cache_ecm_snapshot_retire(&lookup);
+        profile.option.cache_evidence=0;
+        first.status=second.status=DCW_CYCLE|DCW_PEER_READY;
+        r48_source_rep_init(&r48_source_rep_tab);
+        pthread_mutex_lock(&trust_lock);
+        for (i=0; i<5; i++)
+            assert(r48_source_rep_note(&r48_source_rep_tab,DCW_SOURCE_CACHE,
+                (int)second.peerid,cached.caid,cached.provid,1,
+                R48_SOURCE_REP_REFERENCE_MATCH,9900u+(uint32_t)i));
+        pthread_mutex_unlock(&trust_lock);
+        lifetime++;
+        __atomic_store_n(&lookup.lifetime_id,lifetime,__ATOMIC_RELEASE);
+        ecm_request_set_dcwstatus(&lookup,STAT_DCW_WAIT);
+        assert(cache_ecm_snapshot_publish(&lookup,&profile));
+        find_len=put_ecm2cache(PIPE_CACHE_FIND,find_frame,sizeof(find_frame),
+                               &lookup,0,NULL);
+        assert(find_len>0 && pipe_send(cache_fds[1],find_frame,find_len)==find_len+4);
+        pthread_mutex_lock(&prg.lockcache);
+        cache_pipe_recvmsg();
+        pthread_mutex_unlock(&prg.lockcache);
+        frame_len=pipe_recv(prg.pipe.ecm[0],result_frame,sizeof(result_frame));
+        assert(frame_len>0 && get_cache2ecm_with_verify(result_frame,(size_t)frame_len,
+            &decoded,result_cw,&mark,&source_peer,&origin,&verify_line));
+        assert(source_peer==(uint32_t)first.peerid &&
+               !memcmp(result_cw,first_cw,16) && verify_line==0);
+        frame_len=pipe_recv(prg.pipe.ecm[0],result_frame,sizeof(result_frame));
+        assert(frame_len>0 && get_cache2ecm_with_verify(result_frame,(size_t)frame_len,
+            &decoded,result_cw,&mark,&source_peer,&origin,&verify_line));
+        assert(source_peer==(uint32_t)second.peerid &&
+               !memcmp(result_cw,second_cw,16) && verify_line==0);
+        assert((first.status&DCW_SENT) && (second.status&DCW_SENT));
+
+        cache_ecm_snapshot_retire(&lookup);
+        table[bucket]=old_bucket;
+        prg.pipe.cache[0]=prg.pipe.cache[1]=-1;
+        close(cache_fds[0]); close(cache_fds[1]);
+        memcpy(&r48_source_rep_tab,&saved_reputation,sizeof(saved_reputation));
+        cfg.cache.threshold=saved_threshold; cfg.cache.filter=saved_filter;
+        cfg.cache.consensus=saved_consensus; cfg.cache.alivetime=saved_alivetime;
+        cachepref_enabled=saved_cachepref; sends=saved_sends;
+        r48_cache_window_reset();
+    }
+    /* Exercise the production check_sendecm worker and Set-DCW frame consumer:
+     * a tied candidate stays off the pipe while a line is outstanding, follows
+     * an accepted line as evidence, and is used as fallback when no line exists. */
+    {
+        int dcw_fds[2], out_len, parsed;
+        uint64_t lifetime=UINT64_C(0x48a101), trace_id=0, lifetime_out=0;
+        uint8_t output[64], candidate[16], line_cw[16], output_cw[16];
+        uint8_t source_mask=CACHE_ORIGIN_PEER, output_mask=0;
+        uint32_t peerid=PEER_CSP|31;
+        int cycle=NO_CYCLE, srctype=0, srcid=0, cycle_out=0, i;
+        struct ecm_request *saved_ecmdata=ecmdata;
+        struct server_data *saved_servers=cfg.server;
+        ECM_DATA lookup={0}, *decoded_ecm=NULL;
+        struct cardserver_data profile={0};
+        struct pollfd ready;
+
+        assert(pipe(dcw_fds)==0);
+        dcwpipe[0]=dcw_fds[0]; dcwpipe[1]=dcw_fds[1];
+        cfg.server=NULL; /* A later worker pass has no line source to dispatch. */
+        profile.id=49; profile.option.fallowcache=1;
+        profile.option.cache_evidence=1;
+        profile.option.cachesendreq=0; profile.option.cachesendrep=0;
+        profile.option.dcw.timeout=1000;
+        profile.option.server.timeout=1000;
+        profile.option.server.interval=100;
+        profile.option.server.first=0; profile.option.server.max=0;
+        lookup.cs=&profile; lookup.caid=0x1884; lookup.provid=0x123456;
+        lookup.provider_known=1; lookup.sid=0x3a72; lookup.hash=0x48d11102;
+        lookup.ecm[0]=0x80; lookup.recvtime=9500; lookup.period=1;
+        lookup.server[0].srvid=77; lookup.server[0].flag=ECM_SRV_REQUEST;
+        lookup.server[0].sendtime=9500;
+        lookup.server_totalwait=1; lookup.server_totalsent=1;
+        lookup.next=&lookup;
+        ecm_request_set_dcwstatus(&lookup,STAT_DCW_WAIT);
+        __atomic_store_n(&lookup.lifetime_id,lifetime,__ATOMIC_RELEASE);
+        for (i=0; i<16; i++) {
+            candidate[i]=(uint8_t)(0x81+i);
+            line_cw[i]=(uint8_t)(0x21+i);
+        }
+        ecmdata=&lookup;
+        pthread_mutex_lock(&prg.lockecm);
+        assert(cache_ecm_snapshot_publish(&lookup,&profile));
+        assert(cache_candidate_schedule_or_handoff(&lookup,candidate,peerid,
+            cycle,source_mask,1,GetTickCount()));
+        pthread_mutex_unlock(&prg.lockecm);
+        assert(lookup.cache_verify_requested && lookup.cache_verify_pending &&
+               lookup.cache_verify_dispatched && lookup.checktime==1);
+
+        /* This is the production ECM worker pass. Its current line waiter keeps
+         * the candidate held and leaves Set-DCW's pipe empty. */
+        pthread_mutex_lock(&prg.locksrv);
+        pthread_mutex_lock(&prg.lockecm);
+        check_sendecm(0);
+        pthread_mutex_unlock(&prg.lockecm);
+        pthread_mutex_unlock(&prg.locksrv);
+        assert(lookup.cache_verify_pending && lookup.cache_verify_dispatched &&
+               lookup.checktime==10040 && lookup.waitserver==1);
+        ready.fd=dcwpipe[0]; ready.events=POLLIN; ready.revents=0;
+        assert(poll(&ready,1,0)==0); /* The cache candidate is not delivered early. */
+
+        /* Queue a real line reply, then run that frame through the same parser,
+         * lifetime checks, validation and commit routine as Set-DCW's thread. */
+        pthread_mutex_lock(&prg.lockecm);
+        assert(ecm_setsrvflagdcw(&lookup,77,ECM_SRV_REPLY_GOOD,line_cw));
+        ecm_setdcw(&lookup,line_cw,DCW_SOURCE_SERVER,77);
+        pthread_mutex_unlock(&prg.lockecm);
+        assert(lookup.cache_verify_response_queued);
+        test_now_ms=10020;
+        pthread_mutex_lock(&prg.locksrv);
+        pthread_mutex_lock(&prg.lockecm);
+        check_sendecm(0);
+        pthread_mutex_unlock(&prg.lockecm);
+        pthread_mutex_unlock(&prg.locksrv);
+        assert(lookup.cache_verify_pending && lookup.cache_verify_response_queued &&
+               !lookup.cache_verify_queued && lookup.checktime==10040);
+        ready.revents=0;
+        assert(poll(&ready,1,0)==1 && (ready.revents & POLLIN)); /* Only the line frame. */
+        out_len=pipe_recv(dcwpipe[0],output,sizeof(output));
+        assert(out_len>0);
+        parsed=get_setdcwdata(output,&decoded_ecm,output_cw,&srctype,&srcid,
+                              &cycle_out,&output_mask,&trace_id,&lifetime_out);
+        assert(parsed==out_len && decoded_ecm==&lookup && lifetime_out==lifetime &&
+               srctype==DCW_SOURCE_SERVER && srcid==77 && output_mask==0 &&
+               !memcmp(output_cw,line_cw,16));
+        assert(setdcw_process_frame(output,out_len));
+        assert(lookup.dcwstatus==STAT_DCW_SUCCESS &&
+               lookup.dcwsrctype==DCW_SOURCE_SERVER && lookup.dcwsrcid==77 &&
+               !memcmp(lookup.cw,line_cw,16) && !lookup.cache_verify_pending &&
+               !lookup.cache_verify_dispatched && !lookup.cache_verify_response_queued);
+
+        /* The accepted line commit must append the selected candidate behind
+         * it. The production consumer treats that second frame as evidence only. */
+        out_len=pipe_recv(dcwpipe[0],output,sizeof(output));
+        assert(out_len>0);
+        parsed=get_setdcwdata(output,&decoded_ecm,output_cw,&srctype,&srcid,
+                              &cycle_out,&output_mask,&trace_id,&lifetime_out);
+        assert(parsed==out_len && decoded_ecm==&lookup && lifetime_out==lifetime &&
+               srctype==DCW_SOURCE_CACHE && (uint32_t)srcid==peerid &&
+               cycle_out==cycle && output_mask==source_mask &&
+               !memcmp(output_cw,candidate,16));
+        assert(setdcw_process_frame(output,out_len));
+        assert(lookup.dcwstatus==STAT_DCW_SUCCESS &&
+               lookup.dcwsrctype==DCW_SOURCE_SERVER && lookup.dcwsrcid==77 &&
+               !memcmp(lookup.cw,line_cw,16));
+        ready.revents=0;
+        assert(poll(&ready,1,0)==0); /* No second client CW or extra frame. */
+        test_now_ms=10000;
+
+        /* A silent line source is bounded by the +50 ms D111 latency budget.
+         * At 39 ms the worker still waits; at 40 ms it sends the cache fallback,
+         * and a later accepted line frame is validated without replacing it. */
+        pthread_mutex_lock(&prg.lockecm);
+        cache_ecm_snapshot_retire(&lookup);
+        memset(&lookup,0,sizeof(lookup));
+        lifetime++;
+        lookup.cs=&profile; lookup.caid=0x1884; lookup.provid=0x123456;
+        lookup.provider_known=1; lookup.sid=0x3a72; lookup.hash=0x48d11104;
+        lookup.ecm[0]=0x80; lookup.recvtime=9500; lookup.period=1;
+        lookup.server[0].srvid=78; lookup.server[0].flag=ECM_SRV_REQUEST;
+        lookup.server[0].sendtime=9500;
+        lookup.server_totalwait=1; lookup.server_totalsent=1;
+        lookup.next=&lookup;
+        ecm_request_set_dcwstatus(&lookup,STAT_DCW_WAIT);
+        __atomic_store_n(&lookup.lifetime_id,lifetime,__ATOMIC_RELEASE);
+        assert(cache_ecm_snapshot_publish(&lookup,&profile));
+        assert(cache_candidate_schedule_or_handoff(&lookup,candidate,peerid,
+            cycle,source_mask,1,10000));
+        pthread_mutex_unlock(&prg.lockecm);
+        test_now_ms=10000;
+        pthread_mutex_lock(&prg.locksrv);
+        pthread_mutex_lock(&prg.lockecm);
+        check_sendecm(0);
+        pthread_mutex_unlock(&prg.lockecm);
+        pthread_mutex_unlock(&prg.locksrv);
+        assert(lookup.cache_verify_pending && lookup.checktime==10040);
+        test_now_ms=10039;
+        pthread_mutex_lock(&prg.locksrv);
+        pthread_mutex_lock(&prg.lockecm);
+        check_sendecm(0);
+        pthread_mutex_unlock(&prg.lockecm);
+        pthread_mutex_unlock(&prg.locksrv);
+        assert(lookup.cache_verify_pending && lookup.dcwstatus==STAT_DCW_WAIT);
+        ready.revents=0;
+        assert(poll(&ready,1,0)==0);
+        test_now_ms=10040;
+        pthread_mutex_lock(&prg.locksrv);
+        pthread_mutex_lock(&prg.lockecm);
+        check_sendecm(0);
+        pthread_mutex_unlock(&prg.lockecm);
+        pthread_mutex_unlock(&prg.locksrv);
+        assert(!lookup.cache_verify_pending && lookup.cache_verify_queued);
+        out_len=pipe_recv(dcwpipe[0],output,sizeof(output));
+        assert(out_len>0 && setdcw_process_frame(output,out_len));
+        assert(lookup.dcwstatus==STAT_DCW_SUCCESS &&
+               lookup.dcwsrctype==DCW_SOURCE_CACHE &&
+               !memcmp(lookup.cw,candidate,16) && !lookup.cache_verify_queued);
+        pthread_mutex_lock(&prg.lockecm);
+        assert(ecm_setsrvflagdcw(&lookup,78,ECM_SRV_REPLY_GOOD,line_cw));
+        ecm_setdcw(&lookup,line_cw,DCW_SOURCE_SERVER,78);
+        pthread_mutex_unlock(&prg.lockecm);
+        out_len=pipe_recv(dcwpipe[0],output,sizeof(output));
+        assert(out_len>0 && setdcw_process_frame(output,out_len));
+        assert(lookup.dcwstatus==STAT_DCW_SUCCESS &&
+               lookup.dcwsrctype==DCW_SOURCE_CACHE &&
+               !memcmp(lookup.cw,candidate,16));
+        pthread_mutex_lock(&prg.lockecm);
+        cache_ecm_snapshot_retire(&lookup);
+        pthread_mutex_unlock(&prg.lockecm);
+        test_now_ms=10000;
+
+        /* Retire/reuse the request slot, then let the real ECM worker make one
+         * attempt with no available server. Its cache fallback is processed by
+         * the same production Set-DCW consumer and must complete successfully. */
+        pthread_mutex_lock(&prg.lockecm);
+        cache_ecm_snapshot_retire(&lookup);
+        memset(&lookup,0,sizeof(lookup));
+        lifetime++;
+        lookup.cs=&profile; lookup.caid=0x1884; lookup.provid=0x123456;
+        lookup.provider_known=1; lookup.sid=0x3a72; lookup.hash=0x48d11103;
+        lookup.ecm[0]=0x80; lookup.recvtime=9500; lookup.period=1;
+        lookup.next=&lookup;
+        ecm_request_set_dcwstatus(&lookup,STAT_DCW_WAITCACHE);
+        __atomic_store_n(&lookup.lifetime_id,lifetime,__ATOMIC_RELEASE);
+        assert(cache_ecm_snapshot_publish(&lookup,&profile));
+        assert(cache_candidate_schedule_or_handoff(&lookup,candidate,peerid,
+            cycle,source_mask,1,GetTickCount()));
+        pthread_mutex_unlock(&prg.lockecm);
+        pthread_mutex_lock(&prg.locksrv);
+        pthread_mutex_lock(&prg.lockecm);
+        check_sendecm(0);
+        pthread_mutex_unlock(&prg.lockecm);
+        pthread_mutex_unlock(&prg.locksrv);
+        assert(!lookup.cache_verify_pending && lookup.cache_verify_requested &&
+               !lookup.cache_verify_dispatched && lookup.cache_verify_queued &&
+               lookup.dcwstatus==STAT_DCW_WAIT && lookup.checktime==0);
+        out_len=pipe_recv(dcwpipe[0],output,sizeof(output));
+        assert(out_len>0);
+        parsed=get_setdcwdata(output,&decoded_ecm,output_cw,&srctype,&srcid,
+                              &cycle_out,&output_mask,&trace_id,&lifetime_out);
+        assert(parsed==out_len && decoded_ecm==&lookup && lifetime_out==lifetime &&
+               srctype==DCW_SOURCE_CACHE && (uint32_t)srcid==peerid &&
+               output_mask==source_mask && !memcmp(output_cw,candidate,16));
+        assert(setdcw_process_frame(output,out_len));
+        assert(lookup.dcwstatus==STAT_DCW_SUCCESS &&
+               lookup.dcwsrctype==DCW_SOURCE_CACHE &&
+               !memcmp(lookup.cw,candidate,16) && !lookup.cache_verify_queued);
+        ready.revents=0;
+        assert(poll(&ready,1,0)==0);
+        pthread_mutex_lock(&prg.lockecm);
+        cache_ecm_snapshot_retire(&lookup);
+        pthread_mutex_unlock(&prg.lockecm);
+        ecmdata=saved_ecmdata; cfg.server=saved_servers;
+        dcwpipe[0]=dcwpipe[1]=-1;
+        close(dcw_fds[0]); close(dcw_fds[1]);
+        r48_cache_window_reset();
     }
     /* A CacheEX source with a provider that conflicts with the waiting local
      * request must be refused before profile validation or cache mutation. */
@@ -1035,6 +1693,23 @@ int main(void)
          * worker is started in this isolated test process. */
         status=cache_setdcw(&req,key,NO_CYCLE,PEER_CSP|9);
         assert(!(status&DCW_ERROR) && stored.cwdata!=NULL);
+        assert(stored.cwdata->origin_mask==CACHE_ORIGIN_PEER);
+        assert(cache_origin_for_source(DCW_SOURCE_SERVER,9)==CACHE_ORIGIN_LINE_SERVER);
+        assert(cache_origin_for_source(DCW_SOURCE_CACHE,PEER_CSP|9)==CACHE_ORIGIN_PEER);
+        assert(cache_origin_for_source(DCW_SOURCE_CACHE,PEER_CCCAM_CLIENT|9)==CACHE_ORIGIN_BATCH);
+        assert(cache_origin_for_source(DCW_SOURCE_CACHE,PEER_CAMD35_CLIENT|9)==CACHE_ORIGIN_BATCH);
+        assert(cache_origin_for_source(DCW_SOURCE_CACHE,PEER_CS378X_CLIENT|9)==CACHE_ORIGIN_BATCH);
+        assert(cache_origin_for_source(DCW_SOURCE_CACHE,PEER_CACHEEX_SERVER|9)==CACHE_ORIGIN_BATCH);
+        assert(cache_origin_for_source(DCW_SOURCE_CACHE,PEER_CSP|PEER_CACHEEX_SERVER|9)==0);
+        assert(cache_origin_for_source(DCW_SOURCE_CACHE,9)==0);
+        assert(cache_origin_merge(CACHE_ORIGIN_LINE_SERVER,CACHE_ORIGIN_PEER)==
+               (CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER));
+        assert(cache_origin_merge(CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER,
+                                  CACHE_ORIGIN_BATCH)==
+               (CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER|CACHE_ORIGIN_BATCH));
+        assert(cache_origin_mask_valid(CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER|
+                                       CACHE_ORIGIN_BATCH));
+        assert(!cache_origin_mask_valid(0x80));
         cache_csp_reuse_check(&peer,&req,key);
 
         assert(cwreuse_proofs==1);
@@ -1139,22 +1814,77 @@ int main(void)
     target.local_provider_set=incoming.local_provider_set=1;
     target.local_provider=0; incoming.local_provider=1;
     table[target.sid & MAX_CACHE_INDEX]=&target;
-    cache_fetch_goodcw2(&incoming,cw,7);
+    /* A cross-entry relay carries provenance from the incoming candidate even
+     * when the destination has no matching cwdata node. The destination's
+     * checked cycle mark is also explicit; neither field may be reconstructed
+     * by searching the destination list. Exercise both dcwcheck2 and dcwcheck3.
+     */
+    {
+        struct cache_data decoded={0};
+        uint8_t frame[1024], decoded_cw[16], origin=0;
+        int frame_len, mark=NO_CYCLE;
+        uint32_t source_peer=0;
+        int saved_sends=sends;
+        target.local_provider=0; incoming.local_provider=0;
+        target.cwdata=NULL;
+        cfg.cache.alivetime=45000; cfg.cache.threshold=1;
+        cfg.cache.consensus=0; cfg.cache.gate_cwcheck=0;
+        pthread_mutex_lock(&prg.lockcache);
+        cache_fetch_goodcw2(&incoming,cw,PEER_CSP|91,
+                            CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER|
+                            CACHE_ORIGIN_BATCH);
+        pthread_mutex_unlock(&prg.lockcache);
+        assert(target.cwdata==NULL && sends==saved_sends+1);
+        frame_len=pipe_recv(prg.pipe.ecm[0],frame,sizeof(frame));
+        assert(frame_len>0);
+        assert(get_cache2ecm(frame,(size_t)frame_len,&decoded,decoded_cw,&mark,
+                             &source_peer,&origin));
+        assert(mark==CW1CYCLE && source_peer==(uint32_t)(PEER_CSP|91) &&
+               origin==(CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER|CACHE_ORIGIN_BATCH) &&
+               !memcmp(decoded_cw,cw,16));
+
+        /* Same provenance contract for dcwcheck3's cross-SID relay (the SIDs
+         * share the cache-table bucket, while the source CW is absent at target).
+         */
+        target.sid=0x1536; incoming.sid=0x1136;
+        target.hash=incoming.hash=2;
+        target.local_provider=0; incoming.local_provider=0;
+        target.cwdata=NULL;
+        pthread_mutex_lock(&prg.lockcache);
+        cache_fetch_goodcw3(&incoming,cw,PEER_CSP|92,
+                            CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER|
+                            CACHE_ORIGIN_BATCH);
+        pthread_mutex_unlock(&prg.lockcache);
+        assert(target.cwdata==NULL && sends==saved_sends+2);
+        frame_len=pipe_recv(prg.pipe.ecm[0],frame,sizeof(frame));
+        assert(frame_len>0);
+        mark=NO_CYCLE; origin=0; source_peer=0;
+        assert(get_cache2ecm(frame,(size_t)frame_len,&decoded,decoded_cw,&mark,
+                             &source_peer,&origin));
+        assert(mark==CW1CYCLE && source_peer==(uint32_t)(PEER_CSP|92) &&
+               origin==(CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER|CACHE_ORIGIN_BATCH) &&
+               !memcmp(decoded_cw,cw,16));
+        sends=0; /* Keep later relay-count assertions isolated. */
+        target.sid=incoming.sid=0x1136;
+        target.hash=1; incoming.hash=2;
+        target.local_provider=0; incoming.local_provider=1;
+    }
+    cache_fetch_goodcw2(&incoming,cw,7,0);
     assert(sends==0); /* must not relay a locally known different provider */
-    incoming.local_provider=0; cache_fetch_goodcw2(&incoming,cw,7); assert(sends==1);
-    incoming.local_provider_set=0; cache_fetch_goodcw2(&incoming,cw,7); assert(sends==2);
+    incoming.local_provider=0; cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==1);
+    incoming.local_provider_set=0; cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==2);
     incoming.local_provider_set=1; incoming.local_provider=0; target.local_provider=1;
-    cache_fetch_goodcw2(&incoming,cw,7); assert(sends==2); /* reverse, including zero */
-    target.local_provider_set=0; cache_fetch_goodcw2(&incoming,cw,7); assert(sends==3);
+    cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==2); /* reverse, including zero */
+    target.local_provider_set=0; cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==3);
     target.local_provider_set=1; target.local_provider=0;
     target.sid=0x1536; target.hash=incoming.hash;
     incoming.local_provider_set=1; incoming.local_provider=1;
-    cache_fetch_goodcw3(&incoming,cw,7); assert(sends==3);
-    incoming.local_provider=0; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==4);
-    incoming.local_provider_set=0; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==5);
+    cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==3);
+    incoming.local_provider=0; cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==4);
+    incoming.local_provider_set=0; cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==5);
     incoming.local_provider_set=1; target.local_provider=1;
-    cache_fetch_goodcw3(&incoming,cw,7); assert(sends==5); /* reverse */
-    target.local_provider_set=0; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==6);
+    cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==5); /* reverse */
+    target.local_provider_set=0; cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==6);
     /* Explicit CacheEX metadata must be compared even without local waiter
      * associations; a known zero is not an unknown-provider wildcard. */
     target.local_provider_set=incoming.local_provider_set=0;
@@ -1162,18 +1892,18 @@ int main(void)
     target.provid=0; incoming.provid=1;
     target.sid=incoming.sid=0x1136; target.hash=1; incoming.hash=2;
     target.tag=incoming.tag=0x80; target.cwdata=NULL;
-    cache_fetch_goodcw2(&incoming,cw,7);
+    cache_fetch_goodcw2(&incoming,cw,7,0);
     assert(sends==6 && record_conflicts==1);
     incoming.provid=0; incoming.provider_known=0;
-    cache_fetch_goodcw2(&incoming,cw,7); assert(sends==7); /* unknown remains ambiguous */
+    cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==7); /* unknown remains ambiguous */
     incoming.provider_known=1;
-    cache_fetch_goodcw2(&incoming,cw,7); assert(sends==8); /* explicit zero matches */
+    cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==8); /* explicit zero matches */
 
     target.sid=0x1536; incoming.sid=0x1136;
     target.hash=incoming.hash=2; target.provid=1; incoming.provid=0;
-    cache_fetch_goodcw3(&incoming,cw,7);
+    cache_fetch_goodcw3(&incoming,cw,7,0);
     assert(sends==8 && record_conflicts==2);
-    incoming.provid=1; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==9);
+    incoming.provid=1; cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==9);
 
     /* The older-cycle walker must not reject based on a known other provider. */
     {
@@ -1204,6 +1934,6 @@ int main(void)
     }
     assert(conflicts == 4);
     assert(record_conflicts == 2);
-    puts("PASS: CSP/CacheEX provider scope is isolated across cache preference, trust, negative-memory, attestation, purge and reuse");
+    puts("PASS: R48 candidate rank, check_sendecm handoff, 40 ms verification cap, Set-DCW FIFO/evidence, late-line handling, fallback, and provider safeguards");
     return 0;
 }

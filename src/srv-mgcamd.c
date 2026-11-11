@@ -775,7 +775,8 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 						if (cs->option.fallowcache) {
 							ecm->waitcache = 1;
 							ecm_request_set_dcwstatus(ecm, STAT_DCW_WAITCACHE);
-							ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
+							ecm->checktime = ecm->recvtime +
+							    ecm_get_cache_initial_delay_ms(ecm, cs, GetTickCount());
 							pipe_cache_find(ecm, cs);
 						}
 						else ecm->checktime = 1; // Check NOW

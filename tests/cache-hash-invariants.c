@@ -20,6 +20,7 @@ int main(void)
     const uint32_t hashes[] = {0, 1, 0x7fffffffU, 0x80000000U, 0xa0dd9a9fU, 0xffffffffU};
     int i, n, mark;
     uint32_t peerid_out=0;
+    uint8_t origin_mask=0;
     uint64_t lifetime_id = UINT64_C(0x123456789abcdef0);
     for (i = 0; i < 256; i++) bytes[i] = (uint8_t)(i * 73 + 255);
     for (n = 0; n <= 256; n++) assert(hashCode(bytes, n) == reference_hash(bytes, n));
@@ -44,10 +45,14 @@ int main(void)
                ecm_request_lifetime_matches(decoded.ecm,&ecm,lifetime_id) &&
                !memcmp(decoded_cw,cw,16));
         original = decoded; memset(wire, 0, sizeof(wire)); memset(&decoded, 0, sizeof(decoded));
-        put_cache2ecm(PIPE_CACHE_FIND_SUCCESS, wire, sizeof(wire), &original, cw, 0x01020304, CW1CYCLE);
-        assert(get_cache2ecm(wire, (size_t)(12 + sizeof(void*) + sizeof(uint64_t) + 4 + 16 + 1),
-                             &decoded, decoded_cw, &mark, &peerid_out));
+        put_cache2ecm(PIPE_CACHE_FIND_SUCCESS, wire, sizeof(wire), &original, cw,
+                      0x01020304, CW1CYCLE,
+                      (uint8_t)(CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER));
+        assert(get_cache2ecm(wire, (size_t)(12 + sizeof(void*) + sizeof(uint64_t) +
+                                               CACHE_PIPE_FIND_SUCCESS_EXTRA_LEN),
+                             &decoded, decoded_cw, &mark, &peerid_out, &origin_mask));
         assert(peerid_out == UINT32_C(0x01020304));
+        assert(origin_mask == (CACHE_ORIGIN_LINE_SERVER|CACHE_ORIGIN_PEER));
         assert(decoded.hash == ecm.hash && decoded.caid == ecm.caid && decoded.sid == ecm.sid);
         assert(decoded.ecm == &ecm && decoded.ecm_lifetime_id == lifetime_id &&
                ecm_request_lifetime_matches(decoded.ecm,&ecm,lifetime_id) &&

@@ -246,24 +246,50 @@ void cs_srv_recvmsg(struct server_data *srv)
 				case 0x80:
 				case 0x81:
 					srv->lastdcwtime = GetTickCount();
+					if (srv->ecm.trace_instance_at_send)
+						user_trace_shared_event(srv->ecm.trace_instance_at_send,
+						                        USER_TRACE_SOURCE_TRANSPORT, TYPE_NEWCAMD,
+						                        srv->id,
+						                        srv->lastecmtime ? tick32_elapsed(srv->lastdcwtime, srv->lastecmtime) : 0,
+						                        "Newcamd CW packet reached decoder; request matching not yet checked");
 					if (!srv->busy) {
+						if (srv->ecm.trace_instance_at_send)
+							user_trace_shared_event(srv->ecm.trace_instance_at_send,
+							                        USER_TRACE_SOURCE_TRANSPORT, TYPE_NEWCAMD,
+							                        srv->id, 0,
+							                        "Newcamd response discarded: server had no outstanding request");
 						debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from server (%s:%d), unknown ecm request\n",srv->host->name,srv->port);
 						break;
 					}
 					ecm_lock(); //### Lock before checking the request pointer/profile.
 					if (srvcd.msgid!=srv->ecm.msgid) {
+						if (srv->ecm.trace_instance_at_send)
+							user_trace_shared_event(srv->ecm.trace_instance_at_send,
+							                        USER_TRACE_SOURCE_TRANSPORT, TYPE_NEWCAMD,
+							                        srv->id, 0,
+							                        "Newcamd response discarded: message ID mismatch");
 						debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from server (%s:%d), wrong message-id!!!\n",srv->host->name,srv->port);
 						ecm_unlock();
 						break;
 					}
 					ecm = srv->ecm.request;
 					if (!ecm) {
+						if (srv->ecm.trace_instance_at_send)
+							user_trace_shared_event(srv->ecm.trace_instance_at_send,
+							                        USER_TRACE_SOURCE_TRANSPORT, TYPE_NEWCAMD,
+							                        srv->id, 0,
+							                        "Newcamd response discarded: ECM request pointer is missing");
 						debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] dcw error from server (%s:%d), ecm not found!!!\n",srv->host->name,srv->port);
 						ecm_unlock(); //###
 						break;
 					}
 					if (!ecm_request_lifetime_matches(ecm, srv->ecm.request, srv->ecm.lifetime_id) ||
 					    ecm->hash != srv->ecm.hash) {
+						if (srv->ecm.trace_instance_at_send)
+							user_trace_shared_event(srv->ecm.trace_instance_at_send,
+							                        USER_TRACE_SOURCE_TRANSPORT, TYPE_NEWCAMD,
+							                        srv->id, 0,
+							                        "Newcamd response discarded: ECM request lifetime or hash mismatch");
 						debugf(getdbgflag(DBG_SERVER,0,srv->id)," [!] stale Newcamd server response, request lifetime changed\n");
 						ecm_unlock();
 						break;
@@ -346,6 +372,11 @@ void cs_srv_recvmsg(struct server_data *srv)
 							/* CAID-specific performance tracking: record success */
 							caid_integration_track_performance(ecm->caid, response_time, 1);
 							// Store ECM Answer
+							ecm_setdcw( ecm, buf+3, DCW_SOURCE_SERVER, srv->id );
+						}
+						else if (ecm->dcwsrctype == DCW_SOURCE_CACHE) {
+							/* D111 D-1: queue a late line reply for validation/reference;
+							 * the Set-DCW worker will not reapply it to clients. */
 							ecm_setdcw( ecm, buf+3, DCW_SOURCE_SERVER, srv->id );
 						}
 						else {	//TODO: check same dcw between cards

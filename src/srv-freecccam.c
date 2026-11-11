@@ -60,7 +60,7 @@ void frcc_disconnect_cli(struct cc_client_data *cli)
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void *freecc_connect_cli(struct connect_cli_data *param)
+static void *freecc_connect_cli_inner(struct connect_cli_data *param)
 {
 	uint8_t buf[CC_MAXMSGSIZE];
 	uint8_t data[64];
@@ -244,7 +244,9 @@ void *freecc_connect_cli(struct connect_cli_data *param)
   // send cli data ack
 	cc_msg_send( sock, &cli->sendblock, CC_MSG_CLI_INFO, 0, NULL);
 	//cc_msg_send( sock, &cli->sendblock, CC_MSG_BAD_ECM, 0, NULL);
-	int sendversion = ( (cli->version[28]=='W')&&(cli->version[29]='H')&&(cli->version[30]='O') );
+	/* Preserve the legacy wire gate (version byte 28 == 'W') without
+	 * assigning into the live client's version buffer during the check. */
+	int sendversion = cli->version[28] == 'W';
 	cc_sendinfo_cli(cli, sendversion);
 	//cc_msg_send( sock, &cli->sendblock, CC_MSG_BAD_ECM, 0, NULL);
 	cli->cardsent = 1;
@@ -254,6 +256,17 @@ void *freecc_connect_cli(struct connect_cli_data *param)
 
 	pipe_wakeup( frcc_pipe[1] );
 	return cli;
+}
+
+/* Same lifetime pin as the CCcam handshake: the detached worker borrows
+ * cfg.freecccam and the client record across bounded socket waits. */
+void *freecc_connect_cli(struct connect_cli_data *param)
+{
+	void *result;
+	newcamd_config_read_lock();
+	result = freecc_connect_cli_inner(param);
+	newcamd_config_read_unlock();
+	return result;
 }
 
 
@@ -590,7 +603,8 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 							if (cs->option.fallowcache) {
 								ecm->waitcache = 1;
 								ecm_request_set_dcwstatus(ecm, STAT_DCW_WAITCACHE);
-								ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
+								ecm->checktime = ecm->recvtime +
+								    ecm_get_cache_initial_delay_ms(ecm, cs, GetTickCount());
 								pipe_cache_find(ecm, cs);
 							}
 						}

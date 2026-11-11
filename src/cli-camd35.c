@@ -139,6 +139,10 @@ void camd35_srv_recvmsg(struct server_data *srv)
 				// Store ECM Answer
 				ecm_setdcw( ecm, buf+24, DCW_SOURCE_SERVER, srv->id );
 			}
+			else if (ecm->dcwsrctype == DCW_SOURCE_CACHE) {
+				/* D111 D-1: queue a late line reply as a reference candidate only. */
+				ecm_setdcw( ecm, buf+24, DCW_SOURCE_SERVER, srv->id );
+			}
 			else {	//TODO: check same dcw between cards
 				srv->ecmerrdcw ++;
 				if ( memcmp( ecm->cw, buf+24, 16) ) debugf(getdbgflagpro(DBG_SERVER,0,srv->id,(ecm->cs ? ecm->cs->id : 0))," !!! different dcw from camd35 server (%s:%d)\n",srv->host->name,srv->port);

@@ -20,7 +20,8 @@ with tempfile.TemporaryDirectory(prefix='mcs-setdcw-recycle-') as folder:
     (src / 'x64').mkdir()
     path = src / 'setdcw.c'
     text = path.read_text()
-    marker = '\t\t\t\tecm_setdcwdata( ecm, dcw, srctype, srcid, cwmark, trace_at_queue, lifetime_at_queue );'
+    marker = ('\tecm_setdcwdata(ecm, dcw, srctype, srcid, cwmark, source_origin_mask,\n'
+              '\t               trace_at_queue, lifetime_at_queue);')
     assert text.count(marker) == 1
     function_marker = 'void ecm_setdcwdata( ECM_DATA *ecm'
     assert text.count(function_marker) == 1
@@ -44,9 +45,7 @@ static void test_force_recycle(ECM_DATA *ecm)
 }
 """
     text = text.replace(function_marker, helper + function_marker)
-    commit_marker = '\t\tpthread_mutex_unlock(&prg.lockecm);\n\t\treturn;\n\t}\n\n\tif (ecm->dcwstatus==STAT_DCW_SUCCESS)'
-    assert text.count(commit_marker) == 1
-    lock_marker = '\tpthread_mutex_lock(&prg.lockecm);\n\tecm = queued_ecm;'
+    lock_marker = '\tecm_lock();\n\tecm = queued_ecm;'
     assert text.count(lock_marker) == 1
     text = text.replace(lock_marker, '    if (!strcmp(getenv("MCS_RECYCLE_WHEN"), "before-commit")) test_force_recycle(queued_ecm);\n' + lock_marker)
     injection = '    if (!strcmp(getenv("MCS_RECYCLE_WHEN"), "before-snapshot")) test_force_recycle(ecm);\n'

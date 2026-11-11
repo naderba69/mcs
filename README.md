@@ -128,7 +128,7 @@ See [CHANGELOG.md](CHANGELOG.md) for details.
 - **Integration**: `make -C tests all` — 488 ok, 0 failures, 29 conditional skips, exit 0 (R43, 2026-10-17)
 - **Soak**: 1200s stress test PASS (382 ECMs, RSS growth 220 kB)
 - **Memcheck**: ASan+UBSan clean, TSan clean (valgrind unavailable in sandbox)
-- **Fingerprints**: See [MANIFEST-md5](MANIFEST-md5) (564 entries, regenerated every round)
+- **Fingerprints**: See [MANIFEST-md5](MANIFEST-md5) (808 entries, including the current R48 working-tree files)
 
 ## Ground Rules (GR1–GR10)
 

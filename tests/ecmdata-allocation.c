@@ -185,8 +185,8 @@ int main(void)
         assert((uint32_t)totalecm == total_before && cs.totalecm == (int)total_before);
 
         pthread_mutex_lock(&prg.lockcache);
-		assert(!cache_ecm_snapshot_read_locked(first, old_lifetime, &active, NULL));
-		assert(!cache_ecm_snapshot_read_locked(first, new_lifetime, &active, NULL));
+assert(!cache_ecm_snapshot_read_locked(first, old_lifetime, &active, NULL, NULL));
+			assert(!cache_ecm_snapshot_read_locked(first, new_lifetime, &active, NULL, NULL));
         pthread_mutex_unlock(&prg.lockcache);
 
         p = ecmdata;

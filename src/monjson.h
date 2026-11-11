@@ -15,6 +15,7 @@
 
 #define MONJSON_MAX_PEERS   256
 #define MONJSON_MAX_REPS     64   /* == PEERREP_SLOTS */
+#define MONJSON_MAX_R48_REPS 128  /* == R48_SOURCE_REP_SLOTS */
 #define MONJSON_NAME_MAX     64
 #define MONJSON_REASON_MAX   32
 #define MONJSON_BUF_MAX  (256*1024)
@@ -49,6 +50,22 @@ struct monjson_rep {
 	char     reason[MONJSON_REASON_MAX];
 };
 
+/* R48 source x CAID x provider evidence; unknown provider is explicit. */
+struct monjson_r48_rep {
+	uint32_t provid;
+	uint32_t matches;
+	uint32_t proofs;
+	uint32_t last_evidence_ms;
+	uint32_t last_proof_ms;
+	uint32_t clean_after_proof;
+	int32_t  srcid;
+	int32_t  srctype;
+	uint16_t caid;
+	uint8_t  score;
+	uint8_t  provider_known;
+	uint8_t  rank_delayed;
+};
+
 /* TASK R11 (D65): one verdict-ring row, snapshotted via cwlog_snapshot().
  * The 16 key bytes arrive already hex-encoded (33 = 32 chars + NUL) so
  * this header stays free of cwlog.h. */
@@ -69,6 +86,8 @@ struct monjson_in {
 	long                  now;
 	int                   nreps;
 	const struct monjson_rep *reps;
+	int                   nr48_reps;
+	const struct monjson_r48_rep *r48_reps;
 	int                   npeers;
 	const struct monjson_peer *peers;
 	/* TASK R11 (D65): the verdict ring. Stock builds pass on=0, cap=0,
@@ -78,8 +97,10 @@ struct monjson_in {
 	int                   nlogs;
 	const struct monjson_cwl *logs;
 };
-/* Build the document. Returns its length, or -1 when cap was too small
- * (buf is then empty and NUL-safe -- nothing partial ever goes out). */
+/* Build the document. Snapshot counts must be within their MONJSON_MAX_*
+ * bounds, and any nonzero count needs its corresponding row pointer. Returns
+ * its length, or -1 for invalid input/insufficient capacity (buf is empty
+ * and NUL-safe whenever cap is positive -- nothing partial ever goes out). */
 int monjson_build(char *buf, int cap, const struct monjson_in *in);
 
 /* JSON string escaping: \" \\ \b \f \n \r \t, \u00XX for the other

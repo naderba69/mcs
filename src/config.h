@@ -295,6 +295,10 @@ struct __attribute__ ((__packed__)) cs_client_data
 	uint32_t ip;
 	int handle;
 	int ipoll;
+	/* Session generation prevents an old unlocked socket write from completing
+	 * against a reconnected client that reused the same descriptor number. */
+	uint64_t session_generation __attribute__((aligned(8)));
+	uint8_t login_pending; // one authenticated LOGIN_ACK may be in flight
 	uint32_t chkrecvtime; // message recv time
 	//
 	uint16_t progid; // program id ex: 0x4343=>CCcam/ 0x0000=>Generic
@@ -350,6 +354,7 @@ struct __attribute__ ((__packed__)) cs_client_data
 		uint32_t recvtime; // ECM Receive Time in ms
 		ECM_DATA *request;
 		uint64_t lifetime_id __attribute__((aligned(8))); // exact ECM pool generation for this client request
+		uint64_t send_token; // nonzero while a socket write is in flight (client-state-lock protected)
 		uint32_t hash; // to check for ecm
 		int climsgid; // MessageID for the ecm request
 	} ecm;
@@ -645,6 +650,7 @@ struct cardserver_data
 		// for faster poll()
 		struct {
 			struct pollfd pfd[NEWCAMD_MAX_PFD];
+			uint32_t session_generation_low[NEWCAMD_MAX_PFD];
 			int count;
 			int update;
 			int ipoll;
@@ -737,6 +743,8 @@ struct cardserver_data
 #endif
 
 		int cachetimeout;
+		uint8_t cachetimeout_explicit; /* Distinguish a profile override from the zero default. */
+		uint8_t cache_evidence; /* R48: arm adaptive cache evidence/window learning; default OFF */
 		int cachesendreq;
 		int cacheresendreq;
 		int cachesendrep;
@@ -752,6 +760,7 @@ struct cardserver_data
 			uint32_t first; // on start request servers number
 			uint32_t interval;    // interval between 2 same ecm request to diffrent server
 			uint32_t timeout;     // timeout for resending ecm request to server
+			uint8_t timeout_explicit; // D111 A1: preserve operator-over-preset precedence.
 			uint32_t timeperecm;  // min time to senddo a request
 			uint32_t validecmtime;  // max server ecm reply time
 			uint32_t threshold; // Threshold of cs number to decode ecm
@@ -1048,6 +1057,7 @@ struct __attribute__ ((__packed__)) cc_client_data { // Connected Client
 	uint32_t ip;
 	int handle;				// SOCKET
 	int ipoll;
+	uint32_t session_generation; // internal token for stale poll/epoll events
 	uint32_t chkrecvtime; // message recv time
 	// CCcam Connection Data
 	struct cc_crypt_block sendblock;	// crypto state block
@@ -1165,6 +1175,7 @@ struct cccam_server_data {
 	// for faster poll()
 	struct {
 		struct pollfd pfd[CCCAM_MAX_PFD];
+		uint32_t session_generation[CCCAM_MAX_PFD];
 		int count;
 		int update;
 		int ipoll;

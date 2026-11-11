@@ -806,27 +806,25 @@ purgeage: $(CACHEPEER) $(NCCLIENT)
 #              nothing may come of it: no accusation, no mark, no score. That is
 #              GR3, and it is the half a "positive test" would never catch.
 #
-#   PHASE 2 -- the same ECM again, now re-asked twice ~2 s apart, which is the
-#              only observable failure these protocols have (no negative ACK).
-#              The failure lands on the key the client was actually holding, and
-#              with the disagreement already on record that is GR3's third
-#              definitive proof: agreement mismatch with client failure.
+#   PHASE 2 -- repeat the same ECM twice ~2 s apart. This is an observable
+#              receiver failure, but D111 requires an accepted line-server
+#              reference before a cache source can be accused. Since this
+#              fixture intentionally has no line server, the recorded cache
+#              disagreement must remain unproved even after retries.
 #
-#   The accused source is then compared against the source named by the retry
-#   line, in the same log. That is the GR1 assertion, and it is written that way
-#   because the two peers race: either one may deliver first in a given run, and
-#   a test that hardcodes which peer is guilty would pass for the wrong reason.
+# WHY THIS TARGET HAS NO MOCK CARD SERVER
+#   This target is the negative D-1 regression: two cache peers (including the
+#   correlated-peer case) are not a reference. The ledger unit test separately
+#   proves that an accepted line-server candidate is the only source of positive
+#   credit or mismatch proof. A peer-peer-only harness must therefore stay at
+#   zero proof and zero purge, not emulate an unavailable card reference.
+#   Both CWs are checksum-valid on purpose: a key that fails checksumDCW() is
+#   dropped with no log line, and the run would look like a broken delivery path
+#   instead of the feature under test (cachepeer.c warns about this on startup).
 #
-# WHY TWO PEERS AND NOT A MOCK CARD SERVER
-#   The cache peers are the harness that exists; a Newcamd *server* mock does
-#   not, and this target does not need one, because a cache peer is an
-#   independent source exactly as far as this feature is concerned. Both CWs are
-#   checksum-valid on purpose: a key that fails checksumDCW() is dropped with no
-#   log line, and the run would look like a broken delivery path instead of the
-#   feature under test (cachepeer.c warns about this on startup).
-#
-# The STATS-WINDOW line carries the ledger counters, so phase 1 can be checked
-# for the *absence* of a proof before phase 2 has produced one.
+# The STATS-WINDOW line carries the ledger counters; the test asserts that peer
+# disagreement and repeated client requests still do not produce a reference
+# proof or any source quarantine.
 
 AGR_HPORT = 16003
 AGR_TPORT = 16010
@@ -889,27 +887,17 @@ agreement: $(CACHEPEER) $(NCCLIENT)
 	  && echo "  [ ok ] the disagreement WAS recorded: 1 dispute, 0 self, 0 proof" \
 	  || { echo "[FAIL] the dispute was not recorded, so phase 2 proves nothing"; ok=0; }; \
 	nm=$$(grep -c "AGREEMENT MISMATCH" .ag-srv.log); \
-	if [ "$$nm" = "1" ]; then echo "  [ ok ] exactly ONE mismatch line for one confirmed event"; \
-	else echo "[FAIL] $$nm mismatch line(s), expected exactly 1"; ok=0; fi; \
-	acc=$$(grep -o "proof recorded against [0-9]*/[0-9]*" .ag-srv.log | head -1 | sed 's/.*against //'); \
-	rt=$$(grep -o "after a cw from source [0-9]*/[0-9]*" .ag-srv.log | head -1 | sed 's/.*source //'); \
-	if [ -n "$$acc" ] && [ "$$acc" = "$$rt" ]; then \
-	  echo "  [ ok ] GR1: the accused source ($$acc) is the one the client held a key from"; \
-	else echo "[FAIL] accused '$$acc' but the retry line names '$$rt'"; ok=0; fi; \
-	dis=$$(grep -o "independent source [0-9]*/[0-9]*" .ag-srv.log | head -1 | sed 's/.*source //'); \
-	if [ -n "$$dis" ] && [ "$$dis" != "$$acc" ]; then \
-	  echo "  [ ok ] the dissenter ($$dis) is named and is NOT the accused"; \
-	else echo "[FAIL] the dissenter is missing or is the accused source"; ok=0; fi; \
-	if grep -q "CACHE PURGE: .* marked on source $$acc" .ag-srv.log; then \
-	  echo "  [ ok ] the cache entry was marked, on the accused source and no other"; \
-	else echo "[FAIL] no purge mark naming the accused source"; ok=0; fi; \
-	grep -q "1 agreement, 0 dispute" .ag-srv.log && { echo "[FAIL] the stats line disagrees with the mismatch line"; ok=0; } || true; \
-	grep -q ", 0 self, 1 proof" .ag-srv.log \
-	  && echo "  [ ok ] the ledger counted exactly one proof and no self-disputes" \
-	  || { echo "[FAIL] the proof counter is not 1"; ok=0; }; \
+	if [ "$$nm" = "0" ]; then echo "  [ ok ] repeated client failure without a line reference produces no mismatch proof (D-1)"; \
+	else echo "[FAIL] $$nm peer-peer mismatch proof(s) without an accepted line reference"; ok=0; fi; \
+	np=$$(grep -c "CACHE PURGE: " .ag-srv.log); \
+	if [ "$$np" = "0" ]; then echo "  [ ok ] peer-peer disagreement and retry place no source quarantine"; \
+	else echo "[FAIL] $$np source quarantine mark(s) without a line reference"; ok=0; fi; \
+	grep -q ", 0 self, 0 proof" .ag-srv.log \
+	  && echo "  [ ok ] the ledger keeps the proof counter at zero without an accepted line reference" \
+	  || { echo "[FAIL] a peer-peer event changed the D-1 proof counter"; ok=0; }; \
 	grep -q ", 0 unplaced" .ag-srv.log \
-	  && echo "  [ ok ] every failure had an identity to be placed against (0 unplaced)" \
-	  || { echo "[FAIL] a failure could not be placed"; ok=0; }; \
+	  && echo "  [ ok ] the retry retained its exact ECM/source identity (0 unplaced)" \
+	  || { echo "[FAIL] a failure could not be placed against its saved identity"; ok=0; }; \
 	n=$$(grep -c "DELIVERED A CONTROL WORD" .ag-cli2.log); \
 	if [ "$$n" -ge 1 ]; then echo "  [ ok ] the client kept being served ($$n cw(s)): a proof must not black-screen a channel"; \
 	else echo "[FAIL] the client got nothing while the proof was being formed"; ok=0; fi; \
@@ -920,6 +908,96 @@ agreement: $(CACHEPEER) $(NCCLIENT)
 	if grep -qi "segmentation\|SIGSEGV" .ag-srv.log; then echo "[FAIL] logged a segfault"; ok=0; fi; \
 	rm -f $(AGR_CFG) .ag-srv.log .ag-phase1.log .ag-peera.log .ag-peerb.log .ag-cli1.log .ag-cli2.log; \
 	[ $$ok = 1 ]
+
+# D111 D-1 live positive path: cache wins, then the delayed Newcamd line
+# candidate is accepted as a reference without a second client delivery. The
+# test uses the existing opt-in /user-trace UI to prove that the ECM reached a
+# pending line request before either source answered; it does not infer that
+# state from a server log or an ordinary client status page.
+AGRREF_HPORT = 16870
+AGRREF_CPORT = 16871
+AGRREF_CACHE = 16872
+AGRREF_PEER  = 16873
+AGRREF_CARD  = 16874
+AGRREF_NPORT = 16875
+AGRREF_CFG   = .ag-ref.cfg
+AGRREF_CW    = 11223366445566FF77889998AABBCC31
+AGRREF_KEY   = 0102030405060708091011121314
+AGRREF_SKEY  = 01 02 03 04 05 06 07 08 09 10 11 12 13 14
+
+.PHONY: agreement-reference
+agreement-reference: $(NCSERVER) $(CACHEPEER) .ccdcw.bin
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@rm -f $(AGRREF_CFG) .ag-ref-*.html .ag-ref-*.log .ag-ref-post; \
+	{ printf 'HTTP PORT: $(AGRREF_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nTELNET PORT: 0\n'; \
+	  printf 'CCCAM PORT: $(AGRREF_CPORT)\nF: u1 p1\n'; \
+	  printf 'CACHE PORT: $(AGRREF_CACHE)\nCACHE PEER: 127.0.0.1:$(AGRREF_PEER) { csp=1 }\nCACHE FILTER: OFF\n'; \
+	  printf 'N: 127.0.0.1 $(AGRREF_CARD) srv1 pass1 $(AGRREF_SKEY)\n\n'; \
+	  printf '[ r48ref ]\nCAID: 1814\nPROVIDERS: 0\nPORT: $(AGRREF_NPORT)\nCACHE SENDREQ: YES\nUSER: u1 p1\n'; } > $(AGRREF_CFG); \
+	ok=1; pending=0; reference=0; delivered=0; \
+	CP_ANSWER_DELAY_MS=400 stdbuf -o0 -e0 ./$(CACHEPEER) $(AGRREF_CACHE) $(AGRREF_PEER) $(AGRREF_CW) 2 18140000 > .ag-ref-peer.log 2>&1 & peer=$$!; \
+	NS_DELAYS=750 NS_CW_SEQUENCE=$(AGRREF_CW) stdbuf -o0 -e0 ./$(NCSERVER) $(AGRREF_CARD) $(AGRREF_KEY) 1814 000000 > .ag-ref-card.log 2>&1 & card=$$!; \
+	sleep 1; \
+	stdbuf -o0 -e0 $(BIN) -C $(AGRREF_CFG) -v > .ag-ref-srv.log 2>&1 & srv=$$!; \
+	http_code=000; for i in $$(seq 1 40); do \
+	  http_code=$$(curl -s -m 2 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(AGRREF_HPORT)/); \
+	  [ "$$http_code" = "200" ] && break; sleep 0.25; \
+	done; \
+	if [ "$$http_code" = "200" ]; then \
+	  CCDCW_PRE_ECM_DELAY_MS=3000 ./.ccdcw.bin 127.0.0.1 $(AGRREF_CPORT) u1 p1 1814 0064 0x80 > /dev/null 2>&1 & client=$$!; \
+	else echo "[FAIL] web interface did not become ready (HTTP $$http_code)"; ok=0; client=; fi; \
+	client_id=; csrf=; \
+	if [ -n "$$client" ]; then \
+	  for i in $$(seq 1 40); do \
+	    curl -s -m 3 -u admin:admin http://127.0.0.1:$(AGRREF_HPORT)/user-trace > .ag-ref-page.html; \
+	    client_id=$$(grep -o "<option value='[0-9]*'[^>]*>u1 (ID" .ag-ref-page.html | head -1 | cut -d "'" -f2); \
+	    csrf=$$(grep -o "name='csrf' value='[a-f0-9]*'" .ag-ref-page.html | head -1 | cut -d "'" -f4); \
+	    [ -n "$$client_id" ] && [ -n "$$csrf" ] && break; sleep 0.25; \
+	  done; \
+	  if [ -n "$$client_id" ] && [ -n "$$csrf" ]; then \
+	    echo "  [ ok ] existing web trace UI lists the connected CCcam test client (ID $$client_id)"; \
+	    post_code=$$(curl -s -m 3 -u admin:admin -o .ag-ref-post -w '%{http_code}' -d "csrf=$$csrf&action=start&client=$$client_id&mode=single&caid=1814&provid=000000&sid=0064" http://127.0.0.1:$(AGRREF_HPORT)/user-trace); \
+	    if [ "$$post_code" = "303" ]; then echo "  [ ok ] started trace through the existing CSRF-protected web endpoint"; \
+	    else echo "[FAIL] web trace start returned HTTP $$post_code"; ok=0; fi; \
+	  else echo "[FAIL] web trace UI did not expose the connected test client and CSRF token"; ok=0; fi; \
+	  for i in $$(seq 1 20); do \
+	    curl -s -m 3 -u admin:admin http://127.0.0.1:$(AGRREF_HPORT)/user-trace > .ag-ref-page.html; \
+	    grep -q 'الحالة: تعمل' .ag-ref-page.html && break; sleep 0.1; \
+	  done; \
+	  if grep -q 'الحالة: تعمل' .ag-ref-page.html; then echo "  [ ok ] web trace is active for CAID 1814, provider 000000, SID 0064"; \
+	  else echo "[FAIL] web trace was not active for the selected ECM"; ok=0; fi; \
+	  for i in $$(seq 1 400); do \
+	    curl -s -m 3 -u admin:admin http://127.0.0.1:$(AGRREF_HPORT)/user-trace > .ag-ref-page.html; \
+	    if grep -q 'إرسال لمصدر' .ag-ref-page.html && grep -q 'ECM sent to server' .ag-ref-page.html && \
+	       ! grep -q 'Newcamd CW response; validity not determined' .ag-ref-page.html && \
+	       ! grep -q 'CW response sent; picture not verified' .ag-ref-page.html && \
+	       ! grep -q 'decode failed; detailed reason unavailable' .ag-ref-page.html; then pending=1; break; fi; \
+	    sleep 0.025; \
+	  done; \
+	  if [ "$$pending" = "1" ]; then echo "  [ ok ] web trace proved the ECM was pending after dispatch to the line server and before any source/client result"; \
+	  else echo "[FAIL] web trace never proved an in-flight ECM (sent to line, no source reply or client result); pending is not inferred from logs"; ok=0; fi; \
+	  for i in $$(seq 1 180); do \
+	    curl -s -m 3 -u admin:admin http://127.0.0.1:$(AGRREF_HPORT)/user-trace > .ag-ref-page.html; \
+	    if grep -q 'accepted cache candidate matched accepted line-server CW; D-1 credit recorded' .ag-ref-page.html && \
+	       grep -q 'late candidate passed validation; CW not reapplied to clients' .ag-ref-page.html && \
+	       grep -q 'أرسلت استجابة CW' .ag-ref-page.html; then reference=1; break; fi; \
+	    sleep 0.05; \
+	  done; \
+	  if [ "$$reference" = "1" ]; then echo "  [ ok ] web trace shows the late line CW passed acceptance, matched the cache CW, and D-1 credit was recorded"; \
+	  else echo "[FAIL] web trace did not show an accepted line reference and D-1 match for this ECM"; ok=0; fi; \
+	  if grep -q 'cache peer request invoked; pipe delivery not confirmed' .ag-ref-page.html; then echo "  [ ok ] web trace confirms the cache peer request was invoked for this ECM"; \
+	  else echo "[FAIL] web trace does not show a cache peer request invocation"; ok=0; fi; \
+	  deliveries=$$(grep -o 'أرسلت استجابة CW' .ag-ref-page.html | wc -l); \
+	  if [ "$$deliveries" = "1" ]; then echo "  [ ok ] web trace shows exactly one client CW delivery; the reference was not reapplied"; \
+	  else echo "[FAIL] web trace shows $$deliveries client delivery events, expected one"; ok=0; fi; \
+	  if [ -n "$$csrf" ]; then curl -s -m 3 -u admin:admin -o /dev/null -d "csrf=$$csrf&action=stop" http://127.0.0.1:$(AGRREF_HPORT)/user-trace; fi; \
+	fi; \
+	if kill -0 $$srv 2>/dev/null; then echo "  [ ok ] MultiCS survived the reference path"; else echo "[FAIL] MultiCS exited during the reference path"; ok=0; fi; \
+	kill $$client $$srv $$peer $$card 2>/dev/null; \
+	for pid in $$client $$srv $$peer $$card; do [ -n "$$pid" ] || continue; for i in 1 2 3 4 5; do kill -0 $$pid 2>/dev/null || break; kill -9 $$pid 2>/dev/null; sleep 1; done; done; \
+	if [ "$$ok" = "1" ]; then rm -f $(AGRREF_CFG) .ag-ref-*.html .ag-ref-*.log .ag-ref-post; \
+	else echo "[FAIL] D-1 live reference path did not pass; temporary captures are in tests/.ag-ref-*"; fi; \
+	[ "$$ok" = "1" ]
 
 # ===========================================================================
 # TASK 2.2 -- entropy and collision forensics, live.
@@ -4377,27 +4455,22 @@ au:
 
 
 # ---------------------------------------------------------------------------
-# TASK R4 (D58) -- the persistent peer-reputation ladder, live.
+# Legacy peerrep integration check, kept separate from R48 D-4.
 #
-# THE SCENARIO. One server, two cache peers on one profile (SID LIST pairs
-# = "these channels declare CW0"): peer A agrees (mark 1), peer B poisons
-# (mark 2 = the other half). DCWFILTER CYCLE arms the counted ingest
-# refusal, so every marked wrong-half key from B is a CONFIRMED, logged
-# event. Thresholds are small for the test: distrust 3, isolate 6, ban 10.
+# D111 forbids permanent peer bans: this IP:port compatibility layer may
+# pause requests for 15m or isolate pushes for 60m, and its file stores event
+# history only. It is explicitly NOT the provider/channel-scoped D-4 ladder,
+# which still needs clean-sample exit, weighted caps, and the rotation guard.
+# This live scenario checks the temporary gates and reads their active state
+# from the existing authenticated /json web readout, not server log text.
 #
-#   phase 1  A alone: the honest find is served (the baseline mesh works)
-#   phase 2  B joins; its first request-reply is confirmed event #1 and
-#            arms its repush; the flood of marked keys climbs the ledger --
-#            the third event escalates to DISTRUST and the file pins it
-#   phase 3  a fresh channel's find is answered by A only (distrust means
-#            we stop asking); events 4..6 still land, the sixth escalates
-#            to ISOLATE; the pushes are refused at the door but the
-#            arrivals themselves count, and the tenth crosses to BAN --
-#            FLAG_DISABLE, pings stop, the ledger freezes
-#   phase 4  restart: the file re-arms the ban the moment B shows up
-#            ("ban restored"); the mesh still serves through A
-#   phase 5  recovery: the operator deletes B's line from the file and
-#            restarts -- both peers are asked again, the mesh is whole
+#   phase 1  A alone: the honest find is served
+#   phase 2  B produces three confirmed cycle conflicts; /json shows temporary
+#            distrust and the file stores only stage-0 history
+#   phase 3  a fresh channel is asked of A but not B; further isolated pushes
+#            are diagnostic only and do not escalate/renew the temporary stage
+#   phase 4  restart loads the history but not active quarantine; B is askable
+#   phase 5  deleting B's history row leaves the mesh whole and askable
 #
 # PORTS: 16920-16925, distinct from every other target.
 # ---------------------------------------------------------------------------
@@ -4414,68 +4487,8 @@ PR_CW     = 10203060405060F070809080A0B0C010
 PR_REP    = .pr.rep
 
 .PHONY: pr
-pr:
-	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
-	@rm -f $(PR_REP) $(PR_CFG) .pr-srv.log .pr-a.log .pr-b.log .pr-cli.log multics.peers; \
-	{ printf 'HTTP PORT: $(PR_HPORT)\nHTTP USER: a\nHTTP PASS: a\nHTTP TITLE: mcs-pr\nTELNET PORT: $(PR_TPORT)\nTELNET USER: a\nTELNET PASS: a\nDCW STATS: ON\n'; \
-	   printf 'CACHE PORT: $(PR_CACHE)\nCACHE FILTER: OFF\n'; \
-	   printf 'PEER REPUTATION: ON\nPEER REPUTATION FILE: $(PR_REP)\nPEER REPUTATION DISTRUST: 3\nPEER REPUTATION ISOLATE: 6\nPEER REPUTATION BAN: 10\n\n'; \
-	   printf '[ pr ]\nCAID: 1884\nPROVIDERS: 0\nSID LIST: 0064.81 0065.81 0066.81 0067.81\nPORT: $(PR_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nDCWFILTER CYCLE: YES\nUSER: u1 p1\n\n'; \
-	   printf 'CACHE PEER: 127.0.0.1:$(PR_A) { csp=1; fwd=1 }\nCACHE PEER: 127.0.0.1:$(PR_B) { csp=1; fwd=1 }\n'; } > $(PR_CFG); \
-	ok=1; \
-	stdbuf -o0 -e0 $(BIN) -C $(PR_CFG) -v > .pr-srv.log 2>&1 & srv=$$!; \
-	sleep 3; \
-	env CP_CYCLE_MARK=1 stdbuf -o0 -e0 ./$(CACHEPEER) $(PR_CACHE) $(PR_A) "$(PR_CW)" 64 > .pr-a.log 2>&1 & pa=$$!; \
-	for i in $$(seq 1 60); do grep -q "advertised card" .pr-a.log && break; sleep 0.5; done; \
-	for i in $$(seq 1 40); do grep -q "come Online" .pr-srv.log && break; sleep 0.5; done; sleep 2; \
-	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(PR_NPORT) u1 p1 $(PR_KEY) 0 1884 64 > .pr-cli.log 2>&1; \
-	grep -q "DELIVERED A CONTROL WORD" .pr-cli.log && echo "  [ ok ] phase 1: the honest find is served by the lone honest peer" || { echo "[FAIL] phase 1: the find was not served"; ok=0; }; \
-	env CP_CYCLE_MARK=2 CP_REPUSH_MS=250 stdbuf -o0 -e0 ./$(CACHEPEER) $(PR_CACHE) $(PR_B) "$(PR_CW)" 64 > .pr-b.log 2>&1 & pb=$$!; \
-	for i in $$(seq 1 30); do grep -q "got request" .pr-b.log && break; NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(PR_NPORT) u1 p1 $(PR_KEY) 0 1884 65 > /dev/null 2>&1; sleep 3; done; \
-	for i in $$(seq 1 20); do grep -q "got request" .pr-b.log && break; NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(PR_NPORT) u1 p1 $(PR_KEY) 0 1884 66 > /dev/null 2>&1; sleep 3; done; \
-	for i in $$(seq 1 40); do grep -q "ESCALATED to DISTRUST" .pr-srv.log && break; sleep 0.5; done; \
-	if grep -q "ESCALATED to DISTRUST" .pr-srv.log; then echo "  [ ok ] phase 2: the third confirmed event escalated to distrust"; else echo "[FAIL] phase 2: no distrust escalation"; ok=0; fi; \
-	pst=$$(grep -oE "^127.0.0.1:$(PR_B) [0-9]" $(PR_REP) | sed 's/.* //'); \
-	if [ -n "$$pst" ]; then echo "  [ ok ] phase 2: the file carries B's record (stage $$pst at check time -- the 250 ms flood keeps climbing past distrust)"; else echo "[FAIL] phase 2: the file does not carry B"; ok=0; fi; \
-	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(PR_NPORT) u1 p1 $(PR_KEY) 0 1884 67 > /dev/null 2>&1; \
-	sleep 7; \
-	areq=$$(grep -c "got request" .pr-a.log); breq=$$(grep -c "got request" .pr-b.log); \
-	if [ "$$areq" -ge 3 ] && [ "$$breq" = "1" ]; then echo "  [ ok ] phase 3: the fresh channel was asked to A only (A $$areq, B $$breq) -- distrust means we stop asking"; else echo "[FAIL] phase 3: the distrusted peer still gets requests (A $$areq, B $$breq)"; ok=0; fi; \
-	for i in $$(seq 1 60); do grep -q "ESCALATED to ISOLATE" .pr-srv.log && break; sleep 0.5; done; \
-	if grep -q "ESCALATED to ISOLATE" .pr-srv.log; then echo "  [ ok ] phase 3: the sixth event escalated to isolate (4 and 5 still landed: distrust listens)"; else echo "[FAIL] phase 3: no isolate escalation"; ok=0; fi; \
-	for i in $$(seq 1 60); do grep -q "dropped unprocessed" .pr-srv.log && break; sleep 0.5; done; \
-	if grep -q "dropped unprocessed" .pr-srv.log; then echo "  [ ok ] phase 3: the isolated peer's pushes are refused at the door"; else echo "[FAIL] phase 3: isolated pushes were still processed"; ok=0; fi; \
-	for i in $$(seq 1 90); do grep -q "ESCALATED to BAN" .pr-srv.log && break; sleep 0.5; done; \
-	if grep -q "ESCALATED to BAN" .pr-srv.log; then echo "  [ ok ] phase 3: keeping the pushes coming walked B to ban (arrivals counted, reason signed)"; else echo "[FAIL] phase 3: the ban never came"; ok=0; fi; \
-	if grep -q "^127.0.0.1:$(PR_B) 3 " $(PR_REP); then echo "  [ ok ] phase 3: the file pinned the ban (stage 3)"; else echo "[FAIL] phase 3: the file does not pin the ban"; ok=0; fi; \
-	pings_before=$$(grep -c "got MultiCS ping" .pr-b.log); sleep 4; pings_after=$$(grep -c "got MultiCS ping" .pr-b.log); \
-	if [ "$$pings_before" = "$$pings_after" ]; then echo "  [ ok ] phase 3: the pings to the banned peer stopped"; else echo "[FAIL] phase 3: the banned peer is still being pinged ($$pings_before -> $$pings_after)"; ok=0; fi; \
-	ev1=$$(grep -oE "^127.0.0.1:$(PR_B) 3 [0-9]+" $(PR_REP) | grep -oE "[0-9]+$$"); sleep 3; ev2=$$(grep -oE "^127.0.0.1:$(PR_B) 3 [0-9]+" $(PR_REP) | grep -oE "[0-9]+$$"); \
-	if [ -n "$$ev1" ] && [ "$$ev1" = "$$ev2" ]; then echo "  [ ok ] phase 3: the ledger froze at the ban ($$ev1 events, drops past FLAG_DISABLE are stock-silent)"; else echo "[FAIL] phase 3: the ledger moved past the ban ($$ev1 -> $$ev2)"; ok=0; fi; \
-	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 2; kill -9 $$srv 2>/dev/null; \
-	stdbuf -o0 -e0 $(BIN) -C $(PR_CFG) -v >> .pr-srv.log 2>&1 & srv=$$!; sleep 3; \
-	env CP_CYCLE_MARK=1 stdbuf -o0 -e0 ./$(CACHEPEER) $(PR_CACHE) $(PR_A) "$(PR_CW)" 64 >> .pr-a.log 2>&1 & pa=$$!; \
-	env CP_CYCLE_MARK=2 CP_REPUSH_MS=250 stdbuf -o0 -e0 ./$(CACHEPEER) $(PR_CACHE) $(PR_B) "$(PR_CW)" 64 >> .pr-b.log 2>&1 & pb=$$!; \
-	for i in $$(seq 1 60); do grep -q "ban restored from the reputation file" .pr-srv.log && break; sleep 0.5; done; \
-	if grep -q "ban restored from the reputation file" .pr-srv.log; then echo "  [ ok ] phase 4: after the restart the file re-arms the ban, said once"; else echo "[FAIL] phase 4: the ban did not survive the restart"; ok=0; fi; \
-	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(PR_NPORT) u1 p1 $(PR_KEY) 0 1884 64 > .pr-cli.log 2>&1; \
-	if grep -q "DELIVERED A CONTROL WORD" .pr-cli.log; then echo "  [ ok ] phase 4: the mesh still serves through the honest peer"; else echo "[FAIL] phase 4: serving broke after the restart"; ok=0; fi; \
-	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 2; kill -9 $$srv 2>/dev/null; \
-	grep -v "^127.0.0.1:$(PR_B) " $(PR_REP) > $(PR_REP).new && mv $(PR_REP).new $(PR_REP); \
-	stdbuf -o0 -e0 $(BIN) -C $(PR_CFG) -v >> .pr-srv.log 2>&1 & srv=$$!; sleep 3; \
-	env CP_CYCLE_MARK=1 stdbuf -o0 -e0 ./$(CACHEPEER) $(PR_CACHE) $(PR_A) "$(PR_CW)" 64 >> .pr-a.log 2>&1 & pa=$$!; \
-	env CP_CYCLE_MARK=2 CP_SHORT_REPLY=1 stdbuf -o0 -e0 ./$(CACHEPEER) $(PR_CACHE) $(PR_B) "$(PR_CW)" 64 >> .pr-b.log 2>&1 & pb=$$!; \
-	for i in $$(seq 1 60); do grep -q "advertised card" .pr-a.log && grep -q "advertised card" .pr-b.log && break; sleep 0.5; done; sleep 4; \
-	NC_ECMS=1 ./$(NCCLIENT) 127.0.0.1 $(PR_NPORT) u1 p1 $(PR_KEY) 0 1884 64 > .pr-cli.log 2>&1; \
-	if grep -q "DELIVERED A CONTROL WORD" .pr-cli.log; then echo "  [ ok ] phase 5: after the operator removed the line, the mesh is whole again"; else echo "[FAIL] phase 5: recovery failed"; ok=0; fi; \
-	breq2=$$(grep -c "got request" .pr-b.log); \
-	if [ "$$breq2" -ge 1 ]; then echo "  [ ok ] phase 5: the recovered peer receives finds again (B $$breq2)"; else echo "[FAIL] phase 5: the recovered peer is still shunned"; ok=0; fi; \
-	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; \
-	pkill -9 -x multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; \
-	if [ "$$ok" = "1" ]; then rm -f $(PR_REP) $(PR_CFG) .pr-srv.log .pr-a.log .pr-b.log .pr-cli.log multics.peers; \
-	else echo "[FAIL] logs kept under tests/.pr*"; fi; \
-	[ "$$ok" = "1" ] || exit 1
+pr: $(CACHEPEER) $(NCCLIENT) peerrep-web.py run-peerrep-pr.sh
+	@BIN="$(BIN)" bash ./run-peerrep-pr.sh
 
 # ---------------------------------------------------------------------------
 # TASK R5 (D59) -- the machine readout: /json, live.
@@ -5068,14 +5081,28 @@ fz: .ncclient.bin .cachepeer.bin
 	  fp=""; i=0; while [ $$i -lt 9 ]; do p=$$((17040 + $$i)); \
 	    stdbuf -o0 -e0 ./$(CACHEPEER) $(FZ_CACHE) $$p "$(FZ_FAKE)" 64 18840000 > .fz$$1-f$$i.log 2>&1 & fp="$$fp $$!"; i=$$((i+1)); done; \
 	  env CP_ANSWER_DELAY_MS=400 stdbuf -o0 -e0 ./$(CACHEPEER) $(FZ_CACHE) 17049 "$(FZ_HONEST)" 64 18840000 > .fz$$1-h.log 2>&1 & hp=$$!; \
-	  for i in $$(seq 1 50); do bound=1; for j in 0 1 2 3 4 5 6 7 8; do grep -q "PEER: bound" .fz$$1-f$$j.log || bound=0; done; grep -q "PEER: bound" .fz$$1-h.log || bound=0; [ "$$bound" = "1" ] && break; sleep 0.1; done; \
-	  stdbuf -o0 -e0 $(BIN) -C $(FZ_CFG) -v > .fz$$1-srv.log 2>&1 & srv=$$!; sleep 3; \
-	  for i in $$(seq 1 40); do [ "$$(grep -c "come Online" .fz$$1-srv.log)" -ge 10 ] && break; sleep 0.25; done; \
-	  online=$$(grep -c "come Online" .fz$$1-srv.log); \
-	  if [ "$$online" -ge 10 ]; then echo "  [ ok ] FZ$$1: all 10 cache peers completed the handshake"; else echo "[FAIL] FZ$$1: only $$online of 10 cache peers came online"; ok=0; fi; \
+	  stdbuf -o0 -e0 $(BIN) -C $(FZ_CFG) -v > .fz$$1-srv.log 2>&1 & srv=$$!; \
+	  if ! python3 ./peerrep-web.py json-ready $(FZ_HPORT) 30; then echo "[FAIL] FZ$$1: authenticated /json did not become ready"; ok=0; fi; \
+	  i=0; while [ $$i -lt 9 ]; do p=$$((17040 + $$i)); \
+	    if ! python3 ./peerrep-web.py online $(FZ_HPORT) $$p 25; then echo "[FAIL] FZ$$1: /json and /cache did not prove peer $$p online"; ok=0; fi; i=$$((i+1)); done; \
+	  if ! python3 ./peerrep-web.py online $(FZ_HPORT) 17049 25; then echo "[FAIL] FZ$$1: /json and /cache did not prove the delayed honest peer online"; ok=0; fi; \
 	  sleep 1; \
-	  NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 40 ./$(NCCLIENT) 127.0.0.1 $(FZ_NPORT) u1 p1 $(FZ_KEY) 0 1884 64 > .fz$$1-cli.log 2>&1; \
-	  grep -q "DELIVERED A CONTROL WORD" .fz$$1-cli.log || { sleep 2; NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 40 ./$(NCCLIENT) 127.0.0.1 $(FZ_NPORT) u1 p1 $(FZ_KEY) 0 1884 64 >> .fz$$1-cli.log 2>&1; }; \
+	  if [ "$$1" = "2" ]; then \
+	    fz_sent_before=$$(python3 ./peerrep-web.py sent $(FZ_HPORT) 17049) || { echo "[FAIL] FZ2: cannot read honest-peer Sent REQ from /cache"; ok=0; fz_sent_before=-1; }; \
+	    fz_replies_before=$$(python3 ./peerrep-web.py replies $(FZ_HPORT) 17049) || { echo "[FAIL] FZ2: cannot read honest-peer replies from /json"; ok=0; fz_replies_before=-1; }; \
+	  fi; \
+	  NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 40 ./$(NCCLIENT) 127.0.0.1 $(FZ_NPORT) u1 p1 $(FZ_KEY) 0 1884 64 > .fz$$1-cli.log 2>&1 & cli=$$!; \
+	  if [ "$$1" = "2" ]; then \
+	    if [ "$$fz_sent_before" -ge 0 ] && [ "$$fz_replies_before" -ge 0 ]; then \
+	      if python3 ./peerrep-web.py pending $(FZ_HPORT) 17049 $$fz_sent_before $$fz_replies_before 12; then \
+	        if kill -0 $$cli 2>/dev/null; then echo "  [ ok ] FZ2: /cache Sent REQ rose while /json replies stayed unchanged and the client remained active"; \
+	        else echo "[FAIL] FZ2: client exited before web UI proved an ECM pending"; ok=0; fi; \
+	      else echo "[FAIL] FZ2: web UI did not prove an ECM pending; this synchronization gate is required"; ok=0; fi; \
+	    else echo "[FAIL] FZ2: web UI counters were unavailable; pending-ECM gate failed"; ok=0; fi; \
+	  fi; \
+	  wait $$cli; cli=; \
+	  grep -q "DELIVERED A CONTROL WORD" .fz$$1-cli.log || { sleep 2; \
+	    NC_ECMS=2 NC_ECM_GAP_MS=1500 timeout 40 ./$(NCCLIENT) 127.0.0.1 $(FZ_NPORT) u1 p1 $(FZ_KEY) 0 1884 64 >> .fz$$1-cli.log 2>&1; }; \
 	  kill -9 $$fp $$hp 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; }; \
 	peers9=""; i=0; while [ $$i -lt 9 ]; do peers9="$$peers9 CACHE PEER: 127.0.0.1:$$((17040 + $$i))\n"; i=$$((i+1)); done; \
 	echo "  [ -- ] P1: stock -- nine fake lines vs one honest slower line"; \

@@ -26,6 +26,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <errno.h>
 #include <poll.h>
@@ -63,6 +64,40 @@ static long ms_now(void)
 	return (long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 static long t_start = 0;
+
+static int wait_for_file(const char *path, int timeout_ms)
+{
+	long deadline = ms_now() + timeout_ms;
+	if (!path || !*path) return 0;
+	while (ms_now() < deadline) {
+		if (access(path, F_OK) == 0) return 1;
+		usleep(10000);
+	}
+	return access(path, F_OK) == 0;
+}
+
+static int touch_marker(const char *path)
+{
+	int fd;
+	if (!path || !*path) return 0;
+	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	if (fd < 0) return 0;
+	close(fd);
+	return 1;
+}
+
+static int close_with_reset(int fd)
+{
+	struct linger linger_state;
+	linger_state.l_onoff = 1;
+	linger_state.l_linger = 0;
+	if (setsockopt(fd, SOL_SOCKET, SO_LINGER, &linger_state,
+	               sizeof(linger_state)) != 0) {
+		close(fd);
+		return 0;
+	}
+	return close(fd) == 0;
+}
 
 int recv_nonb(int sock, uint8_t *buf, int len, int timeout)
 {
@@ -128,6 +163,18 @@ static int tcp_connect(const char *host, int port)
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd < 0) { perror("socket"); return -1; }
+	{
+		const char *receive_buffer = getenv("NC_RCVBUF");
+		if (receive_buffer) {
+			int size = atoi(receive_buffer);
+			if (size <= 0 ||
+			    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size)) != 0) {
+				perror("SO_RCVBUF");
+				close(fd);
+				return -1;
+			}
+		}
+	}
 
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
@@ -155,6 +202,7 @@ int main(int argc, char **argv)
 	uint8_t keymod[14], sessionkey[16], buf[512], passwdcrypt[64];
 	struct cs_custom_data cd;
 	int fd, len, index, stage = 0;
+	int delivered_any = 0;
 
 	if (argc > 1) host = argv[1];
 	if (argc > 2) port = atoi(argv[2]);
@@ -220,6 +268,20 @@ int main(int argc, char **argv)
 	printf("         sessionkey = ");
 	{ int i; for (i = 0; i < 16; i++) printf("%02X", sessionkey[i]); printf("\n"); }
 	stage = 3;
+	{
+		const char *ready_marker = getenv("NC_KEYMOD_READY_FILE");
+		const char *wait_marker = getenv("NC_WAIT_BEFORE_LOGIN_FILE");
+		if (ready_marker && !touch_marker(ready_marker)) {
+			fprintf(stderr, "cannot create NC_KEYMOD_READY_FILE marker\n");
+			close(fd);
+			return 1;
+		}
+		if (wait_marker && !wait_for_file(wait_marker, 10000)) {
+			fprintf(stderr, "timed out waiting before the controlled login send\n");
+			close(fd);
+			return 1;
+		}
+	}
 
 	/* ---- stage 4: send the login ----
 	 * Layout from cli-newcamd.c:51-60: type, two zero bytes, user NUL,
@@ -248,6 +310,39 @@ int main(int argc, char **argv)
 	}
 	printf("  [ ok ] stage 4: login sent (%d bytes, md5-crypt = %s)\n", index, passwdcrypt);
 	stage = 4;
+	{
+		const char *sent_marker = getenv("NC_LOGIN_SENT_FILE");
+		const char *wait_marker = getenv("NC_WAIT_AFTER_LOGIN");
+		if (sent_marker && !touch_marker(sent_marker)) {
+			fprintf(stderr, "cannot create NC_LOGIN_SENT_FILE marker\n");
+			close(fd);
+			return 1;
+		}
+		if (wait_marker) {
+			const char *release_marker = getenv("NC_CLOSE_RELEASE_FILE");
+			const char *close_marker = getenv("NC_CLOSE_MARKER");
+			const char *delay_text = getenv("NC_CLOSE_DELAY_MS");
+			int delay_ms = delay_text ? atoi(delay_text) : 0;
+			if (!wait_for_file(wait_marker, 10000) ||
+			    (release_marker && !wait_for_file(release_marker, 10000))) {
+				fprintf(stderr, "timed out waiting for controlled Newcamd ACK marker\n");
+				close(fd);
+				return 1;
+			}
+			if (delay_ms > 0 && delay_ms <= 5000)
+				usleep((useconds_t)delay_ms * 1000u);
+			if (!close_with_reset(fd)) {
+				fprintf(stderr, "could not close the controlled socket with RST\n");
+				return 1;
+			}
+			if (close_marker && !touch_marker(close_marker)) {
+				fprintf(stderr, "cannot create NC_CLOSE_MARKER marker\n");
+				return 1;
+			}
+			printf("  [ ok ] controlled test closed the socket with RST before LOGIN_ACK\n");
+			return 0;
+		}
+	}
 
 	/* ---- stage 5: the answer ---- */
 	memset(&cd, 0, sizeof(cd));
@@ -257,8 +352,14 @@ int main(int argc, char **argv)
 		close(fd); return 1;
 	}
 	if (buf[0] == MSG_CLIENT_2_SERVER_LOGIN_ACK) {
+		const char *ack_marker = getenv("NC_LOGIN_ACK_FILE");
 		printf("  [ ok ] stage 5: LOGIN_ACK -- the server accepted the client\n");
 		stage = 5;
+		if (ack_marker && !touch_marker(ack_marker)) {
+			fprintf(stderr, "cannot create NC_LOGIN_ACK_FILE marker\n");
+			close(fd);
+			return 1;
+		}
 	}
 	else if (buf[0] == MSG_CLIENT_2_SERVER_LOGIN_NAK) {
 		printf("  [FAIL] stage 5: LOGIN_NAK -- credentials rejected (len=%d)\n", len);
@@ -448,6 +549,7 @@ int main(int argc, char **argv)
 					printf("  [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server\n");
 				else {
 					printf("  [ ok ] stage 6: THE SERVER DELIVERED A CONTROL WORD\n");
+					delivered_any = 1;
 					stage = 7;
 				}
 			}
@@ -484,5 +586,12 @@ int main(int argc, char **argv)
 
 	close(fd);
 	printf("== %d stages passed ==\n", stage);
+	{
+		const char *required = getenv("NC_REQUIRE_CW");
+		if (required && atoi(required) != 0 && !delivered_any) {
+			fprintf(stderr, "ncclient: required control word was not received\n");
+			return 2;
+		}
+	}
 	return 0;
 }

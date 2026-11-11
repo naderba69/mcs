@@ -3,11 +3,36 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "common.h"
+#include "cache-origin.h"
 #include "cafamily.h"	/* TASK R36 (D92) */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
+#include "cache-window.h"  /* R48 opt-in cache wait-window learning */
+#include "tick_math.h"
 #include <stdlib.h>
 
-inline void peer_hitprofile( struct cachepeer_data *peer, int csid )
+/* Capture only accepted line-server responses. The request's saved sendtime is
+ * the precise dispatch mark; cache/client sources are never card samples. */
+static void r48_cache_window_note_card_response(const ECM_DATA *ecm,
+                                                const struct cardserver_data *cs,
+                                                int srctype, int srcid)
+{
+	uint32_t now_ms;
+	int i;
+	if (!ecm || !cs || !cs->option.cache_evidence ||
+	    srctype != DCW_SOURCE_SERVER) return;
+	now_ms = GetTickCount();
+	for (i = 0; i < 20; i++) {
+		if (ecm->server[i].srvid == (uint32_t)srcid &&
+		    (ecm->server[i].flag == ECM_SRV_REQUEST ||
+		     ecm->server[i].flag == ECM_SRV_REPLY_GOOD)) {
+			r48_cache_window_note_card(cs->id, ecm->caid,
+			    tick32_elapsed(now_ms, ecm->server[i].sendtime), now_ms);
+			return;
+		}
+	}
+}
+
+static inline void peer_hitprofile( struct cachepeer_data *peer, int csid )
 {
 	int i;
 	for(i=0; i<MAX_CSPORTS; i++) {
@@ -62,7 +87,7 @@ static void cache_peer_hit_update(struct cardserver_data *cs, uint32_t peer_id,
 }
 
 #ifdef CACHEEX
-inline void cacheex_cccam_hitprofile( struct cc_client_data *cli, int csid )
+static inline void cacheex_cccam_hitprofile( struct cc_client_data *cli, int csid )
 {
 	int i;
 	for(i=0; i<MAX_CSPORTS; i++) {
@@ -79,7 +104,7 @@ inline void cacheex_cccam_hitprofile( struct cc_client_data *cli, int csid )
 }
 
 #ifdef CAMD35_SRV
-inline void cacheex_camd35_hitprofile( struct camd35_client_data *cli, int csid )
+static inline void cacheex_camd35_hitprofile( struct camd35_client_data *cli, int csid )
 {
 	int i;
 	for(i=0; i<MAX_CSPORTS; i++) {
@@ -97,7 +122,7 @@ inline void cacheex_camd35_hitprofile( struct camd35_client_data *cli, int csid 
 #endif
 
 #ifdef CS378X_SRV
-inline void cacheex_cs378x_hitprofile( struct camd35_client_data *cli, int csid )
+static inline void cacheex_cs378x_hitprofile( struct camd35_client_data *cli, int csid )
 {
 	int i;
 	for(i=0; i<MAX_CSPORTS; i++) {
@@ -114,7 +139,7 @@ inline void cacheex_cs378x_hitprofile( struct camd35_client_data *cli, int csid 
 }
 #endif
 
-inline void cacheex_server_hitprofile( struct server_data *srv, int csid )
+static inline void cacheex_server_hitprofile( struct server_data *srv, int csid )
 {
 	int i;
 	for(i=0; i<MAX_CSPORTS; i++) {
@@ -176,7 +201,8 @@ static inline int dcwcheck_nds( ECM_DATA *ecm, uint8_t dcw[16], int swap )
 
 #ifndef THREAD_DCW
 
-void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
+static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
+                              int srcid, uint8_t source_origin_mask)
 {
 	uint8_t cache_reply_buf[80];
 	int cache_reply_len = 0;
@@ -586,6 +612,7 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	}
 #endif
 
+	r48_cache_window_note_card_response(ecm, cs, srctype, srcid);
 #ifdef CACHEEX
 	ledger_note_accepted(ecm, offered_cw, dcw, srctype, srcid, GetTickCount());
 #endif
@@ -598,7 +625,8 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	ecm->waitserver = 0;
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
-	cache_reply_len = pipe_cache_reply(ecm, cs, cache_reply_buf, sizeof(cache_reply_buf));
+	cache_reply_len = pipe_cache_reply(ecm, cs, cache_reply_buf,
+	                                   sizeof(cache_reply_buf), source_origin_mask);
 	/* Keep the non-THREAD_DCW path's cache waiter lifetime bounded too. */
 	cache_clear_sendpipe(ecm);
 
@@ -609,11 +637,15 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 	debugf(0, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
 	/* CW-POSTVAL: Record successful CW for peer trust scoring */
-	cwpostval_trust_good((uint32_t)srcid);
+	if (srctype == DCW_SOURCE_SERVER) cwpostval_trust_good((uint32_t)srcid);
 	uint32_t ecmtime = tick32_elapsed(GetTickCount(), ecm->recvtime);
 
-	/* CACHE-AI: Record success — update peer trust and channel learning (Level 1+4+5) */
-	ci_record_success((uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid, ecmtime);
+	/* CACHE-AI: record operational success/latency counters. */
+	/* A locally accepted candidate is not an independent reference agreement.
+	 * The ledger is the only producer of positive D-1 reputation; this legacy
+	 * intelligence hook may still collect operational success/latency stats. */
+	ci_record_success((uint32_t)srcid, ecm->caid, ecm->provid, ecm->sid,
+	                  ecmtime, 0);
 
 	/* CACHE-AI: Store CW for predictive cache (Level 7) */
 	{
@@ -810,13 +842,18 @@ void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 #endif
 }
 
-/* The no-thread ECM pipe consumer invokes this while holding lockecm. Preserve
- * the cache peer's cycle marker through validation without acquiring locksrv
- * from the lockecm path; ordinary server replies keep the 0-marker wrapper. */
-void ecm_setdcw_marked(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
-                       int srcid, int cwmark)
+void ecm_setdcw(ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid)
 {
-	if (!ecm || !dcw) return;
+	ecm_setdcw_origin(ecm, dcw, srctype, srcid, 0);
+}
+
+/* The no-thread ECM pipe consumer invokes this while holding lockecm. Preserve
+ * the cache peer's cycle marker and accumulated source classes through
+ * validation without acquiring locksrv from the lockecm path. */
+int ecm_setdcw_marked(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
+                      int srcid, int cwmark, uint8_t source_origin_mask)
+{
+	if (!ecm || !dcw || !cache_origin_mask_valid(source_origin_mask)) return 0;
 	if (ecm->cs && srctype == DCW_SOURCE_CACHE && cwmark != 0 && ecm->cw1cycle) {
 		int global_cycle = 0;
 		dcw_filter_globals_snapshot(NULL, NULL, &global_cycle, NULL);
@@ -837,11 +874,12 @@ void ecm_setdcw_marked(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 #ifdef MCS_DCWSTATS
 				DCWSTATS_REJECT(DCW_REJ_CYCLE);
 #endif
-				return;
+				return 0;
 			}
 		}
 	}
-	ecm_setdcw(ecm, dcw, srctype, srcid);
+	ecm_setdcw_origin(ecm, dcw, srctype, srcid, source_origin_mask);
+	return 1;
 }
 
 #endif
@@ -864,7 +902,66 @@ static void trace_queued_rejection(ECM_DATA *queued, uint64_t lifetime,
     ecm_unlock();
 }
 
-void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int cwmark, uint64_t trace_at_queue, uint64_t lifetime_at_queue )
+int ecm_setdcw_marked(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
+                      int srcid, int cwmark, uint8_t source_origin_mask);
+
+/* Caller holds lockecm after a line CW passed every decode gate. Copy and
+ * retire the held candidate atomically; it is queued after the line commit and
+ * will re-enter Set-DCW as evidence only, never as a second client delivery. */
+static int cache_verify_take_candidate_locked(ECM_DATA *ecm, uint8_t cw_out[16],
+                                              uint32_t *peerid_out,
+                                              int *cwmark_out,
+                                              uint8_t *origin_mask_out)
+{
+	if (!ecm || !cw_out || !peerid_out || !cwmark_out || !origin_mask_out ||
+	    !ecm->cache_verify_pending ||
+	    !cache_origin_mask_valid(ecm->cache_verify_origin_mask)) return 0;
+	memcpy(cw_out, ecm->cache_verify_cw, 16);
+	*peerid_out = ecm->cache_verify_peerid;
+	*cwmark_out = ecm->cache_verify_cwmark;
+	*origin_mask_out = ecm->cache_verify_origin_mask;
+	ecm->cache_verify_pending = 0;
+	ecm->cache_verify_dispatched = 0;
+	ecm->cache_verify_deadline = 0;
+	return 1;
+}
+
+static void cache_verify_setdcw_result_done(ECM_DATA *queued,
+                                             uint64_t lifetime,
+                                             int srctype)
+{
+	int wake = 0;
+	if (!queued || !lifetime) return;
+	ecm_lock();
+	if (ecm_request_lifetime_id_load(queued) == lifetime) {
+		if (srctype == DCW_SOURCE_SERVER)
+			queued->cache_verify_response_queued = 0;
+		if (srctype == DCW_SOURCE_CACHE && queued->cache_verify_queued) {
+			queued->cache_verify_queued = 0;
+			if (queued->dcwstatus != STAT_DCW_SUCCESS &&
+			    queued->dcwstatus != STAT_DCW_FAILED) {
+				queued->checktime = 1;
+				queued->waitserver = 0;
+				wake = 1;
+			}
+		} else if (srctype == DCW_SOURCE_SERVER &&
+		           queued->cache_verify_pending &&
+		           queued->dcwstatus != STAT_DCW_SUCCESS &&
+		           queued->dcwstatus != STAT_DCW_FAILED) {
+			/* A rejected line result is now fully resolved; let the ECM worker
+			 * deliver the cache fallback or resume its normal timeout path. */
+			queued->checktime = 1;
+			queued->waitserver = 0;
+			wake = 1;
+		}
+	}
+	ecm_unlock();
+	if (wake) wakeup_sendecm();
+}
+
+void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
+                     int cwmark, uint8_t source_origin_mask,
+                     uint64_t trace_at_queue, uint64_t lifetime_at_queue )
 {
 	uint8_t cache_reply_buf[80];
 	int cache_reply_len = 0;
@@ -885,6 +982,12 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	int committed_i;
 	struct ledger_delivery_snapshot delivery;
 	int delivery_valid = 0;
+	int late_reference = 0;
+	int queue_cache_reference = 0;
+	uint8_t cache_reference_cw[16];
+	uint8_t cache_reference_origin_mask = 0;
+	uint32_t cache_reference_peerid = 0;
+	int cache_reference_cwmark = NO_CYCLE;
 #ifdef CACHEEX
 	uint8_t offered_cw[16];
 	if (dcw) memcpy(offered_cw, dcw, sizeof(offered_cw));
@@ -893,6 +996,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	 * under lock for the prechecks, then revalidate before any commit. */
 	ECM_DATA *queued_ecm = ecm;
 	ECM_DATA snapshot;
+	if (!cache_origin_mask_valid(source_origin_mask)) return;
 	newcamd_config_read_lock();
 	ecm_lock();
 	if (!queued_ecm || !lifetime_at_queue ||
@@ -1122,10 +1226,9 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 		}
 		debugf(0, "    ✅ [SSF-v2] OK\n");
 		
-		/* Reward valid CW */
-		if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
-			dcwstrict_trust_reward(srcid);
-		}
+			/* D111 D-1: do not reward a source for passing local filters. A
+			 * cache source receives positive trust only in the ledger's accepted
+			 * cache/line-reference agreement batch. */
 	}
 
 
@@ -1147,11 +1250,20 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	}
 
 	if (ecm->dcwstatus==STAT_DCW_SUCCESS) {
+		/* D111 D-1: allow the other source class to finish validation after the
+		 * first CW was delivered. An accepted line-server reply may corroborate
+		 * a cache CW without being sent to clients a second time; an already
+		 * queued cache candidate may also be checked against a line result. */
+		late_reference =
+		    (srctype == DCW_SOURCE_SERVER && ecm->dcwsrctype == DCW_SOURCE_CACHE) ||
+		    (srctype == DCW_SOURCE_CACHE && ecm->dcwsrctype == DCW_SOURCE_SERVER);
+		if (!late_reference) {
         if (user_trace_same_instance(trace_at_queue, ecm->trace_instance))
             user_trace_shared_event(trace_at_queue, USER_TRACE_REJECTED, srctype, srcid,
                 GetTickCount()-ecm->recvtime, "CW not applied: ECM already succeeded");
-		ecm_unlock();
-		newcamd_config_read_unlock(); return;
+			ecm_unlock();
+			newcamd_config_read_unlock(); return;
+		}
 	}
 	/*
 	 * TASK 3.16: the pipe handler may have queued this push while the
@@ -1175,7 +1287,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	}
 */
 
-	if (srctype!=DCW_SOURCE_CACHE) {
+	if (srctype!=DCW_SOURCE_CACHE && !late_reference) {
 		pthread_mutex_lock( &prg.lockcache );
 		int f = cache_check_cw( ecm->recvtime, ecm->ecm[0], ecm->caid, ecm->hash,
 		                             ecm->sid, ecm->provid,
@@ -1222,15 +1334,15 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
                 user_trace_shared_event(trace_at_queue, USER_TRACE_REJECTED, srctype, srcid,
                                         GetTickCount()-ecm->recvtime, why);
             }
-			ecm->lastdecode.error++;
+			if (!late_reference) ecm->lastdecode.error++;
 			ecm_unlock();
 			newcamd_config_read_unlock(); return;
 		}
-		else if (check==1) {
+		else if (!late_reference && check==1) {
 			ecm->lastdecode.counter = 0;
 			ecm->lastdecode.cwcycle = 0;
 		}
-		else if (check&2) {
+		else if (!late_reference && (check&2)) {
 			ecm->lastdecode.counter++;
 			if (check&4) ecm->lastdecode.cwcycle = '1';
 			else ecm->lastdecode.cwcycle = '0';
@@ -1238,9 +1350,25 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	}
 #endif
 
+	if (late_reference && user_trace_same_instance(trace_at_queue, ecm->trace_instance))
+		user_trace_shared_event(trace_at_queue, USER_TRACE_VALIDATED, srctype, srcid,
+		    GetTickCount()-ecm->recvtime,
+		    "late candidate passed validation; CW not reapplied to clients");
+	r48_cache_window_note_card_response(ecm, cs, srctype, srcid);
 #ifdef CACHEEX
 	ledger_note_accepted(ecm, offered_cw, dcw, srctype, srcid, GetTickCount());
 #endif
+	if (late_reference) {
+		/* This candidate passed the remaining decode gates and was recorded only
+		 * as evidence. Preserve the first committed CW/source and send nothing. */
+		ecm_unlock();
+		newcamd_config_read_unlock();
+		return;
+	}
+	if (srctype == DCW_SOURCE_SERVER)
+		queue_cache_reference = cache_verify_take_candidate_locked(
+		    ecm, cache_reference_cw, &cache_reference_peerid,
+		    &cache_reference_cwmark, &cache_reference_origin_mask);
 	ecm->statusmsg = "Decode Success";
 	int instant = (ecm->dcwstatus==STAT_DCW_WAITCACHE);
 	ecm->dcwsrctype = srctype;
@@ -1250,7 +1378,8 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	ecm->waitserver = 0;
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
-	cache_reply_len = pipe_cache_reply(ecm, cs, cache_reply_buf, sizeof(cache_reply_buf));
+	cache_reply_len = pipe_cache_reply(ecm, cs, cache_reply_buf,
+	                                   sizeof(cache_reply_buf), source_origin_mask);
 	delivery_valid = ledger_delivery_snapshot_capture_locked(&delivery, ecm);
 	if (delivery_valid) {
 		committed_request = delivery.request;
@@ -1258,7 +1387,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	}
 
 	/* CW-POSTVAL: Record successful CW for peer trust scoring */
-	cwpostval_trust_good((uint32_t)srcid);
+	if (srctype == DCW_SOURCE_SERVER) cwpostval_trust_good((uint32_t)srcid);
 
 	/*
 	 * TASK 3.6: the waiter is answered -- release the cache entry's push arm
@@ -1271,6 +1400,17 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 	 * first. The helper's guard keeps a newer waiter's arm intact.
 	 */
 	cache_clear_sendpipe( ecm );
+	if (queue_cache_reference) {
+		/* The validated line CW is already committed and has priority. Queue the
+		 * saved cache CW behind it for evidence-only validation. */
+		if (ecm->trace_instance)
+			user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+			    DCW_SOURCE_SERVER, srcid, GetTickCount() - ecm->recvtime,
+			    "line reference accepted; queued tied cache candidate for evidence-only validation");
+		ecm_setdcw_marked(ecm, cache_reference_cw, DCW_SOURCE_CACHE,
+		                  (int)cache_reference_peerid, cache_reference_cwmark,
+		                  cache_reference_origin_mask);
+	}
 
 	/* Freeze all fields used after unlocking; ECM_DATA storage may be reused
 	 * as soon as the lock is released. Keep the trace tied to this lifetime. */
@@ -1546,13 +1686,17 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int
 
 
 /*
- * TASK 2.5 -- one extra byte rides at the end of the dcw pipe message: the
- * cycle marker the key's sender declared on the wire (0 = nothing declared).
- * Only the cache pipe consumer has it; every other producer passes 0.
+ * TASK 2.5 / R48 -- the private DCW pipe carries the sender's declared cycle
+ * marker and accumulated cache-source mask. Non-cache producers pass a zero
+ * mask; the ECM/cache reply path adds only a locally established source class.
  */
-inline int get_setdcwdata(uint8_t *buf, void *ecm, uint8_t *dcw, int *srctype, int *srcid, int *cwmark, uint64_t *trace_at_queue, uint64_t *lifetime_at_queue)
+static inline int get_setdcwdata(uint8_t *buf, void *ecm, uint8_t *dcw, int *srctype,
+                          int *srcid, int *cwmark, uint8_t *source_origin_mask,
+                          uint64_t *trace_at_queue, uint64_t *lifetime_at_queue)
 {
 	int index = 1;
+	if (cwmark) *cwmark = NO_CYCLE;
+	if (source_origin_mask) *source_origin_mask = 0;
 	memcpy(srctype, buf+index, sizeof(int) );
 	index += sizeof(int);
 	memcpy(srcid, buf+index, sizeof(int) );
@@ -1561,7 +1705,12 @@ inline int get_setdcwdata(uint8_t *buf, void *ecm, uint8_t *dcw, int *srctype, i
 	index += sizeof(void*);
 	memcpy( dcw, buf+index, 16 );
 	index+=16;
+	if (buf[index] != NO_CYCLE && buf[index] != CW0CYCLE &&
+	    buf[index] != CW1CYCLE) return 0;
 	if (cwmark) *cwmark = buf[index];
+	index+=1;
+	if (!cache_origin_mask_valid(buf[index])) return 0;
+	if (source_origin_mask) *source_origin_mask = buf[index];
 	index+=1;
 	memcpy(trace_at_queue, buf+index, sizeof(*trace_at_queue));
 	index += sizeof(*trace_at_queue);
@@ -1570,8 +1719,12 @@ inline int get_setdcwdata(uint8_t *buf, void *ecm, uint8_t *dcw, int *srctype, i
 	return index;
 }
 
-int put_setdcwdata(uint8_t *buf, ECM_DATA *ecm, uint8_t *dcw, int srctype, int srcid, int cwmark )
+int put_setdcwdata(uint8_t *buf, ECM_DATA *ecm, uint8_t *dcw, int srctype,
+                   int srcid, int cwmark, uint8_t source_origin_mask )
 {
+	if (!buf || !ecm || !dcw || !cache_origin_mask_valid(source_origin_mask) ||
+	    (cwmark != NO_CYCLE && cwmark != CW0CYCLE && cwmark != CW1CYCLE))
+		return 0;
 	buf[0] = 55;
 	int index = 1;
 	memcpy(buf+index, &srctype, sizeof(int) );
@@ -1583,6 +1736,8 @@ int put_setdcwdata(uint8_t *buf, ECM_DATA *ecm, uint8_t *dcw, int srctype, int s
 	memcpy( buf+index, dcw, 16 );
 	index+=16;
 	buf[index] = (uint8_t)cwmark;
+	index+=1;
+	buf[index] = source_origin_mask;
 	index+=1;
 	/* All live callers queue while holding lockecm. Trace identity controls
 	 * attribution; the independent lifetime ID guards the queued CW. */
@@ -1603,16 +1758,59 @@ int put_setdcwdata(uint8_t *buf, ECM_DATA *ecm, uint8_t *dcw, int srctype, int s
  * ecm_setdcw_marked() so the declaration survives the trip to the delivery
  * hook inside ecm_setdcwdata().
  */
-void ecm_setdcw_marked( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid, int cwmark )
+int ecm_setdcw_marked( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
+                       int cwmark, uint8_t source_origin_mask )
 {
 	uint8_t buf[64];
-	int len = put_setdcwdata(buf, ecm, dcw, srctype, srcid, cwmark );
-	pipe_send( dcwpipe[1], buf, len);
+	int len;
+	int line_reference = 0;
+	int sent;
+	if (!ecm || !dcw || !cache_origin_mask_valid(source_origin_mask)) return 0;
+	/* Live callers hold lockecm. Publish this only after the frame is queued so
+	 * the ECM worker cannot mistake a failed queue attempt for a reference. */
+	line_reference = (srctype == DCW_SOURCE_SERVER && ecm->cs &&
+	                  ecm->cs->option.cache_evidence &&
+	                  (ecm->dcwstatus == STAT_DCW_WAITCACHE ||
+	                   ecm->dcwstatus == STAT_DCW_WAIT));
+	len = put_setdcwdata(buf, ecm, dcw, srctype, srcid, cwmark,
+	                     source_origin_mask);
+	if (len <= 0) return 0;
+	sent = pipe_send(dcwpipe[1], buf, len);
+	if (sent <= 0) {
+		/* Set-DCW is a required internal hand-off. A missing frame strands the
+		 * waiter, so fail closed and let the process recovery path rebuild it. */
+		prg.restart = 1;
+		return 0;
+	}
+	if (line_reference) ecm->cache_verify_response_queued = 1;
+	return 1;
 }
 
 void ecm_setdcw( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid )
 {
-	ecm_setdcw_marked( ecm, dcw, srctype, srcid, 0 );
+	(void)ecm_setdcw_marked(ecm, dcw, srctype, srcid, 0, 0);
+}
+
+/* One production Set-DCW consumer step, shared with the isolated ordering
+ * regression so it exercises the same lifetime checks and commit path. */
+static int setdcw_process_frame(uint8_t *buf, int len)
+{
+	ECM_DATA *ecm = NULL;
+	uint8_t dcw[16];
+	uint8_t source_origin_mask = 0;
+	int srctype, srcid, cwmark = 0, parsed_len;
+	uint64_t trace_at_queue, lifetime_at_queue;
+	int expected = 1 + 2*(int)sizeof(int) + (int)sizeof(void*) + 16 + 1 + 1 +
+	               2*(int)sizeof(uint64_t);
+	if (!buf || len != expected) return 0;
+	parsed_len = get_setdcwdata(buf, &ecm, dcw, &srctype, &srcid, &cwmark,
+	                            &source_origin_mask, &trace_at_queue,
+	                            &lifetime_at_queue);
+	if (parsed_len != len) return 0;
+	ecm_setdcwdata(ecm, dcw, srctype, srcid, cwmark, source_origin_mask,
+	               trace_at_queue, lifetime_at_queue);
+	cache_verify_setdcw_result_done(ecm, lifetime_at_queue, srctype);
+	return 1;
 }
 
 void *setdcw_thread(void *param)
@@ -1630,16 +1828,7 @@ void *setdcw_thread(void *param)
 		if ( retval>0 ) {
 			uint8_t buf[64];
 			int len = pipe_recv( dcwpipe[0], buf, sizeof(buf));
-			if (len == 1 + 2*(int)sizeof(int) + (int)sizeof(void*) + 16 + 1 + 2*(int)sizeof(uint64_t)) {
-				ECM_DATA *ecm;
-				uint8_t dcw[16];
-				int srctype;
-				int srcid;
-				int cwmark = 0;
-				uint64_t trace_at_queue, lifetime_at_queue;
-				get_setdcwdata(buf, &ecm, dcw, &srctype, &srcid, &cwmark, &trace_at_queue, &lifetime_at_queue);
-				ecm_setdcwdata( ecm, dcw, srctype, srcid, cwmark, trace_at_queue, lifetime_at_queue );
-			}
+			if (len > 0) setdcw_process_frame(buf, len);
 		}
 	}
 }

@@ -1619,10 +1619,10 @@ link_radegast_server:
 		}
 
 		/*
-		 * TASK R4 (D58) -- PEER REPUTATION. The persistent ladder:
-		 * REPUTATION on/off (default off), FILE path, and the three
-		 * thresholds DISTRUST / ISOLATE / BAN in confirmed bad events.
-		 * Off, nothing is counted, nothing is written, every gate passes.
+		 * Legacy peer reputation remains opt-in (default off) for config
+		 * compatibility. Thresholds select temporary IP:port gates only;
+		 * the old BAN threshold is a 60-minute isolation, never a disable.
+		 * The file is diagnostic history; active TTL stages do not survive restart.
 		 */
 		else if (!strcmp(str,"PEER")) {
 			/* TASK R4 (D58). Grammar: the lines all read
@@ -1664,7 +1664,7 @@ link_radegast_server:
 						parse_int(str);
 						peerrep_threshold_set(opt, atoi(str));
 						{ int d,i,b; peerrep_thresholds(&d,&i,&b);
-						  debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): PEER REPUTATION thresholds: distrust=%d isolate=%d ban=%d\n",file->nbline,iparser-currentline,d,i,b); }
+						  debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): PEER REPUTATION thresholds: distrust=%d isolate=%d legacy-ban=%d (temporary)\n",file->nbline,iparser-currentline,d,i,b); }
 					}
 					else debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown PEER REPUTATION option '%s'\n",file->nbline,iparser-currentline,str);
 				}
@@ -2724,6 +2724,7 @@ sid accept:
 					} else iparser++;
 					parse_int(str);
 					defaultcs.option.server.timeout = atoi(str);
+					defaultcs.option.server.timeout_explicit = 1;
 					if ( (defaultcs.option.server.timeout<300)||(defaultcs.option.server.timeout>10000) ) defaultcs.option.server.timeout=300;
 				}
 				else if (!strcmp(str,"MAX")) {
@@ -2948,8 +2949,17 @@ sid accept:
 					} else iparser++;
 					parse_int(str);
 					defaultcs.option.cachetimeout = atoi(str);
+					defaultcs.option.cachetimeout_explicit = 1;
 					if (defaultcs.option.cachetimeout<0) defaultcs.option.cachetimeout = 0;
 					else if (defaultcs.option.cachetimeout>5000) defaultcs.option.cachetimeout = 5000;
+				}
+				else if (!strcmp(str,"EVIDENCE")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					defaultcs.option.cache_evidence = (uint8_t)parse_boolean();
 				}
 				else if (!strcmp(str,"SENDREQ")) {
 					parse_spaces();
@@ -3883,14 +3893,27 @@ link_mgcamd_user:
 				parse_int(str);
 				if (cardserver) {
 					cardserver->option.cachetimeout = atoi(str);
+					cardserver->option.cachetimeout_explicit = 1;
 					if (cardserver->option.cachetimeout<0) cardserver->option.cachetimeout = 0;
 					else if (cardserver->option.cachetimeout>5000) cardserver->option.cachetimeout = 5000;
 				}
 				else {
 					defaultcs.option.cachetimeout = atoi(str);
+					defaultcs.option.cachetimeout_explicit = 1;
 					if (defaultcs.option.cachetimeout<0) defaultcs.option.cachetimeout = 0;
 					else if (defaultcs.option.cachetimeout>5000) defaultcs.option.cachetimeout=5000;
 				}
+			}
+			else if (!strcmp(str,"EVIDENCE")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				if (cardserver)
+					cardserver->option.cache_evidence = (uint8_t)parse_boolean();
+				else
+					defaultcs.option.cache_evidence = (uint8_t)parse_boolean();
 			}
 			else if (!strcmp(str,"ALIVETIME")) {
 				parse_spaces();
@@ -4698,6 +4721,7 @@ link_mgcamd_user:
 				} else iparser++;
 				parse_int(str);
 				cardserver->option.server.timeout = atoi(str);
+				cardserver->option.server.timeout_explicit = 1;
 				if ( (cardserver->option.server.timeout<300)||(cardserver->option.server.timeout>10000) ) cardserver->option.server.timeout=300;
 			}
 			else if (!strcmp(str,"MAX")) {

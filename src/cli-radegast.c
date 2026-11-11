@@ -152,6 +152,10 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 							// Store ECM Answer
 							ecm_setdcw( ecm, &buf[4], DCW_SOURCE_SERVER, srv->id );
 						}
+						else if (ecm->dcwsrctype == DCW_SOURCE_CACHE) {
+							/* D111 D-1: queue a late line reply as a reference candidate only. */
+							ecm_setdcw( ecm, &buf[4], DCW_SOURCE_SERVER, srv->id );
+						}
 						else {	//TODO: check same dcw between cards
 							srv->ecmerrdcw ++;
 							if (memcmp(ecm->cw, &buf[4], 16))
