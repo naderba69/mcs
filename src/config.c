@@ -4006,6 +4006,19 @@ link_mgcamd_user:
 				cfg->cache.quarantine = parse_boolean();
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE QUARANTINE: %d\n",file->nbline,iparser-currentline, cfg->cache.quarantine);
 			}
+			/* R48: CACHE STORM GUARD: ON/OFF (default OFF). */
+			else if (!strcmp(str,"STORM")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"GUARD")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.storm_guard = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE STORM GUARD: %d\n",file->nbline,iparser-currentline, cfg->cache.storm_guard);
+				}
+			}
 
 			/* TASK R30 (D81): CACHE ATTEST: <0..4> -- distinct clients
 			 * whose too-soon re-asks file the delivered key bytes for a

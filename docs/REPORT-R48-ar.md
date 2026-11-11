@@ -178,11 +178,11 @@ D111 الذي قدّمه المشغّل هو المرجع الحاكم. نصه �
 
 | الملف | MD5 |
 |---|---|
-| `bin/multics-r82a-stock-x64` | `cab1c57d2419b010be1f001f738ba402` |
-| `bin/multics-r82a-stats-x64` | `fe50cbf7931f0f924c23c3bd8c4a4bca` |
-| `bin/multics-r82a-queue-x64` | `534aa30712a0040e6b4e11faf76cbc9d` |
-| `bin/multics-r82a-queue-stats-x64` | `2d39a805415c637e98b1ef41b03213a1` |
-| `bin/multics.x64` (اسم التسليم الثابت؛ stats) | `fe50cbf7931f0f924c23c3bd8c4a4bca` |
+| `bin/multics-r82a-stock-x64` | `cce1230a5a46bde3b64b7d6679054412` |
+| `bin/multics-r82a-stats-x64` | `7f7645c34bed91728e68bba9cbf7c235` |
+| `bin/multics-r82a-queue-x64` | `e8f6a6994ac73859693d7426727ef783` |
+| `bin/multics-r82a-queue-stats-x64` | `6de4698a932acb0f70eacb00d94e9375` |
+| `bin/multics.x64` (اسم التسليم الثابت؛ stats) | `7f7645c34bed91728e68bba9cbf7c235` |
 
 هذه بصمات بعد البناء الحالي. جُدّد `MANIFEST-md5` على 810 مسارات: 810 ملفات متتبعة عدا المانيفست نفسه؛ وتشمل اختبارات
 `make-x64/test_cccam_peekmsg.c` و`make-x64/test_cccam_session.c` وملفات Newcamd المستهدفة (`tests/newcamd-ack-race.sh`،
@@ -299,6 +299,8 @@ D111 الذي قدّمه المشغّل هو المرجع الحاكم. نصه �
 - `CACHE QUARANTINE: ON` — D-4 الدرجة الثانية: خلافان موزونان خلال 10 دقائق
   يعزلان القناة 60 ثانية، وخلافان عبر قنوات مزوّد واحد يعزلان المزوّد 60 ثانية
   (HOLD لمصدر الكاش فقط؛ خوادم البطاقات لا تُمس). OFF = consensus stock فقط.
+- `CACHE STORM GUARD: ON` — حارس العاصفة: أكثر من 20 مفتاحًا/ثانية على قناة
+  واحدة يحجز الفائض (HOLD لمصدر الكاش فقط). OFF = بلا تحديد معدل.
 
 كلها لا تغيّر البروتوكول ولا الواجهات، ولا تُفعَّل في الملفات المُسلَّمة.
 التحقق: `make -C src target=x64 link -B -j2` PASS، `make -C make-x64 test` PASS،

@@ -113,6 +113,11 @@ int cwconsensus_channel_quarantined(uint16_t caid, uint16_t sid,
                                     uint32_t provid, int provider_known,
                                     uint32_t now_ms);
 
+/* R48 storm guard (opt-in, default OFF): per-channel ingest rate
+ * limiter. Above 20 keys/sec on one channel, excess cache candidates
+ * are held (HOLD, cache source only). OFF = no rate limiting. */
+void cwconsensus_set_storm_guard(int on);
+
 /* Query the candidate's live vote counts; caller must hold the cache lock.
  * Distinct peer IDs are not necessarily independent sources. */
 int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t provid,

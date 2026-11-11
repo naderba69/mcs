@@ -45,6 +45,8 @@ static unsigned long cwc_n_votes, cwc_n_holds, cwc_n_releases, cwc_n_refusals;
 #define CWC_Q_SLOTS 64
 #define CWC_Q_CONFLICT_WINDOW 600000u
 #define CWC_Q_HOLD_MS 60000u
+#define CWC_STORM_RATE 20
+#define CWC_STORM_WINDOW 1000u
 struct cwc_qslot {
 	int used;
 	uint16_t caid, sid;
@@ -54,10 +56,14 @@ struct cwc_qslot {
 	int nconflicts;
 	uint32_t quarantine_until;
 	uint32_t last;
+	uint32_t rate_window_start;
+	int rate_count;
 };
 static struct cwc_qslot cwc_qtab[CWC_Q_SLOTS];
 static int cwc_quarantine = 0;
+static int cwc_storm_guard = 0;
 void cwconsensus_set_quarantine(int on) { cwc_quarantine = !!on; }
+void cwconsensus_set_storm_guard(int on) { cwc_storm_guard = !!on; }
 
 void cwconsensus_init(void)
 {
@@ -309,6 +315,22 @@ int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
 	if (cwconsensus_channel_quarantined(caid, sid, provid, provider_known, now_ms)) {
 		cwc_n_holds++;
 		return CWC_HOLD;
+	}
+	/* R48 storm guard: per-channel rate limit (cache source only). */
+	if (cwc_storm_guard) {
+		struct cwc_qslot *qs = cwc_qslot_for(caid, sid, provid, provider_known, now_ms, 1);
+		if (qs) {
+			if (!qs->rate_window_start ||
+			    tick32_elapsed(now_ms, qs->rate_window_start) >= CWC_STORM_WINDOW) {
+				qs->rate_window_start = now_ms;
+				qs->rate_count = 0;
+			}
+			qs->rate_count++;
+			if (qs->rate_count > CWC_STORM_RATE) {
+				cwc_n_holds++;
+				return CWC_HOLD;
+			}
+		}
 	}
 	int idx = cwc_slotof(caid, sid, provid, provider_known, hash, tag, cw);
 	struct cw_slot *s;
