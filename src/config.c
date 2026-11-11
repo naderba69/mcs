@@ -3999,6 +3999,13 @@ link_mgcamd_user:
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CONSENSUS INDEPENDENCE: %d\n",file->nbline,iparser-currentline, cfg->cache.consensus_independence);
 				}
 			}
+			/* R48 D-4: CACHE QUARANTINE: ON/OFF (default OFF). */
+			else if (!strcmp(str,"QUARANTINE")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				cfg->cache.quarantine = parse_boolean();
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE QUARANTINE: %d\n",file->nbline,iparser-currentline, cfg->cache.quarantine);
+			}
 
 			/* TASK R30 (D81): CACHE ATTEST: <0..4> -- distinct clients
 			 * whose too-soon re-asks file the delivered key bytes for a

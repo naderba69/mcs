@@ -1512,10 +1512,13 @@ struct config_data
 		 * filter cannot establish the cycle, estimate it temporally
 		 * from the ECM's lastdecode timing instead of refusing.
 		 * consensus_independence: consensus voters sharing the same
-		 * host IP count as one independent source. */
+		 * host IP count as one independent source.
+		 * quarantine: D-4 channel quarantine (2 weighted conflicts in
+		 * 10 min -> 60 s cache hold; card servers untouched). */
 		int cycle_error_reset;
 		int cycle_estimate;
 		int consensus_independence;
+		int quarantine;
 		int hits;  // Total Hits
 		int ihits; // Instant Hits
 		int req; // Request sent

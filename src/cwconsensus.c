@@ -41,10 +41,102 @@ struct cw_slot {
 static struct cw_slot cwc_tab[CWC_SLOTS];
 static unsigned long cwc_n_votes, cwc_n_holds, cwc_n_releases, cwc_n_refusals;
 
+/* R48 D-4 channel quarantine: 64 channel slots, 2 conflicts/10min -> 60s hold. */
+#define CWC_Q_SLOTS 64
+#define CWC_Q_CONFLICT_WINDOW 600000u
+#define CWC_Q_HOLD_MS 60000u
+struct cwc_qslot {
+	int used;
+	uint16_t caid, sid;
+	uint32_t provid;
+	uint8_t provider_known;
+	uint32_t conflict_tick[2];
+	int nconflicts;
+	uint32_t quarantine_until;
+	uint32_t last;
+};
+static struct cwc_qslot cwc_qtab[CWC_Q_SLOTS];
+static int cwc_quarantine = 0;
+void cwconsensus_set_quarantine(int on) { cwc_quarantine = !!on; }
+
 void cwconsensus_init(void)
 {
 	memset(cwc_tab, 0, sizeof(cwc_tab));
+	memset(cwc_qtab, 0, sizeof(cwc_qtab));
 	cwc_n_votes = cwc_n_holds = cwc_n_releases = cwc_n_refusals = 0;
+}
+
+static struct cwc_qslot *cwc_qslot_for(uint16_t caid, uint16_t sid,
+				       uint32_t provid, int provider_known,
+				       uint32_t now, int create)
+{
+	int i;
+	struct cwc_qslot *free_slot = NULL, *victim = NULL;
+	uint32_t oldest = 0;
+	provider_known = !!provider_known;
+	if (!provider_known) provid = 0;
+	for (i = 0; i < CWC_Q_SLOTS; i++) {
+		struct cwc_qslot *s = &cwc_qtab[i];
+		uint32_t age;
+		if (!s->used) {
+			if (!free_slot) free_slot = s;
+			continue;
+		}
+		if (s->caid == caid && s->sid == sid &&
+		    s->provider_known == provider_known &&
+		    (!provider_known || s->provid == provid)) {
+			s->last = now;
+			return s;
+		}
+		age = (uint32_t)(now - s->last);
+		if (age >= oldest) { oldest = age; victim = s; }
+	}
+	if (!create) return NULL;
+	{
+		struct cwc_qslot *s = free_slot ? free_slot : victim;
+		if (!s) return NULL;
+		memset(s, 0, sizeof(*s));
+		s->used = 1;
+		s->caid = caid; s->sid = sid; s->provid = provid;
+		s->provider_known = (uint8_t)provider_known;
+		s->last = now;
+		return s;
+	}
+}
+
+int cwconsensus_channel_quarantined(uint16_t caid, uint16_t sid,
+				    uint32_t provid, int provider_known,
+				    uint32_t now_ms)
+{
+	struct cwc_qslot *s;
+	if (!cwc_quarantine) return 0;
+	s = cwc_qslot_for(caid, sid, provid, provider_known, now_ms, 0);
+	if (!s || !s->quarantine_until) return 0;
+	/* quarantined while now is strictly before quarantine_until */
+	return tick32_delta(now_ms, s->quarantine_until) < 0;
+}
+
+static void cwc_q_note_conflict(uint16_t caid, uint16_t sid,
+				uint32_t provid, int provider_known,
+				uint32_t now)
+{
+	struct cwc_qslot *s;
+	if (!cwc_quarantine) return;
+	s = cwc_qslot_for(caid, sid, provid, provider_known, now, 1);
+	if (!s) return;
+	/* slide: drop conflicts older than 10 min */
+	if (s->nconflicts > 0 &&
+	    (uint32_t)(now - s->conflict_tick[0]) > CWC_Q_CONFLICT_WINDOW) {
+		s->conflict_tick[0] = s->conflict_tick[1];
+		s->nconflicts--;
+	}
+	if (s->nconflicts >= 2) {
+		s->quarantine_until = now + CWC_Q_HOLD_MS;
+		return;
+	}
+	s->conflict_tick[s->nconflicts++] = now;
+	if (s->nconflicts >= 2)
+		s->quarantine_until = now + CWC_Q_HOLD_MS;
 }
 
 unsigned long cwconsensus_votes(void)    { return cwc_n_votes; }
@@ -191,10 +283,16 @@ int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
 	provider_known = !!provider_known;
 	if (!provider_known) provid = 0;
 	if (!group) group = (uint32_t)(peerid & 0xFFFF) + 0x10000u;
-	int idx = cwc_slotof(caid, sid, provid, provider_known, hash, tag, cw);
-	struct cw_slot *s;
 	if (loser_cw) *loser_cw = NULL;
 	cwc_n_votes++;
+	/* R48 D-4 quarantine: cache candidates held while channel is
+	 * quarantined (cache source only; caller never blocks card servers). */
+	if (cwconsensus_channel_quarantined(caid, sid, provid, provider_known, now_ms)) {
+		cwc_n_holds++;
+		return CWC_HOLD;
+	}
+	int idx = cwc_slotof(caid, sid, provid, provider_known, hash, tag, cw);
+	struct cw_slot *s;
 
 	/* A completed decision is only evidence within its idle window. Do not
 	 * resurrect stale voters or sticky losses on an identical later key.
@@ -262,6 +360,8 @@ int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
 		if (my_w < ot_w) {
 			s->lost = 1; s->holding = 0;
 			cwc_n_refusals++;
+			/* R48 D-4: weighted loss counts toward channel quarantine. */
+			cwc_q_note_conflict(caid, sid, provid, provider_known, now_ms);
 			if (loser_cw) *loser_cw = cf->cw; /* winner, for the log */
 			return CWC_REFUSE;
 		}

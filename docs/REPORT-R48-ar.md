@@ -178,11 +178,11 @@ D111 الذي قدّمه المشغّل هو المرجع الحاكم. نصه �
 
 | الملف | MD5 |
 |---|---|
-| `bin/multics-r82a-stock-x64` | `c934c75aaec5df8d80c52c88b80111a9` |
-| `bin/multics-r82a-stats-x64` | `dc89aa55f2a923380d7a84747032c1ef` |
-| `bin/multics-r82a-queue-x64` | `625e5503ea878f36b981f1c7420cffd6` |
-| `bin/multics-r82a-queue-stats-x64` | `b4b3127ee18fcf664426fd135763e912` |
-| `bin/multics.x64` (اسم التسليم الثابت؛ stats) | `dc89aa55f2a923380d7a84747032c1ef` |
+| `bin/multics-r82a-stock-x64` | `f907921245991fc9e1bf483f09a35dbc` |
+| `bin/multics-r82a-stats-x64` | `798b08292879846065f86ffcf911f740` |
+| `bin/multics-r82a-queue-x64` | `36a9dc6510a4cfc36c8de3223f93144b` |
+| `bin/multics-r82a-queue-stats-x64` | `88e40bc5aa55afa32c64085c407dcfc2` |
+| `bin/multics.x64` (اسم التسليم الثابت؛ stats) | `798b08292879846065f86ffcf911f740` |
 
 هذه بصمات بعد البناء الحالي. جُدّد `MANIFEST-md5` على 808 مسارات: 789 ملفاً
 متتبعاً عدا المانيفست نفسه، و19 ملف R48 مقصوداً غير متتبع بعد؛ وتشمل اختبارات
@@ -297,6 +297,9 @@ D111 الذي قدّمه المشغّل هو المرجع الحاكم. نصه �
   الدورة نفسها؛ لا يُقبل تقدير بلا prevcw أو بلا توقع.
 - `CACHE CONSENSUS INDEPENDENCE: ON` — ناخبو consensus من نفس host IP تُحتسب
   مصدرًا مستقلًا واحدًا (الاستقلال قبل الوزن)؛ OFF = عدّ peer IDs المميزة.
+- `CACHE QUARANTINE: ON` — D-4 الدرجة الثانية: خلافان موزونان خلال 10 دقائق
+  يعزلان القناة 60 ثانية (HOLD لمصدر الكاش فقط؛ خوادم البطاقات لا تُمس).
+  OFF = consensus stock فقط.
 
 كلها لا تغيّر البروتوكول ولا الواجهات، ولا تُفعَّل في الملفات المُسلَّمة.
 التحقق: `make -C src target=x64 link -B -j2` PASS، `make -C make-x64 test` PASS،

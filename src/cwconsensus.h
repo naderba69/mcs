@@ -104,6 +104,15 @@ int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
                               const uint8_t **loser_cw);
 void cwconsensus_set_independence(int on);
 
+/* R48 D-4 second degree (opt-in, default OFF): channel quarantine.
+ * Two weighted conflicts within 10 minutes quarantine the channel's
+ * cache candidates for 60 seconds (HOLD, cache source only; card
+ * servers untouched). OFF = no quarantine, stock consensus only. */
+void cwconsensus_set_quarantine(int on);
+int cwconsensus_channel_quarantined(uint16_t caid, uint16_t sid,
+                                    uint32_t provid, int provider_known,
+                                    uint32_t now_ms);
+
 /* Query the candidate's live vote counts; caller must hold the cache lock.
  * Distinct peer IDs are not necessarily independent sources. */
 int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t provid,
