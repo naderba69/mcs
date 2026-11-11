@@ -118,6 +118,10 @@ int cwconsensus_channel_quarantined(uint16_t caid, uint16_t sid,
  * are held (HOLD, cache source only). OFF = no rate limiting. */
 void cwconsensus_set_storm_guard(int on);
 
+/* R48 rotation freeze (opt-in, default OFF): a new hash/tag (crypto
+ * period change) freezes prior conflicts/quarantine for that scope. */
+void cwconsensus_set_rotation_freeze(int on);
+
 /* Query the candidate's live vote counts; caller must hold the cache lock.
  * Distinct peer IDs are not necessarily independent sources. */
 int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t provid,

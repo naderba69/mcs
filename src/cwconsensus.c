@@ -58,12 +58,17 @@ struct cwc_qslot {
 	uint32_t last;
 	uint32_t rate_window_start;
 	int rate_count;
+	uint32_t last_hash;
+	uint8_t last_tag;
+	uint8_t hash_set;
 };
 static struct cwc_qslot cwc_qtab[CWC_Q_SLOTS];
 static int cwc_quarantine = 0;
 static int cwc_storm_guard = 0;
+static int cwc_rotation_freeze = 0;
 void cwconsensus_set_quarantine(int on) { cwc_quarantine = !!on; }
 void cwconsensus_set_storm_guard(int on) { cwc_storm_guard = !!on; }
+void cwconsensus_set_rotation_freeze(int on) { cwc_rotation_freeze = !!on; }
 
 void cwconsensus_init(void)
 {
@@ -133,10 +138,20 @@ int cwconsensus_channel_quarantined(uint16_t caid, uint16_t sid,
 
 static void cwc_q_note_one(uint16_t caid, uint16_t sid,
 			   uint32_t provid, int provider_known,
-			   uint32_t now)
+			   uint32_t hash, uint8_t tag, uint32_t now)
 {
 	struct cwc_qslot *s = cwc_qslot_for(caid, sid, provid, provider_known, now, 1);
 	if (!s) return;
+	/* R48 rotation freeze: a new hash/tag (crypto period change) freezes
+	 * prior conflicts/quarantine for this scope; relearn from scratch. */
+	if (cwc_rotation_freeze && s->hash_set &&
+	    (s->last_hash != hash || s->last_tag != tag)) {
+		s->nconflicts = 0;
+		s->quarantine_until = 0;
+	}
+	s->last_hash = hash;
+	s->last_tag = tag;
+	s->hash_set = 1;
 	if (s->nconflicts > 0 &&
 	    (uint32_t)(now - s->conflict_tick[0]) > CWC_Q_CONFLICT_WINDOW) {
 		s->conflict_tick[0] = s->conflict_tick[1];
@@ -153,15 +168,15 @@ static void cwc_q_note_one(uint16_t caid, uint16_t sid,
 
 static void cwc_q_note_conflict(uint16_t caid, uint16_t sid,
 				uint32_t provid, int provider_known,
-				uint32_t now)
+				uint32_t hash, uint8_t tag, uint32_t now)
 {
-	if (!cwc_quarantine) return;
+	if (!cwc_quarantine && !cwc_rotation_freeze) return;
 	/* Channel scope + provider scope (sid wildcard): two weighted
 	 * conflicts on one channel quarantine the channel; two across
 	 * any channels of one provider quarantine the provider. */
-	cwc_q_note_one(caid, sid, provid, provider_known, now);
+	cwc_q_note_one(caid, sid, provid, provider_known, hash, tag, now);
 	if (provider_known)
-		cwc_q_note_one(caid, 0xFFFF, provid, provider_known, now);
+		cwc_q_note_one(caid, 0xFFFF, provid, provider_known, hash, tag, now);
 }
 
 unsigned long cwconsensus_votes(void)    { return cwc_n_votes; }
@@ -402,7 +417,7 @@ int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
 			s->lost = 1; s->holding = 0;
 			cwc_n_refusals++;
 			/* R48 D-4: weighted loss counts toward channel quarantine. */
-			cwc_q_note_conflict(caid, sid, provid, provider_known, now_ms);
+			cwc_q_note_conflict(caid, sid, provid, provider_known, hash, tag, now_ms);
 			if (loser_cw) *loser_cw = cf->cw; /* winner, for the log */
 			return CWC_REFUSE;
 		}

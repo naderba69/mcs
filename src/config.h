@@ -1516,12 +1516,16 @@ struct config_data
 		 * quarantine: D-4 channel quarantine (2 weighted conflicts in
 		 * 10 min -> 60 s cache hold; card servers untouched).
 		 * storm_guard: per-channel ingest rate limit (20 keys/sec;
-		 * excess cache candidates held). */
+		 * excess cache candidates held).
+		 * rotation_freeze: new hash/tag freezes prior conflicts.
+		 * cap30: unproven sources (n<5) capped at rank 30. */
 		int cycle_error_reset;
 		int cycle_estimate;
 		int consensus_independence;
 		int quarantine;
 		int storm_guard;
+		int rotation_freeze;
+		int cap30;
 		int hits;  // Total Hits
 		int ihits; // Instant Hits
 		int req; // Request sent

@@ -3092,6 +3092,8 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		cwconsensus_set_independence(cfg.cache.consensus_independence);
 		cwconsensus_set_quarantine(cfg.cache.quarantine);
 		cwconsensus_set_storm_guard(cfg.cache.storm_guard);
+		cwconsensus_set_rotation_freeze(cfg.cache.rotation_freeze);
+		r48_source_rep_set_cap30(cfg.cache.cap30);
 		int cw_weight = 1;
 		uint32_t cw_group = 0;
 		{

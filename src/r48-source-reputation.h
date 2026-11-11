@@ -304,6 +304,12 @@ static int r48_source_rep_note_opt_in(struct r48_source_rep_table *table,
 	                           provider_known, event, now_ms);
 }
 
+/* R48 D-4 30% cap (opt-in, default OFF): unproven sources (n < 5)
+ * cannot rank above 30/100 before the event. Set from config. */
+static int r48_source_rep_cap30 = 0;
+__attribute__((unused))
+static void r48_source_rep_set_cap30(int on) { r48_source_rep_cap30 = !!on; }
+
 /* Return a fixed-point ordering score for the evidence selector. The caller
  * holds trust_lock. Unknown sources rank at neutral; missing evidence is never
  * interpreted as a failure. The D-4 delay returns rank zero but keeps the
@@ -320,6 +326,11 @@ static uint16_t r48_source_rep_rank_q8(struct r48_source_rep_table *table,
 		return (uint16_t)R48_SOURCE_REP_NEUTRAL_Q8;
 	r48_source_rep_apply_decay(entry, now_ms);
 	if (r48_source_rep_rank_is_delayed(entry, now_ms)) return 0;
+	if (r48_source_rep_cap30 &&
+	    (entry->matches + entry->proofs) < 5u) {
+		uint16_t cap = (uint16_t)(30u * R48_SOURCE_REP_SCORE_SCALE);
+		if (entry->score_q8 > cap) return cap;
+	}
 	return entry->score_q8;
 }
 

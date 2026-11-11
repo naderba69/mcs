@@ -178,11 +178,11 @@ D111 الذي قدّمه المشغّل هو المرجع الحاكم. نصه �
 
 | الملف | MD5 |
 |---|---|
-| `bin/multics-r82a-stock-x64` | `21e6f073b6c7e4d2f9a6d95b07e35013` |
-| `bin/multics-r82a-stats-x64` | `de67a825889bf5013cb93f92f4a02bf8` |
-| `bin/multics-r82a-queue-x64` | `e71649ce50ff4119c38acc4528130107` |
-| `bin/multics-r82a-queue-stats-x64` | `cbf55ce1e60120319ff73e8244cb1b2f` |
-| `bin/multics.x64` (اسم التسليم الثابت؛ stats) | `de67a825889bf5013cb93f92f4a02bf8` |
+| `bin/multics-r82a-stock-x64` | `cd461805ec7e4aaaf84cb6cfea1ae76b` |
+| `bin/multics-r82a-stats-x64` | `9be2fb2e86e4b9cec44299abe7ad474b` |
+| `bin/multics-r82a-queue-x64` | `1e04cbe466b347e152ffe062e80f84c6` |
+| `bin/multics-r82a-queue-stats-x64` | `342d3c29170032dfff5c7b4efa9c28b9` |
+| `bin/multics.x64` (اسم التسليم الثابت؛ stats) | `9be2fb2e86e4b9cec44299abe7ad474b` |
 
 هذه بصمات بعد البناء الحالي. جُدّد `MANIFEST-md5` على 810 مسارات: 810 ملفات متتبعة عدا المانيفست نفسه؛ وتشمل اختبارات
 `make-x64/test_cccam_peekmsg.c` و`make-x64/test_cccam_session.c` وملفات Newcamd المستهدفة (`tests/newcamd-ack-race.sh`،

@@ -4019,6 +4019,25 @@ link_mgcamd_user:
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE STORM GUARD: %d\n",file->nbline,iparser-currentline, cfg->cache.storm_guard);
 				}
 			}
+			/* R48 D-4: CACHE ROTATION FREEZE / CAP30 (default OFF). */
+			else if (!strcmp(str,"ROTATION")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FREEZE")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.rotation_freeze = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE ROTATION FREEZE: %d\n",file->nbline,iparser-currentline, cfg->cache.rotation_freeze);
+				}
+			}
+			else if (!strcmp(str,"CAP30")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				cfg->cache.cap30 = parse_boolean();
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CAP30: %d\n",file->nbline,iparser-currentline, cfg->cache.cap30);
+			}
 
 			/* TASK R30 (D81): CACHE ATTEST: <0..4> -- distinct clients
 			 * whose too-soon re-asks file the delivered key bytes for a
