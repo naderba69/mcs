@@ -1504,6 +1504,18 @@ struct config_data
 		/* TASK R31 (D82): filing lifetime in seconds for CACHE
 		 * ATTEST TTL (60..3600; 0/unset = the 300 s default). */
 		int attest_ttl;
+		/* R48 cycle strategy (user-trace): opt-in, default OFF.
+		 * cycle_error_reset: DCW_ERROR on a CW node is scoped by cycle;
+		 * a later arrival with a different declared cycle clears the
+		 * error and is re-evaluated instead of being swallowed.
+		 * cycle_estimate: when the wire carries no marker and the
+		 * filter cannot establish the cycle, estimate it temporally
+		 * from the ECM's lastdecode timing instead of refusing.
+		 * consensus_independence: consensus voters sharing the same
+		 * host IP count as one independent source. */
+		int cycle_error_reset;
+		int cycle_estimate;
+		int consensus_independence;
 		int hits;  // Total Hits
 		int ihits; // Instant Hits
 		int req; // Request sent

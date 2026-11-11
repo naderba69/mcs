@@ -93,6 +93,17 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t provid,
                         uint32_t now_ms, uint32_t window_ms,
                         const uint8_t **loser_cw);
 
+/* R48 independence: same as verdict but voters sharing `group`
+ * (host IP) count as one independent source. group==0 means the
+ * peerid itself is the group (stock distinct-peer counting).
+ * Caller resolves the group; the engine never looks up peers. */
+int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
+                              int provider_known, uint32_t hash, uint8_t tag,
+                              const uint8_t *cw, int peerid, uint32_t group,
+                              int weight, uint32_t now_ms, uint32_t window_ms,
+                              const uint8_t **loser_cw);
+void cwconsensus_set_independence(int on);
+
 /* Query the candidate's live vote counts; caller must hold the cache lock.
  * Distinct peer IDs are not necessarily independent sources. */
 int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t provid,

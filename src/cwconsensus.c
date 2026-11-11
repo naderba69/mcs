@@ -17,7 +17,10 @@
 #define CWC_NOUSE    0
 #define CWC_LIVE     1
 
-struct cw_voter { uint32_t tick; int peerid; int weight; };
+struct cw_voter { uint32_t tick; int peerid; uint32_t group; int weight; };
+
+static int cwc_independence = 0;
+void cwconsensus_set_independence(int on) { cwc_independence = !!on; }
 
 struct cw_slot {
 	int      used;
@@ -79,8 +82,24 @@ static int cwc_slotof(uint16_t caid, uint16_t sid, uint32_t provid,
 static int cwc_weight_sum(struct cw_slot *s, uint32_t now, uint32_t window)
 {
 	int i, w = 0;
-	for (i = 0; i < s->nv; i++)
-		if (cwc_fresh(now, s->v[i].tick, window)) w += s->v[i].weight;
+	if (!cwc_independence) {
+		for (i = 0; i < s->nv; i++)
+			if (cwc_fresh(now, s->v[i].tick, window)) w += s->v[i].weight;
+		return w;
+	}
+	/* Independence ON: one weight per distinct group (host IP).
+	 * A flood of mirrors behind one IP is one vote, not N. */
+	{
+		uint32_t seen[8];
+		int nseen = 0, j;
+		for (i = 0; i < s->nv; i++) {
+			if (!cwc_fresh(now, s->v[i].tick, window)) continue;
+			for (j = 0; j < nseen; j++) if (seen[j] == s->v[i].group) break;
+			if (j < nseen) continue;
+			if (nseen < 8) seen[nseen++] = s->v[i].group;
+			w += s->v[i].weight;
+		}
+	}
 	return w;
 }
 
@@ -163,14 +182,15 @@ void cwconsensus_set_min_sources(int n)
 	cwc_min_sources = n;
 }
 
-int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t provid,
+int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
 			int provider_known, uint32_t hash, uint8_t tag,
-			const uint8_t *cw, int peerid, int weight,
+			const uint8_t *cw, int peerid, uint32_t group, int weight,
 			uint32_t now_ms, uint32_t window_ms,
 			const uint8_t **loser_cw)
 {
 	provider_known = !!provider_known;
 	if (!provider_known) provid = 0;
+	if (!group) group = (uint32_t)(peerid & 0xFFFF) + 0x10000u;
 	int idx = cwc_slotof(caid, sid, provid, provider_known, hash, tag, cw);
 	struct cw_slot *s;
 	if (loser_cw) *loser_cw = NULL;
@@ -202,8 +222,10 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t provid,
 		if (found >= 0) {
 			s->v[found].tick = now_ms;
 			s->v[found].weight = weight; /* trust moves, follow it */
+			s->v[found].group = group;
 		} else if (s->nv < CWC_MAXV) {
 			s->v[s->nv].peerid = peerid;
+			s->v[s->nv].group = group;
 			s->v[s->nv].weight = weight;
 			s->v[s->nv].tick = now_ms;
 			s->nv++;
@@ -250,6 +272,16 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t provid,
 	}
 }
 
+int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t provid,
+			int provider_known, uint32_t hash, uint8_t tag,
+			const uint8_t *cw, int peerid, int weight,
+			uint32_t now_ms, uint32_t window_ms,
+			const uint8_t **loser_cw)
+{
+	return cwconsensus_verdict_group(caid, sid, provid, provider_known,
+		hash, tag, cw, peerid, 0, weight, now_ms, window_ms, loser_cw);
+}
+
 int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t provid,
                             int provider_known, uint32_t hash, uint8_t tag,
                             const uint8_t *cw, uint32_t now_ms,
@@ -261,9 +293,23 @@ int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t provid,
     if (!cw) return 0;
     idx = cwc_slotof(caid, sid, provid, provider_known, hash, tag, cw);
     if (idx < 0) return 0;
-    for (i = 0; i < cwc_tab[idx].nv; ++i) {
-        struct cw_voter *v = &cwc_tab[idx].v[i];
-        if (cwc_fresh(now_ms, v->tick, window_ms)) {
+    if (!cwc_independence) {
+        for (i = 0; i < cwc_tab[idx].nv; ++i) {
+            struct cw_voter *v = &cwc_tab[idx].v[i];
+            if (cwc_fresh(now_ms, v->tick, window_ms)) {
+                ++count;
+                weighted += v->weight;
+            }
+        }
+    } else {
+        uint32_t seen[8];
+        int nseen = 0, j;
+        for (i = 0; i < cwc_tab[idx].nv; ++i) {
+            struct cw_voter *v = &cwc_tab[idx].v[i];
+            if (!cwc_fresh(now_ms, v->tick, window_ms)) continue;
+            for (j = 0; j < nseen; j++) if (seen[j] == v->group) break;
+            if (j < nseen) continue;
+            if (nseen < 8) seen[nseen++] = v->group;
             ++count;
             weighted += v->weight;
         }

@@ -2501,13 +2501,41 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 			cwdata->cwcycle = cwcycle;
 			cwdata->peerid = peerid;
 			if (!(cwdata->status&DCW_CYCLE)) {
-				char detail[128];
-				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache not forwarded: filter did not establish cycle", cw);
-				snprintf(detail, sizeof(detail), "cache cycle context: incoming=%s; expected=%s; previous CW=%s",
-				         cwcy_str((int)incoming_cycle), cwcy_str((int)pcache->cwcycle),
-				         isnullDCW(pcache->prevcw) ? "absent" : "present");
-				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
-				return cwdata->status | DCW_ERROR | DCW_SKIP;
+				/* R48 cycle strategy (opt-in): temporal estimation.
+				 * When no marker is carried and the filter cannot
+				 * establish the cycle, estimate it from the previous
+				 * CW's half pattern: exactly one half shared with
+				 * prevcw means the other half rotated. This is an
+				 * estimate, not a declaration; the cycle gate below
+				 * still judges it against the entry expectation.
+				 * OFF (default) = stock refusal. */
+				if (cfg.cache.cycle_estimate && !isnullDCW(pcache->prevcw) &&
+				    pcache->cwcycle != NO_CYCLE) {
+					int first_same = dcwcmp8(cw, pcache->prevcw);
+					int second_same = dcwcmp8(cw+8, pcache->prevcw+8);
+					if (first_same && !second_same) {
+						cwcycle = CW1CYCLE;
+						cwdata->status |= DCW_CYCLE;
+						cwdata->cwcycle = cwcycle;
+						user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+						    "cache cycle estimated temporally: CW1 (no marker)", cw);
+					} else if (!first_same && second_same) {
+						cwcycle = CW0CYCLE;
+						cwdata->status |= DCW_CYCLE;
+						cwdata->cwcycle = cwcycle;
+						user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+						    "cache cycle estimated temporally: CW0 (no marker)", cw);
+					}
+				}
+				if (!(cwdata->status&DCW_CYCLE)) {
+					char detail[128];
+					user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache not forwarded: filter did not establish cycle", cw);
+					snprintf(detail, sizeof(detail), "cache cycle context: incoming=%s; expected=%s; previous CW=%s",
+					         cwcy_str((int)incoming_cycle), cwcy_str((int)pcache->cwcycle),
+					         isnullDCW(pcache->prevcw) ? "absent" : "present");
+					user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
+					return cwdata->status | DCW_ERROR | DCW_SKIP;
+				}
 			}
 		}
 		else {
@@ -2975,10 +3003,23 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 	cwdata->nbpeers++;
 
 	if (cwdata->status&DCW_ERROR) {
-        user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
-            "cache rejected: existing CW record marked error; original cause unknown", cw);
-        return DCW_ERROR;
-    }
+		/* R48 cycle strategy (opt-in): the error mark is scoped by cycle.
+		 * If this arrival declares a different cycle than the one the
+		 * error was recorded under, the error expires with the cycle
+		 * change and the key is re-evaluated. Content-based errors
+		 * (half-null, checksum) keep their mark: they judge the bytes,
+		 * not the declaration. OFF (default) = stock swallow. */
+		if (cfg.cache.cycle_error_reset && cwcycle != NO_CYCLE &&
+		    cwdata->cwcycle != NO_CYCLE && cwdata->cwcycle != cwcycle) {
+			cwdata->status &= ~DCW_ERROR;
+			user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+			    "cache error mark expired on cycle change; re-evaluating CW", cw);
+		} else {
+			user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+			    "cache rejected: existing CW record marked error; original cause unknown", cw);
+			return DCW_ERROR;
+		}
+	}
 
 	// TEST for min Peers
 	/*
@@ -3037,14 +3078,19 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		 * restate per arrival; a config reload takes effect on the
 		 * very next push. */
 		cwconsensus_set_min_sources(cfg.cache.consensus_sources >= 2
-					    ? cfg.cache.consensus_sources : 2);
+				    ? cfg.cache.consensus_sources : 2);
+		cwconsensus_set_independence(cfg.cache.consensus_independence);
 		int cw_weight = 1;
+		uint32_t cw_group = 0;
 		{
 			struct cachepeer_data *vc_peer = getpeerbyid(peerid);
 			if ( peerrep_on && vc_peer &&
 			     (peerrep_stage(host_ip_snapshot(vc_peer->host), vc_peer->port,
-			                    GetTickCount()) >= PEERREP_STAGE_DISTRUST) )
+		                    GetTickCount()) >= PEERREP_STAGE_DISTRUST) )
 				cw_weight = 0; /* bounded legacy deweight; does not alter R48 source/provider facts */
+			/* R48 independence: same host IP = one source. */
+			if (cfg.cache.consensus_independence && vc_peer)
+				cw_group = host_ip_snapshot(vc_peer->host);
 		}
 		{
 			uint32_t cwin = (uint32_t)cfg.cache.consensus_window;
@@ -3055,9 +3101,9 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 			if (cwin < 100) cwin = 100;
 			if (cwin > 2000) cwin = 2000;
 			uint32_t vote_tick = GetTickCount();
-			cv = cwconsensus_verdict(req->caid, req->sid, consensus_provider,
+			cv = cwconsensus_verdict_group(req->caid, req->sid, consensus_provider,
 			                         consensus_provider_known, req->hash, req->tag,
-			                         cw, peerid, cw_weight, vote_tick, cwin, &cwl);
+			                         cw, peerid, cw_group, cw_weight, vote_tick, cwin, &cwl);
 			{
 				int distinct = 0, weight = 0;
 				char detail[128];
