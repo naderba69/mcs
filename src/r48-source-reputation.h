@@ -305,7 +305,11 @@ static int r48_source_rep_note_opt_in(struct r48_source_rep_table *table,
 }
 
 /* R48 D-4 30% cap (opt-in, default OFF): unproven sources (n < 5)
- * cannot rank above 30/100 before the event. Set from config. */
+ * cannot rank above 30/100 before the event. Set from config.
+ * NOTE (review): completely unknown sources (no entry) still rank
+ * at neutral 50, above the cap. That is intentional per D111
+ * ("missing evidence is never a failure"): the cap punishes
+ * observed-but-thin evidence, not absence of evidence. */
 static int r48_source_rep_cap30 = 0;
 __attribute__((unused))
 static void r48_source_rep_set_cap30(int on) { r48_source_rep_cap30 = !!on; }

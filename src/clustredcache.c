@@ -2508,7 +2508,13 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 				 * prevcw means the other half rotated. This is an
 				 * estimate, not a declaration; the cycle gate below
 				 * still judges it against the entry expectation.
-				 * OFF (default) = stock refusal. */
+				 * OFF (default) = stock refusal.
+				 * NOTE (review): the half->cycle mapping below
+				 * (first-half-stable => CW1, second-half-stable =>
+				 * CW0) is an assumption, not provider-verified. A
+				 * backwards mapping would misjudge the gate, so
+				 * this stays opt-in OFF until a field capture
+				 * confirms it per provider. */
 				if (cfg.cache.cycle_estimate && !isnullDCW(pcache->prevcw) &&
 				    pcache->cwcycle != NO_CYCLE) {
 					int first_same = dcwcmp8(cw, pcache->prevcw);
