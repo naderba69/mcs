@@ -152,9 +152,13 @@ static void cwc_q_note_one(uint16_t caid, uint16_t sid,
 	s->last_hash = hash;
 	s->last_tag = tag;
 	s->hash_set = 1;
-	if (s->nconflicts > 0 &&
-	    (uint32_t)(now - s->conflict_tick[0]) > CWC_Q_CONFLICT_WINDOW) {
-		s->conflict_tick[0] = s->conflict_tick[1];
+	/* Evict ALL expired conflicts (not just one): a single shift per
+	 * call would let a stale second conflict combine with a fresh one
+	 * and quarantine on conflicts more than the window apart. */
+	while (s->nconflicts > 0 &&
+	       (uint32_t)(now - s->conflict_tick[0]) > CWC_Q_CONFLICT_WINDOW) {
+		if (s->nconflicts > 1)
+			s->conflict_tick[0] = s->conflict_tick[1];
 		s->nconflicts--;
 	}
 	if (s->nconflicts >= 2) {
