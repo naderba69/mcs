@@ -8440,6 +8440,8 @@ static void http_send_json(int sock, struct http_request *req)
 			r48_reps[i].srctype = r48_raw[i].srctype;
 			r48_reps[i].caid = r48_raw[i].caid;
 			r48_reps[i].score = r48_raw[i].score;
+			r48_reps[i].ci_low = r48_raw[i].ci_low;
+			r48_reps[i].ci_high = r48_raw[i].ci_high;
 			r48_reps[i].provider_known = r48_raw[i].provider_known;
 		}
 	}

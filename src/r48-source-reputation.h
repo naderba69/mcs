@@ -27,6 +27,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 #include "tick_math.h"
 
 #define R48_SOURCE_REP_SLOTS          128u
@@ -75,6 +76,8 @@ struct r48_source_rep_snapshot {
 	int32_t  srctype;
 	uint16_t caid;
 	uint8_t  score;
+	uint8_t  ci_low;   /* R48: Wilson 95% lower bound (0..100) */
+	uint8_t  ci_high;  /* R48: Wilson 95% upper bound (0..100) */
 	uint8_t  provider_known;
 	uint8_t  rank_delayed;
 };
@@ -387,6 +390,26 @@ static int r48_source_rep_snapshot(struct r48_source_rep_table *table,
 		dst->caid = entry->caid;
 		dst->score = (uint8_t)score;
 		dst->provider_known = entry->provider_known;
+		/* R48 confidence interval (Wilson 95%, observe only):
+		 * n = matches+proofs, p = score/100. n=0 -> [0,100]. */
+		{
+			uint32_t n = entry->matches + entry->proofs;
+			if (!n) {
+				dst->ci_low = 0;
+				dst->ci_high = 100;
+			} else {
+				double p = (double)score / 100.0;
+				double z = 1.96, z2 = z * z;
+				double denom = 1.0 + z2 / (double)n;
+				double center = (p + z2 / (2.0 * (double)n)) / denom;
+				double delta = z * sqrt(p * (1.0 - p) / (double)n + z2 / (4.0 * (double)n * (double)n)) / denom;
+				double lo = center - delta, hi = center + delta;
+				if (lo < 0.0) lo = 0.0;
+				if (hi > 1.0) hi = 1.0;
+				dst->ci_low = (uint8_t)(lo * 100.0 + 0.5);
+				dst->ci_high = (uint8_t)(hi * 100.0 + 0.5);
+			}
+		}
 	}
 	return count;
 }

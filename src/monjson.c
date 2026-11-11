@@ -237,6 +237,8 @@ int monjson_build(char *buf, int cap, const struct monjson_in *in)
 		mjkv_int(&o, "provider", (long)r->provid, 1);
 		mjkv_int(&o, "provider_known", r->provider_known ? 1 : 0, 1);
 		mjkv_int(&o, "score", r->score, 1);
+		mjkv_int(&o, "ci_low", r->ci_low, 1);
+		mjkv_int(&o, "ci_high", r->ci_high, 1);
 		mjkv_int(&o, "matches", (long)r->matches, 1);
 		mjkv_int(&o, "proofs", (long)r->proofs, 1);
 		mjkv_int(&o, "last_proof_tick", (long)r->last_proof_ms, 1);

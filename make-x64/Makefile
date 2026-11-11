@@ -547,11 +547,11 @@ $(SCOPED_OUTPUT)/main-scoped.o: ../src/main.c $(wildcard ../src/*.c) $(HDRS) | $
 	$(CC) -c $(SCOPED_CFLAGS) -Dmain=multics_main $< -o $@
 
 x64/test_scoped_checksum_policy: ../tests/scoped-checksum-policy.c $(SCOPED_OUTPUT)/main-scoped.o $(SCOPED_POLICY_OBJECTS)
-	$(CC) -o $@ $(SCOPED_CFLAGS) $^ -lpthread
+	$(CC) -o $@ $(SCOPED_CFLAGS) $^ -lpthread -lm
 
 # R48 D-2: parse real global/profile CACHE EVIDENCE and CACHE TIMEOUT values.
 x64/test_cache_evidence_config: test_cache_evidence_config.c $(SCOPED_OUTPUT)/main-scoped.o $(SCOPED_POLICY_OBJECTS)
-	$(CC) -o $@ $(SCOPED_CFLAGS) $^ -lpthread
+	$(CC) -o $@ $(SCOPED_CFLAGS) $^ -lpthread -lm
 
 x64/test_cafamily: test_cafamily.c ../src/cafamily.h
 	@mkdir -p x64
