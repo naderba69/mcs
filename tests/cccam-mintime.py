@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-mintime-') as folder:
     (src / 'x64').mkdir()
     path = src / 'setdcw.c'
     text = path.read_text()
-    marker = '\t\t\t\tecm_setdcwdata( ecm, dcw, srctype, srcid, cwmark, trace_at_queue, lifetime_at_queue );'
+    marker = '\t\t\t\t\tecm_setdcwdata(ecm, dcw, srctype, srcid, cwmark, source_origin_mask, trace_at_queue, lifetime_at_queue);'
     assert text.count(marker) == 1
     injected = """                if (getenv("MCS_TEST_MINTIME_ORIGIN")) {
                     if (!strcmp(getenv("MCS_TEST_MINTIME_ORIGIN"), "local")) srctype = DCW_SOURCE_MGCLIENT;

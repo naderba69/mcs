@@ -6,14 +6,31 @@
 #   make -C tests no-profile     assert an empty config is refused, not a segfault
 #   make -C tests cache-check-characterization cache-cross-provider cache-cross-gates
 #                               run focused cache/provider regressions
+#   make -C tests newcamd-ack-race
+#                               verify ACK backpressure and the follow-up login
+#   make -C tests newcamd-config-reload
+#                               verify reload progress during pre-LOGIN receive
 BIN     ?= ../make-x64/x64/multics
 CFG      = multics-live.cfg
 HTTPPORT = 15500
+R48_STATS_BIN ?= ../bin/multics-r82a-stats-x64
+R48_CWLOG_CHECK ?= 0
 
-.PHONY: pm jm sk cn smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr soak pq qv rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates all
+.PHONY: pm jm sk cn smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr soak pq qv rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates all
 include stability.mk
+
+# TASK R48: exercise the real server's LOGIN_ACK socket backpressure path,
+# while proving the existing web page and a following login can make progress.
+newcamd-ack-race:
+	@BIN="$(BIN)" CC="$(CC)" sh ./newcamd-ack-race.sh
+
+# Keep the web-visible reload assertion paired with the production Newcamd
+# handshake, rather than treating an isolated socketpair as a lifecycle proof.
+newcamd-config-reload:
+	@BIN="$(BIN)" CC="$(CC)" sh ./newcamd-config-reload.sh
+
 # soak is deliberately NOT in `all`. It runs for about 20 minutes.
-all: smoke no-profile dcwfilter stability ncclient cachecw cwreuse cachepref dstruct cfg19 purgeage agreement entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr jm pq sk cn vl ri md fk fz at md sc qv cf rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates
+all: smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr jm pq sk cn vl ri md fk fz at md sc qv cf rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates
 
 # TASK 4.2. Stats binary, not the stock one: counters must be on.
 SOAK_BIN ?= ../bin/multics-r82a-stats-x64
@@ -33,8 +50,8 @@ soak: .ncclient.bin .cachepeer.bin
 smoke:
 	@command -v curl >/dev/null || { echo "curl required"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@rm -f .smoke.log .threads.html; $(BIN) -C $(CFG) > .smoke.log 2>&1 & echo $$! > .pid; \
-	code=000; threads_code=000; \
+	@rm -f .smoke.log .threads.html .r48.json .r48-cwlog.html; $(BIN) -C $(CFG) > .smoke.log 2>&1 & echo $$! > .pid; \
+	code=000; threads_code=000; r48_code=000; cwlog_code=000; \
 	for i in $$(seq 1 25); do \
 	  code=$$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/); \
 	  [ "$$code" = "200" ] && break; \
@@ -42,13 +59,23 @@ smoke:
 	done; \
 	if [ "$$code" = "200" ]; then \
 	  threads_code=$$(curl -s -m 5 -u admin:admin -o .threads.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/threads); \
+	  r48_code=$$(curl -s -m 5 -u admin:admin -o .r48.json -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/json); \
+	  if [ "$(R48_CWLOG_CHECK)" = "1" ]; then cwlog_code=$$(curl -s -m 5 -u admin:admin -o .r48-cwlog.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/cwlog); fi; \
 	fi; \
 	kill $$(cat .pid) 2>/dev/null; rm -f .pid; \
 	ok=1; \
 	if [ "$$code" = "200" ]; then echo "  [ ok ] HTTP / answered 200"; else echo "  [FAIL] HTTP / answered $$code"; ok=0; fi; \
 	if [ "$$threads_code" = "200" ] && grep -q 'THREADID Main =' .threads.html; then echo "  [ ok ] HTTP /threads answered 200 and rendered the thread snapshot"; else echo "  [FAIL] HTTP /threads answered $$threads_code or omitted the snapshot marker"; ok=0; fi; \
-	rm -f .threads.html; \
+	if [ "$$r48_code" = "200" ] && python3 -c 'import json; d=json.load(open(".r48.json")); s=d["r48_source_reputation"]; assert s["scope"] == "source-caid-provider" and isinstance(s["rows"], list)' ; then echo "  [ ok ] HTTP /json exposes the R48 source/provider evidence snapshot"; else echo "  [FAIL] HTTP /json answered $$r48_code or omitted the R48 evidence snapshot"; ok=0; fi; \
+	if [ "$(R48_CWLOG_CHECK)" = "1" ]; then \
+	  if [ "$$cwlog_code" = "200" ] && grep -q 'R48 source reputation (reference evidence)' .r48-cwlog.html && grep -q 'proof age / clean samples after proof' .r48-cwlog.html && grep -q 'No reference-confirmed source evidence recorded yet' .r48-cwlog.html; then echo "  [ ok ] HTTP /cwlog renders the R48 evidence panel, D-4 proof timing, and neutral empty state"; else echo "  [FAIL] HTTP /cwlog answered $$cwlog_code or omitted the R48 evidence panel"; ok=0; fi; \
+	fi; \
+	rm -f .threads.html .r48.json .r48-cwlog.html; \
 	if [ "$$ok" = "1" ]; then rm -f .smoke.log; else echo "--- server log (startup only) ---"; cat .smoke.log; exit 1; fi
+
+r48-web:
+	@test -x $(R48_STATS_BIN) || { echo "build the stats release first: make -C ../make-x64 release-stats"; exit 1; }
+	@$(MAKE) --no-print-directory smoke BIN=$(R48_STATS_BIN) R48_CWLOG_CHECK=1
 
 no-profile:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
@@ -136,6 +163,8 @@ docrefs:
 # Fast and side-effect free, so it runs before the boot targets in `all`.
 cfgcheck:
 	@python3 cfgcheck.py ../multics-r24-optimized.cfg
+	@python3 cfgcheck.py ../multics-r24-expert-reviewed.cfg
+	@PYTHONDONTWRITEBYTECODE=1 python3 test_cfgcheck_blind.py
 
 ecm-radegast-identity:
 	sh ./ecm-radegast-identity.sh

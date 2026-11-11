@@ -1,8 +1,20 @@
 
 #include <pthread.h>
+#include <stdint.h>
 
 struct ledger_delivery_snapshot;
 struct ecm_request;
+struct cardserver_data;
+struct r48_source_rep_snapshot;
+/* R48 schedules protocol-side cache waits without delaying existing immediate
+ * checks or overriding the configured initial delay when evidence is OFF. */
+uint32_t ecm_get_cache_initial_delay_ms(struct ecm_request *ecm,
+                                        struct cardserver_data *cs,
+                                        uint32_t now_ms);
+/* Read-only bounded snapshot for existing HTTP/telnet diagnostics. */
+int r48_source_rep_snapshot_live(uint32_t now_ms,
+                                 struct r48_source_rep_snapshot *out,
+                                 int max);
 /* ECM mutex wrapper also pins the config graph before taking lockecm. */
 void ecm_lock(void);
 void ecm_unlock(void);
@@ -44,6 +56,14 @@ struct cccam_server_data *getcccamserverbyid(uint32_t id);
 struct cc_client_data *getcccamclientbyid(uint32_t id);
 struct cc_client_data *getcccamclientbyname(struct cccam_server_data *cccam, char *name);
 void cc_disconnect_cli(struct cc_client_data *cli);
+/* Poll snapshots must be validated against the connection that created them. */
+void cc_disconnect_cli_session(struct cc_client_data *cli, int expected_sock,
+                               uint32_t expected_generation);
+void cc_cli_recvmsg_session(struct cc_client_data *cli, int expected_sock,
+                            uint32_t expected_generation);
+/* Serialize CCcam cache-push writes with other client sends and teardown.
+ * Returns nonzero when an eligible send was attempted (success or failure). */
+int cc_send_cacheex_push_cli(struct cc_client_data *cli, uint8_t *buf, int len);
 #endif
 
 #ifdef MGCAMD_SRV

@@ -132,7 +132,8 @@ int pipe_write( int fd, uint8_t *buf, int len )
 		prg.restart = 1;
 		return total > 0 ? total : -1;
 	}
-	/* A zero-byte EAGAIN timeout is a failed send, not a partial frame.
+	/* A zero-byte EAGAIN timeout leaves the frame stream intact; return a
+	 * retryable no-byte failure without poisoning unrelated pipe traffic.
 	 * Preserve a positive count so pipe_send can fail closed if a prefix went out. */
 	return total > 0 ? total : -1;
 }
@@ -249,9 +250,8 @@ int pipe_send( int fd, uint8_t *buf, int len )
 	lock_index = (unsigned)fd % PIPE_SEND_LOCK_COUNT;
 	send_lock = &pipe_send_locks[lock_index];
 	pthread_mutex_lock(send_lock);
-	/* Fatal pipe errors set restart in pipe_write. A zero-byte EAGAIN timeout
-	 * leaves the stream intact and is reported to the caller without treating
-	 * it as a partial frame; any positive short count still fails closed below. */
+	/* Fatal errors and partial-frame writes request restart. A zero-byte EAGAIN
+	 * timeout is reported to the caller without corrupting the stream. */
 	if (prg.restart) {
 		pthread_mutex_unlock(send_lock);
 		return -1;

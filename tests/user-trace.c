@@ -83,7 +83,15 @@ int main(void)
         assert(!memcmp(snapshot.events[2].cw, cw, 16));
         assert(!memcmp(snapshot.events[4].cw, cw, 16));
         assert(snapshot.events[1].caid == 0x1884 && snapshot.events[1].provider == 3);
-        assert(!user_trace_shared_event(id, USER_TRACE_DISPATCH_SKIPPED, 0, 0, 1001, "dispatch skipped"));
+        assert(user_trace_shared_event(id, USER_TRACE_SOURCE_TRANSPORT, 1, 9, 30,
+                                      "late Newcamd transport evidence") == 1);
+        assert(!user_trace_client_result(7, id, 10, USER_TRACE_FAILED, 0, 0, 31,
+                                         "duplicate client result"));
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.count == 6 && snapshot.events[5].type == USER_TRACE_SOURCE_TRANSPORT);
+        assert(snapshot.events[5].attempt == a && snapshot.events[5].shared);
+        user_trace_unbind_shared_instance(id);
+        assert(!user_trace_shared_event(id, USER_TRACE_DISPATCH_SKIPPED, 0, 0, 1001, "retired ECM"));
         target.all_channels = 0;
     }
     first = user_trace_start(&target);
@@ -167,8 +175,27 @@ int main(void)
         assert(user_trace_bind_shared(second, b, 5, id));
         assert(!user_trace_client_result(7, id, 5, USER_TRACE_DELIVERED, 2, 1, 5, "ambiguous"));
         user_trace_get_snapshot(&snapshot);
-        assert(snapshot.dropped_links == 2 && snapshot.dropped_events == 1);
-        assert(!user_trace_shared_event(id, USER_TRACE_SENT, 2, 1, 1, "stale"));
+        assert(snapshot.dropped_links == 0 && snapshot.dropped_events == 1);
+        assert(user_trace_shared_event(id, USER_TRACE_SENT, 2, 1, 1, "late shared event") == 2);
+        user_trace_unbind_shared_instance(id);
+        assert(!user_trace_shared_event(id, USER_TRACE_SENT, 2, 1, 1, "retired"));
+    }
+    second = user_trace_start(&target);
+    {
+        uint64_t a = user_trace_begin(7, 0x1884, 0, 0x1136, 6, &session);
+        uint64_t b = user_trace_begin(7, 0x1884, 0, 0x1136, 6, &session);
+        uint64_t id = user_trace_next_instance();
+        assert(user_trace_bind_shared(second, a, 6, id));
+        assert(user_trace_client_result(7, id, 6, USER_TRACE_FAILED, 0, 0, 1, "first result"));
+        assert(user_trace_bind_shared(second, b, 6, id));
+        assert(user_trace_client_result(7, id, 6, USER_TRACE_DELIVERED, 1, 2, 2, "second result"));
+        assert(user_trace_shared_event(id, USER_TRACE_SOURCE_REPLY, 1, 2, 3, "late reply") == 2);
+        user_trace_get_snapshot(&snapshot);
+        assert(snapshot.events[snapshot.count - 4].type == USER_TRACE_FAILED);
+        assert(snapshot.events[snapshot.count - 4].attempt == a);
+        assert(snapshot.events[snapshot.count - 3].type == USER_TRACE_DELIVERED);
+        assert(snapshot.events[snapshot.count - 3].attempt == b);
+        user_trace_unbind_shared_instance(id);
     }
     second = user_trace_start(&target);
     {

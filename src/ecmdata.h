@@ -81,6 +81,22 @@ struct ecm_request {
 	unsigned int checktime; // time when recheck the ecm.
 	unsigned int waitserver; // wait for available server.
 
+	/* R48 ties are held until one already-pending/new line attempt resolves,
+	 * or the ECM deadline requires cache fallback. `response_queued` closes
+	 * the gap between a server reply entering Set-DCW and being validated;
+	 * `queued` keeps the timeout worker from failing while the fallback CW is
+	 * being validated by Set-DCW. All flags are request-lifetime local. */
+	uint8_t cache_verify_requested;
+	uint8_t cache_verify_pending;
+	uint8_t cache_verify_dispatched;
+	uint8_t cache_verify_queued;
+	uint8_t cache_verify_response_queued;
+	uint8_t cache_verify_origin_mask;
+	uint32_t cache_verify_deadline; /* short verification cap, bounded by decode deadline */
+	uint32_t cache_verify_peerid;
+	int cache_verify_cwmark;
+	uint8_t cache_verify_cw[16];
+
 	unsigned char cachestatus;// 0:nothing sent;; 1:request sent;; 2:reply sent
 	unsigned char cacheexstatus;// 0:nothing sent;; 1:request sent;; 2:reply sent
 

@@ -29,9 +29,11 @@
 #include "dcwstats.h"     /* DCW_REJ_COUNT + dcwstats_reason_name() */
 #include "cwlog.h"        /* TASK R11 (D65): verdict/reason names   */
 
-/* stage names -- the same words the ladder logs, telnet PEERREP prints
- * and the reputation file stores. */
-static const char *const mj_stagename[] = { "monitor", "distrust", "isolate", "ban" };
+/* Legacy peerrep stages are time-bounded; stage 3 is not a permanent ban. */
+static const char *const mj_stagename[] = {
+	"monitor", "temporary-distrust-15m", "temporary-isolate-60m",
+	"legacy-ban-threshold-temporary-isolate-60m"
+};
 
 int monjson_escape(char *dst, int dstcap, const char *src)
 {
@@ -125,7 +127,17 @@ static void mjdotted(struct mjout *o, uint32_t ip)
 
 int monjson_build(char *buf, int cap, const struct monjson_in *in)
 {
-	if (!buf || cap < 2 || !in) return -1;
+	if (!buf || cap <= 0) return -1;
+	buf[0] = 0;
+	if (cap < 2 || !in ||
+	    in->nreps < 0 || in->nreps > MONJSON_MAX_REPS ||
+	    (in->nreps && !in->reps) ||
+	    in->nr48_reps < 0 || in->nr48_reps > MONJSON_MAX_R48_REPS ||
+	    (in->nr48_reps && !in->r48_reps) ||
+	    in->npeers < 0 || in->npeers > MONJSON_MAX_PEERS ||
+	    (in->npeers && !in->peers) ||
+	    in->nlogs < 0 || in->nlogs > MONJSON_MAX_LOGS ||
+	    (in->nlogs && !in->logs)) return -1;
 	struct mjout o;
 	o.p = buf; o.end = buf + cap - 1; o.over = 0;
 
@@ -209,6 +221,30 @@ int monjson_build(char *buf, int cap, const struct monjson_in *in)
 		mjkv_strq(&o, "last", r->reason, 0);
 		mjput(&o, "}");
 		if (i < in->nreps-1) mjput(&o, ",");
+	}
+	mjput(&o, "]},");
+
+	/* -- R48 D111: reference-confirmed source reputation. This is an
+	 *    evidence snapshot only: missing records are not bad, and the
+	 *    provider_known bit keeps an unknown scope distinct from provider 0. */
+	mjput(&o, "\"r48_source_reputation\":{\"scope\":\"source-caid-provider\",\"rows\":[");
+	for (i = 0; i < in->nr48_reps; i++) {
+		const struct monjson_r48_rep *r = &in->r48_reps[i];
+		mjput(&o, "{");
+		mjkv_int(&o, "source_type", r->srctype, 1);
+		mjkv_int(&o, "source_id", r->srcid, 1);
+		mjkv_int(&o, "caid", r->caid, 1);
+		mjkv_int(&o, "provider", (long)r->provid, 1);
+		mjkv_int(&o, "provider_known", r->provider_known ? 1 : 0, 1);
+		mjkv_int(&o, "score", r->score, 1);
+		mjkv_int(&o, "matches", (long)r->matches, 1);
+		mjkv_int(&o, "proofs", (long)r->proofs, 1);
+		mjkv_int(&o, "last_proof_tick", (long)r->last_proof_ms, 1);
+		mjkv_int(&o, "clean_after_proof", (long)r->clean_after_proof, 1);
+		mjkv_int(&o, "rank_delayed", r->rank_delayed ? 1 : 0, 1);
+		mjkv_int(&o, "last_evidence_tick", (long)r->last_evidence_ms, 0);
+		mjput(&o, "}");
+		if (i < in->nr48_reps-1) mjput(&o, ",");
 	}
 	mjput(&o, "]},");
 

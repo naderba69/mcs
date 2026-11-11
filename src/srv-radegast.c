@@ -459,7 +459,8 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 						if (cs->option.fallowcache && rdgd_cache_has_peers()) {
 							ecm->waitcache = 1;
 							ecm_request_set_dcwstatus(ecm, STAT_DCW_WAITCACHE);
-							ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
+							ecm->checktime = ecm->recvtime +
+							    ecm_get_cache_initial_delay_ms(ecm, cs, GetTickCount());
 							pipe_cache_find(ecm, cs);
 						} else ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 					}

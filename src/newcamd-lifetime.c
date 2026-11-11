@@ -153,6 +153,82 @@ void newcamd_client_state_unlock(const void *client)
     client_state_unlock(client);
 }
 
+#define CLIENT_IO_LOCK_COUNT 64
+static pthread_mutex_t client_io_locks[CLIENT_IO_LOCK_COUNT];
+static pthread_once_t client_io_locks_once = PTHREAD_ONCE_INIT;
+static int client_io_locks_error;
+
+static void client_io_locks_init(void)
+{
+    unsigned int i;
+    for (i = 0; i < CLIENT_IO_LOCK_COUNT; i++) {
+        int rc = pthread_mutex_init(&client_io_locks[i], NULL);
+        if (rc != 0) {
+            while (i > 0) pthread_mutex_destroy(&client_io_locks[--i]);
+            client_io_locks_error = rc;
+            return;
+        }
+    }
+}
+
+static pthread_mutex_t *client_io_lock_for(const void *client)
+{
+    uintptr_t key;
+    if (!client || pthread_once(&client_io_locks_once,
+                                client_io_locks_init) != 0 ||
+        client_io_locks_error)
+        return NULL;
+    key = (uintptr_t)client;
+    return &client_io_locks[(key >> 4) % CLIENT_IO_LOCK_COUNT];
+}
+
+int client_io_lock(const void *client)
+{
+    pthread_mutex_t *lock = client_io_lock_for(client);
+    if (!lock) return EINVAL;
+    return pthread_mutex_lock(lock);
+}
+
+void client_io_unlock(const void *client)
+{
+    pthread_mutex_t *lock = client_io_lock_for(client);
+    if (!lock || pthread_mutex_unlock(lock) != 0) abort();
+}
+
+int newcamd_client_io_lock(const void *client)
+{
+    return client_io_lock(client);
+}
+
+void newcamd_client_io_unlock(const void *client)
+{
+    client_io_unlock(client);
+}
+
+uint64_t newcamd_epoll_client_token(uint32_t client_id,
+                                    uint64_t session_generation)
+{
+    if (!client_id || !session_generation) return 0;
+    return ((uint64_t)(uint32_t)session_generation << 32) | client_id;
+}
+
+int newcamd_epoll_client_token_decode(uint64_t token, uint32_t *client_id,
+                                      uint32_t *generation_low)
+{
+    uint32_t id = (uint32_t)token;
+    if (!token || !id || !client_id || !generation_low) return 0;
+    *client_id = id;
+    *generation_low = (uint32_t)(token >> 32);
+    return 1;
+}
+
+int newcamd_session_generation_low_matches(uint32_t expected_low,
+                                           uint64_t current_generation)
+{
+    return current_generation != 0 &&
+           expected_low == (uint32_t)current_generation;
+}
+
 static pthread_mutex_t server_connect_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t server_connect_changed = PTHREAD_COND_INITIALIZER;
 static unsigned int server_connect_active;

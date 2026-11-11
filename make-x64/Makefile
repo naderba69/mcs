@@ -30,12 +30,12 @@ include ../src/Makefile
 .DEFAULT_GOAL := link
 
 # Compatibility flags (see port_gnu89.h for the full rationale)
-PORTFLAGS = -include port_gnu89.h -std=gnu89 -fpermissive -fcommon \
+PORTFLAGS = -include port_gnu89.h -std=gnu89 -fcommon \
 	-fno-strict-aliasing -Wno-implicit-function-declaration \
 	-Wno-int-conversion -Wno-incompatible-pointer-types \
 	-Wno-builtin-declaration-mismatch -Wno-stringop-overread \
 	-Wno-stringop-truncation -Wno-format-truncation -Wno-unused-result \
-	-Wno-pointer-sign -Wno-deprecated-declarations -Wno-return-mismatch \
+	-Wno-pointer-sign -Wno-deprecated-declarations \
 	-Wno-implicit-int -Wno-unused-but-set-variable -Wno-unused-variable \
 	-Wno-implicit-fallthrough -Wno-dangling-pointer -Wno-array-bounds \
 	-Wno-shift-count-overflow -Wno-format
@@ -129,7 +129,7 @@ release-stats:
 # NULL and the first fprintf crashed. The test now mkdirs its directory and
 # guards its fixtures (xopen), so running it right after test_monjson is kept
 # as the standing regression for exactly that folklore.
-test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwconsensus_load x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_ptguard x64/test_chanhealth x64/test_cexvis x64/test_smart_retry_ticks x64/test_ecm_pattern_ticks x64/test_cwpredict_ticks x64/test_cw_timing_layers x64/test_udpfast_ticks x64/test_dcwstrict_ticks x64/test_implicit_bs_ticks x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_tick_math x64/test_cache_intelligence_ticks x64/test_cache_pipe_codec x64/test_pipe_messages x64/test_pipe_server_send x64/test_cs378x_frame x64/test_cache_pipe_queue x64/test_newcamd_lifetime x64/test_radegast_frame x64/test_cache_prefetch_ticks x64/test_cachewarm_ticks x64/test_cache_turbo_ticks x64/test_blackscreen_ticks x64/test_fastretx_ticks x64/test_pipeline_parquery_ticks x64/test_r22_candidate_ticks x64/test_emm_cache x64/test_supersmartfilter_ticks x64/test_cw_quarantine_clientbuf_ticks x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_thread_create x64/test_scoped_checksum_policy
+test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwconsensus_load x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_ptguard x64/test_chanhealth x64/test_cexvis x64/test_smart_retry_ticks x64/test_ecm_pattern_ticks x64/test_cwpredict_ticks x64/test_cw_timing_layers x64/test_udpfast_ticks x64/test_dcwstrict_ticks x64/test_implicit_bs_ticks x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_tick_math x64/test_cache_intelligence_ticks x64/test_cache_pipe_codec x64/test_pipe_messages x64/test_pipe_server_send x64/test_cs378x_frame x64/test_cache_pipe_queue x64/test_newcamd_lifetime x64/test_radegast_frame x64/test_cache_prefetch_ticks x64/test_cachewarm_ticks x64/test_cache_turbo_ticks x64/test_blackscreen_ticks x64/test_fastretx_ticks x64/test_pipeline_parquery_ticks x64/test_r22_candidate_ticks x64/test_emm_cache x64/test_supersmartfilter_ticks x64/test_cw_quarantine_clientbuf_ticks x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_thread_create x64/test_scoped_checksum_policy x64/test_cache_window x64/test_cache_evidence_config x64/test_r48_source_reputation x64/test_cccam_session x64/test_cccam_peekmsg
 	./x64/test_cachequeue
 	@echo
 	./x64/test_cwconsensus
@@ -211,6 +211,11 @@ test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwcons
 	./x64/test_pipe_server_send
 	./x64/test_cs378x_frame
 	./x64/test_cache_pipe_queue
+	./x64/test_cache_window
+	./x64/test_cache_evidence_config
+	./x64/test_r48_source_reputation
+	./x64/test_cccam_session
+	./x64/test_cccam_peekmsg
 	./x64/test_newcamd_lifetime
 	./x64/test_radegast_frame
 	./x64/test_cache_prefetch_ticks
@@ -446,6 +451,22 @@ x64/test_cache_pipe_queue: test_cache_pipe_queue.c ../src/cache-pipe-queue.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_cache_pipe_queue.c
 
+x64/test_cache_window: test_cache_window.c ../src/cache-window.c ../src/cache-window.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -I../src -o $@ test_cache_window.c ../src/cache-window.c
+
+x64/test_r48_source_reputation: test_r48_source_reputation.c ../src/r48-source-reputation.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -I../src -o $@ test_r48_source_reputation.c
+
+x64/test_cccam_session: test_cccam_session.c ../src/cccam-session.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_cccam_session.c
+
+x64/test_cccam_peekmsg: test_cccam_peekmsg.c ../src/msg-cccam.c ../src/msg-cccam.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -I../src -pthread -o $@ test_cccam_peekmsg.c
+
 x64/test_newcamd_lifetime: test_newcamd_lifetime.c ../src/newcamd-lifetime.c ../src/newcamd-lifetime.h ../src/newcamd-request.h ../src/newcamd-keepalive.h ../src/tick_math.h ../src/ecmdata.h ../src/common.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -pthread -o $@ test_newcamd_lifetime.c ../src/newcamd-lifetime.c
@@ -497,13 +518,16 @@ x64/test_thread_create: ../tests/thread-create-unaligned.c ../src/threads.c ../s
 # with the same protocol/layout flags; main.c's entry point is renamed so the
 # policy test's main() can link alongside the real globals and functions.
 SCOPED_OUTPUT = $(OUTPUT)/scoped-policy
-SCOPED_CFLAGS = $(CFLAGS) -std=gnu99 -fgnu89-inline
+SCOPED_CFLAGS = $(filter-out -fpermissive -Wno-return-mismatch,$(CFLAGS)) -std=gnu99 -fgnu89-inline
 SCOPED_POLICY_OBJECTS = $(patsubst $(OUTPUT)/%,$(SCOPED_OUTPUT)/%,$(filter-out $(OUTPUT)/main.o,$(OBJECTS)))
 
 $(SCOPED_OUTPUT):
 	@mkdir -p $@
 
 $(SCOPED_OUTPUT)/safe-time.o: ../src/safe-time.c $(HDRS) | $(SCOPED_OUTPUT)
+	$(CC) -c $(SCOPED_CFLAGS) -fno-pack-struct $< -o $@
+
+$(SCOPED_OUTPUT)/cache-window.o: ../src/cache-window.c $(HDRS) | $(SCOPED_OUTPUT)
 	$(CC) -c $(SCOPED_CFLAGS) -fno-pack-struct $< -o $@
 
 $(SCOPED_OUTPUT)/%.o: ../src/%.c $(HDRS) | $(SCOPED_OUTPUT)
@@ -513,6 +537,10 @@ $(SCOPED_OUTPUT)/main-scoped.o: ../src/main.c $(wildcard ../src/*.c) $(HDRS) | $
 	$(CC) -c $(SCOPED_CFLAGS) -Dmain=multics_main $< -o $@
 
 x64/test_scoped_checksum_policy: ../tests/scoped-checksum-policy.c $(SCOPED_OUTPUT)/main-scoped.o $(SCOPED_POLICY_OBJECTS)
+	$(CC) -o $@ $(SCOPED_CFLAGS) $^ -lpthread
+
+# R48 D-2: parse real global/profile CACHE EVIDENCE and CACHE TIMEOUT values.
+x64/test_cache_evidence_config: test_cache_evidence_config.c $(SCOPED_OUTPUT)/main-scoped.o $(SCOPED_POLICY_OBJECTS)
 	$(CC) -o $@ $(SCOPED_CFLAGS) $^ -lpthread
 
 x64/test_cafamily: test_cafamily.c ../src/cafamily.h
@@ -581,7 +609,7 @@ x64/test_cwtime: test_cwtime.c ../src/cwtime.h
 # TASK 1.9: the three options are policy, so the policy is what gets tested --
 # the tolerance in rotation.h, the age limit in cache_purge.h, the line in
 # statsline.h. All real headers, no re-implementation.
-x64/test_ledger: test_ledger.c ../src/ledger.h
+x64/test_ledger: test_ledger.c ../src/ledger.h ../src/r48-source-reputation.h ../src/tick_math.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -fpack-struct -o $@ test_ledger.c
 

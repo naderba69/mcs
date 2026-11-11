@@ -23,7 +23,8 @@ enum user_trace_event_type {
     USER_TRACE_SOURCE_REPLY,
     USER_TRACE_VALIDATED,
     USER_TRACE_CACHE,
-    USER_TRACE_DISPATCH_SKIPPED
+    USER_TRACE_DISPATCH_SKIPPED,
+    USER_TRACE_SOURCE_TRANSPORT
 };
 
 struct user_trace_target {
@@ -99,8 +100,9 @@ int user_trace_add(uint64_t session, uint64_t attempt,
                    int source_type, int source_id, uint32_t elapsed_ms,
                    const char *detail);
 /* instance must be a nonzero, process-unique ECM lifetime ID, not an ECM
- * pointer, hash, or timestamp. Callers must close links at the end of a
- * request. A bind never backfills events that happened before the bind. */
+ * pointer, hash, or timestamp. Keep the link through the ECM lifetime so
+ * shared events arriving after client delivery remain attributable; close it
+ * when the ECM request slot is retired. A bind never backfills earlier events. */
 int user_trace_bind_shared(uint64_t session, uint64_t attempt, uint32_t hash,
                            uint64_t instance);
 /* Shared ECM events never represent delivery to an individual client. Returns
@@ -111,8 +113,12 @@ size_t user_trace_shared_event(uint64_t instance, enum user_trace_event_type typ
 size_t user_trace_shared_cw(uint64_t instance, int source_type, int source_id,
                             uint32_t elapsed_ms, const char *detail, const uint8_t cw[16]);
 void user_trace_unbind_shared(uint64_t session, uint64_t attempt);
-/* Completion refers to the current attempt for this single selected client.
- * Returns 0 if there is no unambiguous live binding. */
+/* Retire every attempt association for an ECM lifetime when its request slot
+ * is reused; this does not count as diagnostic loss. */
+void user_trace_unbind_shared_instance(uint64_t instance);
+/* Completion refers to one pending attempt for this selected client. The
+ * association remains open for late shared events until the ECM is retired.
+ * Returns 0 if no unique pending client-result association can be identified. */
 int user_trace_client_result(uint32_t client_id, uint64_t instance, uint32_t hash,
                              enum user_trace_event_type type, int source_type,
                              int source_id, uint32_t elapsed_ms, const char *detail);

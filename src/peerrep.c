@@ -1,16 +1,17 @@
 /*
- * peerrep.c -- TASK R4 (D58): the reputation table, the ladder, the file.
- * See peerrep.h for the contract. Deliberately free of logging and of the
- * server's data structures: the caller (clustredcache.c) owns the peer
- * objects and the log lines; this module owns the evidence ledger.
+ * peerrep.c -- legacy IP:port reputation diagnostics with D111-bounded gates.
+ * See peerrep.h for the deliberately limited contract. This module is free of
+ * cache-server structures; clustredcache.c owns peer context and logging.
  */
 
 #include <stdio.h>
 #include <string.h>
 #include <pthread.h>
 #include <arpa/inet.h>
+#include <limits.h>
 
 #include "peerrep.h"
+#include "tick_math.h"
 
 extern char config_file[256];   /* main.c -- only used to derive the default file */
 
@@ -18,7 +19,10 @@ struct peerrep_rec {
 	uint32_t ip;
 	uint16_t port;
 	int      stage;
-	int      events;
+	int      events;                 /* lifetime diagnostic count */
+	uint32_t stage_events;            /* since the last expiry/restart */
+	uint32_t stage_until;
+	int      stage_until_valid;
 	char     lastreason[PEERREP_REASON_MAX];
 };
 
@@ -34,14 +38,29 @@ static int  pr_th_ban      = 50;
 
 /* ------------------------------------------------------------------ */
 
-static const char *stage_name(int st)
+static uint32_t pr_stage_ttl(int stage)
 {
-	switch (st) {
-	case PEERREP_STAGE_DISTRUST: return "distrust";
-	case PEERREP_STAGE_ISOLATE:  return "isolate";
-	case PEERREP_STAGE_BAN:      return "ban";
-	default:                     return "monitor";
+	return stage == PEERREP_STAGE_DISTRUST
+		? PEERREP_DISTRUST_TTL_MS : PEERREP_ISOLATE_TTL_MS;
+}
+
+/* Expiry is normalized lazily under pr_lock by every enforcement/read path. */
+static void pr_expire_stage_locked(struct peerrep_rec *r, uint32_t now_ms)
+{
+	if (r->stage != PEERREP_STAGE_NONE && r->stage_until_valid &&
+	    tick32_deadline_reached(now_ms, r->stage_until)) {
+		r->stage = PEERREP_STAGE_NONE;
+		r->stage_events = 0;
+		r->stage_until = 0;
+		r->stage_until_valid = 0;
 	}
+}
+
+static void pr_set_stage_locked(struct peerrep_rec *r, int stage, uint32_t now_ms)
+{
+	r->stage = stage;
+	r->stage_until = now_ms + pr_stage_ttl(stage);
+	r->stage_until_valid = 1;
 }
 
 static void fmt_ip(char *dst, uint32_t ip)
@@ -153,9 +172,11 @@ int peerrep_load(void)
 					if (pr_count < PEERREP_MAX_SLOTS) {
 						struct peerrep_rec *r = &pr_tab[pr_count++];
 						r->ip = ip; r->port = (uint16_t)port;
-						r->stage = stage; r->events = events;
-						strncpy(r->lastreason, reason, PEERREP_REASON_MAX-1);
-						r->lastreason[PEERREP_REASON_MAX-1] = 0;
+						/* A persisted legacy stage is history only: never revive its action. */
+						r->stage = PEERREP_STAGE_NONE; r->events = events;
+						r->stage_events = 0;
+						r->stage_until = 0; r->stage_until_valid = 0;
+						snprintf(r->lastreason, sizeof(r->lastreason), "%s", reason);
 						loaded++;
 						continue;
 					}
@@ -182,11 +203,12 @@ void peerrep_save(void)
 	pthread_mutex_lock(&pr_lock);
 	f = fopen(tmp, "w");
 	if (!f) { pthread_mutex_unlock(&pr_lock); return; }
-	fprintf(f, "# peer reputation -- stage 1=distrust 2=isolate 3=ban (written by MultiCS, TASK R4/D58)\n");
+	fprintf(f, "# peer reputation history; legacy stage column is 0 and never restored (D111)\n");
 	for (i=0; i<pr_count; i++) {
 		char ipstr[24];
 		fmt_ip(ipstr, pr_tab[i].ip);
-		fprintf(f, "%s:%u %d %d %s\n", ipstr, pr_tab[i].port, pr_tab[i].stage, pr_tab[i].events,
+		fprintf(f, "%s:%u %d %d %s\n", ipstr, pr_tab[i].port,
+			PEERREP_STAGE_NONE, pr_tab[i].events,
 			pr_tab[i].lastreason[0] ? pr_tab[i].lastreason : "unknown");
 	}
 	fclose(f);
@@ -196,72 +218,107 @@ void peerrep_save(void)
 
 /* ------------------------------------------------------------------ */
 
-int peerrep_note(uint32_t ip, uint16_t port, const char *reason)
+int peerrep_note(uint32_t ip, uint16_t port, const char *reason, uint32_t now_ms)
 {
 	int i, escalated = 0;
+	int confirmed;
+	struct peerrep_rec *r;
 
 	if (!peerrep_on) return 0;
+	/* A gated push is not fresh proof of poisoning and must not renew TTL. */
+	confirmed = reason && strcmp(reason, "push-while-isolated") != 0;
 	pthread_mutex_lock(&pr_lock);
 	for (i=0; i<pr_count; i++) {
 		if (pr_tab[i].ip==ip && pr_tab[i].port==port) break;
 	}
 	if (i>=pr_count) {
 		if (pr_count >= PEERREP_MAX_SLOTS) { pthread_mutex_unlock(&pr_lock); return 0; }
-		pr_count++;
-		pr_tab[i].ip = ip; pr_tab[i].port = port;
-		pr_tab[i].stage = PEERREP_STAGE_NONE; pr_tab[i].events = 0;
-		pr_tab[i].lastreason[0] = 0;
+		r = &pr_tab[pr_count++];
+		memset(r, 0, sizeof(*r));
+		r->ip = ip; r->port = port;
+		r->stage = PEERREP_STAGE_NONE;
+	} else {
+		r = &pr_tab[i];
 	}
-	pr_tab[i].events++;
-	strncpy(pr_tab[i].lastreason, reason, PEERREP_REASON_MAX-1);
-	pr_tab[i].lastreason[PEERREP_REASON_MAX-1] = 0;
 
-	/* Upward only: a stage is never lowered here. */
-	if ( (pr_tab[i].stage < PEERREP_STAGE_BAN) && (pr_tab[i].events >= pr_th_ban) ) {
-		pr_tab[i].stage = PEERREP_STAGE_BAN; escalated = PEERREP_STAGE_BAN;
+	pr_expire_stage_locked(r, now_ms);
+	if (r->events < INT_MAX) r->events++;
+	if (confirmed && r->stage_events < UINT32_MAX) r->stage_events++;
+	if (reason)
+		snprintf(r->lastreason, sizeof(r->lastreason), "%s", reason);
+
+	/*
+	 * A fresh confirmed event renews an active TTL, but cannot make it
+	 * permanent: absent further bad evidence the action ends on deadline.
+	 * The old BAN threshold maps to the same bounded isolation as ISOLATE.
+	 */
+	if (confirmed && r->stage != PEERREP_STAGE_NONE)
+		r->stage_until = now_ms + pr_stage_ttl(r->stage);
+	if (!confirmed) {
+		pthread_mutex_unlock(&pr_lock);
+		return 0;
 	}
-	else if ( (pr_tab[i].stage < PEERREP_STAGE_ISOLATE) && (pr_tab[i].events >= pr_th_isolate) ) {
-		pr_tab[i].stage = PEERREP_STAGE_ISOLATE; escalated = PEERREP_STAGE_ISOLATE;
+
+	if ( (r->stage < PEERREP_STAGE_BAN) &&
+	     (r->stage_events >= (uint32_t)pr_th_ban) ) {
+		pr_set_stage_locked(r, PEERREP_STAGE_BAN, now_ms);
+		escalated = PEERREP_STAGE_BAN;
 	}
-	else if ( (pr_tab[i].stage < PEERREP_STAGE_DISTRUST) && (pr_tab[i].events >= pr_th_distrust) ) {
-		pr_tab[i].stage = PEERREP_STAGE_DISTRUST; escalated = PEERREP_STAGE_DISTRUST;
+	else if ( (r->stage < PEERREP_STAGE_ISOLATE) &&
+	         (r->stage_events >= (uint32_t)pr_th_isolate) ) {
+		pr_set_stage_locked(r, PEERREP_STAGE_ISOLATE, now_ms);
+		escalated = PEERREP_STAGE_ISOLATE;
+	}
+	else if ( (r->stage < PEERREP_STAGE_DISTRUST) &&
+	         (r->stage_events >= (uint32_t)pr_th_distrust) ) {
+		pr_set_stage_locked(r, PEERREP_STAGE_DISTRUST, now_ms);
+		escalated = PEERREP_STAGE_DISTRUST;
 	}
 	pthread_mutex_unlock(&pr_lock);
 	return escalated;
 }
 
-int peerrep_ask_ok(uint32_t ip, uint16_t port)
+int peerrep_ask_ok(uint32_t ip, uint16_t port, uint32_t now_ms)
 {
 	struct peerrep_rec *r;
 	int ok = 1;
 	if (!peerrep_on) return 1;
 	pthread_mutex_lock(&pr_lock);
 	r = pr_find(ip, port);
-	if (r && r->stage >= PEERREP_STAGE_DISTRUST) ok = 0;
+	if (r) {
+		pr_expire_stage_locked(r, now_ms);
+		if (r->stage >= PEERREP_STAGE_DISTRUST) ok = 0;
+	}
 	pthread_mutex_unlock(&pr_lock);
 	return ok;
 }
 
-int peerrep_push_ok(uint32_t ip, uint16_t port)
+int peerrep_push_ok(uint32_t ip, uint16_t port, uint32_t now_ms)
 {
 	struct peerrep_rec *r;
 	int ok = 1;
 	if (!peerrep_on) return 1;
 	pthread_mutex_lock(&pr_lock);
 	r = pr_find(ip, port);
-	if (r && r->stage >= PEERREP_STAGE_ISOLATE) ok = 0;
+	if (r) {
+		pr_expire_stage_locked(r, now_ms);
+		if (r->stage >= PEERREP_STAGE_ISOLATE) ok = 0;
+	}
 	pthread_mutex_unlock(&pr_lock);
 	return ok;
 }
 
-int peerrep_stage(uint32_t ip, uint16_t port)
+int peerrep_stage(uint32_t ip, uint16_t port, uint32_t now_ms)
 {
 	struct peerrep_rec *r;
 	int st = 0;
 	if (!peerrep_on) return 0;
 	pthread_mutex_lock(&pr_lock);
 	r = pr_find(ip, port);
-	if (r) st = r->stage;
+	if (r) {
+		pr_expire_stage_locked(r, now_ms);
+		st = r->stage;
+	}
 	pthread_mutex_unlock(&pr_lock);
 	return st;
 }
@@ -278,13 +335,14 @@ int peerrep_count(void)
 	return n;
 }
 
-int peerrep_get(int idx, uint32_t *ip, uint16_t *port, int *stage, int *events,
-                char *reason, int rmax)
+int peerrep_get(int idx, uint32_t now_ms, uint32_t *ip, uint16_t *port,
+                int *stage, int *events, char *reason, int rmax)
 {
 	int ok = 0;
 	if (!peerrep_on) return 0;
 	pthread_mutex_lock(&pr_lock);
 	if ( (idx>=0) && (idx<pr_count) ) {
+		pr_expire_stage_locked(&pr_tab[idx], now_ms);
 		*ip = pr_tab[idx].ip; *port = pr_tab[idx].port;
 		*stage = pr_tab[idx].stage; *events = pr_tab[idx].events;
 		if (reason && rmax>0) {

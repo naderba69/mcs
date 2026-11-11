@@ -170,6 +170,27 @@ int main(void)
     ci_tick(3600001u);
     CHECK(g_ci.peers[0].trust_global == 79,
           "inactive-peer decay recognizes a real response timestamp at tick zero");
+    {
+        ci_peer_stats_t *source;
+        ci_channel_stats_t *channel;
+        memset(g_ci.peers, 0, sizeof(g_ci.peers));
+        memset(g_ci.channels, 0, sizeof(g_ci.channels));
+        g_ci.peer_count = 0;
+        g_ci.channel_count = 0;
+        g_ci.total_cw_accepted = 0;
+        g_ci.total_ecms_processed = 0;
+        ci_record_success(901, 0x1814, 0x123456, 0x4321, 100, 0);
+        source = ci_find_peer(901);
+        channel = ci_find_channel(0x1814, 0x123456, 0x4321);
+        CHECK(source && source->trust_global == CI_TRUST_INITIAL &&
+              channel && channel->best_count == 0 &&
+              channel->total_success == 1 && g_ci.total_cw_accepted == 1,
+              "an accepted cache candidate updates operations, not GOOD reputation or rank");
+        ci_record_success(901, 0x1814, 0x123456, 0x4321, 100, 1);
+        CHECK(source->trust_global == CI_TRUST_INITIAL + CI_REWARD_SUCCESS &&
+              channel->best_count == 1 && channel->best[0].trust == 100,
+              "only a reference-confirmed success earns legacy CI reputation");
+    }
     pthread_mutex_destroy(&g_ci.lock);
 
     printf("%d cache-intelligence tick checks failed\n", failures);

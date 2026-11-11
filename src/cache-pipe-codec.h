@@ -12,6 +12,28 @@
 #define CACHEEX_PIPE_PUSH_IN_LEN     48u
 #define CACHEEX_PIPE_WAKEUP_LEN       2u
 
+/* PIPE_CACHE_FIND_SUCCESS is private cache-worker -> ECM-worker IPC. Its
+ * source mask and an optional line-verification request follow the existing
+ * peer ID, CW, and declared cycle marker. These bytes never cross a peer link. */
+#define CACHE_PIPE_FIND_SUCCESS_PEERID_LEN       4u
+#define CACHE_PIPE_FIND_SUCCESS_CW_LEN          16u
+#define CACHE_PIPE_FIND_SUCCESS_CYCLE_LEN        1u
+#define CACHE_PIPE_FIND_SUCCESS_ORIGIN_MASK_LEN  1u
+#define CACHE_PIPE_FIND_SUCCESS_VERIFY_LEN       1u
+#define CACHE_PIPE_FIND_SUCCESS_EXTRA_LEN        \
+	(CACHE_PIPE_FIND_SUCCESS_PEERID_LEN + \
+	 CACHE_PIPE_FIND_SUCCESS_CW_LEN + \
+	 CACHE_PIPE_FIND_SUCCESS_CYCLE_LEN + \
+	 CACHE_PIPE_FIND_SUCCESS_ORIGIN_MASK_LEN + \
+	 CACHE_PIPE_FIND_SUCCESS_VERIFY_LEN)
+
+/* Internal PIPE_CACHE_REPLY suffix: legacy cache-origin behavior byte, then
+ * the additive local source-class mask. Neither is a peer-protocol field. */
+#define CACHE_PIPE_REPLY_CW_LEN                  16u
+#define CACHE_PIPE_REPLY_TRAILER_LEN              2u
+#define CACHE_PIPE_REPLY_FROM_CACHE_OFFSET       0u
+#define CACHE_PIPE_REPLY_ORIGIN_MASK_OFFSET      1u
+
 /* CACHEEX queue payload sizes are an internal wire contract. Validate the
  * command and exact frame length before consumers touch any field offsets. */
 static inline int cacheex_pipe_frame_length_valid(uint8_t command,

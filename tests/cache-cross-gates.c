@@ -4,11 +4,12 @@
 #undef main
 #include <assert.h>
 
-static int sends, conflicts, deferred;
+static int sends, conflicts, deferred, ecm_pipe_frames;
 struct cafamily_tab cafamily_tab;
 int dcw_filter_cycle;
 int dcw_profile_cycle_enabled(struct cardserver_data *cs) { (void)cs; return 0; }
-int peerrep_note(uint32_t ip,uint16_t port,const char *reason) { (void)ip;(void)port;(void)reason;return 0; }
+int peerrep_on;
+int peerrep_note(uint32_t ip,uint16_t port,const char *reason,uint32_t now_ms) { (void)ip;(void)port;(void)reason;(void)now_ms;return 0; }
 void peerrep_save(void) {}
 uint32_t GetTickCount(void) { return 10000; }
 uint32_t getdbgflag(int a,int b,int c) { (void)a;(void)b;(void)c;return 0; }
@@ -24,9 +25,26 @@ int main(void)
 {
     struct cache_data **table = getcachetabbycaid(0x1884);
     struct cache_data target = {0}, incoming = {0};
+    struct cardserver_data profile={0};
+    ECM_DATA waiter={0};
     uint8_t cw[16];
+    uint64_t target_lifetime=UINT64_C(0x4811);
+    int ecm_fds[2];
     assert(table);
-    { int fds[2]; assert(pipe(fds) == 0); prg.pipe.ecm[0]=fds[0]; prg.pipe.ecm[1]=fds[1]; }
+    assert(pthread_mutex_init(&prg.lockcache,NULL)==0);
+    assert(pthread_mutex_init(&prg.lockecm,NULL)==0);
+    assert(pipe(ecm_fds)==0);
+    prg.pipe.ecm[0]=ecm_fds[0]; prg.pipe.ecm[1]=ecm_fds[1];
+    waiter.ecm[0]=0x80; waiter.ecmlen=64; waiter.caid=0x1884;
+    waiter.sid=0x1136; waiter.hash=1;
+    pthread_mutex_lock(&prg.lockecm);
+    __atomic_store_n(&waiter.lifetime_id,target_lifetime,__ATOMIC_RELEASE);
+    assert(cache_ecm_snapshot_publish(&waiter,&profile));
+    pthread_mutex_unlock(&prg.lockecm);
+    target.ecm=&waiter; target.ecm_lifetime_id=target_lifetime;
+    /* The production walker runs under lockcache and only sends to a live,
+     * generation-registered waiter; static SENDPIPE flags alone are stale. */
+    pthread_mutex_lock(&prg.lockcache);
     cfg.cache.alivetime=45000;
     target.caid=incoming.caid=0x1884; target.sid=incoming.sid=0x1136;
     target.recvtime=incoming.recvtime=9000;
@@ -37,22 +55,22 @@ int main(void)
     target.local_provider_set=incoming.local_provider_set=1;
     target.local_provider=0; incoming.local_provider=1;
     table[target.sid & MAX_CACHE_INDEX]=&target;
-    cache_fetch_goodcw2(&incoming,cw,7);
+    cache_fetch_goodcw2(&incoming,cw,7,0);
     assert(sends==0); /* must not relay a locally known different provider */
-    incoming.local_provider=0; cache_fetch_goodcw2(&incoming,cw,7); assert(sends==1);
-    incoming.local_provider_set=0; cache_fetch_goodcw2(&incoming,cw,7); assert(sends==2);
+    incoming.local_provider=0; cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==1);
+    incoming.local_provider_set=0; cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==2);
     incoming.local_provider_set=1; incoming.local_provider=0; target.local_provider=1;
-    cache_fetch_goodcw2(&incoming,cw,7); assert(sends==2); /* reverse, including zero */
-    target.local_provider_set=0; cache_fetch_goodcw2(&incoming,cw,7); assert(sends==3);
+    cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==2); /* reverse, including zero */
+    target.local_provider_set=0; cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==3);
     target.local_provider_set=1; target.local_provider=0;
     target.sid=0x1536; target.hash=incoming.hash;
     incoming.local_provider_set=1; incoming.local_provider=1;
-    cache_fetch_goodcw3(&incoming,cw,7); assert(sends==3);
-    incoming.local_provider=0; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==4);
-    incoming.local_provider_set=0; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==5);
+    cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==3);
+    incoming.local_provider=0; cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==4);
+    incoming.local_provider_set=0; cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==5);
     incoming.local_provider_set=1; target.local_provider=1;
-    cache_fetch_goodcw3(&incoming,cw,7); assert(sends==5); /* reverse */
-    target.local_provider_set=0; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==6);
+    cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==5); /* reverse */
+    target.local_provider_set=0; cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==6);
     /* The older-cycle walker must not reject based on a known other provider. */
     {
         struct cw_cache_data stored = {0}; cwcycle_t cycle = NO_CYCLE;
@@ -112,22 +130,51 @@ int main(void)
     target.local_provider_set=incoming.local_provider_set=1;
     target.local_provider=incoming.local_provider=0;
     { int before=sends;
-      cfg.cache.threshold=10; cache_fetch_goodcw2(&incoming,cw,7); assert(sends==before);
-      cfg.cache.threshold=1; cfg.cache.consensus=1; cache_fetch_goodcw2(&incoming,cw,7); assert(sends==before);
-      cfg.cache.consensus=0; cfg.cache.gate_cwcheck=2; cache_fetch_goodcw2(&incoming,cw,7); assert(sends==before);
+      cfg.cache.threshold=10; cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==before);
+      cfg.cache.threshold=1; cfg.cache.consensus=1; cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==before);
+      cfg.cache.consensus=0; cfg.cache.gate_cwcheck=2; cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==before);
       cfg.cache.gate_cwcheck=0;
-      { ECM_DATA ecm={0}; struct cardserver_data profile={0};
-        ecm.cs=&profile; profile.option.excheck=2; target.ecm=&ecm;
-        cache_fetch_goodcw2(&incoming,cw,7); assert(sends==before);
+      { profile.option.excheck=2;
+        cache_fetch_goodcw2(&incoming,cw,7,0); assert(sends==before);
         target.sid=0x1536; target.hash=incoming.hash;
-        cache_fetch_goodcw3(&incoming,cw,7); assert(sends==before);
-        target.ecm=NULL; }
+        cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==before);
+        profile.option.excheck=0; }
       target.sid=0x1536; target.hash=incoming.hash;
-      cfg.cache.consensus=1; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==before);
-      cfg.cache.consensus=0; cfg.cache.threshold=2; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==before);
-      cfg.cache.threshold=1; cache_fetch_goodcw3(&incoming,cw,7); assert(sends==before+1); }
+      cfg.cache.consensus=1; cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==before);
+      cfg.cache.consensus=0; cfg.cache.threshold=2; cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==before);
+      cfg.cache.threshold=1; cache_fetch_goodcw3(&incoming,cw,7,0); assert(sends==before+1); }
     assert(conflicts == 4);
     assert(deferred == 7);
+    /* The observability note is emitted before pipe_send. Drain and decode the
+     * actual ECM pipe here; the note count is accepted only if it matches real,
+     * generation-tagged CACHE_FIND_SUCCESS frames. */
+    {
+        struct pollfd pfd;
+        uint8_t frame[64], forwarded_cw[16], origin_mask=0, verify_line=0;
+        pfd.fd=ecm_fds[0]; pfd.events=POLLIN;
+        for (;;) {
+            struct cache_data forwarded={0};
+            uint32_t peerid=0;
+            int cwmark=NO_CYCLE, len, ready;
+            pfd.revents=0;
+            ready=poll(&pfd,1,0);
+            if (ready<=0 || !(pfd.revents & POLLIN)) break;
+            len=pipe_recv(ecm_fds[0],frame,sizeof(frame));
+            assert(len>0 && frame[0]==PIPE_CACHE_FIND_SUCCESS);
+            assert(get_cache2ecm_with_verify(frame,(size_t)len,&forwarded,
+                forwarded_cw,&cwmark,&peerid,&origin_mask,&verify_line));
+            assert(forwarded.ecm==&waiter &&
+                   forwarded.ecm_lifetime_id==target_lifetime &&
+                   forwarded.caid==0x1884 && !verify_line);
+            ecm_pipe_frames++;
+        }
+    }
+    assert(ecm_pipe_frames == sends);
+    pthread_mutex_unlock(&prg.lockcache);
+    pthread_mutex_lock(&prg.lockecm);
+    cache_ecm_snapshot_retire(&waiter);
+    pthread_mutex_unlock(&prg.lockecm);
+    close(ecm_fds[0]); close(ecm_fds[1]);
     puts("PASS: rejected source CWs cannot reach cross-cache relay; valid source still can");
     return 0;
 }

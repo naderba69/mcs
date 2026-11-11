@@ -3,6 +3,9 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <string.h>
+#include <poll.h>
+#include <sys/epoll.h>
+#include <sys/socket.h>
 #include "../src/common.h"
 #include "../src/ecmdata.h"
 #include "../src/newcamd-lifetime.h"
@@ -40,11 +43,153 @@ static uint64_t handoff_captured_generation;
 static int connect_wait_started;
 static int connect_wait_completed;
 static pthread_mutex_t simulated_ecm_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t shared_session_generation;
+static uint64_t simulated_send_token;
+static unsigned int simulated_send_count;
+static int io_sender_waiting;
 
 #define CHECK(condition, description) do { \
     if (condition) printf("PASS: %s\n", description); \
     else { printf("FAIL: %s\n", description); failures++; } \
 } while (0)
+
+static int move_socket_to_fd(int pair[2], int target_fd)
+{
+    if (pair[0] == target_fd) return 1;
+    if (dup2(pair[0], target_fd) < 0) return 0;
+    close(pair[0]);
+    pair[0] = target_fd;
+    return 1;
+}
+
+static void test_poll_event_rejects_reused_fd(void)
+{
+    int old_pair[2] = { -1, -1 }, new_pair[2] = { -1, -1 };
+    int old_fd = -1, poll_result;
+    struct pollfd snapshot;
+    uint64_t old_generation = 41, new_generation = 42;
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, old_pair) != 0) {
+        CHECK(0, "poll stale-event regression creates the original socket pair");
+        goto done;
+    }
+    old_fd = old_pair[0];
+    close(old_pair[1]);
+    old_pair[1] = -1;
+    snapshot.fd = old_fd;
+    snapshot.events = POLLIN | POLLPRI;
+    snapshot.revents = 0;
+    poll_result = poll(&snapshot, 1, 1000);
+    if (poll_result != 1 || !(snapshot.revents & POLLHUP)) {
+        CHECK(0, "poll stale-event regression captures peer-close POLLHUP");
+        goto done;
+    }
+    CHECK(1, "poll stale-event regression captures peer-close POLLHUP");
+
+    close(old_pair[0]);
+    old_pair[0] = -1;
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, new_pair) != 0 ||
+        !move_socket_to_fd(new_pair, old_fd)) {
+        CHECK(0, "poll stale-event regression reuses the closed descriptor number");
+        goto done;
+    }
+    CHECK(snapshot.fd == new_pair[0] && snapshot.fd == old_fd,
+          "poll event retains the same numeric descriptor now owned by a new socket");
+    CHECK((snapshot.revents & POLLHUP) && snapshot.fd == new_pair[0],
+          "the previous fd-only poll guard would accept the stale HUP");
+    CHECK(!newcamd_session_generation_low_matches(
+              (uint32_t)old_generation, new_generation),
+          "poll dispatch rejects a stale HUP after descriptor reuse by generation");
+    CHECK(newcamd_session_generation_low_matches(
+              (uint32_t)new_generation, new_generation),
+          "poll dispatch still accepts an event for the current session generation");
+
+done:
+    if (old_pair[0] >= 0) close(old_pair[0]);
+    if (old_pair[1] >= 0) close(old_pair[1]);
+    if (new_pair[0] >= 0) close(new_pair[0]);
+    if (new_pair[1] >= 0) close(new_pair[1]);
+}
+
+static void test_epoll_event_rejects_reused_fd(void)
+{
+    const uint32_t client_id = 0x13572468u;
+    const uint64_t old_generation = 0x1122334455667788ULL;
+    const uint64_t new_generation = old_generation + 1;
+    int old_pair[2] = { -1, -1 }, new_pair[2] = { -1, -1 };
+    int epoll_fd = -1, old_fd = -1, wait_result;
+    struct epoll_event registration, snapshot;
+    uint32_t decoded_id = 0, event_generation_low = 0;
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, old_pair) != 0) {
+        CHECK(0, "epoll stale-event regression creates the original socket pair");
+        goto done;
+    }
+    old_fd = old_pair[0];
+    epoll_fd = epoll_create1(0);
+    if (epoll_fd < 0) {
+        CHECK(0, "epoll stale-event regression creates an epoll instance");
+        goto done;
+    }
+    memset(&registration, 0, sizeof(registration));
+    registration.events = EPOLLIN | EPOLLRDHUP;
+    registration.data.u64 = newcamd_epoll_client_token(client_id,
+                                                        old_generation);
+    if (!registration.data.u64 ||
+        epoll_ctl(epoll_fd, EPOLL_CTL_ADD, old_fd, &registration) != 0) {
+        CHECK(0, "epoll stale-event regression registers the original session token");
+        goto done;
+    }
+    close(old_pair[1]);
+    old_pair[1] = -1;
+    wait_result = epoll_wait(epoll_fd, &snapshot, 1, 1000);
+    if (wait_result != 1 ||
+        !(snapshot.events & (EPOLLIN | EPOLLRDHUP | EPOLLHUP))) {
+        CHECK(0, "epoll stale-event regression captures the old socket's close event");
+        goto done;
+    }
+    CHECK(1, "epoll stale-event regression captures the old socket's close event");
+
+    close(old_pair[0]);
+    old_pair[0] = -1;
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, new_pair) != 0 ||
+        !move_socket_to_fd(new_pair, old_fd)) {
+        CHECK(0, "epoll stale-event regression reuses the closed descriptor number");
+        goto done;
+    }
+    CHECK(newcamd_epoll_client_token_decode(snapshot.data.u64, &decoded_id,
+                                             &event_generation_low) &&
+          decoded_id == client_id &&
+          event_generation_low == (uint32_t)old_generation,
+          "epoll ready event retains the old client-session generation token");
+    CHECK(snapshot.events & EPOLLHUP && new_pair[0] == old_fd,
+          "the queued epoll HUP belongs to the old socket after its fd is reused");
+    CHECK(!newcamd_session_generation_low_matches(event_generation_low,
+                                                  new_generation),
+          "epoll dispatch rejects a stale HUP after descriptor reuse by generation");
+    CHECK(newcamd_session_generation_low_matches(
+              (uint32_t)new_generation, new_generation),
+          "epoll dispatch still accepts an event for the current session generation");
+    {
+        uint64_t wrapped_generation = 0x100000000ULL;
+        uint64_t wrapped_token = newcamd_epoll_client_token(client_id,
+                                                            wrapped_generation);
+        uint32_t wrapped_id = 0, wrapped_low = 1;
+        CHECK(newcamd_epoll_client_token_decode(wrapped_token, &wrapped_id,
+                                                 &wrapped_low) &&
+              wrapped_id == client_id && wrapped_low == 0 &&
+              newcamd_session_generation_low_matches(wrapped_low,
+                                                      wrapped_generation),
+              "session-event token handles a zero low word without aliasing the pipe event");
+    }
+
+done:
+    if (old_pair[0] >= 0) close(old_pair[0]);
+    if (old_pair[1] >= 0) close(old_pair[1]);
+    if (new_pair[0] >= 0) close(new_pair[0]);
+    if (new_pair[1] >= 0) close(new_pair[1]);
+    if (epoll_fd >= 0) close(epoll_fd);
+}
 
 static void *reader_thread(void *unused)
 {
@@ -212,6 +357,34 @@ static void *close_thread(void *unused)
     return NULL;
 }
 
+static void *io_sender_thread(void *unused)
+{
+    uint64_t captured_generation;
+    (void)unused;
+    if (newcamd_client_state_lock(&shared_client) != 0) return (void *)1;
+    captured_generation = __atomic_load_n(&shared_session_generation,
+                                          __ATOMIC_ACQUIRE);
+    simulated_send_token = captured_generation;
+    newcamd_client_state_unlock(&shared_client);
+
+    pthread_mutex_lock(&test_lock);
+    io_sender_waiting = 1;
+    pthread_cond_broadcast(&test_changed);
+    pthread_mutex_unlock(&test_lock);
+    if (newcamd_client_io_lock(&shared_client) != 0) return (void *)1;
+    if (__atomic_load_n(&shared_session_generation, __ATOMIC_ACQUIRE) ==
+        captured_generation)
+        simulated_send_count++;
+    newcamd_client_io_unlock(&shared_client);
+
+    if (newcamd_client_state_lock(&shared_client) != 0) return (void *)1;
+    if (__atomic_load_n(&shared_session_generation, __ATOMIC_ACQUIRE) ==
+            captured_generation && simulated_send_token == captured_generation)
+        simulated_send_token = 0;
+    newcamd_client_state_unlock(&shared_client);
+    return NULL;
+}
+
 int main(void)
 {
     pthread_t reader, writer, handoff_reader, handoff_writer, client_a, client_b;
@@ -229,6 +402,9 @@ int main(void)
     CHECK(!newcamd_keepalive_reply_timed_out(4999u, UINT32_MAX-5000u) &&
           newcamd_keepalive_reply_timed_out(5000u, UINT32_MAX-5000u),
           "Newcamd keepalive timeout calculation remains correct across tick wrap");
+
+    test_poll_event_rejects_reused_fd();
+    test_epoll_event_rejects_reused_fd();
 
     newcamd_config_read_lock();
     newcamd_config_read_lock();
@@ -378,6 +554,36 @@ int main(void)
               close_order == 2 && delivery_status == 1 && !delivery_busy &&
               client_closed,
               "reply publishes SENT before busy clears and close proceeds afterward");
+    }
+
+    {
+        pthread_t io_sender;
+        void *io_sender_result = NULL;
+        int state_available;
+        shared_session_generation = 1;
+        simulated_send_token = 0;
+        simulated_send_count = 0;
+        io_sender_waiting = 0;
+        if (newcamd_client_io_lock(&shared_client) != 0) return 1;
+        pthread_create(&io_sender, NULL, io_sender_thread, NULL);
+        pthread_mutex_lock(&test_lock);
+        while (!io_sender_waiting) pthread_cond_wait(&test_changed, &test_lock);
+        pthread_mutex_unlock(&test_lock);
+
+        /* The simulated writer has dropped client state and is blocked on I/O.
+         * A disconnect can therefore invalidate the session without waiting
+         * for that poll/write, then the stale sender must skip its old socket. */
+        state_available = (newcamd_client_state_lock(&shared_client) == 0);
+        if (state_available) {
+            __atomic_store_n(&shared_session_generation, 2, __ATOMIC_RELEASE);
+            simulated_send_token = 0;
+            newcamd_client_state_unlock(&shared_client);
+        }
+        newcamd_client_io_unlock(&shared_client);
+        pthread_join(io_sender, &io_sender_result);
+        CHECK(state_available && !io_sender_result && simulated_send_count == 0 &&
+              shared_session_generation == 2 && simulated_send_token == 0,
+              "Newcamd I/O wait releases client state and rejects a stale-session send");
     }
 
     printf("%d Newcamd lifetime checks failed\n", failures);

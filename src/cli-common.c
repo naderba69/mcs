@@ -65,6 +65,12 @@ char *getsrvtype(struct server_data *srv)
 void disconnect_srv(struct server_data *srv)
 {
 	static char msg[]= "Disconnected";
+	if (srv->type == TYPE_NEWCAMD && srv->busy && srv->ecm.trace_instance_at_send)
+		user_trace_shared_event(srv->ecm.trace_instance_at_send,
+		                        USER_TRACE_SOURCE_TRANSPORT, TYPE_NEWCAMD,
+		                        srv->id,
+		                        srv->lastecmtime ? tick32_elapsed(GetTickCount(), srv->lastecmtime) : 0,
+		                        "Newcamd source disconnected while an ECM response was pending");
 	srv->statmsg = msg;
 	// Remove before close; already-returned events are filtered by connection token.
 #ifdef EPOLL_ECM

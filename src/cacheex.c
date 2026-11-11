@@ -220,11 +220,12 @@ void cacheex_push(struct cache_data *pcache, uint8_t cw[16], uint8_t *nodeid )
 		while (cli) {
 			if ( (cli->cacheex_mode==2) && (cli->connection.status>0) )
 			if ( acceptshare(cli->sharelimits, pcache->caid, pcache->provid) ) {
-				if ( !cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_CACHE_PUSH, cccamlen, cccambuf) ) cc_disconnect_cli(cli);
-				pthread_mutex_lock(&prg.lockcacheex);
-				cli->cacheex.push[0]++;
-				if (nodeid) cli->cacheex.push[2]++; else cli->cacheex.push[1]++;
-				pthread_mutex_unlock(&prg.lockcacheex);
+				if (cc_send_cacheex_push_cli(cli, cccambuf, cccamlen)) {
+					pthread_mutex_lock(&prg.lockcacheex);
+					cli->cacheex.push[0]++;
+					if (nodeid) cli->cacheex.push[2]++; else cli->cacheex.push[1]++;
+					pthread_mutex_unlock(&prg.lockcacheex);
+				}
 				//debugf( getdbgflag(DBG_CACHEEX, 0, 0)," CACHEEX PUSH to client %04x:%06x:%04x:%08x\n",pcache->caid,pcache->provid,pcache->sid,pcache->hash);// debughex(req.cw,16);
 			}
 			cli = cli->next;
@@ -373,6 +374,7 @@ void *cacheex_recvmsg_thread(void *param)
 
 	struct pollfd pfd[CACHEEX_MAX_PFD];
 	uint64_t pfd_server_generation[CACHEEX_MAX_PFD];
+	uint32_t pfd_cc_session_generation[CACHEEX_MAX_PFD];
 	while (!prg.restart) {
 		int pfdcount = 0;
 		uint64_t config_generation;
@@ -382,17 +384,21 @@ void *cacheex_recvmsg_thread(void *param)
 		config_generation = cfg.cache.generation;
 		thread_delay = cfg.delay.thread;
 
-		// Clients mode 2
+		// Clients mode 2; the session snapshot keeps poll events tied to the
+		// exact connection, without holding locksrv while polling or dispatching.
 		struct cccam_server_data *cccam = cfg.cccam.server;
 		while (cccam) {
 			struct cc_client_data *cccli = cccam->cacheexclient;
 			while (cccli) {
+				int sock;
+				uint32_t generation;
 				cccli->ipoll = -1;
-				if (cccam->handle > 0 && cccli->cacheex_mode == 2 &&
-				    !IS_DISABLED(cccli->flags) && cccli->handle > 0 &&
-				    pfdcount < CACHEEX_MAX_PFD) {
+				if (!IS_DISABLED(cccam->flags) && cccli->cacheex_mode == 2 &&
+				    !IS_DISABLED(cccli->flags) && pfdcount < CACHEEX_MAX_PFD &&
+				    cc_client_session_snapshot(cccli, &sock, &generation)) {
 					cccli->ipoll = pfdcount;
-					pfd[pfdcount].fd = cccli->handle;
+					pfd[pfdcount].fd = sock;
+					pfd_cc_session_generation[pfdcount] = generation;
 					pfd[pfdcount++].events = POLLIN | POLLPRI;
 				}
 				cccli = cccli->next;
@@ -431,21 +437,27 @@ void *cacheex_recvmsg_thread(void *param)
 			/* Re-pin and reject descriptor snapshots made obsolete by reload. */
 			newcamd_config_read_lock();
 			if (config_generation == cfg.cache.generation) {
-				pthread_mutex_lock(&prg.locksrv);
-
+				/* Client receive/disconnect paths serialize through each client's
+				 * I/O guard. Do not hold locksrv across socket work or parser calls. */
 				cccam = cfg.cccam.server;
 				while (cccam) {
-					if (!IS_DISABLED(cccam->flags) && cccam->handle > 0) {
+					if (!IS_DISABLED(cccam->flags)) {
 						struct cc_client_data *cccli = cccam->cacheexclient;
 						while (cccli) {
 							int ipoll = cccli->ipoll;
-							if (cccli->cacheex_mode == 2 && !IS_DISABLED(cccli->flags) &&
-							    cccli->handle > 0 && ipoll >= 0 && ipoll < pfdcount &&
-							    cccli->handle == pfd[ipoll].fd) {
+							if (cccli->cacheex_mode == 2 &&
+							    !IS_DISABLED(cccli->flags) && ipoll >= 0 &&
+							    ipoll < pfdcount &&
+							    pfd_cc_session_generation[ipoll]) {
+								int sock = pfd[ipoll].fd;
+								uint32_t generation =
+									pfd_cc_session_generation[ipoll];
 								if (pfd[ipoll].revents & (POLLHUP | POLLNVAL))
-									cc_disconnect_cli(cccli);
+									cc_disconnect_cli_session(cccli, sock,
+									                           generation);
 								else if (pfd[ipoll].revents & (POLLIN | POLLPRI))
-									cc_cli_recvmsg(cccli);
+									cc_cli_recvmsg_session(cccli, sock,
+									                        generation);
 							}
 							cccli = cccli->next;
 						}
@@ -453,6 +465,7 @@ void *cacheex_recvmsg_thread(void *param)
 					cccam = cccam->next;
 				}
 
+				pthread_mutex_lock(&prg.locksrv);
 				srv = cfg.cacheexserver;
 				while (srv) {
 					int ipoll = srv->ipoll;
@@ -465,16 +478,17 @@ void *cacheex_recvmsg_thread(void *param)
 						else if (pfd[ipoll].revents & (POLLIN | POLLPRI)) {
 							if (srv->type == TYPE_CCCAM) cc_srv_recvmsg(srv);
 #ifdef CAMD35_CLI
-							else if (srv->type == TYPE_CAMD35) camd35_srv_recvmsg(srv);
+							else if (srv->type == TYPE_CAMD35)
+								camd35_srv_recvmsg(srv);
 #endif
 #ifdef CS378X_CLI
-							else if (srv->type == TYPE_CS378X) cs378x_srv_recvmsg(srv);
+							else if (srv->type == TYPE_CS378X)
+								cs378x_srv_recvmsg(srv);
 #endif
 						}
 					}
 					srv = srv->next;
 				}
-
 				pthread_mutex_unlock(&prg.locksrv);
 			}
 			newcamd_config_read_unlock();

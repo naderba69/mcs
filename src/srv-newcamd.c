@@ -18,6 +18,7 @@ struct newcamd_connect_cli_data {
 	uint32_t profile_id;
 	int sock;
 	uint32_t ip;
+	uint64_t config_generation;
 };
 
 static void cs_lastecm_save_request(struct cs_client_data *cli,
@@ -81,25 +82,62 @@ static void cs_mark_client_poll_update(struct cs_client_data *cli)
 		__atomic_store_n(&cli->cs->newcamd.clipfd.update, 1, __ATOMIC_RELEASE);
 }
 
+static uint64_t cs_client_session_generation(const struct cs_client_data *cli)
+{
+	return cli ? __atomic_load_n(&cli->session_generation, __ATOMIC_ACQUIRE) : 0;
+}
+
+/* Caller holds the per-client state lock. Generation zero means that no
+ * client session has yet been published; each connect/disconnect advances it. */
+static uint64_t cs_client_session_advance(struct cs_client_data *cli)
+{
+	uint64_t generation = cs_client_session_generation(cli) + 1u;
+	if (!generation) generation++;
+	__atomic_store_n(&cli->session_generation, generation, __ATOMIC_RELEASE);
+	return generation;
+}
+
+static uint64_t cs_client_send_token(const struct cs_client_data *cli)
+{
+	return cli ? cli->ecm.send_token : 0;
+}
+
+
+/* Caller holds the client-state lock. Mark the session disconnected before
+ * dropping that lock; the separate I/O guard then lets any already-started
+ * nonblocking write finish before its old descriptor is closed. */
 static void cs_disconnect_cli_unlocked(struct cs_client_data *cli)
 {
 	uint32_t ticks;
+	int old_handle;
 	if (!cli) return;
+	old_handle = cli->handle;
 	cli->connection.status = 0;
 	ticks = GetTickCount();
 	cli->connection.uptime += ticks - cli->connection.time;
 	cli->connection.lastseen = ticks; // Last Seen
-	if (cli->handle > 0) {
-#ifdef EPOLL_NEWCAMD
-		if (prg.epoll.newcamd > 0)
-			epoll_ctl(prg.epoll.newcamd, EPOLL_CTL_DEL, cli->handle, NULL);
-#endif
-		close(cli->handle);
-	}
-	cli->handle = -1;
+	cli->handle = INVALID_SOCKET;
 	cli->ipoll = -1;
+	cli->login_pending = 0;
+	(void)cs_client_session_advance(cli);
+	cli->ecm.send_token = 0;
 	cs_mark_client_poll_update(cli);
 	debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," newcamd: client '%s' disconnected\n", cli->user);
+	if (old_handle > 0) {
+		newcamd_client_state_unlock(cli);
+		if (newcamd_client_io_lock(cli) != 0) {
+			prg.restart = 1;
+			if (newcamd_client_state_lock(cli) != 0) abort();
+			return;
+		}
+#ifdef EPOLL_NEWCAMD
+		if (prg.epoll.newcamd > 0)
+			epoll_ctl(prg.epoll.newcamd, EPOLL_CTL_DEL, old_handle, NULL);
+#endif
+		close(old_handle);
+		newcamd_client_io_unlock(cli);
+		if (newcamd_client_state_lock(cli) != 0) abort();
+	}
 }
 
 void cs_disconnect_cli(struct cs_client_data *cli)
@@ -112,9 +150,13 @@ void cs_disconnect_cli(struct cs_client_data *cli)
 
 static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 {
-    char passwdcrypt[120];
+	char passwdcrypt[120];
+	unsigned char login_key[14];
 	unsigned char keymod[14];
 	int i,index;
+	int ack_result;
+	uint64_t ack_generation;
+	uint16_t client_progid;
 	unsigned char sessionkey[16];
 	struct cs_custom_data clicd;
 	unsigned char buf[CWS_NETMSGSIZE];
@@ -123,13 +165,19 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 	uint32_t profile_id = param->profile_id;
 	int sock = param->sock;
 	uint32_t ip = param->ip;
+	uint64_t config_generation = param->config_generation;
 	struct cardserver_data *cs;
 	free(param);
+	if (cfg.cache.generation != config_generation) {
+		close(sock);
+		return NULL;
+	}
 	cs = getcsbyid(profile_id);
 	if (!cs) {
 		close(sock);
 		return NULL;
 	}
+	memcpy(login_key, cs->newcamd.key, sizeof(login_key));
 	// Create random deskey
 	for (i=0; i<14; i++) keymod[i] = 0xff & rand();
 	// Create Multics ID
@@ -137,24 +185,39 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 	keymod[7] = keymod[4] + (keymod[5]^'C') + keymod[6];
 	keymod[11] = keymod[8] + keymod[9] + (keymod[10]^'S');
 
-//STAT: SEND RND KEY
+	//STAT: SEND RND KEY
 	// send random des key
 
+	// The handshake frames are socket-owned. Release the config pin around the
+	// key write and login receive; a slow peer must not pin reload while no
+	// config pointer is in use. Re-resolve and validate before reading config.
+	newcamd_config_read_unlock();
+	cs = NULL;
 	if ( !send_nonb(sock, keymod, 14, 500) ) {
-		debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," newcamd: error sending init sequence\n");
+		newcamd_config_read_lock();
+		debugf(getdbgflag(DBG_NEWCAMD,profile_id,0)," newcamd: error sending init sequence\n");
 		close(sock);
 		return NULL;
 	}
 
 	uint32_t ticks = GetTickCount();
 	// Calc SessionKey
-	//debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," DES Key: "); debughex(keymod,14);
-	des_login_key_get(keymod, cs->newcamd.key, 14, sessionkey);
-	//debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," Login Key: "); debughex(sessionkey,16);
+	//debugf(getdbgflag(DBG_NEWCAMD,profile_id,0)," DES Key: "); debughex(keymod,14);
+	des_login_key_get(keymod, login_key, sizeof(login_key), sessionkey);
+	//debugf(getdbgflag(DBG_NEWCAMD,profile_id,0)," Login Key: "); debughex(sessionkey,16);
 
 //STAT: LOGIN INFO
-	// 3. login info
 	i = cs_message_receive(sock, &clicd, buf, sessionkey,3000);
+	newcamd_config_read_lock();
+	if (cfg.cache.generation != config_generation) {
+		close(sock);
+		return NULL;
+	}
+	cs = getcsbyid(profile_id);
+	if (!cs || memcmp(cs->newcamd.key, login_key, sizeof(login_key))) {
+		close(sock);
+		return NULL;
+	}
 	if (i<=0) {
 		if (i==-2) debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," %s: (%s) new connection closed, wrong des key\n", cs->name, ip2string(ip));
 		else debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," %s: (%s) new connection closed, receive timeout\n", cs->name, ip2string(ip));
@@ -199,8 +262,8 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 	while (cli) {
 		if (cli->userhash==hash)
 		if (!strcmp(cli->user,name)) {
-			/* prg.lockcli protects concurrent login attempts, not the
-			 * runtime fields shared with receive, disconnect, and HTTP paths. */
+			/* prg.lockcli serializes lookup/reservation only; this separate
+			 * lock protects runtime fields shared with receive and HTTP paths. */
 			if (newcamd_client_state_lock(cli) != 0) {
 				pthread_mutex_unlock(&prg.lockcli);
 				close(sock);
@@ -236,12 +299,22 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		return NULL;
 	}
 
-	// The matched client's state lock remains held through authentication and
-	// publication, so a concurrent stale-session disconnect or status action
-	// cannot race this replacement.
+	// The matched client's state lock protects password/state checks and the
+	// pending-login reservation. It is dropped for ACK I/O and reacquired to
+	// validate the session generation before publishing the new socket.
 	index += strlen(cli->user) +1;
 	__md5_crypt(cli->pass, "$1$abcdefgh$",passwdcrypt);
 	if (!strcmp(passwdcrypt,(char*)&buf[index])) {
+		if (cli->login_pending) {
+			debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id),
+			       " %s: client '%s' already has a login ACK in flight\n",
+			       cs->name, cli->user);
+			cli->nbloginerror++;
+			newcamd_client_state_unlock(cli);
+			pthread_mutex_unlock(&prg.lockcli);
+			close(sock);
+			return NULL;
+		}
 		if (cli->ip==ip) cli->nbdiffip++;
 		//Check Reconnection
 		if (cli->connection.status>0) {
@@ -267,23 +340,54 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 			}
 		}
 		cli->nblogin++;
-		// Store program id
-		cli->progid = clicd.sid;
-		//
+		// Reserve this client while the ACK is in flight. A duplicate login can
+		// then be rejected under client state without holding prg.lockcli over
+		// TCP I/O or a poll wait.
+		ack_generation = cs_client_session_generation(cli);
+		cli->login_pending = 1;
+		client_progid = clicd.sid;
 		buf[0] = MSG_CLIENT_2_SERVER_LOGIN_ACK;
 		buf[1] = 0;
 		buf[2] = 0;
-		// Send Multics Id&Version
+		pthread_mutex_unlock(&prg.lockcli);
+		// Send Multics Id&Version on the not-yet-published socket without
+		// retaining the client's state lock across the TCP write.
 		if (clicd.provid==0x0057484F) { // WHO
 			clicd.provid = 0x004D4353; // MCS
 			clicd.sid = REVISION; // Revision
-			cs_message_send(sock, &clicd, buf, 3, sessionkey);
-		} else cs_message_send(sock, NULL, buf, 3, sessionkey);
+			newcamd_client_state_unlock(cli);
+			ack_result = cs_message_send(sock, &clicd, buf, 3, sessionkey);
+		} else {
+			newcamd_client_state_unlock(cli);
+			ack_result = cs_message_send(sock, NULL, buf, 3, sessionkey);
+		}
+		if (newcamd_client_state_lock(cli) != 0) {
+			prg.restart = 1;
+			close(sock);
+			return NULL;
+		}
+		if (cs_client_session_generation(cli) != ack_generation) {
+			newcamd_client_state_unlock(cli);
+			close(sock);
+			return NULL;
+		}
+		if (ack_result <= 0 || !cli->login_pending ||
+		    IS_DISABLED(cli->flags) || cli->connection.status != 0 ||
+		    cli->handle > 0) {
+			if (cli->login_pending) cli->login_pending = 0;
+			newcamd_client_state_unlock(cli);
+			close(sock);
+			return NULL;
+		}
+		// Store the original client program id only after the handshake remains current.
+		cli->progid = client_progid;
 		des_login_key_get( cs->newcamd.key, (unsigned char*)passwdcrypt, strlen(passwdcrypt),sessionkey);
 		memcpy( &cli->sessionkey, &sessionkey, 16);
 
 		// Setup User data
 		cli->msg.len = 0;
+		cli->login_pending = 0;
+		(void)cs_client_session_advance(cli);
 		cli->handle = sock;
 		cli->ip = ip;
 		memset( &cli->ecm, 0, sizeof(cli->ecm) );
@@ -296,7 +400,6 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		connected_client_id = cli->id;
 		cs_mark_client_poll_update(cli);
 		newcamd_client_state_unlock(cli);
-		pthread_mutex_unlock(&prg.lockcli);
 #ifdef EPOLL_NEWCAMD
 		/* Queue a stable client ID rather than a pointer that a later reload
 		 * could free before the receiver drains this pipe. */
@@ -360,6 +463,7 @@ static void newcamd_srv_accept_inner(struct cardserver_data *srv)
 			newdata->profile_id = srv->id;
 			newdata->sock = newfd;
 			newdata->ip = newaddr.sin_addr.s_addr;
+			newdata->config_generation = cfg.cache.generation;
 			if ( !create_thread(&srv_tid, (threadfn)cs_connect_cli,newdata) ) {
 				free( newdata );
 				close( newfd );
@@ -523,11 +627,62 @@ int cs_cli_getmsg(struct cs_client_data *cli,struct cs_custom_data *clicd, uint8
 	return 0;
 }
 
+/* The caller holds client state. Reserve the session token, drop state, then
+ * acquire the separate I/O guard for cs_message_send() (which can wait in
+ * send_nonb/poll). On return the client-state lock is held again. */
+static int cs_message_send_client_locked(struct cs_client_data *cli,
+                                         struct cs_custom_data *cd,
+                                         unsigned char *buffer, int len,
+                                         int *client_state_locked)
+{
+	unsigned char sessionkey[16];
+	uint64_t generation;
+	int sock, result;
+	if (!cli || !client_state_locked || !*client_state_locked || !buffer)
+		return -1;
+	sock = cli->handle;
+	generation = cs_client_session_generation(cli);
+	if (sock <= 0 || !generation || cs_client_send_token(cli)) return 0;
+	memcpy(sessionkey, cli->sessionkey, sizeof(sessionkey));
+	cli->ecm.send_token = generation;
+
+	/* Never wait for the I/O guard with client state held. Disconnect may
+	 * invalidate this generation while we wait; after acquiring the guard we
+	 * either send to this still-current descriptor or skip the stale write. */
+	newcamd_client_state_unlock(cli);
+	*client_state_locked = 0;
+	if (newcamd_client_io_lock(cli) != 0) {
+		prg.restart = 1;
+		if (newcamd_client_state_lock(cli) != 0) abort();
+		*client_state_locked = 1;
+		if (cs_client_session_generation(cli) == generation && cli->handle == sock)
+			cs_disconnect_cli_unlocked(cli);
+		return -1;
+	}
+	if (cs_client_session_generation(cli) == generation)
+		result = cs_message_send(sock, cd, buffer, len, sessionkey);
+	else
+		result = 0;
+	newcamd_client_io_unlock(cli);
+	if (newcamd_client_state_lock(cli) != 0) abort();
+	*client_state_locked = 1;
+	if (cs_client_session_generation(cli) == generation && cli->handle == sock) {
+		if (result <= 0)
+			cs_disconnect_cli_unlocked(cli);
+		else if (cli->ecm.send_token == generation)
+			cli->ecm.send_token = 0;
+	}
+	return result;
+}
+
 static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
                                    int *client_state_locked)
 {
 	struct cardserver_data *cs;
 	if (!cli || !client_state_locked || !*client_state_locked) return NULL;
+	/* A concurrent reply/control write released client state but still owns
+	 * the socket. Leave unread bytes queued until that short write completes. */
+	if (cs_client_send_token(cli)) return NULL;
 	cs = cli->cs;
 	struct cs_custom_data clicd; // Custom data
 	ECM_DATA *ecm;
@@ -559,7 +714,7 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 							nbprov++;
 						}
 						buf[14] = nbprov;
-						cs_message_send(cli->handle, &clicd, buf, 15+11*nbprov, cli->sessionkey);
+						cs_message_send_client_locked(cli, &clicd, buf, 15+11*nbprov, client_state_locked);
 					}
 					else {
 						buf[4] = cli->card.caid>>8;
@@ -572,7 +727,7 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 							nbprov++;
 						}
 						buf[14] = nbprov;
-						cs_message_send(cli->handle, &clicd, buf, 15+11*nbprov, cli->sessionkey);
+						cs_message_send_client_locked(cli, &clicd, buf, 15+11*nbprov, client_state_locked);
 					}
 					//debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," newcamd: send card data to client '%s'\n", cli->user);
 					break;
@@ -592,8 +747,7 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 						cli->ecmdenied++;
 						// send decode failed
 						buf[1] = 0; buf[2] = 0;
-						if ( !cs_message_send( cli->handle, &clicd, buf, 3, cli->sessionkey) ) cs_disconnect_cli_unlocked( cli );
-						else debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <|> decode failed to client '%s' ch %04x:%06x:%04x, too many ecm requests\n", cli->user,clicd.caid,clicd.provid,clicd.sid);
+						if (cs_message_send_client_locked(cli, &clicd, buf, 3, client_state_locked) > 0) debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <|> decode failed to client '%s' ch %04x:%06x:%04x, too many ecm requests\n", cli->user,clicd.caid,clicd.provid,clicd.sid);
 						break;
 					}
 					// CHECK FOR ECM
@@ -603,8 +757,7 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 						cs->ecmdenied++;
 						cli->ecmdenied++;
 						buf[1] = 0; buf[2] = 0;
-						if ( !cs_message_send( cli->handle, &clicd, buf, 3, cli->sessionkey) ) cs_disconnect_cli_unlocked( cli );
-						else debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <|> decode failed to client '%s' ch %04x:%06x:%04x, %s\n",cli->user, clicd.caid,clicd.provid,clicd.sid, error);
+						if (cs_message_send_client_locked(cli, &clicd, buf, 3, client_state_locked) > 0) debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <|> decode failed to client '%s' ch %04x:%06x:%04x, %s\n",cli->user, clicd.caid,clicd.provid,clicd.sid, error);
 						break;
 					}
 
@@ -712,12 +865,11 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 						 * from client behaviour, so GR3 forbids treating it as
 						 * evidence that proves anything.
 						 *
-						 * The GOOD event is the other half. Without it every score
-						 * could only fall and the table would fill with sources
-						 * drifting to the floor regardless of how well they
-						 * performed. It is emitted only when a CW really was
-						 * delivered (RETRY_NONE with a nonzero status), so a timeout
-						 * is not credited to anybody -- which is GR2.
+							 * A client that did not retry may corroborate a line-server
+							 * result, but it is not a peer reference. Cache-source GOOD
+							 * credit is granted only by an accepted line-server match in
+							 * the ledger; an un-retried delivery alone never raises peer
+							 * reputation.
 						 */
 						/* Only a hard retry of the saved, successfully delivered ECM is
 						 * a candidate ledger failure. The ledger re-matches all saved
@@ -740,17 +892,8 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
 								cli->lastecm.caid, ticks );
 						}
-						else if (cli->lastecm.status && cli->lastecm.dcwsrctype!=DCW_SOURCE_NONE) {
-							trust_record_lk_scoped( &trust_tab, TRUST_EV_GOOD,
-								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
-								cli->lastecm.caid, cli->lastecm.prov,
-								cli->lastecm.provider_known, cli->lastecm.sid, ticks );
-							/* TASK 2.8: GOOD is how a suppressed peer wins its
-							 * requests back -- this tap is the recovery path. */
-							trustagg_note_lk( TRUST_EV_GOOD,
-								cli->lastecm.dcwsrctype, cli->lastecm.dcwsrcid,
-								cli->lastecm.caid, ticks );
-						}
+						/* D111 D-1: absence of an immediate retry is not independent
+						 * corroboration; only an accepted cache/line match emits GOOD. */
 
 						/*
 						 * TASK R30 (D81) -- receiver attestation.
@@ -890,8 +1033,7 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 								buf[1] = 0; buf[2] = 0;
 								ecm_unlock();
 								ecm_lock_held = 0;
-								if (!cs_message_send(cli->handle, &clicd, buf, 3, cli->sessionkey))
-									cs_disconnect_cli_unlocked(cli);
+								cs_message_send_client_locked(cli, &clicd, buf, 3, client_state_locked);
 								debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <|> decode failed to client '%s' ch %04x:%06x:%04x, already failed\n",cli->user, clicd.caid,clicd.provid,clicd.sid);
 							}
 							else {
@@ -952,8 +1094,7 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 							uint8_t failure[3] = { data[0], 0, 0 };
 							ecm_unlock();
 							ecm_lock_held = 0;
-							if (!cs_message_send(cli->handle, &clicd, failure, sizeof(failure), cli->sessionkey))
-								cs_disconnect_cli_unlocked(cli);
+							cs_message_send_client_locked(cli, &clicd, failure, sizeof(failure), client_state_locked);
 							break;
 						}
 						cs->ecmaccepted++;
@@ -969,7 +1110,8 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 						if (cs->option.fallowcache) {
 							ecm->waitcache = 1;
 							ecm_request_set_dcwstatus(ecm, STAT_DCW_WAITCACHE);
-							ecm->checktime = ecm->recvtime + cs->option.cachetimeout;
+							ecm->checktime = ecm->recvtime +
+						    ecm_get_cache_initial_delay_ms(ecm, cs, GetTickCount());
 							pipe_cache_find(ecm, cs);
 						}
 						else ecm->checktime = 1; // Check NOW
@@ -1062,12 +1204,12 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 						if (clicd.sid==(('C'<<8)|'H')) clicd.caid = ('O'<<8)|'K';
 #endif
 						//debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <-> keepalive from/to client '%s'\n",cli->user);
-						if ( !cs_message_send(cli->handle, &clicd, buf, 3, cli->sessionkey) ) cs_disconnect_cli_unlocked( cli );
+						cs_message_send_client_locked(cli, &clicd, buf, 3, client_state_locked);
 					}
 					else {
 						debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," newcamd: unknown message type '%02x' from client '%s'\n",buf[0],cli->user);
 						buf[1]=0; buf[2]=0;
-						if ( !cs_message_send( cli->handle, &clicd, buf, 3, cli->sessionkey) ) cs_disconnect_cli_unlocked( cli );
+						cs_message_send_client_locked(cli, &clicd, buf, 3, client_state_locked);
 					}
 				} // Switch
 
@@ -1084,32 +1226,70 @@ void *cs_cli_recvmsg(struct cs_client_data *cli)
 	return result;
 }
 
+#ifdef EPOLL_NEWCAMD
+/* EPOLL's ready list may contain an event from the preceding session even
+ * after the descriptor number has been reused. Validate the packed generation
+ * while holding client state before reading or disconnecting this session. */
+static void cs_cli_process_epoll_event(struct cs_client_data *cli,
+                                       uint32_t event_generation_low,
+                                       uint32_t events)
+{
+	int client_state_locked = 1;
+	if (!cli || newcamd_client_state_lock(cli) != 0) return;
+	if (cli->handle > 0 &&
+	    newcamd_session_generation_low_matches(
+	        event_generation_low, cs_client_session_generation(cli))) {
+		if (events & (EPOLLIN | EPOLLPRI))
+			cs_cli_recvmsg_locked(cli, &client_state_locked);
+		else if (events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR))
+			cs_disconnect_cli_unlocked(cli);
+	}
+	if (client_state_locked) newcamd_client_state_unlock(cli);
+}
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////
 // DCW
 ///////////////////////////////////////////////////////////////////////////////
 
-static void cs_senddcw_cli_locked(struct cs_client_data *cli, const struct ledger_delivery_snapshot *delivery)
+static void cs_senddcw_cli_locked(struct cs_client_data *cli,
+                                  const struct ledger_delivery_snapshot *delivery)
 {
 	unsigned char buf[CWS_NETMSGSIZE];
-	struct cs_custom_data clicd; // Custom data
+	unsigned char sessionkey[16];
+	struct cs_custom_data clicd;
 	ECM_DATA *request;
 	uint64_t current_lifetime_id;
+	uint64_t session_generation;
 	uint32_t response_recvtime;
 	uint16_t response_caid;
 	uint32_t response_provid;
 	uint16_t response_sid;
 	uint8_t response_tag;
-	uint32_t ticks;
+	uint32_t ticks, sent_at;
 	int enablefreeze = 0;
+	int sock, payload_len, send_result, did_send = 0;
 
 	if (!cli || !delivery || !delivery->lifetime_id) return;
+
+	/* A control reply may be in flight with client state released. Wait on its
+	 * I/O guard without retaining state, then revalidate this delivery. */
+	while (cs_client_send_token(cli)) {
+		newcamd_client_state_unlock(cli);
+		if (newcamd_client_io_lock(cli) != 0) {
+			prg.restart = 1;
+			if (newcamd_client_state_lock(cli) != 0) abort();
+			return;
+		}
+		newcamd_client_io_unlock(cli);
+		usleep(1000);
+		if (newcamd_client_state_lock(cli) != 0) abort();
+	}
+
 	request = cli->ecm.request;
 	current_lifetime_id = __atomic_load_n(&cli->ecm.lifetime_id, __ATOMIC_ACQUIRE);
-	/* The client-state lock is held by every dispatch path. Its stored token
-	 * was captured while lockecm protected the ECM pool; compare it explicitly
-	 * with the snapshot token, then use pointer equality only as an additional
-	 * guard. Do not dereference delivery->request here: after lockecm is released
-	 * that pool slot may already have been recycled. */
+	/* The exact ECM lifetime is checked explicitly under client state; pointer
+	 * equality is only an additional guard. Never dereference delivery->request. */
 	if (current_lifetime_id != delivery->lifetime_id ||
 	    !newcamd_delivery_identity_matches(request, current_lifetime_id,
 	                                       delivery->request, delivery->lifetime_id))
@@ -1118,7 +1298,7 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli, const struct ledge
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," +> cw send failed to client '%s', cw already sent\n", cli->user);
 		return;
 	}
-	if (cli->handle == INVALID_SOCKET) {
+	if (cli->handle == INVALID_SOCKET || cli->handle <= 0) {
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," +> cw send failed to client '%s', client disconnected\n", cli->user);
 		return;
 	}
@@ -1127,6 +1307,9 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli, const struct ledge
 		return;
 	}
 
+	sock = cli->handle;
+	session_generation = cs_client_session_generation(cli);
+	if (!session_generation) return;
 	response_caid = delivery->caid;
 	response_provid = delivery->provid;
 	response_sid = delivery->sid;
@@ -1143,19 +1326,73 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli, const struct ledge
 	clicd.sid = response_sid;
 	clicd.caid = response_caid;
 	clicd.provid = response_provid;
-
+	memcpy(sessionkey, cli->sessionkey, sizeof(sessionkey));
 	if (delivery->status == STAT_DCW_SUCCESS) {
-		uint32_t sent_at;
 		buf[0] = response_tag;
 		buf[1] = 0;
 		buf[2] = 0x10;
 		memcpy(&buf[3], delivery->cw, 16);
-		if (!cs_message_send(cli->handle, &clicd, buf, 19, cli->sessionkey)) {
+		payload_len = 19;
+	} else {
+		if (enablefreeze) cli->freeze++;
+		buf[0] = response_tag;
+		buf[1] = 0;
+		buf[2] = 0;
+		payload_len = 3;
+	}
+
+	/* The nonzero send token prevents the receiver from replacing this ECM
+	 * while state is unlocked. Session generation also protects fd reuse. */
+	cli->ecm.send_token = session_generation;
+	newcamd_client_state_unlock(cli);
+	if (newcamd_client_io_lock(cli) != 0) {
+		prg.restart = 1;
+		if (newcamd_client_state_lock(cli) != 0) abort();
+		if (cs_client_session_generation(cli) == session_generation &&
+		    cli->handle == sock)
 			cs_disconnect_cli_unlocked(cli);
-			return;
-		}
-		sent_at = GetTickCount();
-		cs_lastecm_save_request(cli, delivery, sent_at);
+		return;
+	}
+	if (cs_client_session_generation(cli) == session_generation) {
+		did_send = 1;
+		send_result = cs_message_send(sock, &clicd, buf, payload_len, sessionkey);
+	} else send_result = 0;
+	sent_at = GetTickCount();
+	newcamd_client_io_unlock(cli);
+	if (newcamd_client_state_lock(cli) != 0) abort();
+
+	if (cs_client_session_generation(cli) != session_generation ||
+	    cli->handle != sock || cs_client_send_token(cli) != session_generation) {
+#ifdef CACHEEX
+		if (did_send && send_result > 0 && delivery->status == STAT_DCW_SUCCESS)
+			ledger_note_delivered(delivery, sent_at);
+#endif
+		return;
+	}
+	if (send_result <= 0) {
+		cs_disconnect_cli_unlocked(cli);
+		return;
+	}
+
+	/* State may have been changed by a separate client-control path while the
+	 * TCP send ran. Recheck the request lifetime under state before publishing
+	 * delivery statistics, even though the receiver honors send_token. */
+	current_lifetime_id = __atomic_load_n(&cli->ecm.lifetime_id, __ATOMIC_ACQUIRE);
+	request = cli->ecm.request;
+	if (current_lifetime_id != delivery->lifetime_id ||
+	    !newcamd_delivery_identity_matches(request, current_lifetime_id,
+	                                       delivery->request, delivery->lifetime_id) ||
+	    !cli->ecm.busy || cli->ecm.status == STAT_DCW_SENT) {
+#ifdef CACHEEX
+		if (delivery->status == STAT_DCW_SUCCESS)
+			ledger_note_delivered(delivery, sent_at);
+#endif
+		cli->ecm.send_token = 0;
+		return;
+	}
+
+	cs_lastecm_save_request(cli, delivery, sent_at);
+	if (delivery->status == STAT_DCW_SUCCESS) {
 #ifdef CACHEEX
 		LEDGER_DELIVERY_TO_LASTECM(cli->lastecm, *delivery);
 #else
@@ -1172,17 +1409,6 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli, const struct ledge
 #endif
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," => cw to client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, response_caid,response_provid,response_sid, sent_at-response_recvtime);
 	} else {
-		uint32_t sent_at;
-		if (enablefreeze) cli->freeze++;
-		buf[0] = response_tag;
-		buf[1] = 0;
-		buf[2] = 0;
-		if (!cs_message_send(cli->handle, &clicd, buf, 3, cli->sessionkey)) {
-			cs_disconnect_cli_unlocked(cli);
-			return;
-		}
-		sent_at = GetTickCount();
-		cs_lastecm_save_request(cli, delivery, sent_at);
 		cli->lastecm.status = 0;
 		cli->lastecm.dcwsrctype = DCW_SOURCE_NONE;
 		cli->lastecm.dcwsrcid = 0;
@@ -1193,9 +1419,10 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli, const struct ledge
 #endif
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," |> decode failed to client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, response_caid,response_provid,response_sid, sent_at-response_recvtime);
 	}
-	/* Publish SENT before clearing busy, under the same per-client lock. */
+	/* Publish SENT and clear busy only after the transport succeeds. */
 	cli->ecm.status = STAT_DCW_SENT;
 	cli->ecm.busy = 0;
+	cli->ecm.send_token = 0;
 }
 
 // Check sending cw to clients
@@ -1271,17 +1498,25 @@ void cs_recv_pipe()
 					{
 						uint32_t client_id;
 						struct epoll_event ev;
-							int handle;
-							if (!pipe_decode_u32_message(buf, (size_t)len, PIPE_CLI_CONNECTED, &client_id) || !client_id) break;
-							cli = getnewcamdclientbyid(client_id);
-							if (!cli || newcamd_client_state_lock(cli) != 0) break;
+						int handle;
+						uint64_t session_generation;
+						if (!pipe_decode_u32_message(buf, (size_t)len,
+						                            PIPE_CLI_CONNECTED, &client_id) ||
+						    !client_id) break;
+						cli = getnewcamdclientbyid(client_id);
+						if (!cli || newcamd_client_state_lock(cli) != 0) break;
 						handle = cli->handle;
-						if (handle > 0) {
+						session_generation = cs_client_session_generation(cli);
+						if (handle > 0 && session_generation) {
 							memset(&ev, 0, sizeof(ev));
-							 ev.events = EPOLLIN | EPOLLPRI | EPOLLRDHUP;
-								 ev.data.u64 = client_id;
-								if (epoll_ctl(prg.epoll.newcamd, EPOLL_CTL_ADD, handle, &ev) == -1)
-								debugf(DBG_ERROR,"Err! EPOLL_CTL_ADD %s (%d)\n", cli->user, handle);
+							ev.events = EPOLLIN | EPOLLPRI | EPOLLRDHUP;
+							ev.data.u64 = newcamd_epoll_client_token(
+								client_id, session_generation);
+							if (epoll_ctl(prg.epoll.newcamd, EPOLL_CTL_ADD,
+							              handle, &ev) == -1)
+								debugf(DBG_ERROR,
+								       "Err! EPOLL_CTL_ADD %s (%d)\n",
+								       cli->user, handle);
 						}
 						newcamd_client_state_unlock(cli);
 					}
@@ -1300,6 +1535,7 @@ void cs_recv_pipe()
 
 void *cs_recvmsg_thread(void *param)
 {
+	int i;
 	__atomic_store_n(&prg.pid_cs_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
 	prctl(PR_SET_NAME,"Newcamd RecvMSG",0,0,0);
 
@@ -1333,26 +1569,28 @@ void *cs_recvmsg_thread(void *param)
 			continue;
 		}
 
-			int i;
-			for (i=0; i < ready; i++) {
-				uint32_t client_id = (uint32_t)evlist[i].data.u64;
-				if ( evlist[i].events & (EPOLLIN|EPOLLPRI) ) {
-					if (!client_id) cs_recv_pipe();
-					else {
-						struct cs_client_data *cli = getnewcamdclientbyid(client_id);
-						if (cli) cs_cli_recvmsg(cli);
-					}
-				}
-				else if ( evlist[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR) ) {
-					if (!client_id) debugf(DBG_ERROR,"Err! epoll_wait() pipe\n");
-					else {
-						struct cs_client_data *cli = getnewcamdclientbyid(client_id);
-						if (cli) cs_disconnect_cli(cli);
-					}
-				}
+		for (i = 0; i < ready; i++) {
+			uint32_t client_id = 0;
+			uint32_t event_generation_low = 0;
+			uint32_t events = evlist[i].events;
+			struct cs_client_data *cli;
+			if (evlist[i].data.u64 &&
+			    !newcamd_epoll_client_token_decode(evlist[i].data.u64,
+			                                      &client_id,
+			                                      &event_generation_low))
+				continue;
+			if (!client_id) {
+				if (events & (EPOLLIN | EPOLLPRI)) cs_recv_pipe();
+				else if (events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR))
+					debugf(DBG_ERROR, "Err! epoll_wait() pipe\n");
+				continue;
 			}
-			newcamd_config_read_unlock();
+			cli = getnewcamdclientbyid(client_id);
+			if (cli)
+				cs_cli_process_epoll_event(cli, event_generation_low, events);
 		}
+		newcamd_config_read_unlock();
+	}
 	return NULL;
 }
 
@@ -1361,6 +1599,7 @@ void *cs_recvmsg_thread(void *param)
 void *cs_recvmsg_thread(void *param)
 {
 	struct pollfd pfd[MAX_PFD];
+	uint32_t pfd_generation_low[MAX_PFD];
 	int pfdcount;
 	(void)param;
 
@@ -1391,6 +1630,8 @@ void *cs_recvmsg_thread(void *param)
 								cli->ipoll = slot;
 								cs->newcamd.clipfd.pfd[slot].fd = cli->handle;
 								cs->newcamd.clipfd.pfd[slot].events = POLLIN | POLLPRI;
+								cs->newcamd.clipfd.session_generation_low[slot] =
+									(uint32_t)cs_client_session_generation(cli);
 							} else cli->ipoll = -1;
 							newcamd_client_state_unlock(cli);
 						} else {
@@ -1408,7 +1649,10 @@ void *cs_recvmsg_thread(void *param)
 					copy_count = MAX_PFD - pfdcount;
 				if (copy_count > 0) {
 					memcpy(&pfd[pfdcount], cs->newcamd.clipfd.pfd,
-						(size_t)copy_count * sizeof(struct pollfd));
+					       (size_t)copy_count * sizeof(struct pollfd));
+					memcpy(&pfd_generation_low[pfdcount],
+					       cs->newcamd.clipfd.session_generation_low,
+					       (size_t)copy_count * sizeof(pfd_generation_low[0]));
 					pfdcount += copy_count;
 				}
 			} else {
@@ -1445,7 +1689,10 @@ void *cs_recvmsg_thread(void *param)
 								cscli->ipoll < cs->newcamd.clipfd.count) {
 								poll_index = cs->newcamd.clipfd.ipoll + cscli->ipoll;
 								if (poll_index > 0 && poll_index < pfdcount &&
-									cscli->handle == pfd[poll_index].fd) {
+									cscli->handle == pfd[poll_index].fd &&
+									newcamd_session_generation_low_matches(
+										pfd_generation_low[poll_index],
+										cs_client_session_generation(cscli))) {
 									short revents = pfd[poll_index].revents;
 									if (revents & (POLLHUP | POLLNVAL | POLLERR))
 										cs_disconnect_cli_unlocked(cscli);

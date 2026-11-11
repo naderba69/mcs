@@ -46,6 +46,7 @@
 #include "threads.h"
 #include "dcw.h"
 #include "ecmdata.h"
+#include "user-trace.h"
 #include "casystem.h"	/* TASK R26 (D77): bounded CA extraction */
 
 #ifdef CCCAM
@@ -253,9 +254,11 @@ struct ecm_request *store_ecmdata_known(struct cardserver_data *cs,uint8_t *ecm,
 	else {
 		new = ecmdata->prev;
 		if ((uint32_t)(ticks - new->recvtime) > (uint32_t)(TIME_ECMALIVE*2)) {
-			/* The slot is initialized and its old token still names the
-			 * registry record; retire it before clear_ecm_request_slot()
-			 * publishes generation zero. */
+			/* Shared trace links outlive the first client result so delayed
+			 * source evidence remains visible; close them with the ECM slot. */
+			user_trace_unbind_shared_instance(new->trace_instance);
+			/* The old token still names the cache registry record; retire it
+			 * before clear_ecm_request_slot() publishes generation zero. */
 			cache_ecm_snapshot_retire(new);
 			if (new->cs) cs_delecmdata(new->cs, new);
 			// cache is dead, add data to this one without allocating new data

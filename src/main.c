@@ -51,7 +51,9 @@
 #include "auto-tuning.h"  /* Auto-tuning system */
 #include "web-dashboard.h"  /* Web dashboard */
 #include "cache-speed-suite.h"  /* Cache Speed Optimization Suite (8 systems) */
+#include "cache-window.h"  /* R48: bounded opt-in per-profile/CAID cache window */
 #include "cw-postvalidate.h"  /* Post-descramble CW validation + Fake CW detection */
+#include "dcwstrict.h"  /* D111: reference-gated cache trust reward */
 
 #ifdef TELNET
 #include "telnet.h"
@@ -87,6 +89,7 @@
 #include "cacheguard.h"	/* TASK 2.9 cache protocol guard, used by clustredcache.c (below) */
 #include "trustlife.h"	/* TASK 2.10 trust lifecycle: fade + persistence, used by th-cfg.c / clustredcache.c */
 #include "trustagg.h"	/* TASK 2.8 the cache-peer trust engine, coarse tier */
+#include "r48-source-reputation.h"	/* D111: opt-in source x provider EWMA facts */
 #include "rotation.h"	/* TASK 1.6 instant rotation, used by srv-newcamd.c / loadbalance.c */
 #include "cachepref.h"	/* TASK 1.7 TRUSTED-CACHE-FIRST, used by clustredcache.c (included below) */
 
@@ -239,6 +242,21 @@ static inline int trust_score_lk(struct trust_table *t,
  * what gets asked, and the operator flips it back with one config line.
  */
 struct trustagg_table trustagg_tab;
+/* D111 R48 facts; every access is serialized by trust_lock. Candidate
+ * ordering reads the table only behind the profile's CACHE EVIDENCE opt-in. */
+struct r48_source_rep_table r48_source_rep_tab;
+
+int r48_source_rep_snapshot_live(uint32_t now_ms,
+                                 struct r48_source_rep_snapshot *out,
+                                 int max)
+{
+	int count;
+	pthread_mutex_lock(&trust_lock);
+	count = r48_source_rep_snapshot(&r48_source_rep_tab, now_ms, out, max);
+	pthread_mutex_unlock(&trust_lock);
+	return count;
+}
+
 unsigned long trustagg_skipped = 0;  /* fan-out sends the brake refused  */
 unsigned long trustagg_lines   = 0;  /* crossing sentences written       */
 int peertrust_requests = 0;          /* PEER-TRUST-REQUESTS, default OFF */
@@ -1236,7 +1254,7 @@ static int attest_gate(const uint8_t *cw, uint16_t caid, uint32_t provid,
  */
 struct rotation_table rotation_tab;
 struct ledger_table ledger_tab;
-unsigned long ledger_agrees = 0;       /* two sources produced the same key   */
+unsigned long ledger_agrees = 0;       /* accepted source matches line anchor */
 unsigned long ledger_disputes = 0;     /* two sources disagreed               */
 unsigned long ledger_selfdisputes = 0; /* one source contradicted itself      */
 unsigned long ledger_proofs = 0;       /* a contradiction the client confirmed */
@@ -1714,6 +1732,11 @@ static void ledger_act(const struct ledger_event *ev, char *tagg, int taggsz)
 	trust_record_scoped(&trust_tab, TRUST_EV_PROOF, accst, accid,
 	                    id->caid, id->provid, id->provider_known,
 	                    id->sid, ticks);
+	(void)r48_source_rep_note_opt_in(&r48_source_rep_tab,
+	                                 id->cache_evidence_enabled, accst, accid,
+	                                 id->caid, id->provid,
+	                                 id->provider_known,
+	                                 R48_SOURCE_REP_REFERENCE_PROOF, ticks);
 	if (tagg) {
 		struct trustagg_evidence taev;
 		if (trustagg_note(&trustagg_tab, TRUST_EV_PROOF, accst, accid,
@@ -1747,7 +1770,67 @@ static void ledger_drain_proofs(const struct ledger_identity *id,
 		batch->event[i] = *ev;
 		ledger_act(&batch->event[i], batch->tagg[i], (int)sizeof(batch->tagg[i]));
 		(void)ledger_format(&batch->event[i], batch->line[i], (int)sizeof(batch->line[i]));
-		rc = ledger_next_proof(&ledger_tab, id, ticks, ev);
+		rc = ledger_next_proof(&ledger_tab, id, ticks, DCW_SOURCE_SERVER, ev);
+	}
+}
+
+#define LEDGER_REFERENCE_BATCH_SIZE LEDGER_CANDIDATE_SLOTS
+struct ledger_reference_batch {
+	int count;
+	struct ledger_event event[LEDGER_REFERENCE_BATCH_SIZE];
+	struct trustagg_evidence aggregate[LEDGER_REFERENCE_BATCH_SIZE];
+	uint8_t aggregate_crossed[LEDGER_REFERENCE_BATCH_SIZE];
+};
+
+/* Called with trust_lock held. Credit is emitted only after an accepted CW from
+ * a different source matches an accepted line-server reference. */
+static void ledger_drain_reference_agreements(const struct ledger_identity *id,
+                                               uint32_t ticks,
+                                               struct ledger_reference_batch *batch)
+{
+	struct ledger_event ev;
+	while (batch->count < LEDGER_REFERENCE_BATCH_SIZE &&
+ledger_next_reference_agreement(&ledger_tab, id, ticks,
+					       DCW_SOURCE_CACHE, DCW_SOURCE_SERVER, &ev) ==
+	           LEDGER_REFERENCE_AGREEMENT) {
+		int i = batch->count++;
+		batch->event[i] = ev;
+		trust_record_scoped(&trust_tab, TRUST_EV_GOOD,
+		                    ev.src[0][0], ev.src[0][1],
+		                    id->caid, id->provid, id->provider_known,
+		                    id->sid, ticks);
+		(void)r48_source_rep_note_opt_in(&r48_source_rep_tab,
+		                                 ev.identity.cache_evidence_enabled,
+		                                 ev.src[0][0], ev.src[0][1],
+		                                 ev.identity.caid,
+		                                 ev.identity.provid,
+		                                 ev.identity.provider_known,
+		                                 R48_SOURCE_REP_REFERENCE_MATCH,
+		                                 ticks);
+		batch->aggregate_crossed[i] = (uint8_t)trustagg_note(
+		    &trustagg_tab, TRUST_EV_GOOD, ev.src[0][0], ev.src[0][1],
+		    id->caid, ticks, &batch->aggregate[i]);
+		ledger_agrees++;
+	}
+}
+
+/* Finish non-lockable source statistics and log only a coarse actionable
+ * crossing; the match itself remains a bounded fact in the ledger/trust tables. */
+static void ledger_finish_reference_batch(struct ledger_reference_batch *batch)
+{
+	int i;
+	for (i = 0; i < batch->count; i++) {
+		struct trustagg_evidence *ev = &batch->aggregate[i];
+		if (batch->event[i].src[0][0] == DCW_SOURCE_CACHE) {
+			cwpostval_trust_good((uint32_t)batch->event[i].src[0][1]);
+			dcwstrict_trust_reward((uint32_t)batch->event[i].src[0][1]);
+		}
+		if (batch->aggregate_crossed[i]) {
+			char line[384];
+			trustagg_lines++;
+			if (trustagg_format(ev, line, (int)sizeof(line)) > 0)
+				debugf(DBG_ERROR, " !!! %s\n", line);
+		}
 	}
 }
 
@@ -1809,6 +1892,8 @@ static int ledger_identity_from_ecm(struct ledger_identity *id, const ECM_DATA *
 	id->sid = ecm->sid;
 	id->tag = ecm->ecm[0];
 	id->ecmlen = (uint16_t)ecm->ecmlen;
+	id->cache_evidence_enabled = (uint8_t)(ecm->cs &&
+	                                      ecm->cs->option.cache_evidence);
 	return ledger_identity_valid(id);
 }
 #endif
@@ -1870,12 +1955,10 @@ static int ledger_delivery_snapshot_capture_for_client_locked(
 			&name##_storage, (request), __atomic_load_n(&(client)->ecm.lifetime_id, __ATOMIC_ACQUIRE)) ? \
 		&name##_storage : NULL
 #else
+/* The non-CacheEX protocols do not share a client ECM-generation field; their
+ * send helpers treat this ledger-only snapshot as absent. */
 #define LEDGER_CAPTURE_CLIENT_DELIVERY(name, request, client) \
-	struct ledger_delivery_snapshot name##_storage; \
-	const struct ledger_delivery_snapshot *name = \
-		((request) && (client)->ecm.busy && (client)->ecm.request == (request) && \
-		 ledger_delivery_snapshot_capture_locked(&name##_storage, (request))) ? \
-		&name##_storage : NULL
+	const struct ledger_delivery_snapshot *name = NULL
 #endif
 
 #ifdef CACHEEX
@@ -1892,7 +1975,7 @@ static void ledger_note_candidate_identity(const struct ledger_identity *id,
 	if (!ledger_identity_valid(id) || !offered_cw) return;
 	pthread_mutex_lock(&trust_lock);
 	rc = ledger_candidate(&ledger_tab, id, offered_cw, srctype, srcid, ticks, &ev);
-	if (ev.source_agreement) ledger_agrees++;
+	/* Candidate agreement is only an offer observation; it is not credited. */
 	if (ev.independent_dispute) ledger_disputes++;
 	if (ev.self_dispute) ledger_selfdisputes++;
 	(void)rc;
@@ -1917,15 +2000,30 @@ static void ledger_note_accepted(const ECM_DATA *ecm,
 	struct ledger_identity id;
 	struct ledger_event ev;
 	struct ledger_proof_batch batch;
+	struct ledger_reference_batch reference_batch;
 	int rc;
 	if (!ledger_identity_from_ecm(&id, ecm)) return;
 	memset(&batch, 0, sizeof(batch));
+	memset(&reference_batch, 0, sizeof(reference_batch));
 	pthread_mutex_lock(&trust_lock);
 	rc = ledger_accept(&ledger_tab, &id, offered_cw, accepted_cw,
-	                   srctype, srcid, ticks, &ev);
+	                   srctype, srcid, ticks, DCW_SOURCE_SERVER, &ev);
 	ledger_drain_proofs(&id, ticks, rc, &ev, &batch);
+	ledger_drain_reference_agreements(&id, ticks, &reference_batch);
 	pthread_mutex_unlock(&trust_lock);
 	ledger_finish_batch(&batch);
+	ledger_finish_reference_batch(&reference_batch);
+	/* Keep the existing opt-in client trace useful for D-1 diagnosis without
+	 * exposing a new endpoint or treating channel-only evidence as client data. */
+	if (ecm->trace_instance) {
+		int i;
+		for (i = 0; i < reference_batch.count; i++)
+			user_trace_shared_event(ecm->trace_instance, USER_TRACE_VALIDATED,
+			    reference_batch.event[i].src[0][0],
+			    reference_batch.event[i].src[0][1],
+			    tick32_elapsed(ticks, ecm->recvtime),
+			    "accepted cache candidate matched accepted line-server CW; D-1 credit recorded");
+	}
 }
 
 /* Preserve exactly the request, CW and origin associated with a successful
@@ -1955,7 +2053,8 @@ static void ledger_note_delivered(const struct ledger_delivery_snapshot *sent,
 	memset(&batch, 0, sizeof(batch));
 	pthread_mutex_lock(&trust_lock);
 	rc = ledger_delivered(&ledger_tab, &sent->identity, sent->cw,
-	                      sent->srctype, sent->srcid, ticks, &ev);
+	                      sent->srctype, sent->srcid, ticks,
+	                      DCW_SOURCE_SERVER, &ev);
 	ledger_drain_proofs(&sent->identity, ticks, rc, &ev, &batch);
 	pthread_mutex_unlock(&trust_lock);
 	ledger_finish_batch(&batch);
@@ -1995,7 +2094,7 @@ static int ledger_note_failure_saved(const ECM_DATA *retry_ecm,
 	memset(&batch, 0, sizeof(batch));
 	pthread_mutex_lock(&trust_lock);
 	rc = ledger_failed(&ledger_tab, &id, cw, srctype, srcid,
-	                   delivered_at, ticks, &ev);
+	                   delivered_at, ticks, DCW_SOURCE_SERVER, &ev);
 	if (rc == LEDGER_NONE && !ev.matched_delivery) ledger_unplaceable++;
 	proof = (rc == LEDGER_PROOF);
 	ledger_drain_proofs(&id, ticks, rc, &ev, &batch);
@@ -2023,9 +2122,6 @@ static int ledger_note_failure(const struct cs_client_data *cli,
 	    (saved).hash, (saved).caid, (saved).prov, (saved).provider_known, \
 	    (saved).sid, (saved).tag, (saved).dcw, (saved).dcwsrctype, \
 	    (saved).dcwsrcid, (delivered_at), (now))
-#else
-#define LEDGER_CAPTURE_CLIENT_DELIVERY(name, request, client) \
-	const struct ledger_delivery_snapshot *name = NULL
 #endif /* CACHEEX */
 
 char cccam_nodeid[8];
@@ -2536,7 +2632,7 @@ static void ledger_purge_proof(const struct ledger_event *ev)
 	pthread_mutex_unlock(&prg.lockcache);
 
 	if (fresh)
-		debugf(DBG_ERROR," !!! CACHE PURGE: ch %04x:%06x:%04x marked %d cached CW(s) on source %d/%d after accepted independent evidence and failure of the delivered key\n",
+		debugf(DBG_ERROR," !!! CACHE PURGE: ch %04x:%06x:%04x marked %d cached CW(s) on source %d/%d after accepted line-reference evidence and failure of the delivered key\n",
 		       id->caid, id->provid, id->sid, npurged, srctype, srcid);
 }
 
@@ -3001,9 +3097,8 @@ void mainprocess()
 	start_thread_config();
 	wait_config_ready();	/* TASK 4.1 — was a 100 ms hope */
 
-	/* TASK R4 (D58): the reputation ledger is the file's truth. Loaded once
-	 * the config (which arms the ladder) is fully read; from here on every
-	 * escalation rewrites the file atomically. */
+	/* Legacy peerrep loads diagnostic history after config parsing. Runtime
+	 * TTL stages are intentionally never restored from the file. */
 	if (peerrep_on) {
 		int pr_loaded = peerrep_load();
 		debugf(0, " [PEER REP] %d record(s) loaded from %s\n", pr_loaded, peerrep_file());

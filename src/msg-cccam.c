@@ -359,43 +359,9 @@ int cc_msg_send_and_encrypt(int handle, struct cc_crypt_block *sendblock,
 }
 
 
-//
-int nonblock_recv( int handle, uint8_t *buf, int len )
-{
-	int i;
-	for (i=0; i<3; i++) { // only 3 times
-		int got = recv(handle, buf, len, MSG_NOSIGNAL|MSG_DONTWAIT);
-		if (len==0) return 0;
-		if (len==-1) {
-			if ( (errno==EINTR)||(errno==EWOULDBLOCK)||(errno==EAGAIN) ) { usleep(1); continue; }
-			else return 0;
-		}
-		if (got>0) len -= got;
-		if ( !len ) return 1;
-	}
-	return 0;
-}
-
-
-// -1: not yet
-// 0: disconnect/error
-// >0: ok
+/* Keep partial encrypted frame bytes in msg->data across readiness events.
+ * Advance the stream cipher only after a complete header/body segment is read. */
 int cc_peekmsg(int handle,struct cc_crypt_block *recvblock, struct message_data *msg, uint8_t *buf)
-{
-	// header
-	if ( !nonblock_recv(handle, buf, 4) ) return 0;
-	cc_decrypt(recvblock, buf, 4);
-	// data
-	int datasize = 4 + ((buf[2] << 8) | buf[3]);
-	if (datasize > 4) {  // check if any data is expected in msg
-		if (datasize >= CC_MAXMSGSIZE) return 0;
-		if ( !nonblock_recv(handle, buf+4, datasize-4) ) return 0;
-		cc_decrypt(recvblock, buf+4, datasize-4);
-	}
-	return datasize;
-}
-
-int cc_peekmsg0(int handle,struct cc_crypt_block *recvblock, struct message_data *msg, uint8_t *buf)
 {
 	int len;
 	if (handle<0) return 0;

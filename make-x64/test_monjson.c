@@ -72,6 +72,8 @@ int main(void)
 		chk(names == DCW_REJ_COUNT, "all dcwstats names present", names);
 		chk(has(big, "\"peerrep\":{\"on\":0,\"thresholds\":{\"distrust\":0,\"isolate\":0,\"ban\":0},\"peers\":[]}"),
 			"peerrep off shape", 0);
+		chk(has(big, "\"r48_source_reputation\":{\"scope\":\"source-caid-provider\",\"rows\":[]}"),
+			"R48 source evidence empty shape", 0);
 		chk(has(big, "\"cache_peers\":[]"), "cache_peers empty", 0);
 		chk(!has(big, ",}") && !has(big, ",]") && !has(big, "[,") && !has(big, "{,"),
 			"comma discipline", 0);
@@ -133,14 +135,14 @@ int main(void)
 		chk(has(big, "\"thresholds\":{\"distrust\":3,\"isolate\":6,\"ban\":10}"),
 			"thresholds carried", 0);
 		chk(has(big, "\"peer\":\"127.0.0.1:16924\"")
-			&& has(big, "\"stage\":1") && has(big, "\"stage_name\":\"distrust\"")
+			&& has(big, "\"stage\":1") && has(big, "\"stage_name\":\"temporary-distrust-15m\"")
 			&& has(big, "\"events\":7") && has(big, "\"last\":\"cycle-contradiction\""),
 			"rep record fields", 0);
-		chk(has(big, "\"peer\":\"10.0.0.1:9999\"") && has(big, "\"stage_name\":\"ban\""),
+		chk(has(big, "\"peer\":\"10.0.0.1:9999\"") && has(big, "\"stage_name\":\"legacy-ban-threshold-temporary-isolate-60m\""),
 			"orphan rep record kept", 0);
 		chk(has(big, "\"name\":\"peerA\",\"ip\":\"127.0.0.1\",\"port\":16923,\"ping\":31,\"cards\":4,\"ecm\":100,\"ecm_ok\":97,\"hits\":55,\"disabled\":0"),
 			"peer row fields in order", 0);
-		chk(has(big, "\"rep_stage\":1,\"rep_stage_name\":\"distrust\",\"rep_events\":7,\"rep_last\":\"cycle-contradiction\""),
+		chk(has(big, "\"rep_stage\":1,\"rep_stage_name\":\"temporary-distrust-15m\",\"rep_events\":7,\"rep_last\":\"cycle-contradiction\""),
 			"rep merged into matching row", 0);
 		chk(has(big, "\"name\":\"bad\\\"peer\\\\x\""), "peer name escaped in row", 0);
 		chk(has(big, "\"rep_stage\":-1,\"rep_stage_name\":\"\",\"rep_events\":0,\"rep_last\":\"\""),
@@ -148,7 +150,60 @@ int main(void)
 		chk(!has(big, ",}") && !has(big, ",]"), "comma discipline with data", 0);
 	}
 
-	/* ---- 7. overflow: the whole document is abandoned ---- */
+	/* ---- 7. R48 provider-scoped evidence, including unknown provider ---- */
+	{
+		struct monjson_in in;
+		struct monjson_r48_rep evidence[2];
+		unsigned long counters[DCW_REJ_COUNT];
+		memset(&in, 0, sizeof(in));
+		memset(counters, 0, sizeof(counters));
+		memset(evidence, 0, sizeof(evidence));
+		in.dcwstats = counters;
+		evidence[0].srctype = 1; evidence[0].srcid = 17;
+		evidence[0].caid = 0x1814; evidence[0].provid = 0;
+		evidence[0].provider_known = 0; evidence[0].score = 38;
+		evidence[0].matches = 2; evidence[0].proofs = 5;
+		evidence[0].last_evidence_ms = 123456;
+		evidence[0].last_proof_ms = 120000;
+		evidence[0].clean_after_proof = 2;
+		evidence[0].rank_delayed = 1;
+		evidence[1].srctype = 1; evidence[1].srcid = 18;
+		evidence[1].caid = 0x1814; evidence[1].provid = 0;
+		evidence[1].provider_known = 1; evidence[1].score = 50;
+		evidence[1].matches = 1; evidence[1].proofs = 0;
+		in.nr48_reps = 2; in.r48_reps = evidence;
+		int len = monjson_build(big, sizeof(big), &in);
+		chk(len > 0, "R48 evidence doc built", len);
+		chk(has(big, "\"r48_source_reputation\":{\"scope\":\"source-caid-provider\",\"rows\":["),
+			"R48 evidence section present", 0);
+		chk(has(big, "\"source_type\":1,\"source_id\":17,\"caid\":6164,\"provider\":0,\"provider_known\":0,\"score\":38,\"matches\":2,\"proofs\":5,\"last_proof_tick\":120000,\"clean_after_proof\":2,\"rank_delayed\":1,\"last_evidence_tick\":123456"),
+			"unknown provider and rank-delay state retained", 0);
+		chk(has(big, "\"source_type\":1,\"source_id\":18,\"caid\":6164,\"provider\":0,\"provider_known\":1"),
+			"known provider zero remains distinct", 0);
+		chk(!has(big, ",}") && !has(big, ",]"), "R48 evidence comma discipline", 0);
+	}
+
+	/* ---- 8. snapshot row counts/pointers are bounded at the pure API ---- */
+	{
+		struct monjson_in in;
+		char guarded[16];
+		memset(&in, 0, sizeof(in));
+		memset(guarded, CANARY, sizeof(guarded));
+		in.nr48_reps = MONJSON_MAX_R48_REPS + 1;
+		in.r48_reps = (const struct monjson_r48_rep *)guarded;
+		int rc = monjson_build(guarded, sizeof(guarded), &in);
+		chk(rc == -1 && guarded[0] == 0 && (unsigned char)guarded[1] == CANARY,
+			"R48 row count over bound rejected before dereference", rc);
+
+		memset(guarded, CANARY, sizeof(guarded));
+		in.nr48_reps = 1;
+		in.r48_reps = NULL;
+		rc = monjson_build(guarded, sizeof(guarded), &in);
+		chk(rc == -1 && guarded[0] == 0 && (unsigned char)guarded[1] == CANARY,
+			"missing R48 row pointer rejected", rc);
+	}
+
+	/* ---- 9. overflow: the whole document is abandoned ---- */
 	{
 		struct monjson_in in;
 		struct monjson_peer peers[2];
@@ -172,7 +227,7 @@ int main(void)
 		chk(tiny[63] == 0x41, "overflow respected the cap", 0);
 	}
 
-	/* ---- 8. canary around a full build ---- */
+	/* ---- 10. canary around a full build ---- */
 	{
 		struct monjson_in in;
 		struct monjson_peer peers[MONJSON_MAX_PEERS];

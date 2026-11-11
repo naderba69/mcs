@@ -1,4 +1,6 @@
 #include "tick_math.h"
+#include "cache-pipe-codec.h"
+#include "cache-origin.h"
 #include "biss.h"  /* BISS key management */
 #include "caid-optimizations.h"  /* CAID-specific optimizations */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
@@ -38,6 +40,49 @@ uint32_t ecm_get_effective_cache_time(ECM_DATA *ecm, uint32_t default_time)
         return provider_time;
     }
     return default_time;
+}
+
+/* R48 D-2 / D111 A1: explicit CACHE TIMEOUT wins over explicit SERVER TIMEOUT;
+ * either operator value wins over the CAID preset. With CACHE EVIDENCE OFF,
+ * preserve that resolved value unchanged. When armed, it seeds learning and is
+ * also the operator ceiling, so learning never erases the explicit choice. */
+static uint32_t ecm_cache_wait_timeout(ECM_DATA *ecm,
+                                       struct cardserver_data *cs,
+                                       uint32_t now_ms)
+{
+    uint32_t preset = caid_integration_get_cache_timeout(ecm->caid);
+    uint32_t cache_timeout = cs->option.cachetimeout > 0 ?
+                             (uint32_t)cs->option.cachetimeout : 0;
+    uint32_t server_timeout = cs->option.server.timeout;
+    uint32_t baseline = r48_cache_window_configured_ms(
+        preset, cache_timeout,
+        cs->option.cachetimeout_explicit,
+        server_timeout,
+        cs->option.server.timeout_explicit);
+    uint32_t ceiling = baseline;
+    if (!cs->option.cache_evidence) return baseline;
+    return r48_cache_window_get_timeout(cs->id, ecm->caid, baseline,
+                                        ceiling, now_ms, 1);
+}
+
+/* Protocol handlers historically scheduled their first worker pass from
+ * CACHE TIMEOUT (including an immediate pass for zero). Preserve that behavior
+ * when OFF; when ON, allow the learned value to shorten, never lengthen, a
+ * positive initial wait. The worker then keeps the same effective deadline. */
+uint32_t ecm_get_cache_initial_delay_ms(struct ecm_request *request,
+                                        struct cardserver_data *cs,
+                                        uint32_t now_ms)
+{
+    ECM_DATA *ecm = (ECM_DATA *)request;
+    uint32_t configured_ms;
+    uint32_t learned_ms;
+    if (!ecm || !cs) return 0;
+    configured_ms = cs->option.cachetimeout > 0 ?
+                    (uint32_t)cs->option.cachetimeout : 0;
+    if (!cs->option.cache_evidence || !configured_ms)
+        return configured_ms;
+    learned_ms = ecm_cache_wait_timeout(ecm, cs, now_ms);
+    return r48_cache_window_initial_schedule_ms(configured_ms, learned_ms, 1);
 }
 
 void clients_check_sendcw(ECM_DATA *ecm, const struct ledger_delivery_snapshot *delivery)
@@ -142,10 +187,119 @@ int ecm_faileddcw( ECM_DATA *ecm )
 	return 1;
 }
 
+/* Caller holds lockecm. A reputation tie is a reference request, not merely a
+ * scheduling hint: preserve the selected candidate through one outstanding or
+ * normal line attempt, but cap added latency at the D111 window and never cross
+ * the configured decode deadline. */
+static uint32_t cache_verify_timeout_ms(ECM_DATA *ecm,
+                                        struct cardserver_data *cs)
+{
+	uint32_t timeout;
+	if (!ecm || !cs || ecm->period <= 0) return 0;
+	timeout = ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout);
+	if (timeout && (uint32_t)ecm->period > UINT32_MAX / timeout)
+		return UINT32_MAX;
+	return timeout * (uint32_t)ecm->period;
+}
+
+/* D111 allows at most +50 ms over the stock response path. Leave 10 ms for
+ * worker wake-up/queueing jitter, and never extend beyond the decode deadline. */
+#define CACHE_VERIFY_MAX_HOLD_MS 40u
+
+static int cache_verify_hold_expired(ECM_DATA *ecm, uint32_t now_ms)
+{
+	uint32_t timeout_ms;
+	if (!ecm || !ecm->cs) return 1;
+	timeout_ms = cache_verify_timeout_ms(ecm, ecm->cs);
+	if (!timeout_ms || tick32_elapsed(now_ms, ecm->recvtime) >= timeout_ms)
+		return 1;
+	return tick32_deadline_reached(now_ms, ecm->cache_verify_deadline);
+}
+
+static int cache_candidate_schedule_or_handoff(ECM_DATA *ecm,
+                                                const uint8_t cw[16],
+                                                uint32_t peerid, int cwmark,
+                                                uint8_t origin_mask,
+                                                int verify_line,
+                                                uint32_t now_ms)
+{
+	struct cardserver_data *cs;
+	uint32_t timeout_ms, elapsed_ms, hold_ms;
+	int waiting;
+	if (!ecm || !cw || !cache_origin_mask_valid(origin_mask) ||
+	    !ecm_request_lifetime_id_load(ecm)) return 0;
+	cs = ecm->cs;
+	if (!cs || !cs->option.fallowcache) return 0;
+	if (ecm->cache_verify_pending) return 1; /* Preserve the first selection. */
+	waiting = (ecm->dcwstatus == STAT_DCW_WAITCACHE ||
+	           ecm->dcwstatus == STAT_DCW_WAIT);
+	if (verify_line && cs->option.cache_evidence && !ecm->cache_verify_requested &&
+	    waiting) {
+		timeout_ms = cache_verify_timeout_ms(ecm, cs);
+		elapsed_ms = tick32_elapsed(now_ms, ecm->recvtime);
+		ecm->cache_verify_requested = 1; /* one tie gets one reference attempt */
+		if (timeout_ms && elapsed_ms < timeout_ms) {
+			hold_ms = timeout_ms - elapsed_ms;
+			if (hold_ms > CACHE_VERIFY_MAX_HOLD_MS)
+				hold_ms = CACHE_VERIFY_MAX_HOLD_MS;
+			ecm->cache_verify_pending = 1;
+			ecm->cache_verify_deadline = now_ms + hold_ms;
+			ecm->cache_verify_dispatched =
+			    !!(ecm->server_totalwait || ecm->cache_verify_response_queued);
+			ecm->cache_verify_origin_mask = origin_mask;
+			ecm->cache_verify_peerid = peerid;
+			ecm->cache_verify_cwmark = cwmark;
+			memcpy(ecm->cache_verify_cw, cw,
+			       sizeof(ecm->cache_verify_cw));
+			ecm->checktime = 1;
+			ecm->waitserver = 0;
+			if (ecm->trace_instance)
+				user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+				    0, 0, elapsed_ms,
+				    ecm->cache_verify_dispatched
+				        ? "cache reputation tie: waiting for outstanding line reference"
+				        : "cache reputation tie: scheduling one line request before fallback");
+			return 1;
+		}
+		ecm->cache_verify_deadline = 0;
+		if (ecm->trace_instance)
+			user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+			    0, 0, elapsed_ms,
+			    "cache reputation tie: decode deadline reached; immediate cache fallback");
+	}
+	ecm_setdcw_marked(ecm, (uint8_t *)cw, DCW_SOURCE_CACHE, (int)peerid,
+	                  cwmark, origin_mask);
+	return 0;
+}
+
 void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 {
+	int cache_verify_dispatch = 0;
 	ecm->checktime = 0; // invalid
 	ecm->waitserver = 0;
+	if (ecm->cache_verify_pending) {
+			struct cardserver_data *cs = ecm->cs;
+			int deadline_reached = cache_verify_hold_expired(ecm, ticks);
+			/* A line frame already queued precedes fallback in the same FIFO.
+			 * Otherwise cap verification latency at the short D111 window and
+			 * always stay inside the request's decode deadline. */
+		if (!cs || (ecm->dcwstatus != STAT_DCW_WAITCACHE &&
+		            ecm->dcwstatus != STAT_DCW_WAIT))
+			return;
+		if (ecm->cache_verify_dispatched) {
+			if (!deadline_reached &&
+			    (ecm->server_totalwait || ecm->cache_verify_response_queued)) {
+					ecm->checktime = ecm->cache_verify_deadline;
+				ecm->waitserver = 1;
+				return;
+			}
+			/* check_sendecm performs the single hand-off after this wait state. */
+			return;
+		}
+		cache_verify_dispatch = 1;
+		ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
+		goto send_ecm;
+	}
 
 	// Record channel access for prefetching, cache priority, and warming
 	prefetch_record(ecm->caid, ecm->provid, ecm->sid);
@@ -217,7 +371,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 				if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
 				    0, 0, ticks-ecm->recvtime, "cache lookup invoked; pipe delivery and result not confirmed");
 				ecm->waitcache = 1;
-				uint32_t cache_timeout = caid_integration_get_cache_timeout(ecm->caid);
+				uint32_t cache_timeout = ecm_cache_wait_timeout(ecm, cs, ticks);
 				if (ecm->trace_instance) {
 					char detail[128];
 					snprintf(detail, sizeof(detail), "cache wait policy: ECM thread timeout=%u ms; profile=%u ms; static=%s; wait may end early",
@@ -231,7 +385,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 			else ecm_request_set_dcwstatus(ecm, STAT_DCW_WAIT);
 		}
 		else {
-			uint32_t cache_timeout = caid_integration_get_cache_timeout(ecm->caid);
+			uint32_t cache_timeout = ecm_cache_wait_timeout(ecm, cs, ticks);
 			if (ecm->trace_instance) {
 				char detail[128];
 				snprintf(detail, sizeof(detail), "cache wait policy: ECM thread timeout=%u ms; profile=%u ms; static=%s; wait may end early",
@@ -251,6 +405,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 	}
 
 	// SEND ECM
+send_ecm:
 	if ( (ecm->dcwstatus==STAT_DCW_WAIT) ) {
 		// Check Profile
 		struct cardserver_data *cs = ecm->cs;
@@ -262,6 +417,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		//check for decode failed
 		// Check for Max used Servers
 		if ( (cs->option.server.max>0) && (ecm->server_totalsent>=cs->option.server.max) ) {
+			if (cache_verify_dispatch) return;
 			if (!ecm->server_totalwait) {
 				ecm->statusmsg = "Decode failed, max servers is reached and no more servers to wait";
 				if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, ticks - ecm->recvtime, "maximum servers reached");
@@ -276,6 +432,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		}
 		// Check for ECM TimeOut (CAID:Provider-aware)
 		else if ( (ticks-ecm->recvtime) >= ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period ) {
+			if (cache_verify_dispatch) return;
 			ecm->statusmsg = "Decode failed, dcw timeout";
 			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, ticks - ecm->recvtime, "DCW timeout");
 			if (!ecm_faileddcw(ecm)) return;
@@ -293,6 +450,15 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 				if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
 				    0, 0, ticks-ecm->recvtime, "cache peer request invoked; pipe delivery not confirmed");
 				ecm->cachestatus = ECM_CACHE_REQ;
+			}
+			else if (ecm->trace_instance) {
+				char detail[128];
+				snprintf(detail, sizeof(detail), "cache peer request skipped: fallow=%u sendreq=%u status=%u",
+				         (unsigned)cs->option.fallowcache,
+				         (unsigned)cs->option.cachesendreq,
+				         (unsigned)ecm->cachestatus);
+				user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE, 0, 0,
+				                        ticks-ecm->recvtime, detail);
 			}
 			// check for decode failed with no remaining server to wait, send to new cardserver
 			if ( !ecm->server_totalwait
@@ -312,26 +478,11 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 				newsrv->busycard = psrvlist[0]->card; // dont save pointers!!!
 				newsrv->busycardid = psrvlist[0]->shareid;
 
-				/* SMART-SERVER-SELECT: Check if selected server should be skipped
-				 * due to quarantine or very low trust score */
-				if (smartselect_should_skip((uint32_t)newsrv->id, ecm->caid, ecm->provid, ecm->sid, ticks)) {
-					debugf(0, " [SMART-SELECT] Server %d skipped (quarantined/low score) for %04X:%06X:%04X\n",
-						newsrv->id, ecm->caid, ecm->provid, ecm->sid);
-					/* Skip this server, try next iteration */
-					return;
-				}
-
-				/* CACHE-AI: Check if peer should be skipped (Level 2+5)
-				 * Skip banned/low-trust peers, use tier-based timeout */
-				if (ci_should_skip_peer((uint32_t)newsrv->id, ecm->caid, ecm->provid, ecm->sid)) {
-					debugf(0, " [CACHE-AI] Server %d skipped (low trust/banned) for %04X:%06X:%04X\n",
-						newsrv->id, ecm->caid, ecm->provid, ecm->sid);
-					return;
-				}
-
+				/* D111: adaptive cache/source evidence may reorder cache paths,
+				 * but never auto-excludes the operator's line-server reference. */
 				/* ECM DOUBLE CHECK — Verify CW from multiple sources (activated 2026-10-28)
 				 * For certain CAIDs, require CW confirmation from 2+ servers */
-				if (ecm_doublecheck_needed(ecm->caid)) {
+				if (!cache_verify_dispatch && ecm_doublecheck_needed(ecm->caid)) {
 					ecm_doublecheck_start(ecm->hash, ecm->caid, ecm->provid, ecm->sid);
 					debugf(0, " [ECM-DBLCHK] Double check started for %04X:%06X:%04X hash=%08X\n",
 						ecm->caid, ecm->provid, ecm->sid, ecm->hash);
@@ -448,7 +599,8 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 					ecm->checktime = ecm->recvtime + ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period; // CAID:Provider-aware timeout
 
 #ifdef BUSY_SERVER
-					if (!ecm->server_totalwait && !ecm->server_totalsent) {
+					if (!ecm->server_totalwait && !ecm->server_totalsent &&
+					    !cache_verify_dispatch) {
 						ecm->statusmsg = "Decode failed, no free server";
 						if (!ecm_faileddcw(ecm)) return;
 						cs->ecmbusysrv++;
@@ -463,6 +615,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		}
 		}
 		else if (!ecm->server_totalwait) {
+			if (cache_verify_dispatch) return;
 			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED,
 			    0, 0, ticks - ecm->recvtime, "server dispatch window expired; no pending server");
 			ecm->statusmsg = "Decode failed, no server open this channel";
@@ -484,6 +637,83 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 	}
 }
 
+static void cache_verify_handoff_pending(ECM_DATA *ecm, uint32_t now_ms)
+{
+	struct cardserver_data *cs;
+	int deadline_reached;
+	if (!ecm || !ecm->cache_verify_pending || !ecm->cache_verify_dispatched) return;
+	cs = ecm->cs;
+	deadline_reached = cache_verify_hold_expired(ecm, now_ms);
+	if (!deadline_reached &&
+	    (ecm->server_totalwait || ecm->cache_verify_response_queued)) return;
+	if (!cache_origin_mask_valid(ecm->cache_verify_origin_mask)) {
+		ecm->cache_verify_pending = 0;
+		ecm->cache_verify_dispatched = 0;
+		ecm->cache_verify_deadline = 0;
+		ecm->checktime = 1;
+		ecm->waitserver = 0;
+		return;
+	}
+	if (ecm->dcwstatus == STAT_DCW_FAILED) {
+		ecm->cache_verify_pending = 0;
+		ecm->cache_verify_dispatched = 0;
+		ecm->cache_verify_deadline = 0;
+		return;
+	}
+	/* The line response is either resolved, unavailable, or at the existing
+	 * decode deadline. Its Set-DCW frame precedes this fallback in the same
+	 * FIFO, so a reply already in flight still wins before the cache candidate. */
+	if (ecm->trace_instance)
+		user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+		    0, 0, tick32_elapsed(now_ms, ecm->recvtime),
+		    "cache reputation tie: cache candidate queued after line resolution or decode-deadline fallback");
+	ecm->cache_verify_pending = 0;
+	ecm->cache_verify_dispatched = 0;
+	ecm->cache_verify_deadline = 0;
+	if (ecm->dcwstatus == STAT_DCW_SUCCESS) {
+		/* An unusual earlier success can still use this candidate as evidence;
+		 * it must not hold the already-completed request open. */
+		ecm->cache_verify_queued = 0;
+	} else {
+		ecm->cache_verify_queued = 1;
+		ecm->checktime = 0;
+		ecm->waitserver = 0;
+	}
+	if (!ecm_setdcw_marked(ecm, ecm->cache_verify_cw, DCW_SOURCE_CACHE,
+	                       (int)ecm->cache_verify_peerid,
+	                       ecm->cache_verify_cwmark,
+	                       ecm->cache_verify_origin_mask)) {
+		ecm->cache_verify_queued = 0;
+		if (prg.restart) {
+			/* A failed required pipe write requests process recovery. Preserve the
+			 * arm until restart so an intervening worker pass cannot fail the ECM. */
+			ecm->cache_verify_pending = 1;
+			ecm->cache_verify_dispatched = 1;
+			ecm->cache_verify_deadline = now_ms;
+			ecm->checktime = now_ms + 10u;
+			ecm->waitserver = 0;
+		} else {
+			/* A synchronous non-thread validation rejected the candidate. Resume
+			 * normal line handling instead of retrying the same invalid CW forever. */
+			ecm->cache_verify_pending = 0;
+			ecm->cache_verify_dispatched = 0;
+			ecm->cache_verify_deadline = 0;
+			ecm->checktime = 1;
+			ecm->waitserver = 0;
+		}
+	}
+}
+
+/* Shared state transition for the ECM worker after check_ecm has either
+ * dispatched/reused a line request or found no usable line. */
+static void cache_verify_after_ecm_check(ECM_DATA *ecm, uint32_t now_ms)
+{
+	if (!ecm || !ecm->cache_verify_pending) return;
+	if (!ecm->cache_verify_dispatched)
+		ecm->cache_verify_dispatched = 1;
+	cache_verify_handoff_pending(ecm, now_ms);
+}
+
 static inline void check_sendecm(int newserver)
 {
 	uint32_t ticks = GetTickCount();
@@ -494,7 +724,14 @@ static inline void check_sendecm(int newserver)
 		if (req->checktime) { // (checktime==0) --> do nothing
 			if ( (req->checktime == 1 || tick32_deadline_reached(ticks, req->checktime)) ||
 			    (req->waitserver && newserver) ) {
+				int cache_verify_pending = req->cache_verify_pending;
 				check_ecm(req, ticks);
+				if (cache_verify_pending && req->cache_verify_pending) {
+					/* One normal worker pass, then wait for the line or enqueue
+					 * the cache fallback using the shared state transition. */
+					ticks = GetTickCount();
+					cache_verify_after_ecm_check(req, ticks);
+				}
 				ticks = GetTickCount();
 			}
 		}
@@ -583,7 +820,7 @@ void recv_ecm_pipe()
 
 				case PIPE_CACHE_FIND_FAILED:
 					if (len != cache2ecm_base_len) break;
-					if (!get_cache2ecm(buf, (size_t)len, &req, NULL, NULL, NULL)) break;
+					if (!get_cache2ecm(buf, (size_t)len, &req, NULL, NULL, NULL, NULL)) break;
 					ecm_lock();
 					ecm = req.ecm; //search_ecmdata_byhash( req.caid, req.sid, req.hash );
 					if (cache_ecm_snapshot_validate(ecm, req.ecm_lifetime_id) &&
@@ -600,31 +837,38 @@ void recv_ecm_pipe()
 
 				case PIPE_CACHE_FIND_SUCCESS:  // SET DCW
 					{
-					if (len != cache2ecm_base_len + 4 + 16 + 1) break;
-					int ccymark = NO_CYCLE;   /* TASK 2.5: what the sender declared */
-					if (!get_cache2ecm(buf, (size_t)len, &req, cw, &ccymark, &peerid)) break;
+						if (len != cache2ecm_base_len + (int)CACHE_PIPE_FIND_SUCCESS_EXTRA_LEN) break;
+						int ccymark = NO_CYCLE;   /* TASK 2.5: what the sender declared */
+						uint8_t origin_mask = 0, verify_line = 0;
+						if (!get_cache2ecm_with_verify(buf, (size_t)len, &req, cw,
+						        &ccymark, &peerid, &origin_mask, &verify_line)) break;
 
-					ecm_lock();
-					ecm = req.ecm; //search_ecmdata_byhash( req.caid, req.sid, req.hash );
-					if (cache_ecm_snapshot_validate(ecm, req.ecm_lifetime_id) &&
-					    ecm_request_lifetime_matches(ecm, req.ecm, req.ecm_lifetime_id)) {
-					if ( (ecm->caid==req.caid)&&(ecm->hash==req.hash)&&(ecm->sid==req.sid) ) {
-						struct cardserver_data *cs = ecm->cs;
-						/*
-						 * TASK 3.16: the push can already be in this pipe
-						 * when the failure is committed. WAIT and WAITCACHE
-						 * are still waiting and must be served. A FAILED
-						 * ECM has already told its client decode-failed;
-						 * reviving it delivers a key after that answer.
-						 * SUCCESS is left to ecm_setdcwdata, which returns.
-						 */
-						if (ecm->dcwstatus==STAT_DCW_FAILED) {
-							debugf(DBG_ERROR, " !!! cache: not reviving a failed ECM ch %04x:%06x:%04x\n", ecm->caid, ecm->provid, ecm->sid);
+						ecm_lock();
+						ecm = req.ecm; //search_ecmdata_byhash( req.caid, req.sid, req.hash);
+						if (cache_ecm_snapshot_validate(ecm, req.ecm_lifetime_id) &&
+						    ecm_request_lifetime_matches(ecm, req.ecm, req.ecm_lifetime_id)) {
+							if ((ecm->caid==req.caid)&&(ecm->hash==req.hash)&&(ecm->sid==req.sid)) {
+								struct cardserver_data *cs = ecm->cs;
+								/*
+								 * TASK 3.16: the push can already be in this pipe
+								 * when the failure is committed. WAIT and WAITCACHE
+								 * are still waiting and must be served. A FAILED
+								 * ECM has already told its client decode-failed;
+								 * reviving it delivers a key after that answer.
+								 * SUCCESS is left to ecm_setdcwdata, which returns.
+								 */
+								if (ecm->dcwstatus==STAT_DCW_FAILED) {
+									debugf(DBG_ERROR, " !!! cache: not reviving a failed ECM ch %04x:%06x:%04x\n", ecm->caid, ecm->provid, ecm->sid);
+								}
+								else if (cs && cs->option.fallowcache) {
+										uint32_t now_ms = GetTickCount();
+										cache_candidate_schedule_or_handoff(
+										    ecm, cw, peerid, ccymark, origin_mask,
+										    verify_line, now_ms);
 						}
-						else if (cs) if (cs->option.fallowcache) ecm_setdcw_marked( ecm, cw, DCW_SOURCE_CACHE, peerid, ccymark );
-					}
-					}
-					ecm_unlock();
+							}
+						}
+						ecm_unlock();
 					}
 					break;
 

@@ -7,11 +7,12 @@
  *   delivered: a successful protocol send handed that CW to a client;
  *   failed:    that same client retried the exact ECM after that delivery.
  *
- * A proof is possible only for a failed delivered candidate when a different
- * source has an accepted, different CW for the same complete ECM identity.
- * Merely being offered is never enough to corroborate, accuse, or complete a
- * proof. Failures are matched by ECM identity, CW bytes, source type, and
- * source ID; they never create ledger entries.
+ * A proof is possible only for a failed delivered non-reference candidate when
+ * an accepted line-server reference has a different CW for the same complete
+ * ECM identity. Peer/peer agreement never proves either source. Merely being
+ * offered is never enough to corroborate, accuse, or complete a proof. Failures
+ * are matched by ECM identity, CW bytes, source type, and source ID; they never
+ * create ledger entries.
  *
  * The table is fixed-size and allocation-free. Callers serialize access with
  * trust_lock. Timestamps are 32-bit GetTickCount values; all age and elapsed
@@ -38,6 +39,7 @@
 #define LEDGER_DELIVERED          6
 #define LEDGER_FAILURE_RECORDED   7
 #define LEDGER_FULL               8
+#define LEDGER_REFERENCE_AGREEMENT 9
 
 #define LEDGER_SLOT_FIRST         0
 #define LEDGER_SLOT_OTHER         1
@@ -54,6 +56,10 @@ struct ledger_identity {
 	uint16_t ecmlen;
 	uint8_t  tag;
 	uint8_t  provider_known;
+	/* Captured per-profile opt-in; deliberately not part of ECM identity.
+	 * It is copied to an accepted candidate, never merged across the shared
+	 * ledger entry. */
+	uint8_t  cache_evidence_enabled;
 };
 
 struct ledger_candidate {
@@ -70,6 +76,10 @@ struct ledger_candidate {
 	uint8_t  delivered;
 	uint8_t  failed;
 	uint8_t  proof_done;
+	uint8_t  reference_credited;
+	/* Latched on first acceptance: a later coalesced OFF/ON profile cannot
+	 * retroactively arm this candidate's already-observed ledger evidence. */
+	uint8_t  cache_evidence_enabled;
 };
 
 struct ledger_entry {
@@ -132,6 +142,22 @@ static inline int ledger_identity_equal(const struct ledger_identity *a,
 	       a->sid == b->sid && a->tag == b->tag && a->ecmlen == b->ecmlen;
 }
 
+/* Callers timestamp before taking trust_lock; concurrent events may therefore
+ * enter the ledger in a different order. A delta within the short 20s ledger
+ * window of 2^32 is a stale captured tick, not an expired row. */
+static inline uint32_t ledger_elapsed(uint32_t now, uint32_t then)
+{
+	uint32_t elapsed = (uint32_t)(now - then);
+	if (elapsed > UINT32_MAX - LEDGER_MAX_AGE_MS) return 0;
+	return elapsed;
+}
+
+static inline void ledger_touch(struct ledger_entry *entry, uint32_t ticks_now)
+{
+	if (entry && ledger_elapsed(ticks_now, entry->seen_at) > 0)
+		entry->seen_at = ticks_now;
+}
+
 __attribute__((unused))
 static void ledger_init(struct ledger_table *t)
 {
@@ -149,7 +175,7 @@ static inline struct ledger_entry *ledger_find(struct ledger_table *t,
 	for (i = 0; i < LEDGER_TABLE_SIZE; i++) {
 		struct ledger_entry *e = &t->e[i];
 		if (!e->used) continue;
-		if ((uint32_t)(ticks_now - e->seen_at) > LEDGER_MAX_AGE_MS) continue;
+		if (ledger_elapsed(ticks_now, e->seen_at) > LEDGER_MAX_AGE_MS) continue;
 		if (ledger_identity_equal(&e->identity, id)) return e;
 	}
 	return NULL;
@@ -172,11 +198,11 @@ static inline struct ledger_entry *ledger_slot_for(struct ledger_table *t,
 	for (i = 0; i < LEDGER_TABLE_SIZE; i++) {
 		struct ledger_entry *e = &t->e[i];
 		uint32_t age;
-		if (!e->used || (uint32_t)(ticks_now - e->seen_at) > LEDGER_MAX_AGE_MS) {
+		if (!e->used || ledger_elapsed(ticks_now, e->seen_at) > LEDGER_MAX_AGE_MS) {
 			if (free_slot < 0) free_slot = i;
 			continue;
 		}
-		age = (uint32_t)(ticks_now - e->seen_at);
+		age = ledger_elapsed(ticks_now, e->seen_at);
 		if (victim < 0 || age > oldest_age) {
 			oldest_age = age;
 			victim = i;
@@ -188,6 +214,8 @@ static inline struct ledger_entry *ledger_slot_for(struct ledger_table *t,
 	memset(&t->e[victim], 0, sizeof(t->e[victim]));
 	t->e[victim].identity = *id;
 	t->e[victim].identity.provider_known = !!id->provider_known;
+	/* Opt-in belongs to the accepted candidate, not the shared ECM row. */
+	t->e[victim].identity.cache_evidence_enabled = 0;
 	t->e[victim].seen_at = ticks_now;
 	t->e[victim].used = 1;
 	return &t->e[victim];
@@ -252,8 +280,8 @@ static inline int ledger_candidate_find_accepted(const struct ledger_entry *e,
 	return -1;
 }
 
-/* Fill a proof snapshot with the actual failed delivery first, then the
- * accepted independent alternative. No table pointers escape this function. */
+/* Fill a proof snapshot with the actual failed delivery first, then its
+ * accepted line-server reference. No table pointers escape this function. */
 static inline void ledger_proof_event(const struct ledger_entry *e,
                                       int delivered_slot, int alternative_slot,
                                       uint32_t ticks_now,
@@ -263,6 +291,7 @@ static inline void ledger_proof_event(const struct ledger_entry *e,
 	const struct ledger_candidate *alternative = &e->candidate[alternative_slot];
 	ledger_event_reset(ev);
 	ledger_snapshot(e, ev);
+	ev->identity.cache_evidence_enabled = delivered->cache_evidence_enabled;
 	memcpy(ev->cw[0], delivered->accepted_cw, 16);
 	memcpy(ev->cw[1], alternative->accepted_cw, 16);
 	ev->src[0][0] = delivered->srctype;
@@ -287,24 +316,69 @@ static inline void ledger_proof_event(const struct ledger_entry *e,
 static inline int ledger_next_proof(struct ledger_table *t,
                                     const struct ledger_identity *id,
                                     uint32_t ticks_now,
+                                    int reference_srctype,
                                     struct ledger_event *ev)
 {
 	struct ledger_entry *e = ledger_find(t, id, ticks_now);
 	int d, a;
 	if (!ev) return LEDGER_NONE;
 	ledger_event_reset(ev);
-	if (!e) return LEDGER_NONE;
+	if (!e || !reference_srctype) return LEDGER_NONE;
 	for (d = 0; d < e->nslot; d++) {
 		struct ledger_candidate *delivered = &e->candidate[d];
-		if (!delivered->delivered || !delivered->failed || delivered->proof_done) continue;
+		if (!delivered->delivered || !delivered->failed || delivered->proof_done ||
+		    delivered->srctype == reference_srctype) continue;
 		for (a = 0; a < e->nslot; a++) {
 			struct ledger_candidate *alternative = &e->candidate[a];
-			if (!alternative->accepted || a == d) continue;
+			if (!alternative->accepted || alternative->srctype != reference_srctype ||
+			    a == d) continue;
 			if (ledger_source_equal(alternative, delivered->srctype, delivered->srcid)) continue;
 			if (memcmp(alternative->accepted_cw, delivered->accepted_cw, 16) == 0) continue;
 			delivered->proof_done = 1;
 			ledger_proof_event(e, d, a, ticks_now, ev);
 			return LEDGER_PROOF;
+		}
+	}
+	return LEDGER_NONE;
+}
+
+/* Emit one cache/reference match only after both candidate records have passed
+ * acceptance. Other source classes cannot consume credit or pollute cache
+ * reputation. Offers and peer-peer agreement can never return this event. */
+static inline int ledger_next_reference_agreement(
+		struct ledger_table *t, const struct ledger_identity *id,
+		uint32_t ticks_now, int candidate_srctype,
+		int reference_srctype, struct ledger_event *ev)
+{
+	struct ledger_entry *e = ledger_find(t, id, ticks_now);
+	int p, r;
+	if (!ev) return LEDGER_NONE;
+	ledger_event_reset(ev);
+	if (!e || !candidate_srctype || !reference_srctype ||
+	    candidate_srctype == reference_srctype) return LEDGER_NONE;
+	for (p = 0; p < e->nslot; p++) {
+		struct ledger_candidate *peer = &e->candidate[p];
+		if (!peer->accepted || peer->reference_credited ||
+		    peer->srctype != candidate_srctype) continue;
+		for (r = 0; r < e->nslot; r++) {
+			struct ledger_candidate *reference = &e->candidate[r];
+			if (!reference->accepted || reference->srctype != reference_srctype ||
+			    memcmp(peer->accepted_cw, reference->accepted_cw, 16) != 0) continue;
+			peer->reference_credited = 1;
+			ledger_snapshot(e, ev);
+			ev->identity.cache_evidence_enabled = peer->cache_evidence_enabled;
+			memcpy(ev->cw[0], peer->accepted_cw, 16);
+			memcpy(ev->cw[1], reference->accepted_cw, 16);
+			ev->src[0][0] = peer->srctype;
+			ev->src[0][1] = peer->srcid;
+			ev->src[1][0] = reference->srctype;
+			ev->src[1][1] = reference->srcid;
+			ev->accepted[0] = peer->accepted;
+			ev->accepted[1] = reference->accepted;
+			ev->what = LEDGER_REFERENCE_AGREEMENT;
+			ev->source_agreement = 1;
+			ev->ticks = ticks_now;
+			return LEDGER_REFERENCE_AGREEMENT;
 		}
 	}
 	return LEDGER_NONE;
@@ -328,7 +402,7 @@ static int ledger_candidate(struct ledger_table *t,
 	if (!t || !ev || !ledger_identity_valid(id) || !cw || srctype == 0) return LEDGER_NONE;
 	e = ledger_slot_for(t, id, ticks_now);
 	if (!e) return LEDGER_NONE;
-	e->seen_at = ticks_now;
+	ledger_touch(e, ticks_now);
 
 	exact = ledger_candidate_find_offer(e, cw, srctype, srcid);
 	if (exact >= 0) {
@@ -389,7 +463,8 @@ static int ledger_accept(struct ledger_table *t,
                          const struct ledger_identity *id,
                          const uint8_t *offered_cw, const uint8_t *accepted_cw,
                          int srctype, int srcid,
-                         uint32_t ticks_now, struct ledger_event *ev)
+                         uint32_t ticks_now, int reference_srctype,
+                         struct ledger_event *ev)
 {
 	struct ledger_entry *e;
 	int slot, rc;
@@ -400,13 +475,17 @@ static int ledger_accept(struct ledger_table *t,
 	if (!offered_cw || !accepted_cw) return LEDGER_NONE;
 	slot = ledger_candidate_find_offer(e, offered_cw, srctype, srcid);
 	if (slot < 0) { ledger_snapshot(e, ev); return LEDGER_NONE; }
-	e->seen_at = ticks_now;
+	ledger_touch(e, ticks_now);
 	if (!e->candidate[slot].accepted) {
 		e->candidate[slot].accepted = 1;
 		e->candidate[slot].accepted_at = ticks_now;
 		memcpy(e->candidate[slot].accepted_cw, accepted_cw, 16);
+		/* The first successful acceptance owns this candidate's opt-in state.
+		 * A later coalesced profile must not retroactively arm an OFF fact. */
+		e->candidate[slot].cache_evidence_enabled =
+		    (uint8_t)!!id->cache_evidence_enabled;
 	}
-	rc = ledger_next_proof(t, id, ticks_now, ev);
+	rc = ledger_next_proof(t, id, ticks_now, reference_srctype, ev);
 	if (rc == LEDGER_PROOF) return rc;
 	ledger_event_reset(ev);
 	ledger_snapshot(e, ev);
@@ -421,7 +500,8 @@ __attribute__((unused))
 static int ledger_delivered(struct ledger_table *t,
                             const struct ledger_identity *id,
                             const uint8_t *cw, int srctype, int srcid,
-                            uint32_t ticks_now, struct ledger_event *ev)
+                            uint32_t ticks_now, int reference_srctype,
+                            struct ledger_event *ev)
 {
 	struct ledger_entry *e;
 	int slot, rc;
@@ -434,12 +514,12 @@ static int ledger_delivered(struct ledger_table *t,
 		ledger_snapshot(e, ev);
 		return LEDGER_NONE;
 	}
-	e->seen_at = ticks_now;
+	ledger_touch(e, ticks_now);
 	if (!e->candidate[slot].delivered) {
 		e->candidate[slot].delivered = 1;
 		e->candidate[slot].delivered_at = ticks_now;
 	}
-	rc = ledger_next_proof(t, id, ticks_now, ev);
+	rc = ledger_next_proof(t, id, ticks_now, reference_srctype, ev);
 	if (rc == LEDGER_PROOF) return rc;
 	ledger_event_reset(ev);
 	ledger_snapshot(e, ev);
@@ -456,7 +536,7 @@ static int ledger_failed(struct ledger_table *t,
                          const struct ledger_identity *id,
                          const uint8_t *cw, int srctype, int srcid,
                          uint32_t delivered_at, uint32_t ticks_now,
-                         struct ledger_event *ev)
+                         int reference_srctype, struct ledger_event *ev)
 {
 	struct ledger_entry *e;
 	int slot, rc;
@@ -469,7 +549,7 @@ static int ledger_failed(struct ledger_table *t,
 		ledger_snapshot(e, ev);
 		return LEDGER_NONE;
 	}
-	e->seen_at = ticks_now;
+	ledger_touch(e, ticks_now);
 	e->candidate[slot].failed = 1;
 	e->candidate[slot].failed_at = ticks_now;
 	/* The protocol's saved last-delivery timestamp is client-specific. Use it
@@ -478,7 +558,7 @@ static int ledger_failed(struct ledger_table *t,
 	ledger_snapshot(e, ev);
 	ev->matched_delivery = 1;
 	ev->ticks = ticks_now;
-	rc = ledger_next_proof(t, id, ticks_now, ev);
+	rc = ledger_next_proof(t, id, ticks_now, reference_srctype, ev);
 	if (rc == LEDGER_PROOF) return rc;
 	ledger_event_reset(ev);
 	ledger_snapshot(e, ev);
@@ -501,7 +581,7 @@ static inline int ledger_format(const struct ledger_event *ev,
 		" !!! AGREEMENT MISMATCH: ch %04x:provider-%s%06x:%04x tag %02x len %u hash %08x ecm %02x%02x%02x%02x"
 		" | delivered source %d/%d key %02x%02x%02x%02x%02x%02x%02x%02x"
 		" accepted=%s delivered=%s failed=%s after %u ms"
-		" | independent source %d/%d key %02x%02x%02x%02x%02x%02x%02x%02x accepted=%s"
+			" | line reference %d/%d key %02x%02x%02x%02x%02x%02x%02x%02x accepted=%s"
 		" | proof recorded against %d/%d",
 		(unsigned)ev->identity.caid,
 		ev->identity.provider_known ? "known-" : "unknown-",

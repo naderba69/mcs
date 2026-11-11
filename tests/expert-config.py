@@ -13,6 +13,17 @@ subprocess.run([sys.executable, str(ROOT/'tools/generate-expert-config.py'), '--
 base, old = parse(ROOT/'multics-r24-optimized.cfg')
 template, new = parse(ROOT/'multics-r24-expert-reviewed.cfg')
 assert len(old) == len(new) == 72
+for label, globals_, profiles in (("optimized", base, old), ("expert-reviewed", template, new)):
+    for key in ('DEFAULT CACHE EVIDENCE', 'CACHE EVIDENCE'):
+        for value in globals_.get(key, []):
+            token = value.split('#', 1)[0].strip().upper()
+            assert token in {'0', '1', 'NO', 'YES', 'OFF', 'ON'}, (label, key, value)
+            assert token not in {'1', 'YES', 'ON'}, (label, key, value)
+    for profile in profiles:
+        for value in profile['kv'].get('CACHE EVIDENCE', []):
+            token = value.split('#', 1)[0].strip().upper()
+            assert token in {'0', '1', 'NO', 'YES', 'OFF', 'ON'}, (label, profile['name'], value)
+            assert token not in {'1', 'YES', 'ON'}, (label, profile['name'], value)
 assert set(template) == set(base)
 for key in base:
     if key not in {'HTTP PORT', 'HTTP USER', 'HTTP PASS'}:

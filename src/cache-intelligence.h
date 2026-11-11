@@ -771,11 +771,15 @@ static inline void ci_update_channel_peer(
  * LEVEL 5: REWARD & PENALTY
  * ============================================================================ */
 
-/* Record successful CW delivery */
+/* Record a successful delivery. `reference_confirmed` controls reputation only:
+ * under D111 a cache candidate can be accepted by local filters without being
+ * trustworthy, so cache-side success still updates operational counters/latency
+ * but cannot increase peer or channel trust until a line-server reference
+ * agrees. */
 static inline void ci_record_success(
     uint32_t peer_id,
     uint16_t caid, uint32_t provid, uint16_t sid,
-    uint32_t latency_ms) {
+    uint32_t latency_ms, int reference_confirmed) {
 
     if (!g_ci.enabled) return;
 
@@ -791,9 +795,11 @@ static inline void ci_record_success(
         peer->last_response_ms = latency_ms;
         peer->last_seen = now;
 
-        /* Reward: increase trust */
-        peer->trust_global += CI_REWARD_SUCCESS;
-        if (peer->trust_global > CI_TRUST_MAX) peer->trust_global = CI_TRUST_MAX;
+        /* Only independent reference confirmation earns reputation. */
+        if (reference_confirmed) {
+            peer->trust_global += CI_REWARD_SUCCESS;
+            if (peer->trust_global > CI_TRUST_MAX) peer->trust_global = CI_TRUST_MAX;
+        }
 
         /* Update average latency */
         if (peer->avg_latency_ms == 0) {
@@ -802,8 +808,9 @@ static inline void ci_record_success(
             peer->avg_latency_ms = (peer->avg_latency_ms * 7 + latency_ms) / 8;
         }
 
-        /* Recalculate tier */
-        peer->tier = ci_trust_to_tier(peer->trust_global);
+        /* An unreferenced cache acceptance must not alter tier state. */
+        if (reference_confirmed)
+            peer->tier = ci_trust_to_tier(peer->trust_global);
     }
 
     /* Update channel stats */
@@ -820,8 +827,9 @@ static inline void ci_record_success(
             ch->avg_decode_ms = (ch->avg_decode_ms * 7 + latency_ms) / 8;
         }
 
-        /* Update channel-peer relationship */
-        ci_update_channel_peer(ch, peer_id, 1, now);
+        /* A channel peer's ranking is reputation, not mere acceptance. */
+        if (reference_confirmed)
+            ci_update_channel_peer(ch, peer_id, 1, now);
     }
 
     g_ci.total_cw_accepted++;
