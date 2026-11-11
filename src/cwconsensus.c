@@ -104,27 +104,33 @@ static struct cwc_qslot *cwc_qslot_for(uint16_t caid, uint16_t sid,
 	}
 }
 
+static int cwc_q_is_quarantined(uint16_t caid, uint16_t sid,
+				 uint32_t provid, int provider_known,
+				 uint32_t now_ms)
+{
+	struct cwc_qslot *s = cwc_qslot_for(caid, sid, provid, provider_known, now_ms, 0);
+	if (!s || !s->quarantine_until) return 0;
+	return tick32_delta(now_ms, s->quarantine_until) < 0;
+}
+
 int cwconsensus_channel_quarantined(uint16_t caid, uint16_t sid,
 				    uint32_t provid, int provider_known,
 				    uint32_t now_ms)
 {
-	struct cwc_qslot *s;
 	if (!cwc_quarantine) return 0;
-	s = cwc_qslot_for(caid, sid, provid, provider_known, now_ms, 0);
-	if (!s || !s->quarantine_until) return 0;
-	/* quarantined while now is strictly before quarantine_until */
-	return tick32_delta(now_ms, s->quarantine_until) < 0;
+	/* Channel scope (caid+sid+provider) or provider scope (caid+provider,
+	 * sid=0xFFFF wildcard): either quarantines the cache candidate. */
+	if (cwc_q_is_quarantined(caid, sid, provid, provider_known, now_ms)) return 1;
+	if (provider_known && cwc_q_is_quarantined(caid, 0xFFFF, provid, provider_known, now_ms)) return 1;
+	return 0;
 }
 
-static void cwc_q_note_conflict(uint16_t caid, uint16_t sid,
-				uint32_t provid, int provider_known,
-				uint32_t now)
+static void cwc_q_note_one(uint16_t caid, uint16_t sid,
+			   uint32_t provid, int provider_known,
+			   uint32_t now)
 {
-	struct cwc_qslot *s;
-	if (!cwc_quarantine) return;
-	s = cwc_qslot_for(caid, sid, provid, provider_known, now, 1);
+	struct cwc_qslot *s = cwc_qslot_for(caid, sid, provid, provider_known, now, 1);
 	if (!s) return;
-	/* slide: drop conflicts older than 10 min */
 	if (s->nconflicts > 0 &&
 	    (uint32_t)(now - s->conflict_tick[0]) > CWC_Q_CONFLICT_WINDOW) {
 		s->conflict_tick[0] = s->conflict_tick[1];
@@ -137,6 +143,19 @@ static void cwc_q_note_conflict(uint16_t caid, uint16_t sid,
 	s->conflict_tick[s->nconflicts++] = now;
 	if (s->nconflicts >= 2)
 		s->quarantine_until = now + CWC_Q_HOLD_MS;
+}
+
+static void cwc_q_note_conflict(uint16_t caid, uint16_t sid,
+				uint32_t provid, int provider_known,
+				uint32_t now)
+{
+	if (!cwc_quarantine) return;
+	/* Channel scope + provider scope (sid wildcard): two weighted
+	 * conflicts on one channel quarantine the channel; two across
+	 * any channels of one provider quarantine the provider. */
+	cwc_q_note_one(caid, sid, provid, provider_known, now);
+	if (provider_known)
+		cwc_q_note_one(caid, 0xFFFF, provid, provider_known, now);
 }
 
 unsigned long cwconsensus_votes(void)    { return cwc_n_votes; }
