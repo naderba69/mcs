@@ -2597,9 +2597,19 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 			 * convictions keep their node marks: those judge the bytes.
 			 */
 			{
-				char detail[128];
-				snprintf(detail, sizeof(detail), "cache cycle mismatch: expected=%s; assessed=%s; incoming=%s",
-				         cwcy_str((int)pcache->cwcycle), cwcy_str((int)cwcycle), cwcy_str((int)incoming_cycle));
+				char detail[192];
+				/* R48 late-vs-wrong (observe only): late = bytes share
+				 * exactly one half with prevcw (stale period, correct
+				 * key material); wrong = neither half matches (bytes
+				 * judge the key, not just the declaration). */
+				const char *cls = "wrong";
+				if (!isnullDCW(pcache->prevcw)) {
+					int f = dcwcmp8(cw, pcache->prevcw);
+					int s = dcwcmp8(cw+8, pcache->prevcw+8);
+					if (f != s) cls = "late";
+				}
+				snprintf(detail, sizeof(detail), "cache cycle mismatch: expected=%s; assessed=%s; incoming=%s; class=%s",
+				         cwcy_str((int)pcache->cwcycle), cwcy_str((int)cwcycle), cwcy_str((int)incoming_cycle), cls);
 				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
 			}
 			/* A rejected declaration must not make a new stored candidate
