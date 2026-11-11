@@ -756,6 +756,7 @@ bfb3a851cf0621cef59278438da00a45  tests/cccam-dcw-check-trace.py
 a74d6b015bf048ea55a231a31cd7f351  tests/cccam-isolated.py
 6ab5c70ab7cba2e74e418bebbd559387  tests/cccam-late-dispatch.py
 b441cc558830accd6565352e3f038c55  tests/cccam-mintime.py
+f1d0ea91e018fb5043f134a4dfb05a02  tests/cccam-reconnect.py
 b660590b0a8c9ed2aca2fa38cabdd312  tests/cccam-repeated-cw.py
 62cbfcca0ef0fa275663d28e0ca59b77  tests/cccam-setdcw-recycle.py
 7d604bbe5c9d4eba9aab2696638f4460  tests/cccam-setdcw-trace-identity.py
