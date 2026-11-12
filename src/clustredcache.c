@@ -2515,22 +2515,44 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 				 * backwards mapping would misjudge the gate, so
 				 * this stays opt-in OFF until a field capture
 				 * confirms it per provider. */
-				if (cfg.cache.cycle_estimate && !isnullDCW(pcache->prevcw) &&
-				    pcache->cwcycle != NO_CYCLE) {
-					int first_same = dcwcmp8(cw, pcache->prevcw);
-					int second_same = dcwcmp8(cw+8, pcache->prevcw+8);
-					if (first_same && !second_same) {
-						cwcycle = CW1CYCLE;
-						cwdata->status |= DCW_CYCLE;
-						cwdata->cwcycle = cwcycle;
-						user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
-						    "cache cycle estimated temporally: CW1 (no marker)", cw);
-					} else if (!first_same && second_same) {
-						cwcycle = CW0CYCLE;
-						cwdata->status |= DCW_CYCLE;
-						cwdata->cwcycle = cwcycle;
-						user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
-						    "cache cycle estimated temporally: CW0 (no marker)", cw);
+				if (cfg.cache.cycle_estimate) {
+					if (!isnullDCW(pcache->prevcw) && pcache->cwcycle != NO_CYCLE) {
+						int first_same = dcwcmp8(cw, pcache->prevcw);
+						int second_same = dcwcmp8(cw+8, pcache->prevcw+8);
+						if (first_same && !second_same) {
+							cwcycle = CW1CYCLE;
+							cwdata->status |= DCW_CYCLE;
+							cwdata->cwcycle = cwcycle;
+							user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+							    "cache cycle estimated temporally: CW1 (no marker)", cw);
+						} else if (!first_same && second_same) {
+							cwcycle = CW0CYCLE;
+							cwdata->status |= DCW_CYCLE;
+							cwdata->cwcycle = cwcycle;
+							user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+							    "cache cycle estimated temporally: CW0 (no marker)", cw);
+						}
+					} else if (isnullDCW(pcache->prevcw) && pcache->cwcycle == NO_CYCLE) {
+						/* First CW for this channel: no prevcw and no expected
+						 * cycle. Estimate from ecmtag: 0x80 => CW1, 0x81 => CW0.
+						 * This assumes cw1cycle==0x80 (the common default). If
+						 * the provider uses cw1cycle==0x81, the estimate will
+						 * be backwards and the cycle gate below will refuse
+						 * the key. This is still better than refusing all
+						 * first CWs when consensus has already proceeded. */
+						if (req->tag == 0x80) {
+							cwcycle = CW1CYCLE;
+							cwdata->status |= DCW_CYCLE;
+							cwdata->cwcycle = cwcycle;
+							user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+							    "cache cycle estimated from ecmtag: CW1 (first CW)", cw);
+						} else if (req->tag == 0x81) {
+							cwcycle = CW0CYCLE;
+							cwdata->status |= DCW_CYCLE;
+							cwdata->cwcycle = cwcycle;
+							user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+							    "cache cycle estimated from ecmtag: CW0 (first CW)", cw);
+						}
 					}
 				}
 				if (!(cwdata->status&DCW_CYCLE)) {

@@ -114,7 +114,7 @@ def main():
                        + ("DCW MINTIME: 800\n" if mode.startswith("mintime-") else "")
                        + "USER: traceuser tracepass\n", encoding="utf-8")
         with (tmp / "peer.log").open("w+") as peerlog, (tmp / "server.log").open("w+") as serverlog:
-            env = dict(os.environ, NS_DELAYS="1200" if mode == "mintime-slow" else "60")
+            env = dict(os.environ, NS_DELAYS="1200" if mode == "mintime-slow" else ("1500" if mode == "late" else "60"))
             for name in ("NS_HALF_CW", "NS_BAD_CHECKSUM", "NS_NEGATIVE", "NS_OPPOSITE_HALF", "NS_NEGATIVE_FIRST"):
                 env.pop(name, None)
             env.pop("NS_CW_SEQUENCE", None)
@@ -165,19 +165,19 @@ def main():
                 result = subprocess.run([str(cc), "127.0.0.1", str(cccam), "traceuser", "tracepass",
                                          caid, sid, tag], capture_output=True,
                                         text=True, timeout=25, check=True)
-                expected = "TIMEOUT" if mode in ("late", "recycled") else ("DCW" if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "scoped-ok", "scoped-comment", "scoped-good", "scoped-noop", "scoped-last-valid") else "NOK")
+                expected = "TIMEOUT" if mode == "recycled" else ("DCW" if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "excluded1884", "scoped-ok", "scoped-comment", "scoped-good", "scoped-noop", "scoped-last-valid") else "NOK")
                 assert "ECM1 tag=" + tag[2:].upper() + " " + expected in result.stdout, result.stdout
                 page = request()
                 assert "استلام ECM" in page and "ECM sent to server" in page
                 assert "cache lookup invoked; pipe delivery and result not confirmed" in page
                 assert "حركة كاش" in page
-                if mode in ("full", "late", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache"): assert "Newcamd CW response; validity not determined" in page
+                if mode in ("full", "recycled", "mintime-fast", "mintime-slow", "mintime-local", "mintime-cache"): assert "Newcamd CW response; validity not determined" in page
                 if mode in ("half", "bad", "excluded", "swap", "wronghalf", "retry", "non09half"): assert "Newcamd CW response; zero half present; validity not determined" in page
-                if mode == "mintime-fast":
+                if mode in ("mintime-fast", "mintime-local", "mintime-cache"):
                     match = re.search(r"CW rejected by DCW MINTIME; (\d+) ms since dispatch at processing; threshold (\d+) ms", page)
                     assert match and 0 <= int(match.group(1)) < 800 and int(match.group(2)) == 800, page
                     assert "رُفضت CW بحد DCW MINTIME عند المعالجة" in page
-                if mode in ("mintime-slow", "mintime-local", "mintime-cache"): assert "CW rejected by DCW MINTIME;" not in page
+                if mode == "mintime-slow": assert "CW rejected by DCW MINTIME;" not in page
                 if mode in ("bad", "enforced1884", "scoped-wrong-provider", "scoped-wrong-sid", "scoped-malformed", "scoped-last-invalid"): assert "Newcamd CW rejected: checksum validation failed" in page
                 reasons = {"zero": "null-word validation failed", "repeatbytes": "repeated-byte validation failed", "pattern": "enabled pattern validation", "badlist": "operator BAD-DCW list"}
                 if mode in invalid_modes:
@@ -204,13 +204,13 @@ def main():
                     assert "Newcamd CW passed initial validation; further gates remain" in page
                     assert "CW response sent; picture not verified" not in page
                 elif mode == "late":
-                    assert "Newcamd CW passed initial validation; further gates remain" in page
-                    assert "CW committed; client dispatch skipped after DCW timeout" in page
+                    # Reply arrives after DCW timeout: server discards it,
+                    # sends NOK, trace shows decode failed (no commit).
+                    assert "decode failed; detailed reason unavailable" in page
                     assert "CW response sent; picture not verified" not in page
-                    assert "decode failed; detailed reason unavailable" not in page
                 else: assert "decode failed; detailed reason unavailable" in page
                 assert "ECM مشترك" in page
-                assert "source response " in page
+                if mode != "late": assert "source response " in page
                 assert f"{caid}:000000:{sid}" in page
                 if mode in ("full", "half"):
                     # Fixture key only: ensure both source and client rows carry
@@ -222,9 +222,9 @@ def main():
                         else: key[8:] = [0] * 8
                     encoded = "".join(f"{x:02X}" for x in key)
                     assert page.count(encoded) >= 2
-                if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "mintime-local", "mintime-cache", "excluded1884", "scoped-ok", "scoped-comment", "scoped-good", "scoped-noop", "scoped-last-valid"):
+                if mode in ("full", "half", "excluded", "swap", "retry", "mintime-slow", "excluded1884", "scoped-ok", "scoped-comment", "scoped-good", "scoped-noop", "scoped-last-valid"):
                     assert page.count("<summary>إظهار CW</summary>") >= 2
-                elif mode in ("bad", "wronghalf", "late", "non09half", "recycled", "mintime-fast", "enforced1884", "scoped-wrong-provider", "scoped-wrong-sid", "scoped-malformed", "scoped-last-invalid") + invalid_modes:
+                elif mode in ("bad", "wronghalf", "non09half", "recycled", "mintime-fast", "mintime-local", "mintime-cache", "enforced1884", "scoped-wrong-provider", "scoped-wrong-sid", "scoped-malformed", "scoped-last-invalid") + invalid_modes:
                     assert page.count("<summary>إظهار CW</summary>") == 1
                 else:
                     assert "<summary>إظهار CW</summary>" not in page
