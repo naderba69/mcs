@@ -62,6 +62,8 @@ struct monjson_r48_rep {
 	int32_t  srctype;
 	uint16_t caid;
 	uint8_t  score;
+	uint8_t  ci_low;
+	uint8_t  ci_high;
 	uint8_t  provider_known;
 	uint8_t  rank_delayed;
 };

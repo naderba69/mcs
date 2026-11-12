@@ -93,6 +93,35 @@ int cwconsensus_verdict(uint16_t caid, uint16_t sid, uint32_t provid,
                         uint32_t now_ms, uint32_t window_ms,
                         const uint8_t **loser_cw);
 
+/* R48 independence: same as verdict but voters sharing `group`
+ * (host IP) count as one independent source. group==0 means the
+ * peerid itself is the group (stock distinct-peer counting).
+ * Caller resolves the group; the engine never looks up peers. */
+int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
+                              int provider_known, uint32_t hash, uint8_t tag,
+                              const uint8_t *cw, int peerid, uint32_t group,
+                              int weight, uint32_t now_ms, uint32_t window_ms,
+                              const uint8_t **loser_cw);
+void cwconsensus_set_independence(int on);
+
+/* R48 D-4 second degree (opt-in, default OFF): channel quarantine.
+ * Two weighted conflicts within 10 minutes quarantine the channel's
+ * cache candidates for 60 seconds (HOLD, cache source only; card
+ * servers untouched). OFF = no quarantine, stock consensus only. */
+void cwconsensus_set_quarantine(int on);
+int cwconsensus_channel_quarantined(uint16_t caid, uint16_t sid,
+                                    uint32_t provid, int provider_known,
+                                    uint32_t now_ms);
+
+/* R48 storm guard (opt-in, default OFF): per-channel ingest rate
+ * limiter. Above 20 keys/sec on one channel, excess cache candidates
+ * are held (HOLD, cache source only). OFF = no rate limiting. */
+void cwconsensus_set_storm_guard(int on);
+
+/* R48 rotation freeze (opt-in, default OFF): a new hash/tag (crypto
+ * period change) freezes prior conflicts/quarantine for that scope. */
+void cwconsensus_set_rotation_freeze(int on);
+
 /* Query the candidate's live vote counts; caller must hold the cache lock.
  * Distinct peer IDs are not necessarily independent sources. */
 int cwconsensus_vote_counts(uint16_t caid, uint16_t sid, uint32_t provid,

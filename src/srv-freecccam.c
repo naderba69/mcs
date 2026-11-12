@@ -46,6 +46,11 @@ void frcc_sendcards_cli(struct cc_client_data *cli)
 
 void frcc_disconnect_cli(struct cc_client_data *cli)
 {
+	if (!cli || client_io_lock(cli) != 0) return;
+	if (client_state_lock(cli) != 0) {
+		client_io_unlock(cli);
+		return;
+	}
 	if ( (cli->connection.status>0) && (cli->handle>0) ) {
 		cli->connection.status = 0;
 		uint32_t ticks = GetTickCount();
@@ -56,6 +61,8 @@ void frcc_disconnect_cli(struct cc_client_data *cli)
 		debugf(0," FreeCCcam: client '%s' disconnected \n", cli->user);
 		//////cli->parent->clipfd.update = 1;
 	}
+	client_state_unlock(cli);
+	client_io_unlock(cli);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -241,8 +248,11 @@ static void *freecc_connect_cli_inner(struct connect_cli_data *param)
 	cli->ecm.busy = 0;
 
 //	pthread_mutex_unlock(&prg.lockfreecccli);
-  // send cli data ack
-	cc_msg_send( sock, &cli->sendblock, CC_MSG_CLI_INFO, 0, NULL);
+  // send cli data ack (under I/O guard; cli not yet published)
+	if (client_io_lock(cli) == 0) {
+		cc_msg_send(sock, &cli->sendblock, CC_MSG_CLI_INFO, 0, NULL);
+		client_io_unlock(cli);
+	}
 	//cc_msg_send( sock, &cli->sendblock, CC_MSG_BAD_ECM, 0, NULL);
 	/* Preserve the legacy wire gate (version byte 28 == 'W') without
 	 * assigning into the live client's version buffer during the check. */
@@ -420,10 +430,20 @@ void frcc_senddcw_cli(struct cc_client_data *cli, const struct ledger_delivery_s
 		memcpy(buf, ecm->cw, 16);
 #endif
 		cc_crypt_cw( cli->nodeid, cli->ecm.cardid , buf);
-		if ( !cc_msg_send_and_encrypt(cli->handle, &cli->sendblock,
-							      CC_MSG_ECM_REQUEST, 16, buf, buf, 16) ) {
-			frcc_disconnect_cli( cli );
-			return;
+		/* R48: direct writes under the per-client I/O guard so they
+		 * serialize with disconnect/close. State lock is not held
+		 * across the socket write (send_nonb may poll). */
+		if (client_io_lock(cli) != 0) return;
+		{
+			int sock = cli->handle;
+			int send_ok = (sock > 0) &&
+			    cc_msg_send_and_encrypt(sock, &cli->sendblock,
+			                          CC_MSG_ECM_REQUEST, 16, buf, buf, 16);
+			client_io_unlock(cli);
+			if (!send_ok) {
+				frcc_disconnect_cli( cli );
+				return;
+			}
 		}
 		sent_at = GetTickCount();
 #ifdef CACHEEX
@@ -455,7 +475,11 @@ void frcc_senddcw_cli(struct cc_client_data *cli, const struct ledger_delivery_s
 		memset(cli->lastecm.ecmd5, 0, sizeof(cli->lastecm.ecmd5));
 		cli->lastecm.ecmlen = 0;
 #endif
-		cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL);
+		if (client_io_lock(cli) == 0) {
+			int sock = cli->handle;
+			if (sock > 0) cc_msg_send(sock, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL);
+			client_io_unlock(cli);
+		}
 		debugf(0," |> decode failed to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, response_caid,response_provid,response_sid, GetTickCount()-response_recvtime);
 	}
 	cli->ecm.busy=0;
@@ -513,7 +537,11 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						struct cardserver_data *cs=getcsbyid( cardid );
 						if (!cs) {
 							cli->ecmdenied++;
-							cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK2, 0, NULL);
+							if (client_io_lock(cli) == 0) {
+								int sock = cli->handle;
+								if (sock > 0) cc_msg_send(sock, &cli->sendblock, CC_MSG_ECM_NOK2, 0, NULL);
+								client_io_unlock(cli);
+							}
 							debugf(0," <|> decode failed to FreeCCcam client(%s), card-id %x not found\n", cli->user, cardid);
 							break;
 						}
@@ -523,7 +551,11 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						if (error) {
 							cli->ecmdenied++;
 							cs->ecmdenied++;
-							cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_ECM_NOK2, 0, NULL);
+							if (client_io_lock(cli) == 0) {
+								int sock = cli->handle;
+								if (sock > 0) cc_msg_send(sock, &cli->sendblock, CC_MSG_ECM_NOK2, 0, NULL);
+								client_io_unlock(cli);
+							}
 							debugf(0," <|> decode failed to FreeCCcam client(%s) ch %04x:%06x:%04x, %s\n", cli->user, caid,provid,sid, error);
 							break;
 						}
@@ -588,8 +620,16 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 							if (!ecm) {
 								cs->ecmdenied++;
 								cli->ecmdenied++;
-								if (!cc_msg_send(cli->handle, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL)) frcc_disconnect_cli(cli);
+								/* R48: ecm_lock released before socket I/O;
+								 * the send runs under the I/O guard. */
 								ecm_unlock();
+								if (client_io_lock(cli) == 0) {
+									int sock = cli->handle;
+									int ok = (sock > 0) &&
+									    cc_msg_send(sock, &cli->sendblock, CC_MSG_ECM_NOK1, 0, NULL);
+									client_io_unlock(cli);
+									if (!ok) frcc_disconnect_cli(cli);
+								}
 								break;
 							}
 							cs->ecmaccepted++;
@@ -615,7 +655,11 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 
 					 case CC_MSG_KEEPALIVE:
 						//printf(" Keepalive from client '%s'\n",cli->user);
-						cc_msg_send( cli->handle, &cli->sendblock, CC_MSG_KEEPALIVE, 0, NULL);
+						if (client_io_lock(cli) == 0) {
+							int sock = cli->handle;
+							if (sock > 0) cc_msg_send(sock, &cli->sendblock, CC_MSG_KEEPALIVE, 0, NULL);
+							client_io_unlock(cli);
+						}
 						break;
 				}
 			}

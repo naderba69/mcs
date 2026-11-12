@@ -176,7 +176,7 @@ int main(void)
 		chk(len > 0, "R48 evidence doc built", len);
 		chk(has(big, "\"r48_source_reputation\":{\"scope\":\"source-caid-provider\",\"rows\":["),
 			"R48 evidence section present", 0);
-		chk(has(big, "\"source_type\":1,\"source_id\":17,\"caid\":6164,\"provider\":0,\"provider_known\":0,\"score\":38,\"matches\":2,\"proofs\":5,\"last_proof_tick\":120000,\"clean_after_proof\":2,\"rank_delayed\":1,\"last_evidence_tick\":123456"),
+		chk(has(big, "\"source_type\":1,\"source_id\":17,\"caid\":6164,\"provider\":0,\"provider_known\":0,\"score\":38,\"ci_low\":0,\"ci_high\":0,\"matches\":2,\"proofs\":5,\"last_proof_tick\":120000,\"clean_after_proof\":2,\"rank_delayed\":1,\"last_evidence_tick\":123456"),
 			"unknown provider and rank-delay state retained", 0);
 		chk(has(big, "\"source_type\":1,\"source_id\":18,\"caid\":6164,\"provider\":0,\"provider_known\":1"),
 			"known provider zero remains distinct", 0);

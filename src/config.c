@@ -3991,6 +3991,52 @@ link_mgcamd_user:
 					if (cfg->cache.consensus_window<0) cfg->cache.consensus_window = 0;
 					else if (cfg->cache.consensus_window>5000) cfg->cache.consensus_window = 5000;
 				}
+				/* R48: CACHE CONSENSUS INDEPENDENCE: ON/OFF (default OFF). */
+				else if (!strcmp(str,"INDEPENDENCE")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.consensus_independence = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CONSENSUS INDEPENDENCE: %d\n",file->nbline,iparser-currentline, cfg->cache.consensus_independence);
+				}
+			}
+			/* R48 D-4: CACHE QUARANTINE: ON/OFF (default OFF). */
+			else if (!strcmp(str,"QUARANTINE")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				cfg->cache.quarantine = parse_boolean();
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE QUARANTINE: %d\n",file->nbline,iparser-currentline, cfg->cache.quarantine);
+			}
+			/* R48: CACHE STORM GUARD: ON/OFF (default OFF). */
+			else if (!strcmp(str,"STORM")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"GUARD")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.storm_guard = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE STORM GUARD: %d\n",file->nbline,iparser-currentline, cfg->cache.storm_guard);
+				}
+			}
+			/* R48 D-4: CACHE ROTATION FREEZE / CAP30 (default OFF). */
+			else if (!strcmp(str,"ROTATION")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FREEZE")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.rotation_freeze = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE ROTATION FREEZE: %d\n",file->nbline,iparser-currentline, cfg->cache.rotation_freeze);
+				}
+			}
+			else if (!strcmp(str,"CAP30")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				cfg->cache.cap30 = parse_boolean();
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CAP30: %d\n",file->nbline,iparser-currentline, cfg->cache.cap30);
 			}
 
 			/* TASK R30 (D81): CACHE ATTEST: <0..4> -- distinct clients
@@ -4048,6 +4094,58 @@ link_mgcamd_user:
 				}
 			}
 
+			/* R48 cycle strategy (user-trace): CACHE CYCLE <OPTION>: ON/OFF.
+			 * All default OFF (stock behaviour). ERROR RESET scopes the
+			 * DCW_ERROR node mark by cycle; ESTIMATE estimates the cycle
+			 * temporally when no marker is carried; INDEPENDENCE makes
+			 * same-IP consensus voters count as one source. */
+			else if (!strcmp(str,"CYCLE")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) {
+					iparser++;
+					parse_name(str);
+					uppercase(str);
+					if (!strcmp(str,"ERROR")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_name(str);
+						uppercase(str);
+						if (!strcmp(str,"RESET")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							cfg->cache.cycle_error_reset = parse_boolean();
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CYCLE ERROR RESET: %d\n",file->nbline,iparser-currentline, cfg->cache.cycle_error_reset);
+						}
+					}
+					else if (!strcmp(str,"ESTIMATE")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						cfg->cache.cycle_estimate = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CYCLE ESTIMATE: %d\n",file->nbline,iparser-currentline, cfg->cache.cycle_estimate);
+					}
+					continue;
+				}
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"ERROR")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					parse_name(str);
+					uppercase(str);
+					if (!strcmp(str,"RESET")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						cfg->cache.cycle_error_reset = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CYCLE ERROR RESET: %d\n",file->nbline,iparser-currentline, cfg->cache.cycle_error_reset);
+					}
+				}
+				else if (!strcmp(str,"ESTIMATE")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.cycle_estimate = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CYCLE ESTIMATE: %d\n",file->nbline,iparser-currentline, cfg->cache.cycle_estimate);
+				}
+			}
 			else if (!strcmp(str,"FILTER")) {
 				parse_spaces();
 				if ((*iparser==':')||(*iparser=='=')) {

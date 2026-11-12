@@ -27,6 +27,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 #include "tick_math.h"
 
 #define R48_SOURCE_REP_SLOTS          128u
@@ -75,6 +76,8 @@ struct r48_source_rep_snapshot {
 	int32_t  srctype;
 	uint16_t caid;
 	uint8_t  score;
+	uint8_t  ci_low;   /* R48: Wilson 95% lower bound (0..100) */
+	uint8_t  ci_high;  /* R48: Wilson 95% upper bound (0..100) */
 	uint8_t  provider_known;
 	uint8_t  rank_delayed;
 };
@@ -301,6 +304,16 @@ static int r48_source_rep_note_opt_in(struct r48_source_rep_table *table,
 	                           provider_known, event, now_ms);
 }
 
+/* R48 D-4 30% cap (opt-in, default OFF): unproven sources (n < 5)
+ * cannot rank above 30/100 before the event. Set from config.
+ * NOTE (review): completely unknown sources (no entry) still rank
+ * at neutral 50, above the cap. That is intentional per D111
+ * ("missing evidence is never a failure"): the cap punishes
+ * observed-but-thin evidence, not absence of evidence. */
+static int r48_source_rep_cap30 = 0;
+__attribute__((unused))
+static void r48_source_rep_set_cap30(int on) { r48_source_rep_cap30 = !!on; }
+
 /* Return a fixed-point ordering score for the evidence selector. The caller
  * holds trust_lock. Unknown sources rank at neutral; missing evidence is never
  * interpreted as a failure. The D-4 delay returns rank zero but keeps the
@@ -317,6 +330,11 @@ static uint16_t r48_source_rep_rank_q8(struct r48_source_rep_table *table,
 		return (uint16_t)R48_SOURCE_REP_NEUTRAL_Q8;
 	r48_source_rep_apply_decay(entry, now_ms);
 	if (r48_source_rep_rank_is_delayed(entry, now_ms)) return 0;
+	if (r48_source_rep_cap30 &&
+	    (entry->matches + entry->proofs) < 5u) {
+		uint16_t cap = (uint16_t)(30u * R48_SOURCE_REP_SCORE_SCALE);
+		if (entry->score_q8 > cap) return cap;
+	}
 	return entry->score_q8;
 }
 
@@ -387,6 +405,26 @@ static int r48_source_rep_snapshot(struct r48_source_rep_table *table,
 		dst->caid = entry->caid;
 		dst->score = (uint8_t)score;
 		dst->provider_known = entry->provider_known;
+		/* R48 confidence interval (Wilson 95%, observe only):
+		 * n = matches+proofs, p = score/100. n=0 -> [0,100]. */
+		{
+			uint32_t n = entry->matches + entry->proofs;
+			if (!n) {
+				dst->ci_low = 0;
+				dst->ci_high = 100;
+			} else {
+				double p = (double)score / 100.0;
+				double z = 1.96, z2 = z * z;
+				double denom = 1.0 + z2 / (double)n;
+				double center = (p + z2 / (2.0 * (double)n)) / denom;
+				double delta = z * sqrt(p * (1.0 - p) / (double)n + z2 / (4.0 * (double)n * (double)n)) / denom;
+				double lo = center - delta, hi = center + delta;
+				if (lo < 0.0) lo = 0.0;
+				if (hi > 1.0) hi = 1.0;
+				dst->ci_low = (uint8_t)(lo * 100.0 + 0.5);
+				dst->ci_high = (uint8_t)(hi * 100.0 + 0.5);
+			}
+		}
 	}
 	return count;
 }

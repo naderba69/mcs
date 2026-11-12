@@ -3133,9 +3133,12 @@ void mainprocess()
 	// caid_integration_init();  // DISABLED - calls caid_optimizations_init() again
 	debugf(0, " [CAID INTEGRATION] Using already initialized CAID settings\n");
 
-	/* Provider-level ECM configuration - from external research */
-	// provider_config_init();  // DISABLED - causes segfault
-	// debugf(0, " [PROVIDER CONFIG] %d provider-specific ECM configurations loaded\n", provider_cfg_tab.count);
+	/* Provider-level ECM configuration - from external research.
+	 * R48: init only fills the static table (no timeout path wired yet);
+	 * fallback_timeout values remain inactive until the fallback helper /
+	 * ECM deadline / Set-DCW gate interaction is tested. */
+	provider_config_init();
+	debugf(0, " [PROVIDER CONFIG] %d provider-specific ECM configurations loaded\n", provider_cfg_tab.count);
 
 	/* TASK BS (2026-10-26) -- Initialize Black Screen Prevention Systems */
 	bs_init();
