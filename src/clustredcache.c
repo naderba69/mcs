@@ -405,6 +405,7 @@ struct __attribute__ ((__packed__)) cache_data {
 	//
 	uint32_t provid;
 	cwcycle_t cwcycle; // ecmtag when cw1 cycle
+	uint8_t cw1cycle; // 0x80/0x81 from ECM (0 = unknown); for cycle estimation
 	uint8_t prevcw[16];
 #ifdef CACHEEX
 	uint8_t ecmd5[16];
@@ -719,6 +720,7 @@ struct cache_data *cache_new( struct cache_data *newdata )
 	pcache->hash = newdata->hash;
 	pcache->provid = newdata->provid;
 	pcache->provider_known = newdata->provider_known || newdata->provid != 0;
+	pcache->cw1cycle = newdata->cw1cycle;
 #ifdef CACHEEX
 	memcpy( pcache->ecmd5, newdata->ecmd5, 16);
 #endif
@@ -2532,22 +2534,23 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 							user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
 							    "cache cycle estimated temporally: CW0 (no marker)", cw);
 						}
-					} else if (isnullDCW(pcache->prevcw) && pcache->cwcycle == NO_CYCLE) {
-						/* First CW for this channel: no prevcw and no expected
-						 * cycle. Estimate from ecmtag assuming cw1cycle==0x80
-						 * (the common default; cw1cycle is not stored in
-						 * cache_data). If the provider uses cw1cycle==0x81,
-						 * the estimate will be backwards and the cycle gate
-						 * below will refuse the key (safe). This is still
-						 * better than refusing all first CWs when consensus
-						 * has already proceeded. */
-						if (req->tag == 0x80) {
+					} else if (isnullDCW(pcache->prevcw)) {
+						/* First CW for this channel: no prevcw. Determine the
+						 * cycle from the entry's declared expectation when the
+						 * ECM carried one (pcache->cwcycle, set from the
+						 * channel's cw1cycle via put_ecm2cache), otherwise
+						 * estimate from ecmtag via cwcy_expect() using the
+						 * stored cw1cycle. If neither is known, the estimate
+						 * is NO_CYCLE and the key is refused as before. */
+						int est = (pcache->cwcycle != NO_CYCLE) ? (int)pcache->cwcycle
+						                                        : cwcy_expect(req->tag, pcache->cw1cycle);
+						if (est == CW1CYCLE) {
 							cwcycle = CW1CYCLE;
 							cwdata->status |= DCW_CYCLE;
 							cwdata->cwcycle = cwcycle;
 							user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
 							    "cache cycle estimated from ecmtag: CW1 (first CW)", cw);
-						} else if (req->tag == 0x81) {
+						} else if (est == CW0CYCLE) {
 							cwcycle = CW0CYCLE;
 							cwdata->status |= DCW_CYCLE;
 							cwdata->cwcycle = cwcycle;
@@ -4277,6 +4280,7 @@ void cache_pipe_recvmsg()
 			if (len != base_len && len != base_len + 16) break;
 			if (get_ecm2cache(buf, len, &req, req.prevcw) < 0) break;
 			if (!cache_ecm_snapshot_read_locked(req.ecm, req.ecm_lifetime_id, NULL, NULL, NULL)) break;
+			req.cw1cycle = req.ecm ? (uint8_t)req.ecm->cw1cycle : 0;
 			//debugf(0, " Get PIPE_CACHE_FIND: %04x:%06x:%04x:%08x\n", req.caid, req.provid, req.sid, req.hash);
 
 			pcache = cache_fetch( &req );
@@ -4317,6 +4321,7 @@ void cache_pipe_recvmsg()
 				cache_attach_local_provider(pcache, &req);
 				pcache->tag = req.tag; // set tag if not set (coming from cache)
 				pcache->cwcycle = req.cwcycle;
+				if (req.cw1cycle) pcache->cw1cycle = req.cw1cycle;
 #ifdef CACHEEX
 				if (len==base_len+16) memcpy( pcache->prevcw, req.prevcw, 16);
 				memcpy( pcache->ecmd5, req.ecmd5, 16 );

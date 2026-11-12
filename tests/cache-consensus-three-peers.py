@@ -30,8 +30,9 @@ with tempfile.TemporaryDirectory(prefix='mcs-three-peers-') as folder:
     subprocess.run(['cc','-O2','-std=gnu89','-w','-o',str(client),str(ROOT/'tests/ncclient.c'),str(ROOT/'src/des.c'),str(ROOT/'src/msg-newcamd.c'),str(ROOT/'src/md5.c')],check=True)
     # A declared cycle is required by the current filter even if three peers
     # agree on the bytes. Agreement does not prove the cycle or independence.
-    # unmarked-estimate: cycle_estimate ON + first CW (no prevcw, no expected
-    # cycle) -> estimate from ecmtag (0x80->CW1) and deliver.
+    # unmarked-estimate: cycle_estimate ON + first CW (no prevcw) + SID LIST
+    # with cw1cycle=0x80 -> the entry expects CW1 (declared via the ECM);
+    # the unmarked key is assessed as CW1 and delivered.
     for name, mark, expected in [('unmarked',0,False),('marked',1,True),('wrong-cycle',2,False),('unmarked-estimate',0,True)]:
         tcp=set()
         while len(tcp)<3:tcp.add(port(socket.SOCK_STREAM))
@@ -39,7 +40,7 @@ with tempfile.TemporaryDirectory(prefix='mcs-three-peers-') as folder:
         while len(peers)<3:
             p=port(socket.SOCK_DGRAM)
             if p!=cp and p not in peers:peers.append(p)
-        cycle_rule = 'SID LIST: 1136.81\n' if name == 'wrong-cycle' else ''
+        cycle_rule = 'SID LIST: 1136.81\n' if name == 'wrong-cycle' else ('SID LIST: 1136.80\n' if name == 'unmarked-estimate' else '')
         estimate_rule = 'CACHE CYCLE ESTIMATE: ON\n' if name == 'unmarked-estimate' else ''
         cfg=d/'config'; cfg.write_text(f'HTTP PORT: {hp}\nHTTP USER: test\nHTTP PASS: isolated\nTELNET PORT: 0\nCCCAM PORT: {ccport}\nF: traceuser tracepass\nCACHE PORT: {cp}\nCACHE PROTECTION: STANDARD\nCACHE FILTER: ON\n{estimate_rule}'+''.join(f'CACHE PEER: 127.0.0.1:{p} {{ csp=1; fwd=1 }}\n' for p in peers)+f'\n[test]\nCAID: 1884\nPROVIDERS: 000000\nPORT: {np}\n{cycle_rule}DCW CHECK: YES\nDCW HALFNULLED: NO\nDCW MINTIME: 0\nDCWFILTER PATTERN: OFF\nDCW TIMEOUT: 4000\nENABLE CACHE: YES\nCACHE STATIC: NO\nCACHE TIMEOUT: 900\nSERVER TIMEOUT: 4000\nUSER: u1 p1\n')
         env={k:v for k,v in os.environ.items() if not k.startswith(('CP_','NC_'))}

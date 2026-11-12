@@ -474,7 +474,7 @@ db146a00f2b28d09df7c3f6dca283aae  src/cli-cs378x.c
 b576516db36f618d0ff66002cb0e9020  src/cli-newcamd.c
 a3e3072f8f89a66cccdf4c32a0c6c607  src/cli-radegast.c
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
-a1f2477d7c7be6cb5f6510b64f510929  src/clustredcache.c
+be528db0b190c89e5daab6cd0ad2a10b  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
 033f084864be6f3181a9ee78b6834f2c  src/config.c
 e5cad503f2b9d74c92c0fae19d19af22  src/config.h
@@ -696,13 +696,13 @@ cdaf691f93c8125068fcb28782d01ab0  src/x64/ecm-provider-config.o
 65d3c95657a17d765f877fc87bb99d08  src/x64/ipdata.o
 97b72d7bb94a20a4cbefaa288dc8a218  src/x64/log-viewer.o
 41cc4d2536cc8bb06be239bb7f2e1799  src/x64/loginthrottle.o
-079f048204046b4b4bb0e9a687a4ed2e  src/x64/main.o
+d55d120a81fd099a34fc78c758c0c57f  src/x64/main.o
 7c182c5e1bdf03c1a70a040ada3553a5  src/x64/md5.o
 bdc84b77d493a55ec7cc698142bf7765  src/x64/monjson.o
 c0369b495bfe2e7cb901363dace4d8a6  src/x64/msg-cccam.o
 3e4a6d3e6c8187541378f8718fe4cb86  src/x64/msg-newcamd.o
 06e20b2aed733b9e963e8e4977b61661  src/x64/msg-radegast.o
-c2030c6c1c2bc6b27c819a34ade77356  src/x64/multics
+8d6fab04077a6925c0e6ef5fe9a279e9  src/x64/multics
 8da43692b70e43d698ea12d52a1184d2  src/x64/newcamd-lifetime.o
 e3e4d5c54ec45b514b9558d70b89d833  src/x64/packed-time.o
 9d0d019d2210e2986f8d7c75e42a160a  src/x64/parser.o
@@ -731,7 +731,7 @@ c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 50af64c988737c3837b4bd02f530be28  tests/cache-consensus-expiry.py
 b33f280bc38bdb26a3c20fa7c7dc8db2  tests/cache-consensus-prefill.py
 6fc956e51643761d650be76c20092d5a  tests/cache-consensus-reputation.py
-7392cbeafcb5744487bdb2f25e5c27a8  tests/cache-consensus-three-peers.py
+3b666e657e78246f6c6152adb39209f9  tests/cache-consensus-three-peers.py
 d8c969bf2fa789a0acf23c9ab926fa4f  tests/cache-cross-gates.c
 02b50c5de7b3016ff1110552573c4a71  tests/cache-cross-gates.sh
 d057238a9f288ff05df184a7ba66a4e1  tests/cache-cross-provider.c
