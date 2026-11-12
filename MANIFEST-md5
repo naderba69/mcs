@@ -731,7 +731,7 @@ c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 50af64c988737c3837b4bd02f530be28  tests/cache-consensus-expiry.py
 b33f280bc38bdb26a3c20fa7c7dc8db2  tests/cache-consensus-prefill.py
 6fc956e51643761d650be76c20092d5a  tests/cache-consensus-reputation.py
-72a7d3343e442fdc981e37b75f496f1d  tests/cache-consensus-three-peers.py
+7392cbeafcb5744487bdb2f25e5c27a8  tests/cache-consensus-three-peers.py
 d8c969bf2fa789a0acf23c9ab926fa4f  tests/cache-cross-gates.c
 02b50c5de7b3016ff1110552573c4a71  tests/cache-cross-gates.sh
 d057238a9f288ff05df184a7ba66a4e1  tests/cache-cross-provider.c
