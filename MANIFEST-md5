@@ -320,7 +320,7 @@ a1a4c6908cb92319e0d923ebf04febbe  make-cross/Makefile
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
 71db1eb7a48e9eadf5b006e521c7c068  make-cross/cross-mipsel/multics
 dd70e1f361729a919b007241f311c9b1  make-cross/cross-sh4/multics
-848fa744a79602fd9915c2edd16f21e2  make-x64/Makefile
+2d592521c74ef78efa6c225205a9baa8  make-x64/Makefile
 650fd7a14c324c80ce132d7f17016244  make-x64/memcheck.sh
 846da9f9d1b473bb531ac20393fc0613  make-x64/memcheck.supp
 441ca78d955dc9a8fc2eb605d4ec8856  make-x64/port_gnu89.h
@@ -360,6 +360,7 @@ f588e6995e70ed6168b707b98e5a7d0c  make-x64/test_chanhealth.c
 47bf4dd4b618960a16fa969005d1cbce  make-x64/test_cwattest.c
 ce291fab152b37e7d66216fcf94c88af  make-x64/test_cwcm.c
 99f5041fea622bd00c7bf944203521c7  make-x64/test_cwconsensus.c
+f89b970b6d8a4fd3622170e2913d4e1b  make-x64/test_cwconsensus_bounds.c
 04beadfd11da5eeebbb575df0f8ab778  make-x64/test_cwconsensus_d4.c
 85556a4145102ef3e77fadf438f5b6be  make-x64/test_cwconsensus_sybil.c
 6268cc63c8aad9b16bff4533f2fee62d  make-x64/test_cwcycle.c

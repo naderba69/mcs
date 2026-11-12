@@ -129,7 +129,7 @@ release-stats:
 # NULL and the first fprintf crashed. The test now mkdirs its directory and
 # guards its fixtures (xopen), so running it right after test_monjson is kept
 # as the standing regression for exactly that folklore.
-test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwconsensus_d4 x64/test_cwconsensus_sybil x64/test_cwconsensus_load x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_ptguard x64/test_chanhealth x64/test_cexvis x64/test_smart_retry_ticks x64/test_ecm_pattern_ticks x64/test_cwpredict_ticks x64/test_cw_timing_layers x64/test_udpfast_ticks x64/test_dcwstrict_ticks x64/test_implicit_bs_ticks x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_tick_math x64/test_cache_intelligence_ticks x64/test_cache_pipe_codec x64/test_pipe_messages x64/test_pipe_server_send x64/test_cs378x_frame x64/test_cache_pipe_queue x64/test_newcamd_lifetime x64/test_radegast_frame x64/test_cache_prefetch_ticks x64/test_cachewarm_ticks x64/test_cache_turbo_ticks x64/test_blackscreen_ticks x64/test_fastretx_ticks x64/test_pipeline_parquery_ticks x64/test_r22_candidate_ticks x64/test_emm_cache x64/test_supersmartfilter_ticks x64/test_cw_quarantine_clientbuf_ticks x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_thread_create x64/test_scoped_checksum_policy x64/test_cache_window x64/test_cache_evidence_config x64/test_r48_source_reputation x64/test_cccam_session x64/test_cccam_peekmsg x64/test_provider_config x64/test_cccam_backpressure
+test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwconsensus_d4 x64/test_cwconsensus_sybil x64/test_cwconsensus_bounds x64/test_cwconsensus_load x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_ptguard x64/test_chanhealth x64/test_cexvis x64/test_smart_retry_ticks x64/test_ecm_pattern_ticks x64/test_cwpredict_ticks x64/test_cw_timing_layers x64/test_udpfast_ticks x64/test_dcwstrict_ticks x64/test_implicit_bs_ticks x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_tick_math x64/test_cache_intelligence_ticks x64/test_cache_pipe_codec x64/test_pipe_messages x64/test_pipe_server_send x64/test_cs378x_frame x64/test_cache_pipe_queue x64/test_newcamd_lifetime x64/test_radegast_frame x64/test_cache_prefetch_ticks x64/test_cachewarm_ticks x64/test_cache_turbo_ticks x64/test_blackscreen_ticks x64/test_fastretx_ticks x64/test_pipeline_parquery_ticks x64/test_r22_candidate_ticks x64/test_emm_cache x64/test_supersmartfilter_ticks x64/test_cw_quarantine_clientbuf_ticks x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_thread_create x64/test_scoped_checksum_policy x64/test_cache_window x64/test_cache_evidence_config x64/test_r48_source_reputation x64/test_cccam_session x64/test_cccam_peekmsg x64/test_provider_config x64/test_cccam_backpressure
 	./x64/test_cachequeue
 	@echo
 	./x64/test_cwconsensus
@@ -137,6 +137,8 @@ test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwcons
 	./x64/test_cwconsensus_d4
 	@echo
 	./x64/test_cwconsensus_sybil
+	@echo
+	./x64/test_cwconsensus_bounds
 	@echo
 	./x64/test_cwconsensus_load
 	@echo
@@ -606,6 +608,10 @@ x64/test_cwconsensus_d4: test_cwconsensus_d4.c ../src/cwconsensus.c ../src/cwcon
 x64/test_cwconsensus_sybil: test_cwconsensus_sybil.c ../src/cwconsensus.c ../src/cwconsensus.h ../src/tick_math.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cwconsensus_sybil.c ../src/cwconsensus.c -lpthread
+
+x64/test_cwconsensus_bounds: test_cwconsensus_bounds.c ../src/cwconsensus.c ../src/cwconsensus.h ../src/tick_math.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -o $@ test_cwconsensus_bounds.c ../src/cwconsensus.c -lpthread
 
 x64/test_cwconsensus_load: ../tests/cwconsensus-load.c ../src/cwconsensus.c ../src/cwconsensus.h
 	@mkdir -p x64
