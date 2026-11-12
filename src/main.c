@@ -3134,11 +3134,15 @@ void mainprocess()
 	debugf(0, " [CAID INTEGRATION] Using already initialized CAID settings\n");
 
 	/* Provider-level ECM configuration - from external research.
-	 * R48: init only fills the static table (no timeout path wired yet);
-	 * fallback_timeout values remain inactive until the fallback helper /
-	 * ECM deadline / Set-DCW gate interaction is tested. */
-	provider_config_init();
-	debugf(0, " [PROVIDER CONFIG] %d provider-specific ECM configurations loaded\n", provider_cfg_tab.count);
+	 * DISABLED (R48 review): the provider helpers ARE wired in production
+	 * (th-ecm.c timeout/cache-time, setdcw.c CRC/cycle, cli-cccam.c CRC),
+	 * so filling the table would silently change timeouts, CRC checks and
+	 * cycle gates for 50+ providers without field validation. Keep the
+	 * table empty (stock defaults) until the helper/ECM-deadline/Set-DCW
+	 * interaction is tested. test_provider_config still exercises init
+	 * directly. */
+	// provider_config_init();  // DISABLED - helpers wired; needs interaction test
+	// debugf(0, " [PROVIDER CONFIG] %d provider-specific ECM configurations loaded\n", provider_cfg_tab.count);
 
 	/* TASK BS (2026-10-26) -- Initialize Black Screen Prevention Systems */
 	bs_init();
