@@ -412,7 +412,7 @@ ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
 ec8f097cbc76086499086f13a2653684  multics-r24-expert-reviewed.cfg
-f6a5a22ce11735f1302b8d79aad62839  multics-r24-optimized.cfg
+dda3f58545c9014e143172880a1178a3  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
 8b31db494439c7fb3ec1920482e00650  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
