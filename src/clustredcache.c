@@ -2534,12 +2534,13 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 						}
 					} else if (isnullDCW(pcache->prevcw) && pcache->cwcycle == NO_CYCLE) {
 						/* First CW for this channel: no prevcw and no expected
-						 * cycle. Estimate from ecmtag: 0x80 => CW1, 0x81 => CW0.
-						 * This assumes cw1cycle==0x80 (the common default). If
-						 * the provider uses cw1cycle==0x81, the estimate will
-						 * be backwards and the cycle gate below will refuse
-						 * the key. This is still better than refusing all
-						 * first CWs when consensus has already proceeded. */
+						 * cycle. Estimate from ecmtag assuming cw1cycle==0x80
+						 * (the common default; cw1cycle is not stored in
+						 * cache_data). If the provider uses cw1cycle==0x81,
+						 * the estimate will be backwards and the cycle gate
+						 * below will refuse the key (safe). This is still
+						 * better than refusing all first CWs when consensus
+						 * has already proceeded. */
 						if (req->tag == 0x80) {
 							cwcycle = CW1CYCLE;
 							cwdata->status |= DCW_CYCLE;
