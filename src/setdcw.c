@@ -8,6 +8,7 @@
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include "cache-window.h"  /* R48 opt-in cache wait-window learning */
 #include "cw-fingerprint.h"  /* R48 CW fingerprint (observe-only) */
+#include "cw-timing.h"  /* R48 CW timing anomaly (observe-only) */
 #include "tick_math.h"
 #include <stdlib.h>
 
@@ -1129,6 +1130,30 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 			}
 		}
 	}
+
+    /*
+     * R48 CW timing anomaly (observe-only).
+     *
+     * A SERVER-sourced CW that returns implausibly fast (< 30ms from
+     * dispatch) likely came from a server with no card (fake). Cache
+     * sources are exempt -- they are legitimately fast. This never
+     * refuses; it traces the anomaly for /user-trace and aggregates
+     * per-peer fast counts for the operator's trust decisions.
+     */
+    if (srctype == DCW_SOURCE_SERVER) {
+        int k;
+        uint32_t now = GetTickCount();
+        for (k = 0; k < 20; k++) {
+            if (ecm->server[k].srvid && ecm->server[k].srvid == (uint32_t)srcid) {
+                uint32_t elapsed = tick32_elapsed(now, ecm->server[k].sendtime);
+                if (cwtime_anomaly_note((uint32_t)srcid, elapsed)) {
+                    debugf(0, "    ⚠️ [CW-TIMING] %04X:%06X:%04X server %d -- %ums < %dms (possible fake, no card)\n",
+                           ecm->caid, ecm->provid, ecm->sid, srcid, (unsigned)elapsed, CWTIME_ANOMALY_MS);
+                }
+                break;
+            }
+        }
+    }
 
 	{
         int reason = DCW_VALID;

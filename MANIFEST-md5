@@ -320,7 +320,7 @@ a1a4c6908cb92319e0d923ebf04febbe  make-cross/Makefile
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
 71db1eb7a48e9eadf5b006e521c7c068  make-cross/cross-mipsel/multics
 dd70e1f361729a919b007241f311c9b1  make-cross/cross-sh4/multics
-6af7ed1f8a5f2b8142255cf812af3ae1  make-x64/Makefile
+02baffa33354385edc3f588a5a1450b8  make-x64/Makefile
 650fd7a14c324c80ce132d7f17016244  make-x64/memcheck.sh
 846da9f9d1b473bb531ac20393fc0613  make-x64/memcheck.supp
 441ca78d955dc9a8fc2eb605d4ec8856  make-x64/port_gnu89.h
@@ -634,7 +634,7 @@ bb42a53e55698772ba3b4e6dd8fb80f6  src/scramchk.h
 443bfe888cce44b30ec6639915ec090c  src/server-performance.h
 c28cc5d8f7396e2075fcca2c459e7d22  src/server-stats.c
 614c96c16fce728cdf28c2a94b457c9e  src/server-stats.h
-8815c54bf33be1ad1dff3d13d0445e91  src/setdcw.c
+06f24298ef12b718786e7debf8562ddd  src/setdcw.c
 16c69e6b1bab07c3fd1af90038d12fa6  src/sha1.c
 f245f7e5032e0752df586d67ed24942a  src/sha1.h
 9cfcb141eba70989f1caf2ff070cc994  src/sha256.c
@@ -818,3 +818,5 @@ d5b0a014aafbaaa3c52fa64353f3f469  التقرير-النهائي-للإصلاح.m
 2a87852efef8f14588ce5c0199b47cdc  الجرد-الشامل-والصادق.md
 d60420c5d91a769b89881669f93576ac  src/cw-fingerprint.h
 3f7ff53be9d92dcb782d715e8dd8c686  make-x64/test_cw_fingerprint.c
+17d71762a3aafe6ae16f1b1bbf2c83d0  src/cw-timing.h
+550040f3cc08f2d97789982ce116b846  make-x64/test_cw_timing.c
