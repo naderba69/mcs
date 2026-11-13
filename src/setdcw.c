@@ -358,10 +358,12 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 	 *
 	 * dcw_pattern_fake() detects these shapes with ~1e-12 false positive
 	 * rate on genuine keys (verified by TASK R28/D79). Armed here for
-	 * the three CAIDs most affected by provider fake-CW attacks.
+	 * the CAIDs most affected by provider fake-CW attacks.
 	 *
 	 * Source: LinuxSat-Support Thread #151206 (CAID 1810),
 	 *         EXTERNAL-RESEARCH-REPORT.md (all three CAIDs).
+	 * 1814 (MEO PT): added 2026-11-13 on operator field report of heavy
+	 * fake black-screen on this CAID (same attack shape as 1810/1883).
 	 */
 	if (srctype != DCW_SOURCE_CACHE || (srcid & PEER_ORIGIN_FLAGS)) {
 		/* Check non-cache sources and cache-exchange pushes */
@@ -371,6 +373,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 			case 0x1883:  /* Canal+ France */
 			case 0x1884:  /* NLS */
 			case 0x1811:  /* CanalSat NG */
+			case 0x1814:  /* MEO PT - operator field report 2026-11-13 */
 				check_fake = 1;
 				break;
 		}
@@ -1138,6 +1141,32 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
             case DCW_INVALID_PATTERN: why = "CW rejected by ECM worker profile validation: enabled pattern"; break;
             }
             trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, why);
+            newcamd_config_read_unlock(); return;
+        }
+    }
+
+    /*
+     * Fake-CW gate for the live (THREAD_DCW) path.
+     *
+     * The original check_fake() lives inside the #ifndef THREAD_DCW block
+     * above, which the production build (target=x64 defines THREAD_DCW)
+     * never compiles. This gate mirrors its semantics on the live path:
+     * Nagravision CAIDs (0x1800-0x1884) whose CW fails the structural
+     * checksum are rejected as fake. The checksum itself is the same
+     * checksumDCW() used by acceptDCW(), so a structurally valid key is
+     * never rejected here; only keys that would fail checksum anyway are
+     * dropped earlier, with a trace record instead of a silent timeout.
+     *
+     * 0x1814 (MEO PT) added 2026-11-13 per operator field report: the
+     * profile's fake-CW reports were previously invisible on this path
+     * because the gate was dead code.
+     */
+    if (ecm->caid >= 0x1800 && ecm->caid <= 0x1884) {
+        if (!checksumDCW(dcw)) {
+            trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid,
+                                   "CW rejected by ECM worker: fake CW (Nagravision checksum)");
+            debugf(0, "    ❌ [FAKE-CW] %04X:%06X:%04X -- Nagravision checksum failed\n",
+                   ecm->caid, ecm->provid, ecm->sid);
             newcamd_config_read_unlock(); return;
         }
     }
