@@ -6,6 +6,7 @@
 #include "common.h"
 #include "debug.h"
 #include "diagnostics.h"
+#include "tools.h" /* getseconds(): monotonic uptime base */
 #include "httpserver.h"
 #include "server-health.h"
 #include "caid-optimizations.h"
@@ -35,7 +36,7 @@ struct diagnostic_report diag_report;
 void diagnostics_init(void)
 {
     memset(&diag_report, 0, sizeof(diag_report));
-    diag_report.stats.start_time = time(NULL);
+    diag_report.stats.start_time = (time_t)getseconds(); /* monotonic: uptime base */
     diag_report.stats.min_response_time = 999999;
     strcpy(diag_report.status, "Initializing");
     
@@ -48,7 +49,7 @@ void diagnostics_init(void)
 
 void diagnostics_update(void)
 {
-    time_t now = time(NULL);
+    time_t now = (time_t)getseconds();
     diag_report.stats.last_update = now;
     diag_report.stats.uptime_seconds = now - diag_report.stats.start_time;
     

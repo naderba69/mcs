@@ -7,6 +7,7 @@
  */
 
 #include "web-dashboard.h"
+#include "tools.h" /* getseconds(): monotonic uptime base */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,7 +51,7 @@ static void calculate_global_stats(void) {
 }
 
 static void update_uptime(void) {
-    time_t now = time(NULL);
+    time_t now = (time_t)getseconds(); /* monotonic, matches start_time base */
     web_dashboard_cfg.uptime_seconds = (uint32_t)(now - web_dashboard_cfg.start_time);
 }
 
@@ -371,7 +372,7 @@ int web_dashboard_init(void) {
         return -1;
     }
     
-    web_dashboard_cfg.start_time = time(NULL);
+    web_dashboard_cfg.start_time = (time_t)getseconds(); /* monotonic: uptime base */
     web_dashboard_cfg.last_update = time(NULL);
     
     printf("[WEB-DASHBOARD] System initialized (port: %d, update: %dms)\n",

@@ -320,7 +320,7 @@ a1a4c6908cb92319e0d923ebf04febbe  make-cross/Makefile
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
 71db1eb7a48e9eadf5b006e521c7c068  make-cross/cross-mipsel/multics
 dd70e1f361729a919b007241f311c9b1  make-cross/cross-sh4/multics
-02baffa33354385edc3f588a5a1450b8  make-x64/Makefile
+376279dadb14bd50f9cd41987edda7cf  make-x64/Makefile
 650fd7a14c324c80ce132d7f17016244  make-x64/memcheck.sh
 846da9f9d1b473bb531ac20393fc0613  make-x64/memcheck.supp
 441ca78d955dc9a8fc2eb605d4ec8856  make-x64/port_gnu89.h
@@ -550,10 +550,10 @@ fa231cc2aca4aae431bd1336a8cd58a5  src/dcwstruct.h
 5ac70aeabbab7f3139464e4c10035b1d  src/debugcore.h
 52d6cf9b518956959e9a91ae63eece24  src/des.c
 424195333cfaa7171feaa1848f067c04  src/des.h
-5a35a256f55ddc10decc53c60d049fce  src/diagnostics.c
+bd14f64621a6318c6edfa17725bdc30e  src/diagnostics.c
 c859a15d4158809647060f5d96647c6e  src/diagnostics.h
 333301865f35485299c3ea8c259ccd18  src/dyn_buffer.c
-997110855653165144f7cbcfab9d4271  src/ecm-doublecheck.h
+d799a73cb7b962c3df5cf98782867791  src/ecm-doublecheck.h
 f3e419169c0039325d271f5da056885f  src/ecm-optimizations.c
 92e1a2b2763ec226704189fc431e2301  src/ecm-optimizations.h
 6d651abe0ae4a783de2f9251594adf42  src/ecm-pattern-analysis.h
@@ -586,7 +586,7 @@ c7e6fdad95760a74355a4dfc10f32c38  src/log-viewer.h
 0383bf89ff9e3851278efa6d34e85f65  src/loginthrottle.c
 0d864aaa9d3bf263f7427bd171614ed8  src/loginthrottle.h
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
-0d78cafe4124c9a299dee93dae06e5df  src/main.c
+2cd7b2f033b69ca8dca1ad693a728d22  src/main.c
 cad8295c0e073cc695a0f79d689bea2f  src/main.h
 2ab114aeb136d055583472004ac6aa95  src/md5.c
 99fc08532a6cf0afc9360597c2a848be  src/md5.h
@@ -674,7 +674,7 @@ c672179a633ad119a259226f11813da8  src/twin.c
 b668f23cfad77bd06c1caee5e96fd77c  src/udpfast.h
 00a0cd8dad604907af557936c802c2e1  src/user-trace.c
 1f2eec7970dadcfddbddc223484b5047  src/user-trace.h
-04497f1f5e90d539c82ceafaffa0e8eb  src/web-dashboard.c
+1fa26df00134d3daa83edd16f09df4e7  src/web-dashboard.c
 b0e46dc030b5e572dbb3a718f9ff55a2  src/web-dashboard.h
 c9773b5ee2d1265f0d4a6da226acaaea  src/x64/advanced-optimizations.o
 038e3f01410c6adda1d2a533139b0e85  src/x64/aes.o
@@ -690,7 +690,7 @@ bbab103cab578fe3fde883e2a1ef01c6  src/x64/dcw.o
 f00ae2c6904ea3453f4ee57564dacb77  src/x64/debug-ecm.o
 92639793b16bc5faa17c4b7695c57cbc  src/x64/debug.o
 e60f42f33025ac4e18597f918d7a6742  src/x64/des.o
-0cbeaca3ee30c7d11ba689147355c4eb  src/x64/diagnostics.o
+df9840739919b042e48117de952e914d  src/x64/diagnostics.o
 97926250774a245d417264f2036a17e6  src/x64/ecm-optimizations.o
 cdaf691f93c8125068fcb28782d01ab0  src/x64/ecm-provider-config.o
 c10a8f4832a3a5bd74b89d0281534f25  src/x64/ecmdata.o
@@ -698,13 +698,13 @@ d5b5c20ff9bdbe3ab2247b1fb5ec4bdf  src/x64/httpserver.o
 65d3c95657a17d765f877fc87bb99d08  src/x64/ipdata.o
 97b72d7bb94a20a4cbefaa288dc8a218  src/x64/log-viewer.o
 41cc4d2536cc8bb06be239bb7f2e1799  src/x64/loginthrottle.o
-1c08080555fcf9808e41372163b71edc  src/x64/main.o
+e350b06d2804808316e8d48eda56e94a  src/x64/main.o
 7c182c5e1bdf03c1a70a040ada3553a5  src/x64/md5.o
 bdc84b77d493a55ec7cc698142bf7765  src/x64/monjson.o
 c0369b495bfe2e7cb901363dace4d8a6  src/x64/msg-cccam.o
 3e4a6d3e6c8187541378f8718fe4cb86  src/x64/msg-newcamd.o
 06e20b2aed733b9e963e8e4977b61661  src/x64/msg-radegast.o
-d35c8bcddf4f30e390fc2576e46c13b0  src/x64/multics
+b5f237267af6f37e48fe748c54ffe4d5  src/x64/multics
 8da43692b70e43d698ea12d52a1184d2  src/x64/newcamd-lifetime.o
 e3e4d5c54ec45b514b9558d70b89d833  src/x64/packed-time.o
 9d0d019d2210e2986f8d7c75e42a160a  src/x64/parser.o
@@ -719,7 +719,7 @@ fdd63bfe796aa17cf562f0e7c256616c  src/x64/telnet.o
 00205811cd0cff14005e001ceac8462f  src/x64/threads.o
 b1e97911c0bf7ceb0ebafc1b822cc095  src/x64/tools.o
 9925b15c8fc72bfce1ed9584fe0aced0  src/x64/user-trace.o
-4cd460c575114bb9d8d3982f0240f2c5  src/x64/web-dashboard.o
+b671caa9ccd409e7ab688351ae3db436  src/x64/web-dashboard.o
 addad57e2865ca125b0a0e344a04d5b2  src/zerohandoff.h
 d891e63347205f1bde3fca5ae2239420  src/zerolatency.h
 49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
@@ -820,3 +820,4 @@ d60420c5d91a769b89881669f93576ac  src/cw-fingerprint.h
 3f7ff53be9d92dcb782d715e8dd8c686  make-x64/test_cw_fingerprint.c
 17d71762a3aafe6ae16f1b1bbf2c83d0  src/cw-timing.h
 550040f3cc08f2d97789982ce116b846  make-x64/test_cw_timing.c
+3a6de67551865b96efb22d8da4d3f9b3  make-x64/test_ecm_doublecheck.c

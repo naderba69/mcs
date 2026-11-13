@@ -3289,8 +3289,9 @@ void mainprocess()
 
 	start_thread_http();
 
-	// Auto-tuning: track time for periodic analysis
-	time_t last_auto_tuning = time(NULL);
+	// Auto-tuning: track time for periodic analysis (monotonic clock:
+	// a wall-clock jump must not delay or rush the 5-minute cadence)
+	unsigned int last_auto_tuning = getseconds();
 
 	while (!prg.restart) {
 		/* Auto recovery: check for servers that need recovery */
@@ -3309,7 +3310,7 @@ void mainprocess()
 		
 		/* Auto-tuning: analyze performance every 5 minutes */
 		{
-			time_t now = time(NULL);
+			unsigned int now = getseconds();
 			if (now - last_auto_tuning >= 300) {  // 300 seconds = 5 minutes
 				auto_tuning_analyze();
 				/* TASK BS (2026-10-26): Periodic blackscreen analysis */

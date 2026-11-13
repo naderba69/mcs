@@ -32,6 +32,15 @@
 #include <string.h>
 #include <pthread.h>
 
+/* Monotonic millisecond tick (tools.c GetTickCount, CLOCK_MONOTONIC).
+ * Pending-entry ages/timeouts must never use the wall clock: an NTP or
+ * DST jump would otherwise expire live checks or pin stale ones.
+ * tools.h has no include guard, so declare the tick here instead. */
+#if !defined(WIN32)
+uint32_t GetTickCount(void);
+#endif
+#define DC_NOW_MS() ((uint32_t)GetTickCount())
+
 #define DOUBLECHECK_MAX_CAIDS 64
 #define DOUBLECHECK_MAX_READERS 4
 #define DOUBLECHECK_TIMEOUT_MS 3000
@@ -118,9 +127,22 @@ static inline doublecheck_pending_t *ecm_doublecheck_start(uint32_t ecm_hash,
                                                             uint32_t provid,
                                                             uint16_t sid) {
     int i;
-    
+    uint32_t now = DC_NOW_MS();
+
     pthread_mutex_lock(&g_doublecheck.lock);
-    
+
+    /* Reclaim expired slots first. Nothing in the tree calls
+     * ecm_doublecheck_cleanup() periodically, so without this sweep the
+     * 256 slots filled once and every later start silently failed. */
+    for (i = 0; i < 256; i++) {
+        doublecheck_pending_t *p = &g_doublecheck.pending[i];
+        if (p->active &&
+            (uint32_t)(now - p->start_time) > DOUBLECHECK_TIMEOUT_MS * 2) {
+            p->active = 0;
+            g_doublecheck.timeouts++;
+        }
+    }
+
     /* Find empty slot */
     for (i = 0; i < 256; i++) {
         if (!g_doublecheck.pending[i].active) {
@@ -132,7 +154,7 @@ static inline doublecheck_pending_t *ecm_doublecheck_start(uint32_t ecm_hash,
             p->result_count = 0;
             p->verified = 0;
             p->active = 1;
-            p->start_time = (uint32_t)time(NULL) * 1000;
+            p->start_time = now;
             memset(p->cw_results, 0, sizeof(p->cw_results));
             
             g_doublecheck.total_checks++;
@@ -209,7 +231,7 @@ static inline int ecm_doublecheck_is_verified(doublecheck_pending_t *p,
 static inline int ecm_doublecheck_is_timeout(doublecheck_pending_t *p) {
     if (!p || !p->active) return 1;
     
-    uint32_t now = (uint32_t)time(NULL) * 1000;
+    uint32_t now = DC_NOW_MS();
     if ((now - p->start_time) > DOUBLECHECK_TIMEOUT_MS) {
         g_doublecheck.timeouts++;
         return 1;
@@ -220,7 +242,7 @@ static inline int ecm_doublecheck_is_timeout(doublecheck_pending_t *p) {
 /* Cleanup completed/timeout entries */
 static inline void ecm_doublecheck_cleanup(void) {
     int i;
-    uint32_t now = (uint32_t)time(NULL) * 1000;
+    uint32_t now = DC_NOW_MS();
     
     pthread_mutex_lock(&g_doublecheck.lock);
     
