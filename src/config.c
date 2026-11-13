@@ -1382,6 +1382,20 @@ link_radegast_server:
 			}
 		}
 
+		/* R48 SuperSmartFilter per-profile level: FILTER: <0-20> */
+		else if (!strcmp(str,"FILTER") && cardserver) {
+			parse_spaces();
+			if ((*iparser==':')||(*iparser=='=')) {
+				iparser++;
+				parse_int(str);
+				int lvl = atoi(str);
+				if (lvl < 0) lvl = 0;
+				if (lvl > 20) lvl = 20;
+				cardserver->option.sf_filter_level = (uint8_t)lvl;
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): FILTER: %d (profile %s)\n",file->nbline,iparser-currentline, lvl, cardserver->name);
+			}
+		}
+
 		/* Exact profile/provider/SID override. No wildcard and no global
 		 * inheritance: malformed input fails closed. */
 		else if (!strcmp(str,"CW_CHECKSUM_EXEMPT")) {

@@ -790,6 +790,8 @@ struct cardserver_data
 		uint8_t dcwfilter_repeat;
 		uint8_t dcwfilter_cycle; /* TASK R2 (D56): the delivery-time cycle gate */
 		uint8_t dcwfilter_pattern; /* TASK R28 (D79): structural fake gate */
+		/* R48 SuperSmartFilter per-profile level (0=inherit global). */
+		uint8_t sf_filter_level;
 		/* Explicit exact provider/SID exception; disabled unless parsed. */
 		uint8_t cw_checksum_exempt_active;
 		uint32_t cw_checksum_exempt_provider;

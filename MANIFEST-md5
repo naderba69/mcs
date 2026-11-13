@@ -413,7 +413,7 @@ ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
 ec8f097cbc76086499086f13a2653684  multics-r24-expert-reviewed.cfg
-24c7e3bc7bf10e09100230d5d91030f9  multics-r24-optimized.cfg
+9ad411c2bad082c81d6a3ef942034201  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
 8b31db494439c7fb3ec1920482e00650  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
@@ -477,8 +477,8 @@ a3e3072f8f89a66cccdf4c32a0c6c607  src/cli-radegast.c
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
 be528db0b190c89e5daab6cd0ad2a10b  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-1510bc2dea29c7a9384d3d3127a83534  src/config.c
-59b759aed7b86f9179e6cf9d77cd00b8  src/config.h
+d5cd22bd719ba5a26f87e8b3c7680e6f  src/config.c
+e91308d2ee5b2f791c8814612945206b  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
 40863224046ccab4dbc0b957c87ebe99  src/country.c
@@ -634,7 +634,7 @@ bb42a53e55698772ba3b4e6dd8fb80f6  src/scramchk.h
 443bfe888cce44b30ec6639915ec090c  src/server-performance.h
 c28cc5d8f7396e2075fcca2c459e7d22  src/server-stats.c
 614c96c16fce728cdf28c2a94b457c9e  src/server-stats.h
-bc0e5c28d426aae653e02d670c179463  src/setdcw.c
+51ffb27995cf043e3d687240cfd6c20c  src/setdcw.c
 16c69e6b1bab07c3fd1af90038d12fa6  src/sha1.c
 f245f7e5032e0752df586d67ed24942a  src/sha1.h
 9cfcb141eba70989f1caf2ff070cc994  src/sha256.c
@@ -653,7 +653,7 @@ f9aa52b075c0c96d24c7dda157cdfe24  src/srv-cs378x.c
 d1cc984615a9df70247c13463d448e55  src/srv-newcamd.c
 00909d2209122c413dc06fd8b8835563  src/srv-radegast.c
 5cf4fd45ab8a814068fa38434d0089ac  src/statsline.h
-50125590c213b33f86ee20320a29ab9b  src/supersmartfilter.h
+3ede9d517bf39450e6f23754625e2dfd  src/supersmartfilter.h
 65758af21af4e9126b7c55dd50c13d36  src/telnet.c
 e79043a4563b3f9a8cf0acacc292f691  src/telnet.h
 ba7ac069767b98a5222bb0b566fa3e20  src/th-cfg.c

@@ -1313,6 +1313,8 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 		}
 		debugf(0, "    ✅ [DCW-STRICT] OK\n");
 		
+		/* R48: per-profile filter level override */
+		ssf_profile_level_override = cs->option.sf_filter_level;
 		int ssf_reason = 0;
 		int ssf_rejected = supersmartfilter_check(dcw, 
 #ifdef CACHEEX

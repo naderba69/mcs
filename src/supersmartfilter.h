@@ -34,6 +34,10 @@
 #define SSF_MAX_MC_ENTRIES 256
 #define SSF_HISTORY_WINDOW_MS 5000
 
+/* R48: forward declarations for level-based helpers */
+static inline uint32_t ssf_effective_window(int level, uint32_t base_ms);
+static inline int ssf_backdepth(int level);
+
 struct ssf_config {
     int filter_level;           // 0-20, 0=disabled
     int filter_time_ms;         // Basic time window (ms)
@@ -269,9 +273,10 @@ static inline int ssf_check_duplicate(const uint8_t cw[16], uint16_t caid,
                                        uint32_t provid, uint16_t sid, uint32_t now_ms)
 {
     int i;
-    uint32_t time_window = ssf_cfg.filter_time_ms;
+    uint32_t time_window = ssf_effective_window(ssf_cfg.filter_level, ssf_cfg.filter_time_ms);
+    int bd = ssf_backdepth(ssf_cfg.filter_level);
     
-    for (i = 0; i < ssf_cfg.sf_history; i++) {
+    for (i = 0; i < bd && i < ssf_cfg.sf_history; i++) {
         int idx = (ssf_history_index - 1 - i + SSF_MAX_HISTORY) % SSF_MAX_HISTORY;
         struct ssf_cw_history *h = &ssf_history[idx];
         
@@ -498,11 +503,42 @@ static void ssf_record_cw_result(uint32_t peer_id, int is_bad, uint32_t now)
  *   now_ms          - Current timestamp (ms)
  *   reject_reason   - Output: reason code (1-9)
  */
+/* R48: Level-based effective fast-window and backdepth (v6.0 spec).
+ * Level 2: eft=100%, bd=1
+ * Level 3: eft=75%, bd=2
+ * Level 4: eft=60%, bd=2
+ * Level 5: eft=50%, bd=3
+ * Level 6: eft=100%, bd=3 (HALFNULLED gate active)
+ * Level 8: eft=40%, bd=3
+ * Level 9+: eft=30%, bd=3 */
+static inline uint32_t ssf_effective_window(int level, uint32_t base_ms)
+{
+    if (level <= 2) return base_ms;
+    if (level == 3) return (base_ms * 75) / 100;
+    if (level == 4) return (base_ms * 60) / 100;
+    if (level == 5) return (base_ms * 50) / 100;
+    if (level == 6) return base_ms;
+    if (level == 7) return (base_ms * 45) / 100;
+    if (level == 8) return (base_ms * 40) / 100;
+    return (base_ms * 30) / 100;
+}
+
+static inline int ssf_backdepth(int level)
+{
+    if (level <= 2) return 1;
+    if (level <= 4) return 2;
+    return 3;
+}
+
+/* R48: per-profile filter level override (0 = use global). */
+static int ssf_profile_level_override = 0;
+
 static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[16],
                                    uint16_t caid, uint32_t provid, uint16_t sid,
                                    uint32_t peer_id, uint32_t now_ms, int *reject_reason)
 {
-    if (ssf_cfg.filter_level == 0) {
+    int effective_level = ssf_profile_level_override ? ssf_profile_level_override : ssf_cfg.filter_level;
+    if (effective_level == 0) {
         return 0;  // Disabled
     }
     
@@ -581,8 +617,8 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
         goto done;
     }
     
-    // Check 7: Duplicate/speed
-    if (ssf_cfg.filter_level >= 3 && ssf_check_duplicate(cw, caid, provid, sid, now_ms)) {
+    // Check 7: Duplicate/speed (level >= 2 enables history)
+    if (effective_level >= 2 && ssf_check_duplicate(cw, caid, provid, sid, now_ms)) {
         ssf_stats.rejected_duplicate++;
         rejected = 1;
         reason = 7;
