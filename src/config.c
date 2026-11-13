@@ -3884,6 +3884,7 @@ link_mgcamd_user:
 							if (parse_boolean()) peer->flags |= FLAG_CACHE_SENDREP; else peer->flags &= ~FLAG_CACHE_SENDREP;
 						}
 						else if (!strcmp(str,"shares")) parse_option_shares( &peer->sharelimits, sizeof(peer->sharelimits) );
+						else if (!strcmp(str,"trusted")) { peer->trusted = parse_boolean(); debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE PEER trusted: %s\n",file->nbline,iparser-currentline, peer->trusted?"YES":"NO"); }
 						parse_spaces();
 						if (*iparser==';') iparser++; else break;
 					}

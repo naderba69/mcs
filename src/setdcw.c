@@ -1196,6 +1196,38 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
             newcamd_config_read_unlock(); return;
         }
     }
+    /*
+     * R48 trusted-source fast-path.
+     *
+     * When the operator designates a peer/server as trusted
+     * (CACHE PEER ... { trusted=YES }), its CWs are delivered
+     * immediately after structural validation, bypassing consensus.
+     * Solution for majority-fake scenarios (100+ cache peers, 40+
+     * Newcamd lines, most sending fakes): operator knows which
+     * source is real, system trusts it. Structural checks still run.
+     */
+    {
+        int is_trusted = 0;
+        if (srctype == DCW_SOURCE_CACHE) {
+            struct cachepeer_data *peer = getpeerbyid(srcid);
+            if (peer && peer->trusted) is_trusted = 1;
+        } else if (srctype == DCW_SOURCE_SERVER) {
+            struct server_data *srv = getsrvbyid(srcid & 0xffff);
+            if (srv && srv->trusted) is_trusted = 1;
+        }
+        if (is_trusted) {
+            debugf(0, "    ✅ [TRUSTED] %04X:%06X:%04X from trusted source %d -- fast-path\n",
+                   ecm->caid, ecm->provid, ecm->sid, srcid);
+            ecm_lock();
+            ecm = queued_ecm;
+            if (ecm_request_lifetime_id_load(ecm) != lifetime_at_queue) {
+                ecm_unlock();
+                newcamd_config_read_unlock(); return;
+            }
+            goto trusted_deliver;
+        }
+    }
+
 
     /*
      * R48 CW fingerprint (observe-only, opt-in per profile).
@@ -1446,6 +1478,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 		queue_cache_reference = cache_verify_take_candidate_locked(
 		    ecm, cache_reference_cw, &cache_reference_peerid,
 		    &cache_reference_cwmark, &cache_reference_origin_mask);
+trusted_deliver:
 	ecm->statusmsg = "Decode Success";
 	int instant = (ecm->dcwstatus==STAT_DCW_WAITCACHE);
 	ecm->dcwsrctype = srctype;

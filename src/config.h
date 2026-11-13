@@ -186,6 +186,7 @@ struct __attribute__ ((__packed__)) cachepeer_data
 	int csp;
 	int autoadd;
 	int fwd; // forward cache
+	int trusted; // R48: operator-designated trusted peer (fast-path CW)
 
 	//number of hits for each profile
 	struct {
@@ -890,6 +891,7 @@ struct __attribute__ ((__packed__)) server_data
 	int port;
 	char user[64];
 	char pass[64];
+	int trusted; // R48: operator-designated trusted server (fast-path CW)
 #ifdef CACHEEX
 	int cacheex_mode; // only for CCcam Server
 	int cacheex_maxhop;
