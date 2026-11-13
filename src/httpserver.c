@@ -502,8 +502,10 @@ int parse_http_request(int sock, http_request *req )
 
 
 
-/// XXX: not thread safe
-char channelname[256];
+/* Thread-local fallback buffer: HTTP handlers run on multiple threads
+ * and getchname() is called from several of them. A shared buffer raced
+ * (one thread's sprintf overwrote another's channel name). */
+static __thread char channelname[256];
 char *getchname(uint16_t caid, uint32_t prov, uint16_t sid )
 {
 	struct chninfo_data *chn= cfg.chninfo;
