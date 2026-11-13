@@ -5,6 +5,7 @@
 #include "safe-time.h"
 #include "cwtime.h"   /* TASK 2.3: CWT_MAX_FLOOR, so the clamp and the module agree */
 #include "newcamd-lifetime.h"
+#include "supersmartfilter.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -4100,6 +4101,67 @@ link_mgcamd_user:
 						if (!cfg->cache.attest) cfg->cache.attest = 2;
 						cfg->dcw_filters.pattern = 1;
 						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE PROTECTION: STANDARD (consensus 600/3, pattern, attest 2)\n",file->nbline,iparser-currentline);
+					}
+					continue;
+				}
+			}
+
+			/* R48 SuperSmartFilter v6.0: CACHE SF_* settings. */
+			else if (!strcmp(str,"SF")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) {
+					iparser++;
+					parse_name(str);
+					uppercase(str);
+					if (!strcmp(str,"MULTICHECK")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.sf_multicheck = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MULTICHECK: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_multicheck);
+					}
+					else if (!strcmp(str,"MC")) {
+						parse_spaces();
+						parse_name(str);
+						uppercase(str);
+						if (!strcmp(str,"CAIDS")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							char *p = iparser;
+							while (*p && *p != '\n' && *p != '#') {
+								if ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f')) {
+									char hex[5]; int hi = 0;
+									while (*p && hi < 4 && ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f'))) hex[hi++] = *p++;
+									hex[hi] = 0;
+									if (hi == 4 && ssf_cfg.sf_mc_caids_count < 32) {
+										ssf_cfg.sf_mc_caids[ssf_cfg.sf_mc_caids_count++] = (uint16_t)strtoul(hex, NULL, 16);
+									}
+								}
+								else p++;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MC CAIDS: %d entries\n",file->nbline,iparser-currentline, ssf_cfg.sf_mc_caids_count);
+						}
+					}
+					else if (!strcmp(str,"HALFCW")) {
+						parse_spaces();
+						parse_name(str);
+						uppercase(str);
+						if (!strcmp(str,"CAIDS")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							char *p = iparser;
+							while (*p && *p != '\n' && *p != '#') {
+								if ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f')) {
+									char hex[5]; int hi = 0;
+									while (*p && hi < 4 && ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f'))) hex[hi++] = *p++;
+									hex[hi] = 0;
+									if (hi == 4 && ssf_cfg.sf_halfcw_caids_count < 32) {
+										ssf_cfg.sf_halfcw_caids[ssf_cfg.sf_halfcw_caids_count++] = (uint16_t)strtoul(hex, NULL, 16);
+									}
+								}
+								else p++;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF HALFCW CAIDS: %d entries\n",file->nbline,iparser-currentline, ssf_cfg.sf_halfcw_caids_count);
+						}
 					}
 					continue;
 				}

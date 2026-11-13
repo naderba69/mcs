@@ -413,7 +413,7 @@ ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
 ec8f097cbc76086499086f13a2653684  multics-r24-expert-reviewed.cfg
-87d0521ed7dcbef5b38e9c53951b1751  multics-r24-optimized.cfg
+24c7e3bc7bf10e09100230d5d91030f9  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
 8b31db494439c7fb3ec1920482e00650  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
@@ -477,7 +477,7 @@ a3e3072f8f89a66cccdf4c32a0c6c607  src/cli-radegast.c
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
 be528db0b190c89e5daab6cd0ad2a10b  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-3a7f237df1520271d4787dc955eb42ef  src/config.c
+1510bc2dea29c7a9384d3d3127a83534  src/config.c
 59b759aed7b86f9179e6cf9d77cd00b8  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
