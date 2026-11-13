@@ -2691,6 +2691,7 @@ sid accept:
 					parse_int(str);
 					parse_spaces();
 					defaultcs.option.dcw.timeout = atoi(str);
+					defaultcs.option.dcw.timeout_explicit = 1;
 					if (defaultcs.option.dcw.timeout<300) defaultcs.option.dcw.timeout=300;
 					else if (defaultcs.option.dcw.timeout>9999) defaultcs.option.dcw.timeout=9999;
 				}
@@ -5006,6 +5007,7 @@ link_mgcamd_user:
 				parse_int(str);
 				parse_spaces();
 				cardserver->option.dcw.timeout = atoi(str);
+				cardserver->option.dcw.timeout_explicit = 1;
 				if (cardserver->option.dcw.timeout<300) cardserver->option.dcw.timeout=300;
 				else if (cardserver->option.dcw.timeout>9999) cardserver->option.dcw.timeout=9999;
 			}

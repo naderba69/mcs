@@ -698,6 +698,7 @@ struct cardserver_data
 
 		struct {
 			uint32_t timeout; // decode timeout in ms
+			uint8_t timeout_explicit; // operator set DCW TIMEOUT: wins over provider fallback table
 #ifdef CHECK_NEXTDCW
 			uint8_t check;
 			uint8_t halfnulled;

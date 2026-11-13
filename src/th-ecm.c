@@ -12,6 +12,15 @@
  * ============================================================================ */
 uint32_t ecm_get_effective_timeout(ECM_DATA *ecm, struct cardserver_data *cs, uint32_t default_timeout)
 {
+    /* Operator precedence (same rule as server.timeout_explicit, D111 A1):
+     * the provider table's fallback_timeout is a fallback -- it fills the
+     * gap only when the operator did not explicitly set DCW TIMEOUT. An
+     * explicit deadline (e.g. 9000 ms for a cache-waiting profile) must
+     * not be silently shortened to a 1000 ms table value. */
+    if (cs && cs->option.dcw.timeout_explicit &&
+        default_timeout == cs->option.dcw.timeout) {
+        return default_timeout;
+    }
     uint32_t provider_timeout = provider_get_fallback_timeout(ecm->caid, ecm->provid);
     if (provider_timeout > 0) {
         return provider_timeout;
