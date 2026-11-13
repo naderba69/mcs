@@ -320,7 +320,7 @@ a1a4c6908cb92319e0d923ebf04febbe  make-cross/Makefile
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
 71db1eb7a48e9eadf5b006e521c7c068  make-cross/cross-mipsel/multics
 dd70e1f361729a919b007241f311c9b1  make-cross/cross-sh4/multics
-2bfdb3ac58eb72a73b2ac49475c7e674  make-x64/Makefile
+6af7ed1f8a5f2b8142255cf812af3ae1  make-x64/Makefile
 650fd7a14c324c80ce132d7f17016244  make-x64/memcheck.sh
 846da9f9d1b473bb531ac20393fc0613  make-x64/memcheck.supp
 441ca78d955dc9a8fc2eb605d4ec8856  make-x64/port_gnu89.h
@@ -413,7 +413,7 @@ ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
 ec8f097cbc76086499086f13a2653684  multics-r24-expert-reviewed.cfg
-b5d277702180ec9f373e1e4ec46607bf  multics-r24-optimized.cfg
+731f4d576acee4fae7f4f3e1931f06ff  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
 8b31db494439c7fb3ec1920482e00650  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
@@ -477,8 +477,8 @@ a3e3072f8f89a66cccdf4c32a0c6c607  src/cli-radegast.c
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
 be528db0b190c89e5daab6cd0ad2a10b  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-d92e018afec819278556c318c0abefab  src/config.c
-939146929305332e2f985720dd061427  src/config.h
+3578b31588c983200757d08cff76d326  src/config.c
+f8718d21d4c9f2db0a6d90c1c054cfcf  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
 40863224046ccab4dbc0b957c87ebe99  src/country.c
@@ -536,10 +536,10 @@ f868ada5f76fa1863ca2e277d349bcf0  src/cwrollback.h
 cf3422e7e10e69479e6bf53fa8cacbf8  src/cwtime.h
 10e29a96971967b1e331b6d8fed8fb4e  src/cwvalidity.h
 eea4557a1d93c03a001dafecf656b537  src/cwverify.h
-1e2a927b78c55355d862254b20d1b773  src/dcw.c
+b39aa828d574d216478344d49a344d06  src/dcw.c
 418902105ee72813be42c560b92ba7b6  src/dcw.h
 0421215a285de9ede5fd3600fe0c0f9e  src/dcwfilter.c
-5cf1af5048365e464ed72f203b56ebb7  src/dcwfilter.h
+dcb8a7e69bd800fb4fd55db62bc04277  src/dcwfilter.h
 a5fa6ed31e82f2b82e1f2a58bea02ad2  src/dcwstats.h
 e8da713e1b67f0d61e76b594004b1349  src/dcwstrict.h
 fa231cc2aca4aae431bd1336a8cd58a5  src/dcwstruct.h
@@ -586,7 +586,7 @@ c7e6fdad95760a74355a4dfc10f32c38  src/log-viewer.h
 0383bf89ff9e3851278efa6d34e85f65  src/loginthrottle.c
 0d864aaa9d3bf263f7427bd171614ed8  src/loginthrottle.h
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
-2035383424f7033bd495a35f0ef9c833  src/main.c
+0d78cafe4124c9a299dee93dae06e5df  src/main.c
 cad8295c0e073cc695a0f79d689bea2f  src/main.h
 2ab114aeb136d055583472004ac6aa95  src/md5.c
 99fc08532a6cf0afc9360597c2a848be  src/md5.h
@@ -634,7 +634,7 @@ bb42a53e55698772ba3b4e6dd8fb80f6  src/scramchk.h
 443bfe888cce44b30ec6639915ec090c  src/server-performance.h
 c28cc5d8f7396e2075fcca2c459e7d22  src/server-stats.c
 614c96c16fce728cdf28c2a94b457c9e  src/server-stats.h
-d1e6b5f23baf856085a9546a66cb4def  src/setdcw.c
+8815c54bf33be1ad1dff3d13d0445e91  src/setdcw.c
 16c69e6b1bab07c3fd1af90038d12fa6  src/sha1.c
 f245f7e5032e0752df586d67ed24942a  src/sha1.h
 9cfcb141eba70989f1caf2ff070cc994  src/sha256.c
@@ -816,3 +816,5 @@ dedb62153a5f386129d68373a5be6124  tests/user-trace.c
 40ac70ed40cc628bcb2a85c769b9ff43  tools/generate-expert-config.py
 d5b0a014aafbaaa3c52fa64353f3f469  التقرير-النهائي-للإصلاح.md
 2a87852efef8f14588ce5c0199b47cdc  الجرد-الشامل-والصادق.md
+d60420c5d91a769b89881669f93576ac  src/cw-fingerprint.h
+3f7ff53be9d92dcb782d715e8dd8c686  make-x64/test_cw_fingerprint.c

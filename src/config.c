@@ -1321,11 +1321,12 @@ link_radegast_server:
 		else if (!strcmp(str,"DCWFILTER")) {
 			parse_name(str);
 			uppercase(str);
-			if (!strcmp(str,"REPEAT")||!strcmp(str,"CHECKSUM")||!strcmp(str,"CYCLE")||!strcmp(str,"PATTERN")) {
-				int which; /* 0 checksum, 1 repeat, 2 cycle (TASK R2), 3 pattern (TASK R28) */
+			if (!strcmp(str,"REPEAT")||!strcmp(str,"CHECKSUM")||!strcmp(str,"CYCLE")||!strcmp(str,"PATTERN")||!strcmp(str,"STRICT")) {
+				int which; /* 0 checksum, 1 repeat, 2 cycle (TASK R2), 3 pattern (TASK R28), 4 strict (R48) */
 				if (str[0]=='R') which = 1;
 				else if (str[0]=='C' && str[1]=='Y') which = 2;
 				else if (str[0]=='P') which = 3;
+				else if (str[0]=='S') which = 4;
 				else which = 0;
 				parse_spaces();
 				if ((*iparser!=':')&&(*iparser!='=')) {
@@ -1341,20 +1342,29 @@ link_radegast_server:
 				 * TASK R2 -- CYCLE follows the same tristate; its global
 				 * default stays OFF (D56: a declared marker is evidence,
 				 * not proof, so the refusal never runs un-asked).
+				 * R48 -- STRICT is global-only (dcwstrict_cfg); a
+				 * per-profile STRICT line is accepted and ignored
+				 * with a debug note, since the strict table is
+				 * process-global by design.
 				 */
 				if (cardserver) {
 					int mode = on ? DCWFILTER_ON : DCWFILTER_OFF;
 					if (which==1) cardserver->option.dcwfilter_repeat = mode;
 					else if (which==2) cardserver->option.dcwfilter_cycle = mode;
 					else if (which==3) cardserver->option.dcwfilter_pattern = mode;
+					else if (which==4) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER STRICT is global-only; profile line ignored (profile %s)\n",file->nbline,iparser-currentline, cardserver->name);
+						continue;
+					}
 					else cardserver->option.dcwfilter_checksum = mode;
-					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s (profile %s)\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":"CHECKSUM")), on?"ON":"OFF", cardserver->name);
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s (profile %s)\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":(which==4?"STRICT":"CHECKSUM"))), on?"ON":"OFF", cardserver->name);
 				} else {
 					if (which==1) cfg->dcw_filters.repeat = on;
 					else if (which==2) cfg->dcw_filters.cycle = on;
 					else if (which==3) cfg->dcw_filters.pattern = on;
+					else if (which==4) cfg->dcw_filters.strict = on;
 					else cfg->dcw_filters.checksum = on;
-					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":"CHECKSUM")), on?"ON":"OFF");
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":(which==4?"STRICT":"CHECKSUM"))), on?"ON":"OFF");
 				}
 			}
 			/*
@@ -4650,6 +4660,25 @@ link_mgcamd_user:
 				cardserver->option.ecm_fingerprint = parse_boolean();
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ECM FINGERPRINT: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.ecm_fingerprint, cardserver->name);
 			}
+			else if (!strcmp(str,"CW")) {
+				/* "ECM CW FINGERPRINT: ON" -- the CW half of the
+				 * fingerprint pair. Parsed here because the
+				 * outer key is ECM and the inner keys are CW
+				 * then FINGERPRINT (same two-word pattern as
+				 * CHECK LENGTH above). */
+				parse_spaces();
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FINGERPRINT")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					cardserver->option.cw_fingerprint = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CW FINGERPRINT: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.cw_fingerprint, cardserver->name);
+				}
+			}
 		}
 
 		else if (!strcmp(str,"DCW")) {
@@ -7538,6 +7567,7 @@ void dcw_filter_globals_publish(const struct config_data *cfg)
     dcw_filter_repeat = cfg->dcw_filters.repeat;
     dcw_filter_cycle = cfg->dcw_filters.cycle;
     dcw_filter_pattern = cfg->dcw_filters.pattern;
+    dcw_filter_strict = cfg->dcw_filters.strict;
     pthread_mutex_unlock(&profile_validation_lock);
 }
 
@@ -7550,6 +7580,17 @@ void dcw_filter_globals_snapshot(int *checksum, int *repeat, int *cycle, int *pa
     if (cycle) *cycle = dcw_filter_cycle;
     if (pattern) *pattern = dcw_filter_pattern;
     pthread_mutex_unlock(&profile_validation_lock);
+}
+
+/* Snapshot the STRICT gate (R48). Separate from the 4-arg snapshot
+ * above so existing callers are untouched. */
+int dcw_filter_strict_snapshot(void)
+{
+    int v;
+    pthread_mutex_lock(&profile_validation_lock);
+    v = dcw_filter_strict;
+    pthread_mutex_unlock(&profile_validation_lock);
+    return v;
 }
 
 int dcw_profile_cycle_enabled(struct cardserver_data *cs)

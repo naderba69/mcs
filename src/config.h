@@ -714,6 +714,12 @@ struct cardserver_data
 		 * typical ECM length per (CAID,SID) and trace anomalies in
 		 * /user-trace. Never refuses an ECM. */
 		uint8_t ecm_fingerprint;
+		/* R48 CW fingerprint (observe-only, default OFF): learn the
+		 * per-byte-position distribution of genuine CWs per
+		 * (CAID,PROVID,SID) and trace statistical anomalies (XOR
+		 * fakes, biased generators) in /user-trace. Never refuses
+		 * a CW. */
+		uint8_t cw_fingerprint;
 
 		int maxfailedecm; // Max failed ecm per sid
 
@@ -1377,6 +1383,7 @@ int acceptDCW_profile_ecm_trace_reason(uint8_t *data, struct cardserver_data *cs
                                        int *reason, int *checksum_exemption_used);
 void dcw_filter_globals_publish(const struct config_data *cfg);
 void dcw_filter_globals_snapshot(int *checksum, int *repeat, int *cycle, int *pattern);
+int dcw_filter_strict_snapshot(void);
 int dcw_profile_cycle_enabled(struct cardserver_data *cs);
 int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
 			 uint16_t caid);
@@ -1466,6 +1473,7 @@ struct config_data
 		int repeat;
 		int cycle;
 		int pattern;
+		int strict;
 	} dcw_filters;
 
 	struct {

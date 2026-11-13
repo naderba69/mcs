@@ -42,6 +42,7 @@ int dcw_filter_checksum = 1;
 int dcw_filter_repeat   = 1;
 int dcw_filter_cycle    = 0; /* TASK R2 (D56): matches init_config() default; cycle gate is off */
 int dcw_filter_pattern  = 0; /* TASK R28 (D79): the fake-shape gate starts disarmed */
+int dcw_filter_strict   = 0; /* R48: DCW STRICT gate starts disarmed (opt-in) */
 #endif
 
 

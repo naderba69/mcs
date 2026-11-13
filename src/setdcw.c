@@ -7,6 +7,7 @@
 #include "cafamily.h"	/* TASK R36 (D92) */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include "cache-window.h"  /* R48 opt-in cache wait-window learning */
+#include "cw-fingerprint.h"  /* R48 CW fingerprint (observe-only) */
 #include "tick_math.h"
 #include <stdlib.h>
 
@@ -1171,6 +1172,24 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
         }
     }
 
+    /*
+     * R48 CW fingerprint (observe-only, opt-in per profile).
+     *
+     * Learns the per-byte-position distribution of genuine CWs for
+     * this channel and traces statistical anomalies -- the XOR 0xF0
+     * last-byte fake and other biased generators that pass every
+     * structural gate. Never refuses; the anomaly is evidence for
+     * /user-trace and for the operator's source-trust decisions.
+     */
+    if (cs->option.cw_fingerprint) {
+        if (cwfp_note(ecm->caid, ecm->provid, ecm->sid, dcw)) {
+            debugf(0, "    ⚠️ [CW-FINGERPRINT] %04X:%06X:%04X -- statistical anomaly vs established baseline\n",
+                   ecm->caid, ecm->provid, ecm->sid);
+            trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid,
+                                   "CW fingerprint anomaly (observe-only, delivered)");
+        }
+    }
+
 	/*
 	 * TASK BS1 (2026-10-26) -- CW Cycle Validation for Black Screen Prevention
 	 *
@@ -1217,6 +1236,10 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 	{
 		uint32_t now_ms = GetTickCount();
 		const char *dcwstrict_reason = NULL;
+		/* R48: DCW STRICT is opt-in via DCWFILTER STRICT: ON.
+		 * The snapshot is taken here (not in dcwstrict_init) so a
+		 * config reload arms/disarms it without a restart. */
+		dcwstrict_cfg.enabled = dcw_filter_strict_snapshot();
 		int dcwstrict_rejected = dcwstrict_check(dcw, ecm->caid, ecm->provid, ecm->sid, now_ms, &dcwstrict_reason);
 		
 		if (dcwstrict_rejected) {

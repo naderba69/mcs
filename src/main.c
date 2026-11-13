@@ -3146,23 +3146,22 @@ void mainprocess()
 	debugf(0, " [CAID INTEGRATION] Using already initialized CAID settings\n");
 
 	/* Provider-level ECM configuration - from external research.
-	 * DISABLED (R48 review, call-order verified): the provider helpers ARE
-	 * wired in production (th-ecm.c timeout/cache-time via
+	 * ENABLED 2026-11-13 per operator directive ("جلب السفرات"):
+	 * the 100 provider profiles are now loaded. The provider helpers
+	 * are wired in production (th-ecm.c timeout/cache-time via
 	 * ecm_get_effective_timeout, setdcw.c CRC/cycle via
 	 * provider_should_disable_crc/provider_cwcycle_enabled, cli-cccam.c
-	 * ECM-length whitelist via ecm_is_whitelisted). No segfault path exists:
-	 * provider_cfg_tab is a zero-initialized static global, count=0 is safe,
-	 * and every query helper is NULL-safe (test_provider_config 14/14).
-	 * An enable-experiment (init ON, CAID 1884 in-table) passed
-	 * cache-consensus-three-peers 4/4 and cccam-trace-success modes, so the
-	 * old "causes segfault" note is stale. The real blocker is unvalidated
-	 * behavior change: filling the table would silently shorten timeouts
-	 * (fallback_timeout 350-1500ms vs DCW timeout), disable CRC checks and
-	 * arm per-provider cycle gates for 100 CAID:provider entries sourced
-	 * from forum research, without field validation. Keep the table empty
-	 * (stock defaults) until per-provider field validation exists. */
-	// provider_config_init();  // DISABLED - no segfault; needs field validation
-	// debugf(0, " [PROVIDER CONFIG] %d provider-specific ECM configurations loaded\n", provider_cfg_tab.count);
+	 * ECM-length whitelist via ecm_is_whitelisted). No segfault path
+	 * exists: provider_cfg_tab is a zero-initialized static global,
+	 * count=0 is safe, and every query helper is NULL-safe
+	 * (test_provider_config 14/14). An enable-experiment (init ON,
+	 * CAID 1884 in-table) passed cache-consensus-three-peers 4/4 and
+	 * cccam-trace-success modes. The operator accepts the behavior
+	 * change (shorter fallback timeouts, per-provider CRC/cycle gates)
+	 * as the cost of bringing the servers in; per-provider field
+	 * validation remains a follow-up, not a blocker. */
+	provider_config_init();
+	debugf(0, " [PROVIDER CONFIG] %d provider-specific ECM configurations loaded\n", provider_cfg_tab.count);
 
 	/* TASK BS (2026-10-26) -- Initialize Black Screen Prevention Systems */
 	bs_init();
