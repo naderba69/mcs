@@ -50,8 +50,8 @@ soak: .ncclient.bin .cachepeer.bin
 smoke:
 	@command -v curl >/dev/null || { echo "curl required"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@rm -f .smoke.log .threads.html .r48.json .r48-cwlog.html; $(BIN) -C $(CFG) > .smoke.log 2>&1 & echo $$! > .pid; \
-	code=000; threads_code=000; r48_code=000; cwlog_code=000; \
+	@rm -f .smoke.log .threads.html .r48.json .r48-cwlog.html .sf.html .sf-strong.html .sf-bad.html .donate.html; $(BIN) -C $(CFG) > .smoke.log 2>&1 & echo $$! > .pid; \
+	code=000; threads_code=000; r48_code=000; cwlog_code=000; sf_code=000; sf_strong_code=000; sf_bad_code=000; donate_code=000; \
 	for i in $$(seq 1 25); do \
 	  code=$$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/); \
 	  [ "$$code" = "200" ] && break; \
@@ -60,6 +60,10 @@ smoke:
 	if [ "$$code" = "200" ]; then \
 	  threads_code=$$(curl -s -m 5 -u admin:admin -o .threads.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/threads); \
 	  r48_code=$$(curl -s -m 5 -u admin:admin -o .r48.json -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/json); \
+	  sf_code=$$(curl -s -m 5 -u admin:admin -o .sf.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/smartfilter); \
+	  sf_strong_code=$$(curl -s -m 5 -u admin:admin -o .sf-strong.html -w '%{http_code}' "http://127.0.0.1:$(HTTPPORT)/smartfilter?filter=strongest"); \
+	  sf_bad_code=$$(curl -s -m 5 -u admin:admin -o .sf-bad.html -w '%{http_code}' "http://127.0.0.1:$(HTTPPORT)/smartfilter?filter=bad"); \
+	  donate_code=$$(curl -s -m 5 -u admin:admin -o .donate.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/donate); \
 	  if [ "$(R48_CWLOG_CHECK)" = "1" ]; then cwlog_code=$$(curl -s -m 5 -u admin:admin -o .r48-cwlog.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/cwlog); fi; \
 	fi; \
 	kill $$(cat .pid) 2>/dev/null; rm -f .pid; \
@@ -67,10 +71,13 @@ smoke:
 	if [ "$$code" = "200" ]; then echo "  [ ok ] HTTP / answered 200"; else echo "  [FAIL] HTTP / answered $$code"; ok=0; fi; \
 	if [ "$$threads_code" = "200" ] && grep -q 'THREADID Main =' .threads.html; then echo "  [ ok ] HTTP /threads answered 200 and rendered the thread snapshot"; else echo "  [FAIL] HTTP /threads answered $$threads_code or omitted the snapshot marker"; ok=0; fi; \
 	if [ "$$r48_code" = "200" ] && python3 -c 'import json; d=json.load(open(".r48.json")); s=d["r48_source_reputation"]; assert s["scope"] == "source-caid-provider" and isinstance(s["rows"], list)' ; then echo "  [ ok ] HTTP /json exposes the R48 source/provider evidence snapshot"; else echo "  [FAIL] HTTP /json answered $$r48_code or omitted the R48 evidence snapshot"; ok=0; fi; \
+	if [ "$$sf_code" = "200" ] && grep -q 'SmartFilter Console' .sf.html && grep -q 'Overview' .sf.html && grep -q 'Recent CW' .sf.html && grep -q 'Peers' .sf.html && grep -q 'Profiles' .sf.html && grep -q 'Logs' .sf.html; then echo "  [ ok ] HTTP /smartfilter renders the v6.0 console (Overview/Recent CW/Peers/Profiles/Logs)"; else echo "  [FAIL] HTTP /smartfilter answered $$sf_code or omitted console sections"; ok=0; fi; \
+	if [ "$$sf_strong_code" = "200" ] && [ "$$sf_bad_code" = "200" ]; then echo "  [ ok ] HTTP /smartfilter Strongest/Bad peer filters answered 200"; else echo "  [FAIL] HTTP /smartfilter peer filters answered strongest=$$sf_strong_code bad=$$sf_bad_code"; ok=0; fi; \
+	if [ "$$donate_code" = "200" ] && grep -q 'Support this project' .donate.html; then echo "  [ ok ] HTTP /donate renders the donation page"; else echo "  [FAIL] HTTP /donate answered $$donate_code or omitted content"; ok=0; fi; \
 	if [ "$(R48_CWLOG_CHECK)" = "1" ]; then \
 	  if [ "$$cwlog_code" = "200" ] && grep -q 'R48 source reputation (reference evidence)' .r48-cwlog.html && grep -q 'proof age / clean samples after proof' .r48-cwlog.html && grep -q 'No reference-confirmed source evidence recorded yet' .r48-cwlog.html; then echo "  [ ok ] HTTP /cwlog renders the R48 evidence panel, D-4 proof timing, and neutral empty state"; else echo "  [FAIL] HTTP /cwlog answered $$cwlog_code or omitted the R48 evidence panel"; ok=0; fi; \
 	fi; \
-	rm -f .threads.html .r48.json .r48-cwlog.html; \
+	rm -f .threads.html .r48.json .r48-cwlog.html .sf.html .sf-strong.html .sf-bad.html .donate.html; \
 	if [ "$$ok" = "1" ]; then rm -f .smoke.log; else echo "--- server log (startup only) ---"; cat .smoke.log; exit 1; fi
 
 r48-web:
