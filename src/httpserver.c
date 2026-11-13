@@ -10,6 +10,7 @@
 #include "cwlog.h"	/* TASK R11 (D65): the /cwlog page + /json section */
 #include "peer_origin.h"/* TASK R11 (D65): peer id masks on the page */
 #endif
+#include "supersmartfilter.h" /* R48: SmartFilter console (/smartfilter) */
 #include "biss.h"	/* BISS key management */
 #include "diagnostics.h"	/* Advanced diagnostics and analytics */
 #include "debug-ecm.h"	/* Detailed ECM tracking */
@@ -694,6 +695,8 @@ static void http_style_write(struct tcp_buffer_data *tcpbuf, int sock)
 #define PAGE_DEBUG     14
 #define PAGE_CWLOG     15   /* TASK R11 (D65), stats flavour only */
 #define PAGE_BISS      16   /* BISS key management */
+#define PAGE_SMARTFILTER 17 /* R48: SuperSmartFilter console */
+#define PAGE_DONATE    18   /* R48: donation page */
 
 
 char *yesno( int a )
@@ -872,6 +875,14 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	if (selected==PAGE_CWLOG) class = cSelected; else class = cNormal;
 	sprintf( buf, class, "/cwlog", mlabel("CW Log","سجل الأحكام")); tcp_writestr(tcpbuf, sock, buf);
 #endif
+
+	/* R48: SuperSmartFilter console + donation page. */
+	{
+		if (selected==PAGE_SMARTFILTER) class = cSelected; else class = cNormal;
+		sprintf( buf, class, "/smartfilter", mlabel("SmartFilter","الفلتر الذكي")); tcp_writestr(tcpbuf, sock, buf);
+		if (selected==PAGE_DONATE) class = cSelected; else class = cNormal;
+		sprintf( buf, class, "/donate", mlabel("Donate","تبرع")); tcp_writestr(tcpbuf, sock, buf);
+	}
 
 #ifdef FREECCCAM_SRV
 	// FreeCCcam
@@ -8366,6 +8377,211 @@ static void http_send_cwlog(int sock, struct http_request *req)
 }
 #endif /* MCS_DCWSTATS */
 
+/* R48: /smartfilter -- the SuperSmartFilter console (v6.0 spec).
+ * Sections: Overview (counters + config), Recent CW (history ring),
+ * Peers (with Strongest/Bad filters), Profiles (per-profile FILTER
+ * levels), Logs (pointer to the live log viewer). Read-only: snapshots
+ * are copied under ssf_lock, the page never mutates filter state. */
+static void http_send_smartfilter(int sock, struct http_request *req)
+{
+	struct ssf_stats st;
+	struct ssf_config sc;
+	struct ssf_peer_stats peers[SSF_MAX_PEERS];
+	struct ssf_cw_history hist[SSF_MAX_HISTORY];
+	char http_buf[2048];
+	struct tcp_buffer_data tcpbuf;
+	int npeers, nhist, i;
+	const char *filter;
+	int fmode; /* 0=all, 1=strongest (bad% > 1), 2=bad (bad% < 1) */
+
+	(void)req;
+	tcp_init(&tcpbuf);
+	http_replyok_write(req, &tcpbuf, sock);
+	http_html_write(req, &tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head, strlen(http_head) );
+	sprintf( http_buf, html_title, cfg.http.title, mlabel("SmartFilter Console","كونسول الفلتر الذكي"));
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	tcp_write(&tcpbuf, sock, http_link, strlen(http_link) );
+	http_style_write(&tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head_, strlen(http_head_) );
+	tcp_write(&tcpbuf, sock, http_body, strlen(http_body) );
+	tcp_write_menu(&tcpbuf, sock, PAGE_SMARTFILTER);
+
+	supersmartfilter_get_stats(&st);
+	ssf_snapshot_config(&sc);
+	npeers = ssf_snapshot_peers(peers, SSF_MAX_PEERS);
+	nhist = ssf_snapshot_history(hist, SSF_MAX_HISTORY);
+
+	filter = isset_get(req, "filter");
+	fmode = 0;
+	if (filter && !strcmp(filter, "strongest")) fmode = 1;
+	else if (filter && !strcmp(filter, "bad")) fmode = 2;
+
+	/* ---- Overview ---- */
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Overview", "نظرة عامة"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<div class=perf-cards>\n");
+	{
+		double rate = st.total_checked ? (100.0 * (double)st.total_rejected / (double)st.total_checked) : 0.0;
+		sprintf( http_buf, "<div class=perf-card><div class=perf-label>%s</div><div class=perf-value>%llu</div></div>\n",
+			mlabel("Total Checked", "إجمالي المفحوص"), (unsigned long long)st.total_checked);
+		tcp_writestr(&tcpbuf, sock, http_buf);
+		sprintf( http_buf, "<div class=perf-card><div class=perf-label>%s</div><div class=perf-value>%llu</div></div>\n",
+			mlabel("Total Rejected", "إجمالي المرفوض"), (unsigned long long)st.total_rejected);
+		tcp_writestr(&tcpbuf, sock, http_buf);
+		sprintf( http_buf, "<div class=perf-card><div class=perf-label>%s</div><div class=perf-value>%.2f%%</div></div>\n",
+			mlabel("Rejection Rate", "نسبة الرفض"), rate);
+		tcp_writestr(&tcpbuf, sock, http_buf);
+		sprintf( http_buf, "<div class=perf-card><div class=perf-label>%s</div><div class=perf-value>%llu</div></div>\n",
+			mlabel("Peers Blocked", "نظراء محظورون"), (unsigned long long)st.peers_blocked);
+		tcp_writestr(&tcpbuf, sock, http_buf);
+	}
+	tcp_writestr(&tcpbuf, sock, "</div>\n<table class=module style='font-size:0.85em;'><tr>");
+	sprintf( http_buf, "<th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th>",
+		mlabel("Empty", "فارغ"), mlabel("Fake", "فايك"), mlabel("Entropy", "إنتروبيا"),
+		mlabel("Pattern", "نمط"), mlabel("Format", "تنسيق"), mlabel("Blacklist", "قائمة سوداء"),
+		mlabel("Duplicate", "مكرر"), mlabel("Multicheck", "فحص متعدد"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	sprintf( http_buf, "</tr><tr><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td></tr></table>\n",
+		(unsigned long long)st.rejected_empty, (unsigned long long)st.rejected_fake,
+		(unsigned long long)st.rejected_entropy, (unsigned long long)st.rejected_pattern,
+		(unsigned long long)st.rejected_format, (unsigned long long)st.rejected_blacklist,
+		(unsigned long long)st.rejected_duplicate, (unsigned long long)st.rejected_multicheck);
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	sprintf( http_buf, "<p style='font-size:0.85em;'>%s %d &middot; %s %dms &middot; %s %d%%/%d &middot; %s %d &middot; %s %ds</p>\n",
+		mlabel("Level", "المستوى"), sc.filter_level,
+		mlabel("Window", "النافذة"), sc.filter_time_ms,
+		mlabel("BadCW ratio", "نسبة السيئ"), sc.badcwratio, sc.badcwratiomin,
+		mlabel("Min replies", "أدنى ردود"), sc.minreplies,
+		mlabel("Unblock", "فك الحظر"), sc.unblock_time);
+	tcp_writestr(&tcpbuf, sock, http_buf);
+
+	/* ---- Recent CW ---- */
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Recent CW", "أحدث المفاتيح"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<table class=module style='font-size:0.85em; white-space:nowrap;'><tr>");
+	sprintf( http_buf, "<th>#</th><th>%s</th><th>%s</th></tr>\n",
+		mlabel("Channel", "القناة"), mlabel("Age", "العمر"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	{
+		uint32_t now_ms = GetTickCount();
+		for (i = 0; i < nhist; i++) {
+			sprintf( http_buf, "<tr><td>%d</td><td>%04x:%06x:%04x</td><td>+%lus</td></tr>\n",
+				i + 1, hist[i].caid, hist[i].provid, hist[i].sid,
+				(unsigned long)(tick32_elapsed(now_ms, hist[i].timestamp) / 1000u));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+	}
+	if (nhist == 0) {
+		sprintf( http_buf, "<tr><td colspan=3>%s</td></tr>\n",
+			mlabel("No CWs in history yet", "لا مفاتيح في السجل بعد"));
+		tcp_writestr(&tcpbuf, sock, http_buf);
+	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n");
+
+	/* ---- Peers ---- */
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Peers", "النظراء"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<p style='font-size:0.85em;'>");
+	sprintf( http_buf, "<a href='/smartfilter?filter=all'>%s</a> &middot; <a href='/smartfilter?filter=strongest'>%s</a> &middot; <a href='/smartfilter?filter=bad'>%s</a></p>\n",
+		mlabel("All", "الكل"), mlabel("Strongest", "الأقوى"), mlabel("Bad", "السيئ"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	tcp_writestr(&tcpbuf, sock, "<table class=module style='font-size:0.85em; white-space:nowrap;'><tr>");
+	sprintf( http_buf, "<th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr>\n",
+		mlabel("Peer", "النظير"), mlabel("Total CW", "إجمالي المفاتيح"),
+		mlabel("Bad CW", "مفاتيح سيئة"), mlabel("Bad %", "نسبة السيئ"),
+		mlabel("Status", "الحالة"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	{
+		int shown = 0;
+		for (i = 0; i < npeers; i++) {
+			double badratio = peers[i].total_cws ? (100.0 * (double)peers[i].bad_cws / (double)peers[i].total_cws) : 0.0;
+			if (fmode == 1 && badratio <= 1.0) continue;
+			if (fmode == 2 && badratio >= 1.0) continue;
+			shown++;
+			sprintf( http_buf, "<tr><td>%u</td><td>%llu</td><td>%llu</td><td>%.2f%%</td><td>%s</td></tr>\n",
+				peers[i].peer_id, (unsigned long long)peers[i].total_cws,
+				(unsigned long long)peers[i].bad_cws, badratio,
+				peers[i].blocked ? mlabel("Blocked", "محظور") : mlabel("Active", "نشط"));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+		if (shown == 0) {
+			sprintf( http_buf, "<tr><td colspan=5>%s</td></tr>\n",
+				mlabel("No peers in this view", "لا نظراء في هذا العرض"));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n");
+
+	/* ---- Profiles ---- */
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Profiles", "البروفايلات"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<table class=module style='font-size:0.85em; white-space:nowrap;'><tr>");
+	sprintf( http_buf, "<th>%s</th><th>CAID</th><th>%s</th></tr>\n",
+		mlabel("Profile", "البروفايل"), mlabel("FILTER level", "مستوى الفلتر"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	{
+		struct cardserver_data *cs;
+		int nprof = 0;
+		for (cs = cfg.cardserver; cs; cs = cs->next) {
+			nprof++;
+			sprintf( http_buf, "<tr><td>%s</td><td>%04x</td><td>%d%s</td></tr>\n",
+				cs->name, cs->card.caid, cs->option.sf_filter_level,
+				cs->option.sf_filter_level ? "" : mlabel(" (inherit)", " (وراثة)"));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+		if (nprof == 0) {
+			sprintf( http_buf, "<tr><td colspan=3>%s</td></tr>\n",
+				mlabel("No profiles configured", "لا بروفايلات مهيأة"));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n");
+
+	/* ---- Logs ---- */
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Logs", "السجلات"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<p style='font-size:0.85em;'>");
+	sprintf( http_buf, "%s <a href='/log-viewer'>%s</a></p>\n</body></html>\n",
+		mlabel("SmartFilter events are written to the server log.", "أحداث الفلتر الذكي تُكتب في سجل الخادم."),
+		mlabel("Open log viewer", "فتح عارض السجلات"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	tcp_flush(&tcpbuf, sock);
+}
+
+/* R48: /donate -- donation page (v6.0 spec). Static content only. */
+static void http_send_donate(int sock, struct http_request *req)
+{
+	char http_buf[2048];
+	struct tcp_buffer_data tcpbuf;
+
+	(void)req;
+	tcp_init(&tcpbuf);
+	http_replyok_write(req, &tcpbuf, sock);
+	http_html_write(req, &tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head, strlen(http_head) );
+	sprintf( http_buf, html_title, cfg.http.title, mlabel("Donate","تبرع"));
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	tcp_write(&tcpbuf, sock, http_link, strlen(http_link) );
+	http_style_write(&tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head_, strlen(http_head_) );
+	tcp_write(&tcpbuf, sock, http_body, strlen(http_body) );
+	tcp_write_menu(&tcpbuf, sock, PAGE_DONATE);
+
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Support this project", "ادعم هذا المشروع"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<p>");
+	tcp_writestr(&tcpbuf, sock, mlabel(
+		"This server runs on MultiCS with the R48 protection stack. If it serves you well, consider a donation to keep it online.",
+		"يعمل هذا الخادم على MultiCS مع حزمة حماية R48. إذا كان يخدمك جيدًا، فكّر في التبرع لإبقائه متصلًا."));
+	tcp_writestr(&tcpbuf, sock, "</p>\n<p style='font-size:0.85em;'>");
+	sprintf( http_buf, "%s: %s</p>\n</body></html>\n",
+		mlabel("Contact the operator to donate", "تواصل مع المشغّل للتبرع"),
+		"admin");
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	tcp_flush(&tcpbuf, sock);
+}
+
 
 /* TASK R5 (D59): the machine readout. One JSON document behind the SAME
  * Basic auth as every page (the gate runs before this router, and the R3
@@ -9339,6 +9555,12 @@ void *gererClient(struct connect_data *param)
 					http_send_cwlog(sock,&req);
 				}
 #endif
+				else if (strcmp(req.path,"/smartfilter")==0) { /* R48: SmartFilter console */
+					http_send_smartfilter(sock,&req);
+				}
+				else if (strcmp(req.path,"/donate")==0) { /* R48: donation page */
+					http_send_donate(sock,&req);
+				}
 				else if ( !memcmp(req.path,"/flag_",6) && !memcmp(req.path+8,".gif",4) ) {
 					// check for code
 					char code[3];

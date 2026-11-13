@@ -721,4 +721,42 @@ static void supersmartfilter_get_stats(struct ssf_stats *out)
     pthread_mutex_unlock(&ssf_lock);
 }
 
+// ============================================================================
+// Snapshots (web console readouts)
+// ============================================================================
+
+static void ssf_snapshot_config(struct ssf_config *out)
+{
+    pthread_mutex_lock(&ssf_lock);
+    memcpy(out, &ssf_cfg, sizeof(*out));
+    pthread_mutex_unlock(&ssf_lock);
+}
+
+/* Copy active peers into out (at most max); returns count. */
+static int ssf_snapshot_peers(struct ssf_peer_stats *out, int max)
+{
+    int i, n = 0;
+    if (max <= 0) return 0;
+    pthread_mutex_lock(&ssf_lock);
+    for (i = 0; i < ssf_peer_count && n < max; i++) {
+        if (ssf_peers[i].active) out[n++] = ssf_peers[i];
+    }
+    pthread_mutex_unlock(&ssf_lock);
+    return n;
+}
+
+/* Copy CW history newest-first into out (at most max); returns count. */
+static int ssf_snapshot_history(struct ssf_cw_history *out, int max)
+{
+    int i, n = 0;
+    if (max <= 0) return 0;
+    pthread_mutex_lock(&ssf_lock);
+    for (i = 0; i < SSF_MAX_HISTORY && n < max; i++) {
+        int idx = (ssf_history_index - 1 - i + SSF_MAX_HISTORY) % SSF_MAX_HISTORY;
+        if (ssf_history[idx].used) out[n++] = ssf_history[idx];
+    }
+    pthread_mutex_unlock(&ssf_lock);
+    return n;
+}
+
 #endif // SUPERSMARTFILTER_H
