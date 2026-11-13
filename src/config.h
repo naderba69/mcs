@@ -710,6 +710,10 @@ struct cardserver_data
 
 		uint8_t checkecm; // viaccess ecm
 		uint8_t checkecmlength; // length header
+		/* R48 ECM fingerprint (observe-only, default OFF): learn the
+		 * typical ECM length per (CAID,SID) and trace anomalies in
+		 * /user-trace. Never refuses an ECM. */
+		uint8_t ecm_fingerprint;
 
 		int maxfailedecm; // Max failed ecm per sid
 

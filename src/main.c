@@ -41,6 +41,7 @@
 #endif
 
 #include "ecmdata.h"
+#include "ecm-fingerprint.h"  /* R48: observe-only per-channel ECM length learning */
 #include "parser.h"
 #include "config.h"
 #include "newcamd-lifetime.h"
@@ -2599,6 +2600,17 @@ char *cs_accept_ecm(struct cardserver_data *cs, uint16_t caid, uint32_t provid, 
 	// check for viaccess
 	if (cs->option.checkecm) {
 		if (caid==0x0500) if ( !viaccess_checkECM( ecmdata, ecmlen ) ) return("Invalid viaccess ecm");
+	}
+	/* R48 ECM fingerprint (observe-only, opt-in OFF): learn the typical
+	 * ECM length per (CAID,SID); trace anomalies in /user-trace. Never
+	 * refuses -- a novel length is evidence, not a verdict. */
+	if (cs->option.ecm_fingerprint && ecmfp_note(caid, sid, (uint16_t)ecmlen)) {
+		char detail[96];
+		snprintf(detail, sizeof(detail),
+		         "ecm fingerprint anomaly: length %d outside established range ch %04x:%06x:%04x",
+		         ecmlen, caid, provid, sid);
+		user_trace_cache_observation(caid, provid, sid, 0, 0, detail, NULL);
+		debugf(getdbgflag(DBG_CONFIG,0,0), " %s\n", detail);
 	}
 	return NULL;
 }

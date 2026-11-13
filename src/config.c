@@ -4641,6 +4641,15 @@ link_mgcamd_user:
 					cardserver->option.checkecm = parse_boolean();
 				}
 			}
+			else if (!strcmp(str,"FINGERPRINT")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.ecm_fingerprint = parse_boolean();
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ECM FINGERPRINT: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.ecm_fingerprint, cardserver->name);
+			}
 		}
 
 		else if (!strcmp(str,"DCW")) {
