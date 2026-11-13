@@ -901,8 +901,10 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	/* TASK R7 (D61): the language toggle and logout close the bar */
 	if (tls_http_rtl) tcp_writestr(tcpbuf, sock, "<li><a href='?lang=en'>English</a></li>");
 	else tcp_writestr(tcpbuf, sock, "<li><a href='?lang=ar'>عربي</a></li>");
+	tcp_writestr(tcpbuf, sock, "<li><a href='#' onclick='toggleTheme();return false;' class='theme-toggle'>🌙</a></li>");
 	sprintf( buf, "<li><a href='/logout'>%s</a></li>", mlabel("Logout","خروج"));
 	tcp_writestr(tcpbuf, sock, buf);
+	tcp_writestr(tcpbuf, sock, "<script>\nfunction toggleTheme(){var t=document.documentElement.getAttribute('data-theme');var n=t==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',n);try{localStorage.setItem('mcs-theme',n);}catch(e){}}\n(function(){try{var t=localStorage.getItem('mcs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();\n</script>\n");
 	tcp_writestr(tcpbuf, sock, "</ul><span style='float:right;'>Multi Card Server r"REVISION_STR"</span></div>\n");
 
 	//
@@ -1304,6 +1306,20 @@ void http_send_index(int sock, http_request *req)
 	sprintf( http_buf, "<br>Total Mgcamd Servers: %d", cfg.mgcamd.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<br>Total Camd35 Servers: %d", cfg.camd35.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<br>Total cs378x Servers: %d", cfg.cs378x.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	/* R48: ECM performance cards */
+	{
+		int total_ecm = 0, accepted_ecm = 0, ok_ecm = 0;
+		struct cardserver_data *cs;
+		for (cs = cfg.cardserver; cs; cs = cs->next) {
+			total_ecm += cs->ecmaccepted + cs->ecmdenied;
+			accepted_ecm += cs->ecmaccepted;
+			ok_ecm += cs->ecmok;
+		}
+		int success_rate = total_ecm > 0 ? (ok_ecm * 100 / total_ecm) : 100;
+		const char *rate_class = success_rate >= 90 ? "good" : (success_rate >= 70 ? "warn" : "bad");
+		sprintf(http_buf, "<div class='perf-cards'><div class='perf-card'><div class='label'>Total ECM</div><div class='value'>%d</div><div class='sub'>all profiles</div></div><div class='perf-card'><div class='label'>Accepted</div><div class='value'>%d</div><div class='sub'>passed validation</div></div><div class='perf-card %s'><div class='label'>Success Rate</div><div class='value'>%d%%</div><div class='sub'>ECM OK / Total</div></div><div class='perf-card'><div class='label'>Profiles</div><div class='value'>%d</div><div class='sub'>active bouquets</div></div></div>", total_ecm, accepted_ecm, rate_class, success_rate, cfg.totalprofiles);
+		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+	}
 	/*
 	 * TASK 3.12 -- DCW stats on the home page, inside the refreshed div.
 	 *

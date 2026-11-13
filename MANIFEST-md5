@@ -570,9 +570,9 @@ ae9211ebb2753df0ff4e33d75b39c1cd  src/ecm-provider-config.h
 fcefcdfa1775d443482ebfec42fa6b98  src/fastretx.h
 8798be7a3334dd52a05bfb5c12e3b4c5  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-cfee6f69a5d351a7fdfe1a6e7afc4f30  src/httpserver.c
+99a7d9bbfcdd0c4361c83d618eaf1e7c  src/httpserver.c
 ba3dbab45abea98efcb6961173889ec0  src/httpserver.h
-a43344053ef6be6a6af0b301eae0fd34  src/httpstyle.c
+c116c9ee2340ebc5129780416943219a  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
 14b137e00bcebf64ace5287966535968  src/implicit-bs-detect.h
 a8751c551e7c8a7a52f7d9fdf0fd21f9  src/ipdata.c
