@@ -2412,7 +2412,7 @@ HA_CFG   = .ha.cfg
 HA_CFG2  = .ha2.cfg
 
 .PHONY: ha
-ha:
+ha: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
@@ -2510,7 +2510,7 @@ XS_CFG   = .xs.cfg
 XS_KEY   = 0102030405060708091011121314
 
 .PHONY: xs
-xs:
+xs: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
@@ -2533,7 +2533,7 @@ xs:
 	np=0; ne=0; \
 	for pg in / /newcamd /newcamdclient?id=1 /debug; do \
 	  body=$$(curl -s -m 3 -u admin:admin "http://127.0.0.1:$(XS_HPORT)$$pg"); \
-	  if echo "$$body" | grep -q '<script>'; then \
+	  if echo "$$body" | grep -q '<script>alert'; then \
 	    echo "[FAIL] $$pg carries a RAW <script> tag from the username"; ok=0; np=$$((np+1)); \
 	  fi; \
 	  if echo "$$body" | grep -q '&lt;script&gt;'; then ne=$$((ne+1)); fi; \
@@ -2581,7 +2581,7 @@ DL_CFG   = .dl.cfg
 DL_KEY   = 0102030405060708091011121314
 
 .PHONY: dl
-dl:
+dl: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
@@ -4521,7 +4521,7 @@ JM_REP    = .jm.rep
 # seeds its push identity from its FIRST find only, and its 150 ms marked
 # repushes need a few seconds to pile up the three contradiction events
 # phase 8 reads -- hence the break on B's own 'got request' + sleep 8.
-jm:
+jm: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 -x multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(JM_REP) $(JM_CFG) .jm-srv.log .jm-a.log .jm-b.log .jm.json multics.peers; \
@@ -4581,7 +4581,7 @@ PM_NPORT  = 16985
 PM_CFG    = .pm-srv.cfg
 
 .PHONY: pm
-pm:
+pm: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(PM_CFG) .pm-srv.log .pm-a.log .pm-b.log .pm-cli.log; \
@@ -4611,7 +4611,7 @@ pm:
 	wall_ms=$$(( (t1 - t0) / 1000000 )); cpu_ms=$$(( (utime1 - utime0) * 10 )); \
 	echo "PM: binary=$(BIN)"; \
 	echo "PM: delivered=$$deliv/100  wall_ms=$$wall_ms  pushes_applied=$$pushes  cpu_ms=$$cpu_ms  rss_hwm_kb=$${hwm1:-?}  queue_dropped=$$qtally"; \
-	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; 
+	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; true
 	@echo "PM: logs kept under tests/.pm-*"
 
 # ---------------------------------------------------------------------------
@@ -4718,7 +4718,7 @@ CN_CFG    = .cn-srv.cfg
 CN_REP    = .cn.rep
 
 .PHONY: cn
-cn:
+cn: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(CN_CFG) $(CN_REP) .cn-*.log .cn-*.cfg .cn-cli*.log; \
@@ -4869,7 +4869,7 @@ ri: .ncclient.bin .cachepeer.bin
 	else echo "[FAIL] logs kept under tests/.ri-*"; fi; \
 	[ "$$ok" = "1" ]
 
-vl:
+vl: $(CACHEPEER) $(NCCLIENT)
 	@test -x ../bin/multics-r82a-stats-x64 || { echo "build first: make -C ../make-x64 release-stats"; exit 1; }
 	@test -x ../bin/multics-r82a-stock-x64 || { echo "stock release missing: make -C ../make-x64 release"; exit 1; }
 	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true

@@ -52,13 +52,13 @@ dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 8b594513f7bbfb3cfb13d96e5b4c7c07  bin/multics-r82a-queue-stats-x64
 3932025dd54ebd75336c2b664c48c0c4  bin/multics-r82a-queue-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-07eed51472ad9c2a866fc8a2aa9bac16  bin/multics-r82a-stats-x64
+d4ddc2365d221859aabbde8bca5e9321  bin/multics-r82a-stats-x64
 03d3068ada2d92750a920a2375641b2c  bin/multics-r82a-stock-x64
 fbfef2a162b03fed8d56aca7babd3ef3  bin/multics-r82a-x64
-07eed51472ad9c2a866fc8a2aa9bac16  bin/multics.x64
+d4ddc2365d221859aabbde8bca5e9321  bin/multics.x64
 8b594513f7bbfb3cfb13d96e5b4c7c07  dist/multics-r82a-queue-stats-x64
 3932025dd54ebd75336c2b664c48c0c4  dist/multics-r82a-queue-x64
-07eed51472ad9c2a866fc8a2aa9bac16  dist/multics-r82a-stats-x64
+d4ddc2365d221859aabbde8bca5e9321  dist/multics-r82a-stats-x64
 03d3068ada2d92750a920a2375641b2c  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
@@ -148,7 +148,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-8c27b8e506b64d821de5966c2b98fd7e  docs/REPORT-R48-ar.md
+d51ea42e52d8ede27156ac6ea4484115  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -634,7 +634,7 @@ bb42a53e55698772ba3b4e6dd8fb80f6  src/scramchk.h
 443bfe888cce44b30ec6639915ec090c  src/server-performance.h
 c28cc5d8f7396e2075fcca2c459e7d22  src/server-stats.c
 614c96c16fce728cdf28c2a94b457c9e  src/server-stats.h
-049779e2b447925c674414dfa2f43776  src/setdcw.c
+3607e397e64f8f3f03601a1e4c9ef07d  src/setdcw.c
 16c69e6b1bab07c3fd1af90038d12fa6  src/sha1.c
 f245f7e5032e0752df586d67ed24942a  src/sha1.h
 9cfcb141eba70989f1caf2ff070cc994  src/sha256.c
@@ -807,7 +807,7 @@ b30e2c361e045f3542a84ad12807ca71  tests/scoped-checksum-reload.py
 b7c2703b1ceb20a754b47f46ad6faf89  tests/share-limits.c
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
-034f3edb39505179eead0d2c12aaa44e  tests/stability.mk
+9229cce2ddedb5c7edf91b552b5f5dc1  tests/stability.mk
 53ae8bfafba95484e8e78ca411323617  tests/test_cfgcheck_blind.py
 4b0b7518bc1609cb2f0eb1bb406b8b58  tests/thread-create-unaligned.c
 d4e117e8a0eaf59dc09c0c920a102e47  tests/time-native-oracle.c

@@ -1186,14 +1186,31 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
      * 0x1814 (MEO PT) added 2026-11-13 per operator field report: the
      * profile's fake-CW reports were previously invisible on this path
      * because the gate was dead code.
+     *
+     * The gate must respect the operator's checksum policy: with
+     * DCWFILTER CHECKSUM: OFF (globally or per profile) a Nagravision
+     * bouquet may legitimately fail the structural checksum, and
+     * refusing its keys anyway silently overrides the explicit OFF
+     * (this broke tests/vl P3, whose forged-key flood is only
+     * deliverable with CHECKSUM: OFF). Armed profiles are already
+     * refused by the profile validation above; this stays as their
+     * traced backstop.
      */
-    if (ecm->caid >= 0x1800 && ecm->caid <= 0x1884) {
-        if (!checksumDCW(dcw)) {
-            trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid,
-                                   "CW rejected by ECM worker: fake CW (Nagravision checksum)");
-            debugf(0, "    ❌ [FAKE-CW] %04X:%06X:%04X -- Nagravision checksum failed\n",
-                   ecm->caid, ecm->provid, ecm->sid);
-            newcamd_config_read_unlock(); return;
+    {
+        int global_checksum = 0;
+        int checksum_mode = cs ? cs->option.dcwfilter_checksum : DCWFILTER_INHERIT;
+        int checksum_armed;
+        dcw_filter_globals_snapshot(&global_checksum, NULL, NULL, NULL);
+        checksum_armed = (checksum_mode == DCWFILTER_ON) ||
+                         (checksum_mode == DCWFILTER_INHERIT && global_checksum);
+        if (checksum_armed && ecm->caid >= 0x1800 && ecm->caid <= 0x1884) {
+            if (!checksumDCW(dcw)) {
+                trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid,
+                                       "CW rejected by ECM worker: fake CW (Nagravision checksum)");
+                debugf(0, "    ❌ [FAKE-CW] %04X:%06X:%04X -- Nagravision checksum failed\n",
+                       ecm->caid, ecm->provid, ecm->sid);
+                newcamd_config_read_unlock(); return;
+            }
         }
     }
     /*
