@@ -347,6 +347,11 @@ void cc_srv_recvmsg(struct server_data *srv)
 			autorecov_success(&g_autorecov_table, ecm->caid, ecm->provid, ecm->sid);
 			/* CAID-specific performance tracking: record success */
 			caid_integration_track_performance(ecm->caid, response_time, 1);
+			/* Auto-tuning suggestions: record decode success (its
+			 * record_* API had no callers, so /auto-tuning stayed
+			 * empty; tuned values are advisory only and are never
+			 * applied to the live config). */
+			auto_tuning_record_decode_success(ecm->caid, ecm->provid);
 			/* CAID optimizations: update stats for this CAID */
 			caid_update_stats(ecm->caid, response_time, 1);
 			/* Server health monitoring: record success */
@@ -454,6 +459,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 			                         srv->id, 0, 0);
 			/* CAID-specific performance tracking: record failure */
 			caid_integration_track_performance(ecm->caid, GetTickCount()-srv->lastecmtime, 0);
+			/* Auto-tuning suggestions: record decode failure */
+			auto_tuning_record_decode_failed(ecm->caid, ecm->provid);
 			/* CAID optimizations: update stats for this CAID */
 			caid_update_stats(ecm->caid, GetTickCount()-srv->lastecmtime, 0);
 			/* Server health monitoring: record failure */
