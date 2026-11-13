@@ -696,7 +696,6 @@ static void http_style_write(struct tcp_buffer_data *tcpbuf, int sock)
 #define PAGE_CWLOG     15   /* TASK R11 (D65), stats flavour only */
 #define PAGE_BISS      16   /* BISS key management */
 #define PAGE_SMARTFILTER 17 /* R48: SuperSmartFilter console */
-#define PAGE_DONATE    18   /* R48: donation page */
 
 
 char *yesno( int a )
@@ -876,12 +875,10 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	sprintf( buf, class, "/cwlog", mlabel("CW Log","سجل الأحكام")); tcp_writestr(tcpbuf, sock, buf);
 #endif
 
-	/* R48: SuperSmartFilter console + donation page. */
+	/* R48: SuperSmartFilter console. */
 	{
 		if (selected==PAGE_SMARTFILTER) class = cSelected; else class = cNormal;
 		sprintf( buf, class, "/smartfilter", mlabel("SmartFilter","الفلتر الذكي")); tcp_writestr(tcpbuf, sock, buf);
-		if (selected==PAGE_DONATE) class = cSelected; else class = cNormal;
-		sprintf( buf, class, "/donate", mlabel("Donate","تبرع")); tcp_writestr(tcpbuf, sock, buf);
 	}
 
 #ifdef FREECCCAM_SRV
@@ -8423,16 +8420,16 @@ static void http_send_smartfilter(int sock, struct http_request *req)
 	tcp_writestr(&tcpbuf, sock, "</h2>\n<div class=perf-cards>\n");
 	{
 		double rate = st.total_checked ? (100.0 * (double)st.total_rejected / (double)st.total_checked) : 0.0;
-		sprintf( http_buf, "<div class=perf-card><div class=perf-label>%s</div><div class=perf-value>%llu</div></div>\n",
+		sprintf( http_buf, "<div class=perf-card><div class=label>%s</div><div class=value>%llu</div></div>\n",
 			mlabel("Total Checked", "إجمالي المفحوص"), (unsigned long long)st.total_checked);
 		tcp_writestr(&tcpbuf, sock, http_buf);
-		sprintf( http_buf, "<div class=perf-card><div class=perf-label>%s</div><div class=perf-value>%llu</div></div>\n",
+		sprintf( http_buf, "<div class=perf-card><div class=label>%s</div><div class=value>%llu</div></div>\n",
 			mlabel("Total Rejected", "إجمالي المرفوض"), (unsigned long long)st.total_rejected);
 		tcp_writestr(&tcpbuf, sock, http_buf);
-		sprintf( http_buf, "<div class=perf-card><div class=perf-label>%s</div><div class=perf-value>%.2f%%</div></div>\n",
+		sprintf( http_buf, "<div class=perf-card><div class=label>%s</div><div class=value>%.2f%%</div></div>\n",
 			mlabel("Rejection Rate", "نسبة الرفض"), rate);
 		tcp_writestr(&tcpbuf, sock, http_buf);
-		sprintf( http_buf, "<div class=perf-card><div class=perf-label>%s</div><div class=perf-value>%llu</div></div>\n",
+		sprintf( http_buf, "<div class=perf-card><div class=label>%s</div><div class=value>%llu</div></div>\n",
 			mlabel("Peers Blocked", "نظراء محظورون"), (unsigned long long)st.peers_blocked);
 		tcp_writestr(&tcpbuf, sock, http_buf);
 	}
@@ -8548,40 +8545,6 @@ static void http_send_smartfilter(int sock, struct http_request *req)
 	tcp_writestr(&tcpbuf, sock, http_buf);
 	tcp_flush(&tcpbuf, sock);
 }
-
-/* R48: /donate -- donation page (v6.0 spec). Static content only. */
-static void http_send_donate(int sock, struct http_request *req)
-{
-	char http_buf[2048];
-	struct tcp_buffer_data tcpbuf;
-
-	(void)req;
-	tcp_init(&tcpbuf);
-	http_replyok_write(req, &tcpbuf, sock);
-	http_html_write(req, &tcpbuf, sock);
-	tcp_write(&tcpbuf, sock, http_head, strlen(http_head) );
-	sprintf( http_buf, html_title, cfg.http.title, mlabel("Donate","تبرع"));
-	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	tcp_write(&tcpbuf, sock, http_link, strlen(http_link) );
-	http_style_write(&tcpbuf, sock);
-	tcp_write(&tcpbuf, sock, http_head_, strlen(http_head_) );
-	tcp_write(&tcpbuf, sock, http_body, strlen(http_body) );
-	tcp_write_menu(&tcpbuf, sock, PAGE_DONATE);
-
-	tcp_writestr(&tcpbuf, sock, "<h2>");
-	tcp_writestr(&tcpbuf, sock, mlabel("Support this project", "ادعم هذا المشروع"));
-	tcp_writestr(&tcpbuf, sock, "</h2>\n<p>");
-	tcp_writestr(&tcpbuf, sock, mlabel(
-		"This server runs on MultiCS with the R48 protection stack. If it serves you well, consider a donation to keep it online.",
-		"يعمل هذا الخادم على MultiCS مع حزمة حماية R48. إذا كان يخدمك جيدًا، فكّر في التبرع لإبقائه متصلًا."));
-	tcp_writestr(&tcpbuf, sock, "</p>\n<p style='font-size:0.85em;'>");
-	sprintf( http_buf, "%s: %s</p>\n</body></html>\n",
-		mlabel("Contact the operator to donate", "تواصل مع المشغّل للتبرع"),
-		"admin");
-	tcp_writestr(&tcpbuf, sock, http_buf);
-	tcp_flush(&tcpbuf, sock);
-}
-
 
 /* TASK R5 (D59): the machine readout. One JSON document behind the SAME
  * Basic auth as every page (the gate runs before this router, and the R3
@@ -9557,9 +9520,6 @@ void *gererClient(struct connect_data *param)
 #endif
 				else if (strcmp(req.path,"/smartfilter")==0) { /* R48: SmartFilter console */
 					http_send_smartfilter(sock,&req);
-				}
-				else if (strcmp(req.path,"/donate")==0) { /* R48: donation page */
-					http_send_donate(sock,&req);
 				}
 				else if ( !memcmp(req.path,"/flag_",6) && !memcmp(req.path+8,".gif",4) ) {
 					// check for code

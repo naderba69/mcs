@@ -268,13 +268,15 @@ static inline int ssf_check_blacklist(const uint8_t cw[16])
     return 0;  // Not blacklisted
 }
 
-/* Check 7: Duplicate/speed check */
-static inline int ssf_check_duplicate(const uint8_t cw[16], uint16_t caid, 
-                                       uint32_t provid, uint16_t sid, uint32_t now_ms)
+/* Check 7: Duplicate/speed check. level is the effective (profile or
+ * global) filter level so per-profile FILTER settings apply here too. */
+static inline int ssf_check_duplicate(const uint8_t cw[16], uint16_t caid,
+                                       uint32_t provid, uint16_t sid, uint32_t now_ms,
+                                       int level)
 {
     int i;
-    uint32_t time_window = ssf_effective_window(ssf_cfg.filter_level, ssf_cfg.filter_time_ms);
-    int bd = ssf_backdepth(ssf_cfg.filter_level);
+    uint32_t time_window = ssf_effective_window(level, ssf_cfg.filter_time_ms);
+    int bd = ssf_backdepth(level);
     
     for (i = 0; i < bd && i < ssf_cfg.sf_history; i++) {
         int idx = (ssf_history_index - 1 - i + SSF_MAX_HISTORY) % SSF_MAX_HISTORY;
@@ -530,14 +532,15 @@ static inline int ssf_backdepth(int level)
     return 3;
 }
 
-/* R48: per-profile filter level override (0 = use global). */
-static int ssf_profile_level_override = 0;
-
 static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[16],
                                    uint16_t caid, uint32_t provid, uint16_t sid,
-                                   uint32_t peer_id, uint32_t now_ms, int *reject_reason)
+                                   uint32_t peer_id, uint32_t now_ms, int *reject_reason,
+                                   int profile_level)
 {
-    int effective_level = ssf_profile_level_override ? ssf_profile_level_override : ssf_cfg.filter_level;
+    /* R48: profile_level 0 = inherit global. Passed as a parameter
+     * (not a global) so concurrent ECM workers on different profiles
+     * cannot race each other's override. */
+    int effective_level = profile_level ? profile_level : ssf_cfg.filter_level;
     if (effective_level == 0) {
         return 0;  // Disabled
     }
@@ -618,7 +621,7 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
     }
     
     // Check 7: Duplicate/speed (level >= 2 enables history)
-    if (effective_level >= 2 && ssf_check_duplicate(cw, caid, provid, sid, now_ms)) {
+    if (effective_level >= 2 && ssf_check_duplicate(cw, caid, provid, sid, now_ms, effective_level)) {
         ssf_stats.rejected_duplicate++;
         rejected = 1;
         reason = 7;

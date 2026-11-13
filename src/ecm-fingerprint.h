@@ -60,7 +60,9 @@ static int ecmfp_note(uint16_t caid, uint16_t sid, uint16_t ecmlen)
 				anomaly = 1;
 			if (ecmlen < ecmfp_tab[i].minlen) ecmfp_tab[i].minlen = ecmlen;
 			if (ecmlen > ecmfp_tab[i].maxlen) ecmfp_tab[i].maxlen = ecmlen;
-			ecmfp_tab[i].count++;
+			/* Saturate at 65535: a uint16_t wrap would drop count
+			 * below the establish threshold and pause detection. */
+			if (ecmfp_tab[i].count < 65535) ecmfp_tab[i].count++;
 			break;
 		}
 	}

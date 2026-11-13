@@ -729,6 +729,10 @@ void parse_server_data( struct server_data *tsrv )
 					if (parse_hex(str)) tsrv->cacheex_forward = hex2int(str);
 				}
 #endif
+				else if (!strcmp(str,"trusted")) {
+					tsrv->trusted = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(,%d): server trusted: %s\n",iparser-currentline, tsrv->trusted?"YES":"NO");
+				}
 
 				parse_spaces();
 				if (*iparser==';') iparser++; else break;

@@ -71,11 +71,11 @@ int main(void)
     ssf_history[0].timestamp = 0;
     ssf_history[0].used = 1;
     ssf_history_index = 1;
-    CHECK(ssf_check_duplicate(cw, 0x1884, 0, 0x100, 20),
+    CHECK(ssf_check_duplicate(cw, 0x1884, 0, 0x100, 20, 2),
           "duplicate history recognizes a valid timestamp at tick zero");
     ssf_history[0].timestamp = UINT32_MAX - 10u;
-    CHECK(ssf_check_duplicate(cw, 0x1884, 0, 0x100, 39) &&
-          !ssf_check_duplicate(cw, 0x1884, 0, 0x100, 40),
+    CHECK(ssf_check_duplicate(cw, 0x1884, 0, 0x100, 39, 2) &&
+          !ssf_check_duplicate(cw, 0x1884, 0, 0x100, 40, 2),
           "duplicate window honors the exact wrap-safe age boundary");
 
     supersmartfilter_init();
