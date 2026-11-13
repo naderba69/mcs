@@ -4179,7 +4179,7 @@ CE_KEY    = 0102030405060708091011121314
 
 .PHONY: ce
 
-ce: $(CXPEER)
+ce: $(CXPEER) $(NCCLIENT)
 	@test -x $(CE_BIN) || { echo "build the stats release first: make -C ../make-x64 release-stats"; exit 1; }
 	@chmod +x $(CXPEER) $(NCCLIENT) 2>/dev/null || true
 	@rm -f .ce-srv.log .ce-nc.out .ce-peer.out .ce-stats.out $(CE_CFG); ok=1; \

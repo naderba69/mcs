@@ -51,7 +51,7 @@ smoke:
 	@command -v curl >/dev/null || { echo "curl required"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@rm -f .smoke.log .threads.html .r48.json .r48-cwlog.html .sf.html .sf-strong.html .sf-bad.html; $(BIN) -C $(CFG) > .smoke.log 2>&1 & echo $$! > .pid; \
-	code=000; threads_code=000; r48_code=000; cwlog_code=000; sf_code=000; sf_strong_code=000; sf_bad_code=000; \
+	code=000; threads_code=000; r48_code=000; cwlog_code=000; sf_code=000; sf_strong_code=000; sf_bad_code=000; tele_ss=000; tele_at=000; tele_ca=000; tele_dg=000; \
 	for i in $$(seq 1 25); do \
 	  code=$$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/); \
 	  [ "$$code" = "200" ] && break; \
@@ -63,6 +63,10 @@ smoke:
 	  sf_code=$$(curl -s -m 5 -u admin:admin -o .sf.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/smartfilter); \
 	  sf_strong_code=$$(curl -s -m 5 -u admin:admin -o .sf-strong.html -w '%{http_code}' "http://127.0.0.1:$(HTTPPORT)/smartfilter?filter=strongest"); \
 	  sf_bad_code=$$(curl -s -m 5 -u admin:admin -o .sf-bad.html -w '%{http_code}' "http://127.0.0.1:$(HTTPPORT)/smartfilter?filter=bad"); \
+	  tele_ss=$$(curl -s -m 5 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/server-stats); \
+	  tele_at=$$(curl -s -m 5 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/auto-tuning); \
+	  tele_ca=$$(curl -s -m 5 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/cache-analytics); \
+	  tele_dg=$$(curl -s -m 5 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/diagnostics); \
 	  if [ "$(R48_CWLOG_CHECK)" = "1" ]; then cwlog_code=$$(curl -s -m 5 -u admin:admin -o .r48-cwlog.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/cwlog); fi; \
 	fi; \
 	kill $$(cat .pid) 2>/dev/null; rm -f .pid; \
@@ -72,6 +76,7 @@ smoke:
 	if [ "$$r48_code" = "200" ] && python3 -c 'import json; d=json.load(open(".r48.json")); s=d["r48_source_reputation"]; assert s["scope"] == "source-caid-provider" and isinstance(s["rows"], list)' ; then echo "  [ ok ] HTTP /json exposes the R48 source/provider evidence snapshot"; else echo "  [FAIL] HTTP /json answered $$r48_code or omitted the R48 evidence snapshot"; ok=0; fi; \
 	if [ "$$sf_code" = "200" ] && grep -q 'SmartFilter Console' .sf.html && grep -q 'Overview' .sf.html && grep -q 'Recent CW' .sf.html && grep -q 'Peers' .sf.html && grep -q 'Profiles' .sf.html && grep -q 'Logs' .sf.html; then echo "  [ ok ] HTTP /smartfilter renders the v6.0 console (Overview/Recent CW/Peers/Profiles/Logs)"; else echo "  [FAIL] HTTP /smartfilter answered $$sf_code or omitted console sections"; ok=0; fi; \
 	if [ "$$sf_strong_code" = "200" ] && [ "$$sf_bad_code" = "200" ]; then echo "  [ ok ] HTTP /smartfilter Strongest/Bad peer filters answered 200"; else echo "  [FAIL] HTTP /smartfilter peer filters answered strongest=$$sf_strong_code bad=$$sf_bad_code"; ok=0; fi; \
+	if [ "$$tele_ss" = "200" ] && [ "$$tele_at" = "200" ] && [ "$$tele_ca" = "200" ] && [ "$$tele_dg" = "200" ]; then echo "  [ ok ] HTTP telemetry pages (server-stats/auto-tuning/cache-analytics/diagnostics) answered 200"; else echo "  [FAIL] HTTP telemetry pages answered ss=$$tele_ss at=$$tele_at ca=$$tele_ca dg=$$tele_dg"; ok=0; fi; \
 	if [ "$(R48_CWLOG_CHECK)" = "1" ]; then \
 	  if [ "$$cwlog_code" = "200" ] && grep -q 'R48 source reputation (reference evidence)' .r48-cwlog.html && grep -q 'proof age / clean samples after proof' .r48-cwlog.html && grep -q 'No reference-confirmed source evidence recorded yet' .r48-cwlog.html; then echo "  [ ok ] HTTP /cwlog renders the R48 evidence panel, D-4 proof timing, and neutral empty state"; else echo "  [FAIL] HTTP /cwlog answered $$cwlog_code or omitted the R48 evidence panel"; ok=0; fi; \
 	fi; \
