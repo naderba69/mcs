@@ -469,7 +469,7 @@ bbb8636e6b121a90c2a8c70ba6e5e0f8  src/cexwire.h
 53f8885a80d80c901975fad3382382fb  src/chanhealth.h
 c2bb299ab0cc347600566372b4c0322d  src/chanpred.h
 9dc23ed3169e77f009541c4383eeacdd  src/cli-camd35.c
-7de5087cd062e052c8420bc2c898499b  src/cli-cccam.c
+49be33acd40ace37c595728dd9356d17  src/cli-cccam.c
 75c80f6545ee5bb24494c08fd19f811e  src/cli-common.c
 db146a00f2b28d09df7c3f6dca283aae  src/cli-cs378x.c
 b576516db36f618d0ff66002cb0e9020  src/cli-newcamd.c
@@ -698,13 +698,13 @@ d5b5c20ff9bdbe3ab2247b1fb5ec4bdf  src/x64/httpserver.o
 65d3c95657a17d765f877fc87bb99d08  src/x64/ipdata.o
 97b72d7bb94a20a4cbefaa288dc8a218  src/x64/log-viewer.o
 41cc4d2536cc8bb06be239bb7f2e1799  src/x64/loginthrottle.o
-e350b06d2804808316e8d48eda56e94a  src/x64/main.o
+8641d98721d7b6342a5620ef04c42c57  src/x64/main.o
 7c182c5e1bdf03c1a70a040ada3553a5  src/x64/md5.o
 bdc84b77d493a55ec7cc698142bf7765  src/x64/monjson.o
 c0369b495bfe2e7cb901363dace4d8a6  src/x64/msg-cccam.o
 3e4a6d3e6c8187541378f8718fe4cb86  src/x64/msg-newcamd.o
 06e20b2aed733b9e963e8e4977b61661  src/x64/msg-radegast.o
-5bed93747d9c1b9125239f3009ac241b  src/x64/multics
+2e1f11d9e03c9bc635fad9f0208bd275  src/x64/multics
 8da43692b70e43d698ea12d52a1184d2  src/x64/newcamd-lifetime.o
 e3e4d5c54ec45b514b9558d70b89d833  src/x64/packed-time.o
 9d0d019d2210e2986f8d7c75e42a160a  src/x64/parser.o

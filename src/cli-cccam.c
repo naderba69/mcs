@@ -351,6 +351,13 @@ void cc_srv_recvmsg(struct server_data *srv)
 			caid_update_stats(ecm->caid, response_time, 1);
 			/* Server health monitoring: record success */
 			server_health_record_success(srv->id, response_time);
+			/* Server stats page (/server-stats): was initialized and
+			 * rendered but never fed, so it always showed zeros.
+			 * record_request creates the row and counts the answered
+			 * ECM; success/failure below complete it. Display only:
+			 * no decode or routing decision reads these counters. */
+			server_stats_record_request(srv->id, srv->host->name, srv->host->name, srv->port);
+			server_stats_record_success(srv->id, response_time);
 			/* CW prediction: record for future use */
 			cw_prediction_record(ecm->caid, ecm->provid, ecm->sid, dcw);
 			/* Prefetch: record successful ECM pattern */
@@ -451,6 +458,9 @@ void cc_srv_recvmsg(struct server_data *srv)
 			caid_update_stats(ecm->caid, GetTickCount()-srv->lastecmtime, 0);
 			/* Server health monitoring: record failure */
 			server_health_record_failure(srv->id);
+			/* Server stats page: see the success path above. */
+			server_stats_record_request(srv->id, srv->host->name, srv->host->name, srv->port);
+			server_stats_record_failure(srv->id);
 			/* Auto recovery: trigger recovery on ECM failure */
 			auto_recovery_trigger(1);  /* type 1 = ECM failure */
 			/* DCW emergency: check if channel needs emergency CW */
