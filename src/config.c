@@ -4137,7 +4137,40 @@ link_mgcamd_user:
 						parse_spaces();
 						parse_name(str);
 						uppercase(str);
-						if (!strcmp(str,"CAIDS")) {
+						if (!strcmp(str,"MATCH")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							parse_int(str);
+							{
+								int v = atoi(str);
+								if (v < 1) v = 1; if (v > 16) v = 16;
+								ssf_cfg.sf_mc_match = v;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MC MATCH: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_mc_match);
+						}
+						else if (!strcmp(str,"MODE")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							parse_int(str);
+							{
+								int v = atoi(str);
+								if (v < 1) v = 1; if (v > 2) v = 2;
+								ssf_cfg.sf_mc_mode = v;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MC MODE: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_mc_mode);
+						}
+						else if (!strcmp(str,"WAIT")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							parse_int(str);
+							{
+								int v = atoi(str);
+								if (v < 0) v = 0; if (v > 60000) v = 60000;
+								ssf_cfg.sf_mc_wait_ms = v;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MC WAIT: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_mc_wait_ms);
+						}
+						else if (!strcmp(str,"CAIDS")) {
 							parse_spaces();
 							if ((*iparser==':')||(*iparser=='=')) iparser++;
 							char *p = iparser;
@@ -4175,6 +4208,135 @@ link_mgcamd_user:
 								else p++;
 							}
 							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF HALFCW CAIDS: %d entries\n",file->nbline,iparser-currentline, ssf_cfg.sf_halfcw_caids_count);
+						}
+					}
+					else if (!strcmp(str,"LEVEL")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 20) v = 20;
+							ssf_cfg.filter_level = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF LEVEL: %d\n",file->nbline,iparser-currentline, ssf_cfg.filter_level);
+					}
+					else if (!strcmp(str,"TIME")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 60000) v = 60000;
+							ssf_cfg.filter_time_ms = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF TIME: %d\n",file->nbline,iparser-currentline, ssf_cfg.filter_time_ms);
+					}
+					else if (!strcmp(str,"BADCWRATIO")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 100) v = 100;
+							ssf_cfg.badcwratio = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF BADCWRATIO: %d\n",file->nbline,iparser-currentline, ssf_cfg.badcwratio);
+					}
+					else if (!strcmp(str,"BADCWRATIOMIN")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0;
+							ssf_cfg.badcwratiomin = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF BADCWRATIOMIN: %d\n",file->nbline,iparser-currentline, ssf_cfg.badcwratiomin);
+					}
+					else if (!strcmp(str,"MINREPLIES")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0;
+							ssf_cfg.minreplies = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MINREPLIES: %d\n",file->nbline,iparser-currentline, ssf_cfg.minreplies);
+					}
+					else if (!strcmp(str,"UNBLOCK")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0;
+							ssf_cfg.unblock_time = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF UNBLOCK: %d\n",file->nbline,iparser-currentline, ssf_cfg.unblock_time);
+					}
+					else if (!strcmp(str,"DROPBAD")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.dropbadcws = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF DROPBAD: %d\n",file->nbline,iparser-currentline, ssf_cfg.dropbadcws);
+					}
+					else if (!strcmp(str,"BLOCKFAKE")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.blockfakecws = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF BLOCKFAKE: %d\n",file->nbline,iparser-currentline, ssf_cfg.blockfakecws);
+					}
+					else if (!strcmp(str,"ENTROPY")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.sf_entropy = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF ENTROPY: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_entropy);
+					}
+					else if (!strcmp(str,"PATTERN")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.sf_pattern = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF PATTERN: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_pattern);
+					}
+					else if (!strcmp(str,"DUPSEEN")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.sf_dupseen = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF DUPSEEN: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_dupseen);
+					}
+					else if (!strcmp(str,"HISTORY")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 1) v = 1; if (v > 16) v = 16;
+							ssf_cfg.sf_history = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF HISTORY: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_history);
+					}
+					else if (!strcmp(str,"CWFMT")) {
+						parse_spaces();
+						parse_name(str);
+						uppercase(str);
+						if (!strcmp(str,"AUTO")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							ssf_cfg.sf_cwfmt_auto = parse_boolean();
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWFMT AUTO: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwfmt_auto);
+						}
+						else if (!strcmp(str,"ENFORCE")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							parse_int(str);
+							{
+								int v = atoi(str);
+								if (v < 0) v = 0; if (v > 2) v = 2;
+								ssf_cfg.sf_cwfmt_enforce = v;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWFMT ENFORCE: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwfmt_enforce);
 						}
 					}
 					continue;

@@ -413,7 +413,7 @@ ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
 ec8f097cbc76086499086f13a2653684  multics-r24-expert-reviewed.cfg
-9ad411c2bad082c81d6a3ef942034201  multics-r24-optimized.cfg
+822f6fcdc9784eb8e1a270fe0f8570a8  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
 8b31db494439c7fb3ec1920482e00650  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
@@ -477,7 +477,7 @@ a3e3072f8f89a66cccdf4c32a0c6c607  src/cli-radegast.c
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
 be528db0b190c89e5daab6cd0ad2a10b  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-d5cd22bd719ba5a26f87e8b3c7680e6f  src/config.c
+fddebd6ce3db4d2e828a5e6145c6f51e  src/config.c
 e91308d2ee5b2f791c8814612945206b  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
@@ -683,7 +683,7 @@ c9773b5ee2d1265f0d4a6da226acaaea  src/x64/advanced-optimizations.o
 a1a57173f17bbd70903ef6c51cc647b1  src/x64/cache-analytics.o
 d91cb4b703c087a4540a70732cfc9a7a  src/x64/cache-window.o
 429401b8664f59c51d1b01de458ff7f6  src/x64/caid-optimizations.o
-8ad45eefcf07f8a8dfe8c29e2e9cf871  src/x64/config.o
+8140e7071b5c959e150e5b58a0d48226  src/x64/config.o
 5f915cca76a98ab2352bb8aeaedb1139  src/x64/convert.o
 124b024ede975e6b5e0ed80f1ffe7d1d  src/x64/cwconsensus.o
 bbab103cab578fe3fde883e2a1ef01c6  src/x64/dcw.o
@@ -704,7 +704,7 @@ bdc84b77d493a55ec7cc698142bf7765  src/x64/monjson.o
 c0369b495bfe2e7cb901363dace4d8a6  src/x64/msg-cccam.o
 3e4a6d3e6c8187541378f8718fe4cb86  src/x64/msg-newcamd.o
 06e20b2aed733b9e963e8e4977b61661  src/x64/msg-radegast.o
-7c1cac07df05037067e6625a5cb84355  src/x64/multics
+ddac1f0881a8f9184327601224b66553  src/x64/multics
 8da43692b70e43d698ea12d52a1184d2  src/x64/newcamd-lifetime.o
 e3e4d5c54ec45b514b9558d70b89d833  src/x64/packed-time.o
 9d0d019d2210e2986f8d7c75e42a160a  src/x64/parser.o
