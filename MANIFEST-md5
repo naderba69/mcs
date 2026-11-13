@@ -421,7 +421,7 @@ ae672c7e0bd09e7db4c5c3d60571c0ca  src/advanced-optimizations.c
 b2f2d512b5b08e905063eea07664a6c3  src/advanced-optimizations.h
 4a8fd03687c0224706b0b76c55afa095  src/aes.c
 766debbafdfb42b5ddfa03d8b73f35d8  src/aes.h
-3996a4e4c125b22ee43b56286503abdc  src/auto-tuning.c
+399c4229b467d106e6972abdd4da60d5  src/auto-tuning.c
 290afce53223ffe3ff3dd37caaa15496  src/auto-tuning.h
 77dc84fe0bb36d5d0279846c0cf6fa48  src/autorecov.h
 b3e48b25553eb36d2165d948ed40fcd9  src/autoswitch.h
@@ -678,7 +678,7 @@ b668f23cfad77bd06c1caee5e96fd77c  src/udpfast.h
 b0e46dc030b5e572dbb3a718f9ff55a2  src/web-dashboard.h
 c9773b5ee2d1265f0d4a6da226acaaea  src/x64/advanced-optimizations.o
 038e3f01410c6adda1d2a533139b0e85  src/x64/aes.o
-3806cfacfe026f1fc0c1e535e9fed226  src/x64/auto-tuning.o
+0e4771fc9164dd774d271245675c69e6  src/x64/auto-tuning.o
 325a23d3cc6b1dd38567d6ab21e7123c  src/x64/biss.o
 a1a57173f17bbd70903ef6c51cc647b1  src/x64/cache-analytics.o
 d91cb4b703c087a4540a70732cfc9a7a  src/x64/cache-window.o
@@ -704,7 +704,7 @@ bdc84b77d493a55ec7cc698142bf7765  src/x64/monjson.o
 c0369b495bfe2e7cb901363dace4d8a6  src/x64/msg-cccam.o
 3e4a6d3e6c8187541378f8718fe4cb86  src/x64/msg-newcamd.o
 06e20b2aed733b9e963e8e4977b61661  src/x64/msg-radegast.o
-182b3d7830c90f9a6db426480a3279dc  src/x64/multics
+ebf7937f7d27eddf6f1ccabc4b8b1c1a  src/x64/multics
 8da43692b70e43d698ea12d52a1184d2  src/x64/newcamd-lifetime.o
 e3e4d5c54ec45b514b9558d70b89d833  src/x64/packed-time.o
 9d0d019d2210e2986f8d7c75e42a160a  src/x64/parser.o
