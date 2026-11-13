@@ -403,9 +403,8 @@ int acceptDCW(uint8_t *data)
 static struct bs_channel_tracker {
 	uint16_t caid;
 	uint16_t sid;
-	uint32_t provid;
+	uint32_t provid; /* stored for diagnostics; matching is caid+sid only */
 	uint32_t consecutive_failures;
-	uint32_t last_failure_time;
 	uint32_t total_failures;
 } bs_trackers[256];
 static int bs_tracker_count = 0;
@@ -430,15 +429,13 @@ void dcw_on_failure(uint16_t caid, uint16_t sid, uint32_t provid)
 		t->sid = sid;
 		t->provid = provid;
 		t->consecutive_failures = 0;
-		t->last_failure_time = 0;
 		t->total_failures = 0;
 	}
 	
 	if (t) {
 		t->consecutive_failures++;
 		t->total_failures++;
-		t->last_failure_time = time(NULL);
-		
+
 		/* Layer 1: Quick switch after 2 failures */
 		if (t->consecutive_failures >= 2) {
 			debugf(0, "BLACKSCREEN: Channel %04X:%04X - %d consecutive failures, triggering quick switch\n",

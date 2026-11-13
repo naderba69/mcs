@@ -536,7 +536,7 @@ f868ada5f76fa1863ca2e277d349bcf0  src/cwrollback.h
 cf3422e7e10e69479e6bf53fa8cacbf8  src/cwtime.h
 10e29a96971967b1e331b6d8fed8fb4e  src/cwvalidity.h
 eea4557a1d93c03a001dafecf656b537  src/cwverify.h
-b39aa828d574d216478344d49a344d06  src/dcw.c
+b454da0fe2281e72f6ed9d6a059568b6  src/dcw.c
 418902105ee72813be42c560b92ba7b6  src/dcw.h
 0421215a285de9ede5fd3600fe0c0f9e  src/dcwfilter.c
 dcb8a7e69bd800fb4fd55db62bc04277  src/dcwfilter.h
@@ -686,7 +686,7 @@ d91cb4b703c087a4540a70732cfc9a7a  src/x64/cache-window.o
 a7cedb750026eb1af50fdf5228deabd4  src/x64/config.o
 5f915cca76a98ab2352bb8aeaedb1139  src/x64/convert.o
 124b024ede975e6b5e0ed80f1ffe7d1d  src/x64/cwconsensus.o
-bbab103cab578fe3fde883e2a1ef01c6  src/x64/dcw.o
+48dd96353430733f572c92ccef38b79f  src/x64/dcw.o
 f00ae2c6904ea3453f4ee57564dacb77  src/x64/debug-ecm.o
 92639793b16bc5faa17c4b7695c57cbc  src/x64/debug.o
 e60f42f33025ac4e18597f918d7a6742  src/x64/des.o
@@ -704,7 +704,7 @@ bdc84b77d493a55ec7cc698142bf7765  src/x64/monjson.o
 c0369b495bfe2e7cb901363dace4d8a6  src/x64/msg-cccam.o
 3e4a6d3e6c8187541378f8718fe4cb86  src/x64/msg-newcamd.o
 06e20b2aed733b9e963e8e4977b61661  src/x64/msg-radegast.o
-bf896c4ca9b4755adfed24d9bc209ca2  src/x64/multics
+5bed93747d9c1b9125239f3009ac241b  src/x64/multics
 8da43692b70e43d698ea12d52a1184d2  src/x64/newcamd-lifetime.o
 e3e4d5c54ec45b514b9558d70b89d833  src/x64/packed-time.o
 9d0d019d2210e2986f8d7c75e42a160a  src/x64/parser.o
