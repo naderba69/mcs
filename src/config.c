@@ -839,6 +839,34 @@ void cfg_addcccamclient(struct cccam_server_data *cccam, struct cc_client_data *
 	}
 }
 
+/* Parse-time duplicate-user diagnostics (the former "TODO: Check for
+ * same user"). Login handlers scan the client list linearly and return
+ * the FIRST strcmp match (srv-cccam.c / srv-mgcamd.c), so a repeated
+ * username silently shadows every later entry. Observe-only: parsing
+ * still adds the line exactly as before; we only warn about it. The
+ * reload merge paths move existing clients through cfg_add*client and
+ * must not be flagged, so the check lives at the parse sites only. */
+static int cccam_client_user_exists(struct cccam_server_data *cccam, struct cc_client_data *cli)
+{
+	struct cc_client_data *tmp;
+#ifdef CACHEEX
+	tmp = cli->cacheex_mode ? cccam->cacheexclient : cccam->client;
+#else
+	tmp = cccam->client;
+#endif
+	for (; tmp; tmp = tmp->next)
+		if (!strcmp(tmp->user, cli->user)) return 1;
+	return 0;
+}
+
+static int mgcamd_client_user_exists(struct mgcamdserver_data *srv, struct mg_client_data *cli)
+{
+	struct mg_client_data *tmp;
+	for (tmp = srv->client; tmp; tmp = tmp->next)
+		if (!strcmp(tmp->user, cli->user)) return 1;
+	return 0;
+}
+
 void cfg_addcccamserver(struct config_data *cfg, struct cccam_server_data *srv)
 {
 	struct cccam_server_data *tmp = cfg->cccam.server;
@@ -3241,7 +3269,7 @@ link_cccam_client:
 			cli->userhash = hashCode( (unsigned char *)cli->user, strlen(cli->user) );
 			parse_str(str);
 			cfg_store_field(cli->pass, sizeof(cli->pass), str, file->nbline, ucol38, "password");
-			// TODO: Check for same user 
+			// duplicate-user check: at cfg_addcccamclient/mgcamd site below (warn-only)
 			if (parse_int(str)) {
 				cli->dnhops = atoi(str);
 				if (parse_int(str)) {
@@ -3368,6 +3396,8 @@ link_cccam_client:
 				if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 			}
 
+			if (cccam_client_user_exists(cccam, cli))
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): duplicate CCcam user '%s': later entry is shadowed at login (first match wins)\n",file->nbline,iparser-currentline,cli->user);
 			cli->handle = -1;
 			cfg_addcccamclient(cccam,cli);
 		}
@@ -3556,7 +3586,7 @@ link_mgcamd_user:
 			cli->userhash = hashCode( (unsigned char *)cli->user, strlen(cli->user) );
 			parse_str(str);
 			cfg_store_field(cli->pass, sizeof(cli->pass), str, file->nbline, ucol38, "password");
-			// TODO: Check for same user 
+			// duplicate-user check: at the cfg_addmgcamdclient site below (warn-only)
 			cli->sharelimits[0].caid = 0xFFFF;
 			parse_spaces();
 			if (*iparser=='{') { // Get Ports List & User Info
@@ -3645,6 +3675,8 @@ link_mgcamd_user:
 				if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 			}
 
+			if (mgcamd_client_user_exists(mgcamd, cli))
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): duplicate Mgcamd user '%s': later entry is shadowed at login (first match wins)\n",file->nbline,iparser-currentline,cli->user);
 			cli->handle = -1;
 			cfg_addmgcamdclient(mgcamd,cli);
 		}
