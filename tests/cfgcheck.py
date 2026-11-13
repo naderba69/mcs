@@ -22,11 +22,14 @@ DEAD_PROFILE = {
     "DCW VALIDECMTIME",     # no parser branch anywhere (SERVER VALIDECMTIME is the real key)
     "CACHEEX PUSH",         # no parser branch
     "CACHEEX RELAY",        # no parser branch
-    "FILTER", "FILTER TIME", # no top-level parser branches
+    "FILTER TIME",          # no per-profile parser branch (CACHE SF TIME is the global key)
     "CACHE FILTER", "CACHE FILTER TIME", # global cache fields, even inside a profile
     "ACCEPT NULL ONID",     # needs profile context but mutates global cache flag
     "ENABLE CAMD35", "ENABLE CS378X", "ENABLE MGCAMD", # no profile ENABLE branches
 }
+# R48: FILTER inside a profile is the SuperSmartFilter level (config.c
+# parses FILTER: <0-20> per profile into option.sf_filter_level), so it is
+# a valid per-profile key and must NOT be in DEAD_PROFILE.
 FIXED_CAIDS = {0x2600, 0x2610, 0x1010}
 ICAM = {0x0963, 0x098C, 0x098D, 0x098E, 0x09C4, 0x09CD}
 
@@ -157,8 +160,10 @@ def main(path):
     if not fails:
         ok("global section: no dead DEFAULT keys; CACHE FILTER/family policy explicit; no inert global ONID")
 
-    # R48 D-2 is opt-in. Keep both shipped baseline configs behavior-neutral:
-    # an omitted key means OFF, while an explicit value must be a parser token.
+    # R48 D-2 is opt-in (default OFF). The optimized config enables it
+    # globally for the no-card peer setup (observe/learning only, no
+    # rejection gate); the expert config leaves it OFF. Either way an
+    # explicit value must be a parser token.
     boolean_tokens = {"0", "1", "NO", "YES", "OFF", "ON"}
     evidence_keys = ("DEFAULT CACHE EVIDENCE", "CACHE EVIDENCE")
     for key in evidence_keys:
@@ -166,17 +171,13 @@ def main(path):
             token = value.split("#", 1)[0].strip().upper()
             if token not in boolean_tokens:
                 bad("global %s has invalid boolean %r" % (key, value))
-            elif token in {"1", "YES", "ON"}:
-                bad("global %s must remain OFF in the shipped config" % key)
     for p in profs:
         for value in p["kv"].get("CACHE EVIDENCE", []):
             token = value.split("#", 1)[0].strip().upper()
             if token not in boolean_tokens:
                 bad("%s: CACHE EVIDENCE has invalid boolean %r" % (p["name"], value))
-            elif token in {"1", "YES", "ON"}:
-                bad("%s: CACHE EVIDENCE must remain OFF in the shipped config" % p["name"])
     if not fails:
-        ok("R48 CACHE EVIDENCE: opt-in remains OFF in the shipped profile file")
+        ok("R48 CACHE EVIDENCE: explicit values are valid parser tokens")
 
     # ---- profiles ----
     if len(profs) != 72:

@@ -52,13 +52,13 @@ dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 8b594513f7bbfb3cfb13d96e5b4c7c07  bin/multics-r82a-queue-stats-x64
 3932025dd54ebd75336c2b664c48c0c4  bin/multics-r82a-queue-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-5ad9574e5b1d872939c2a48798cea590  bin/multics-r82a-stats-x64
+3230dfe5f5350766725fed32a411af72  bin/multics-r82a-stats-x64
 03d3068ada2d92750a920a2375641b2c  bin/multics-r82a-stock-x64
 fbfef2a162b03fed8d56aca7babd3ef3  bin/multics-r82a-x64
-5ad9574e5b1d872939c2a48798cea590  bin/multics.x64
+3230dfe5f5350766725fed32a411af72  bin/multics.x64
 8b594513f7bbfb3cfb13d96e5b4c7c07  dist/multics-r82a-queue-stats-x64
 3932025dd54ebd75336c2b664c48c0c4  dist/multics-r82a-queue-x64
-5ad9574e5b1d872939c2a48798cea590  dist/multics-r82a-stats-x64
+3230dfe5f5350766725fed32a411af72  dist/multics-r82a-stats-x64
 03d3068ada2d92750a920a2375641b2c  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
@@ -413,7 +413,7 @@ ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
 ec8f097cbc76086499086f13a2653684  multics-r24-expert-reviewed.cfg
-822f6fcdc9784eb8e1a270fe0f8570a8  multics-r24-optimized.cfg
+3d0f45d57e87b22f5612629008a3eba2  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
 8b31db494439c7fb3ec1920482e00650  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
@@ -768,7 +768,7 @@ e198eff69959679f80509fe2d99a1f86  tests/cccam-trace-success.py
 77c9cbc91a3c4511021448e5ec1b1b50  tests/cccam-upstream-trace.py
 851d73c3a914ec40d1a6212aebced15f  tests/ccdcw.c
 0ff0ccc77e0e2d3673a64f0a4945cc86  tests/cedcw.py
-605c580504974139ab33dc437c9aee06  tests/cfgcheck.py
+6f67de55975f4ae7f7a202a97a69ce46  tests/cfgcheck.py
 23cc74be3f43edc4814aeb88e6859a32  tests/crypto-alignment.c
 abffc972c0f923130b52d0695fd5ea2c  tests/cwconsensus-1884-research.c
 91a36a2c4e35a2e6e4814d12328c45d9  tests/cwconsensus-load.c
