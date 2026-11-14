@@ -2035,7 +2035,7 @@ void http_send_servers(int sock, http_request *req)
 		// Send XML CELLS
 		getservercells(srv,cell);
 		char buf[5000] = "";
-		sprintf( buf, "<server>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n</server>\n",cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6] );
+		snprintf(buf, sizeof(buf), "<server>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n</server>\n",cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}
@@ -2126,7 +2126,7 @@ void http_send_servers(int sock, http_request *req)
 			if (http_server_matches_list(srv, get_type, get_list)) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
+				snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			srv = srv->next;
@@ -2137,7 +2137,7 @@ void http_send_servers(int sock, http_request *req)
 			if (http_server_matches_list(srv, get_type, get_list)) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
+				snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			srv = srv->next;
@@ -2148,7 +2148,7 @@ void http_send_servers(int sock, http_request *req)
 			if (http_server_matches_list(srv, get_type, get_list)) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
+				snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			srv = srv->next;
@@ -2159,7 +2159,7 @@ void http_send_servers(int sock, http_request *req)
 			if (http_server_matches_list(srv, get_type, get_list)) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
+				snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			srv = srv->next;
@@ -2835,7 +2835,7 @@ void http_send_cache(int sock, http_request *req)
 		getcachecells(&peer_row,cell);
 		for(i=0; i<12; i++) xmlescape( cell[i] );
 		char buf[5000] = "";
-		sprintf( buf, "<peer>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8><c9>%s</c9><c10>%s</c10>\n</peer>\n",cell[0],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9],cell[10],cell[11] );
+		snprintf(buf, sizeof(buf), "<peer>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8><c9>%s</c9><c10>%s</c10>\n</peer>\n",cell[0],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9],cell[10],cell[11] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}
@@ -3048,7 +3048,7 @@ void http_send_cache(int sock, http_request *req)
 				getcachecells(row, cell);
 				/* HTML cells are rendered from a value-only snapshot. */
 				if (row->runtime) alt = 3;
-				sprintf(http_buf, "<tr id=\"Row%u\" class=alt%d onMouseOver='setupdateRow(%u)' onMouseOut='setupdateRow(0)'><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n", row->id, alt, row->id, cell[0], cell[1], cell[2], cell[3], cell[4], cell[5], cell[6], cell[7], cell[8], cell[9], cell[10], cell[11]);
+				snprintf(http_buf, sizeof(http_buf), "<tr id=\"Row%u\" class=alt%d onMouseOver='setupdateRow(%u)' onMouseOut='setupdateRow(0)'><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n", row->id, alt, row->id, cell[0], cell[1], cell[2], cell[3], cell[4], cell[5], cell[6], cell[7], cell[8], cell[9], cell[10], cell[11]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
 			}
 		}
@@ -3088,7 +3088,7 @@ void http_send_cache(int sock, http_request *req)
 					if (alt == 1) alt = 2; else alt = 1;
 					getcachecells(row, cell);
 					if (row->runtime) alt = 3;
-					sprintf(http_buf, "<tr id=\"Row%u\" class=alt%d onMouseOver='setupdateRow(%u)' onMouseOut='setupdateRow(0)'><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n", row->id, alt, row->id, cell[0], cell[1], cell[2], cell[3], cell[4], cell[5], cell[6], cell[7], cell[8], cell[9], cell[10], cell[11]);
+					snprintf(http_buf, sizeof(http_buf), "<tr id=\"Row%u\" class=alt%d onMouseOver='setupdateRow(%u)' onMouseOut='setupdateRow(0)'><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n", row->id, alt, row->id, cell[0], cell[1], cell[2], cell[3], cell[4], cell[5], cell[6], cell[7], cell[8], cell[9], cell[10], cell[11]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
 				}
 			}
@@ -3521,7 +3521,7 @@ static void http_send_profiles_inner(int sock, http_request *req)
 		getprofilecells(cs,cell);
 		for(i=0; i<11; i++) xmlescape( cell[i] );
 		char buf[5000] = "";
-		sprintf( buf, "<profile>\n<c0>%s</c0>\n<c1_c>%s</c1_c>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n<c9>%s</c9>\n</profile>\n",cell[0],cell[10],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9] );
+		snprintf(buf, sizeof(buf), "<profile>\n<c0>%s</c0>\n<c1_c>%s</c1_c>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n<c9>%s</c9>\n</profile>\n",cell[0],cell[10],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}
@@ -3570,7 +3570,7 @@ static void http_send_profiles_inner(int sock, http_request *req)
 		if (alt==1) alt=2; else alt=1;
 		getprofilecells( cs, cell );
 		/* R35: page/div tail is HTML -- no blanket escape (builders pre-escape text) */
-		sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td>%s</td><td class=%s>%s</td><td align=center>%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",cs->id,alt,cs->id,cell[0],cell[10],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9]);
+		snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td>%s</td><td class=%s>%s</td><td align=center>%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",cs->id,alt,cs->id,cell[0],cell[10],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9]);
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		cs = cs->next;
 	}
@@ -3958,7 +3958,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 		getnewcamdclientcells(cli,cell);
 		for(i=0; i<10; i++) xmlescape( cell[i] );
 		char buf[5000] = "";
-		sprintf( buf, "<newcamd>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</newcamd>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+		snprintf(buf, sizeof(buf), "<newcamd>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</newcamd>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}
@@ -4038,7 +4038,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 					if (alt==1) alt=2; else alt=1;
 					getnewcamdclientcells(cli, cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -4049,7 +4049,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 				if (alt==1) alt=2; else alt=1;
 				getnewcamdclientcells(cli, cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cli->next;
 			}
@@ -4060,7 +4060,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 					if (alt==1) alt=2; else alt=1;
 					getnewcamdclientcells(cli, cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -4088,7 +4088,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 						if (alt==1) alt=2; else alt=1;
 						getnewcamdclientcells(cli, cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -4101,7 +4101,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 					if (alt==1) alt=2; else alt=1;
 					getnewcamdclientcells(cli, cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					cli = cli->next;
 				}
@@ -4114,7 +4114,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 						if (alt==1) alt=2; else alt=1;
 						getnewcamdclientcells(cli, cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -5008,7 +5008,7 @@ void http_send_cccam(int sock, http_request *req)
 		getcccamcells(cli,cell);
 		int i; for(i=0; i<10; i++) xmlescape( cell[i] );
 		char buf[5000] = "";
-		sprintf( buf, "<cccam>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</cccam>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+		snprintf(buf, sizeof(buf), "<cccam>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</cccam>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}			
@@ -5180,7 +5180,7 @@ void http_send_cccam(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcccamcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5192,7 +5192,7 @@ void http_send_cccam(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcccamcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5203,7 +5203,7 @@ void http_send_cccam(int sock, http_request *req)
 				if (alt==1) alt=2; else alt=1;
 				getcccamcells(cli,cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cli->next;
 			}
@@ -5229,7 +5229,7 @@ void http_send_cccam(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcccamcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -5242,7 +5242,7 @@ void http_send_cccam(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcccamcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					cli = cli->next;
 				}
@@ -5255,7 +5255,7 @@ void http_send_cccam(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcccamcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -5435,7 +5435,7 @@ void http_send_cs378x(int sock, http_request *req)
 							// Send XML CELLS
 							getcs378xcells(cli,cell);
 							int i; for(i=0; i<10; i++) xmlescape( cell[i] );
-							sprintf( http_buf, "<cs378x>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</cs378x>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+							snprintf(http_buf, sizeof(http_buf), "<cs378x>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</cs378x>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 							http_send_xml( sock, req, http_buf, strlen(http_buf));
 						}
 						cli = cli->next;
@@ -5567,7 +5567,7 @@ void http_send_cs378x(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcs378xcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5579,7 +5579,7 @@ void http_send_cs378x(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcs378xcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5590,7 +5590,7 @@ void http_send_cs378x(int sock, http_request *req)
 				if (alt==1) alt=2; else alt=1;
 				getcs378xcells(cli,cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cli->next;
 			}
@@ -5616,7 +5616,7 @@ void http_send_cs378x(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcs378xcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -5629,7 +5629,7 @@ void http_send_cs378x(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcs378xcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					cli = cli->next;
 				}
@@ -5642,7 +5642,7 @@ void http_send_cs378x(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcs378xcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -5840,7 +5840,7 @@ void http_send_camd35(int sock, http_request *req)
 							// Send XML CELLS
 							getcamd35cells(cli,cell);
 							int i; for(i=0; i<10; i++) xmlescape( cell[i] );
-							sprintf( http_buf, "<camd35>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</camd35>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+							snprintf(http_buf, sizeof(http_buf), "<camd35>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</camd35>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 							http_send_xml( sock, req, http_buf, strlen(http_buf));
 						}
 						cli = cli->next;
@@ -5972,7 +5972,7 @@ void http_send_camd35(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcamd35cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5984,7 +5984,7 @@ void http_send_camd35(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcamd35cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5995,7 +5995,7 @@ void http_send_camd35(int sock, http_request *req)
 				if (alt==1) alt=2; else alt=1;
 				getcamd35cells(cli,cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cli->next;
 			}
@@ -6021,7 +6021,7 @@ void http_send_camd35(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcamd35cells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -6034,7 +6034,7 @@ void http_send_camd35(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcamd35cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					cli = cli->next;
 				}
@@ -6047,7 +6047,7 @@ void http_send_camd35(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcamd35cells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -6438,7 +6438,7 @@ void http_send_cacheex(int sock, http_request *req)
 						if ( !(cli->flags&FLAG_DELETE) && cli->id==(i&0xffff) ) {
 			                cacheex_cccamclient_cells(cli,cell);
 			                for(i=0; i<10; i++) xmlescape( cell[i] );
-			                sprintf( http_buf, "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
+			                snprintf(http_buf, sizeof(http_buf), "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
 			                http_send_xml( sock, req, http_buf, strlen(http_buf));
 							return;
 						}
@@ -6457,7 +6457,7 @@ void http_send_cacheex(int sock, http_request *req)
 						if ( !(cli->flags&FLAG_DELETE) && cli->id==(i&0xffff) ) {
 			                cacheex_camd35client_cells(cli,cell);
 			                for(i=0; i<10; i++) xmlescape( cell[i] );
-			                sprintf( http_buf, "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
+			                snprintf(http_buf, sizeof(http_buf), "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
 			                http_send_xml( sock, req, http_buf, strlen(http_buf));
 							return;
 						}
@@ -6476,7 +6476,7 @@ void http_send_cacheex(int sock, http_request *req)
 						if ( !(cli->flags&FLAG_DELETE) && cli->id==(i&0xffff) ) {
 			                cacheex_camd35client_cells(cli,cell);
 			                for(i=0; i<10; i++) xmlescape( cell[i] );
-			                sprintf( http_buf, "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
+			                snprintf(http_buf, sizeof(http_buf), "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
 			                http_send_xml( sock, req, http_buf, strlen(http_buf));
 							return;
 						}
@@ -6492,7 +6492,7 @@ void http_send_cacheex(int sock, http_request *req)
 				if ( !(srv->flags&FLAG_DELETE) && srv->id==(i&0xffff) ) {
 					cacheex_server_cells(srv,cell);
 					for(i=0; i<10; i++) xmlescape( cell[i] );
-					sprintf( http_buf, "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
+					snprintf(http_buf, sizeof(http_buf), "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
 					http_send_xml( sock, req, http_buf, strlen(http_buf));
 					return;
 				}
@@ -6568,7 +6568,7 @@ void http_send_cacheex(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					cacheex_cccamclient_cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x10000),(cli->id+0x10000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x10000),(cli->id+0x10000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -6596,7 +6596,7 @@ void http_send_cacheex(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					cacheex_camd35client_cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x20000),(cli->id+0x20000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x20000),(cli->id+0x20000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -6625,7 +6625,7 @@ void http_send_cacheex(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					cacheex_camd35client_cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x30000),(cli->id+0x30000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x30000),(cli->id+0x30000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -6669,7 +6669,7 @@ void http_send_cacheex(int sock, http_request *req)
 				if (alt==1) alt=2; else alt=1;
 				cacheex_server_cells(srv,cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(srv->id+0x40000),(srv->id+0x40000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(srv->id+0x40000),(srv->id+0x40000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			srv = srv->next;
@@ -7050,7 +7050,7 @@ void http_send_freecccam(int sock, http_request *req)
 				// Send XML CELLS
 				getcccamcells(cli,cell);
 				int i; for(i=0; i<10; i++) xmlescape( cell[i] );
-				sprintf( http_buf, "<cccam>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2_c>%s</c2_c>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n</cccam>\n",cell[2],cell[1],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+				snprintf(http_buf, sizeof(http_buf), "<cccam>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2_c>%s</c2_c>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n</cccam>\n",cell[2],cell[1],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 				http_send_xml( sock, req, http_buf, strlen(http_buf));
 				return;
 			}			
@@ -7099,7 +7099,7 @@ void http_send_freecccam(int sock, http_request *req)
 		if (cli->connection.status>0) {
 			if (alt==1) alt=2; else alt=1;
 			getcccamcells( cli,cell);
-			sprintf( http_buf,"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",alt,cli->id,cli->id,cell[2],cell[1],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+			snprintf(http_buf, sizeof(http_buf),"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",alt,cli->id,cli->id,cell[2],cell[1],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		}
 		cli = cli->next;
@@ -7315,7 +7315,7 @@ void http_send_mgcamd(int sock, http_request *req)
 		getmgcamdcells(cli,cell);
 		int i; for(i=0; i<10; i++) xmlescape( cell[i] );
 		char buf[5000] = "";
-		sprintf( buf, "<mgcamd>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</mgcamd>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+		snprintf(buf, sizeof(buf), "<mgcamd>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</mgcamd>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}			
@@ -7483,7 +7483,7 @@ void http_send_mgcamd(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getmgcamdcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -7495,7 +7495,7 @@ void http_send_mgcamd(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getmgcamdcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -7506,7 +7506,7 @@ void http_send_mgcamd(int sock, http_request *req)
 				if (alt==1) alt=2; else alt=1;
 				getmgcamdcells(cli,cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cli->next;
 			}
@@ -7532,7 +7532,7 @@ void http_send_mgcamd(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getmgcamdcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -7545,7 +7545,7 @@ void http_send_mgcamd(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getmgcamdcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					cli = cli->next;
 				}
@@ -7558,7 +7558,7 @@ void http_send_mgcamd(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getmgcamdcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -9846,6 +9846,7 @@ void *http_thread(void *param)
 						//SetSocketNoDelay(clientsock);
 						pthread_t cli_tid;
 						struct connect_data *newdata = malloc( sizeof(struct connect_data) );
+						if (!newdata) { close(clientsock); continue; }
 						newdata->sock = clientsock; 
 						newdata->ip = client_addr.sin_addr.s_addr;
 						if (!create_thread(&cli_tid, (threadfn)gererClient, newdata)) {

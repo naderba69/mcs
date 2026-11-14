@@ -106,6 +106,7 @@ void AES_encrypt(const unsigned char *a,unsigned char *b,const AES_KEY *c)
 void debughex(uint8_t *a,int b) { (void)a;(void)b; }
 void dcw_filter_globals_snapshot(int *a,int *b,int *c,int *d)
 { if(a)*a=0;if(b)*b=0;if(c)*c=0;if(d)*d=0; }
+int dcw_filter_strict_snapshot(void) { return 0; } /* strict OFF in this harness, same contract as the globals stub above */
 void hex32(int a,char *b) { (void)a;if(b)b[0]=0; }
 int rdgd_message_send(int a,unsigned char *b,int c) { (void)a;(void)b;(void)c;return -1; }
 int dcw_profile_cycle_enabled(struct cardserver_data *cs) { (void)cs; return 0; }
@@ -115,6 +116,15 @@ void peerrep_save(void) {}
 int peerrep_stage(uint32_t ip,uint16_t port,uint32_t now_ms) { (void)ip;(void)port;(void)now_ms;return 0; }
 int peerrep_ask_ok(uint32_t ip,uint16_t port,uint32_t now_ms) { (void)ip;(void)port;(void)now_ms;return 1; }
 void cwconsensus_set_min_sources(int n) { (void)n; }
+void cwconsensus_set_independence(int on) { (void)on; }
+void cwconsensus_set_quarantine(int on) { (void)on; }
+void cwconsensus_set_storm_guard(int on) { (void)on; }
+void cwconsensus_set_rotation_freeze(int on) { (void)on; }
+int cwconsensus_verdict_group(uint16_t caid,uint16_t sid,uint32_t provid,int provider_known,
+                              uint32_t hash,uint8_t tag,const uint8_t *cw,int peerid,uint32_t group,
+                              int weight,uint32_t now,uint32_t window,const uint8_t **loser)
+{ (void)group; /* group counting is the unit tests' subject; this harness stubs consensus to DELIVER */
+  return cwconsensus_verdict(caid,sid,provid,provider_known,hash,tag,cw,peerid,weight,now,window,loser); }
 int cwconsensus_verdict(uint16_t caid,uint16_t sid,uint32_t provid,int provider_known,
                         uint32_t hash,uint8_t tag,const uint8_t *cw,int peerid,int weight,
                         uint32_t now,uint32_t window,const uint8_t **loser)
@@ -411,9 +421,9 @@ int main(void)
         close(fds[0]); close(fds[1]);
     }
 #ifdef CACHEEX
-    assert(sizeof(struct cache_data)==102);
+    assert(sizeof(struct cache_data)==103); /* +1 byte: provider_known/cw1cycle growth, measured 2026-11-14 (cf. ca-bite 103*1024) */
 #else
-    assert(sizeof(struct cache_data)==86);
+    assert(sizeof(struct cache_data)==87); /* 103 - 16-byte ecmd5 (CACHEEX only); drifted with the same +1 byte, measured 2026-11-14 */
 #endif
     /* A completely active snapshot registry must fail closed, never leave an
      * uninitialized slot index for the caller to write. */

@@ -931,6 +931,7 @@ void cfg_addcs378xserver(struct config_data *cfg, struct camd35_server_data *srv
 
 void cfg_addcachepeer(struct cacheserver_data *srv, struct cachepeer_data *peer)
 {
+	if (!srv || !peer) return; /* analyzer: a runtime caller may pass a NULL cache */
 	struct cachepeer_data *tmp = srv->peer;
 	peer->next = NULL;
 	if (tmp) {
@@ -1007,6 +1008,7 @@ struct includefile_data *newfile(char *name)
 		return NULL;
 	} 
 	struct includefile_data *data = malloc( sizeof(struct includefile_data) );
+	if (!data) { fclose(fd); return NULL; }
 	data->fd = fd;
 	data->next = NULL;
 	strcpy(data->name, name);
@@ -2478,6 +2480,7 @@ sid accept:
 					if (*iparser!=',') continue;
 					iparser++;
 					struct http_file_data *file = malloc( sizeof(struct http_file_data) );
+					if (!file) break;
 					strcpy( file->path, str );
 					parse_quotes('"', file->url, sizeof(file->url));
 					if (*iparser==',') {
@@ -6301,6 +6304,7 @@ int read_providers( struct config_data *cfg )
 					//strcpy(str,iparser);
 					//debugf(getdbgflag(DBG_CONFIG,0,0),"%04x:%06x:%04x '%s'\n",caid,prov,sid,iparser);
 					struct providers_data *prov = malloc( sizeof(struct providers_data) + strlen(iparser) + 1 );
+					if (!prov) continue;
 					prov->caprovid = caprovid;
 					strcpy( prov->name, iparser );
 					prov->next = cfg->providers;

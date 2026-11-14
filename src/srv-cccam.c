@@ -130,7 +130,9 @@ static void cc_disconnect_cli_unlocked(struct cc_client_data *cli)
 	cli->connection.lastseen = ticks; // Last Seen
 	if (cli->handle > 0) close(cli->handle);
 	cli->handle = -1;
-	cli->pid = 0;
+#ifdef CACHEEX
+	cli->pid = 0; /* pid member exists only in CACHEEX builds */
+#endif
 	if (cli->parent) cli->parent->clipfd.update = 1;
 	debugf(0," CCcam: client '%s' disconnected \n", cli->user);
 }
@@ -943,6 +945,7 @@ int cc_send_cacheex_push_cli(struct cc_client_data *cli, uint8_t *buf, int len)
 		return 0;
 	}
 	client_state_locked = 1;
+#ifdef CACHEEX
 	if (cli->cacheex_mode == 2 && cli->handle > 0 &&
 	    cli->connection.status > 0) {
 		attempted = 1;
@@ -951,6 +954,7 @@ int cc_send_cacheex_push_cli(struct cc_client_data *cli, uint8_t *buf, int len)
 		if (!result && cli->handle > 0 && cli->connection.status > 0)
 			cc_disconnect_cli_unlocked(cli);
 	}
+#endif /* CACHEEX: without it there is no cache-push to attempt */
 	if (client_state_locked) client_state_unlock(cli);
 	client_io_unlock(cli);
 	return attempted;

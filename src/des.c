@@ -140,7 +140,7 @@ inline void doIp(byte data[])
 {
   unsigned char j, k;
   byte val;
-  byte buf[8];
+  byte buf[8] = {0}; /* zero-init: every bit is shifted in by the loop below */
   byte *p;
   byte i = 8;
 

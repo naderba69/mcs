@@ -668,7 +668,7 @@ x64/test_ledger: test_ledger.c ../src/ledger.h ../src/r48-source-reputation.h ..
 ASAN_LIBS = $(filter-out $(OUTPUT)/main.o,$(filter-out $(OUTPUT)/parser.o,$(filter-out $(OUTPUT)/config.o,$(OBJECTS))))
 x64/multics-asan: ../src/main.c ../src/parser.c ../src/config.c $(ASAN_LIBS)
 	@mkdir -p x64
-	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -o $@ ../src/main.c ../src/parser.c ../src/config.c $(ASAN_LIBS) -lpthread
+	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -o $@ ../src/main.c ../src/parser.c ../src/config.c $(ASAN_LIBS) -lpthread -lm
 
 # TASK 3.9: direct ASan probe for xmlescape's frame. Links the REAL
 # httpserver TU (ASan-instrumented, its xmlescape renamed real_xmlescape)
@@ -680,7 +680,7 @@ x64/probe_xmlescape: ../src/httpserver.c ../src/main.c probe_xmlescape.c $(XE_PR
 	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -Dxmlescape=real_xmlescape -c ../src/httpserver.c -o x64/httpserver-xe.o
 	$(CC) -O1 -g -m64 -fsanitize=address -fsanitize-recover=address -o x64/probe-xe-main.o -c probe_xmlescape.c
 	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -Dmain=multics_main -c ../src/main.c -o x64/main-xe.o
-	$(CC) -fsanitize=address -fsanitize-recover=address -o $@ x64/probe-xe-main.o x64/httpserver-xe.o x64/main-xe.o $(XE_PROBE_LIBS) -lpthread
+	$(CC) -fsanitize=address -fsanitize-recover=address -o $@ x64/probe-xe-main.o x64/httpserver-xe.o x64/main-xe.o $(XE_PROBE_LIBS) -lpthread -lm
 
 # TASK 3.13: call the REAL cardsids_update. Production main.c, main()
 # renamed, linked against the normal objects. The live `fl` target runs it.
@@ -689,7 +689,7 @@ x64/probe_cardsids: ../src/main.c probe_cardsids.c $(FL_PROBE_LIBS)
 	@mkdir -p x64
 	$(CC) $(CFLAGS) -Dmain=multics_main -c ../src/main.c -o x64/main-fl.o
 	$(CC) $(CFLAGS) -o x64/probe-fl-main.o -c probe_cardsids.c
-	$(CC) $(LFLAGS) -o $@ x64/probe-fl-main.o x64/main-fl.o $(FL_PROBE_LIBS) -lpthread
+	$(CC) $(LFLAGS) -o $@ x64/probe-fl-main.o x64/main-fl.o $(FL_PROBE_LIBS) -lpthread -lm
 
 x64/test_cfgfield: test_cfgfield.c ../src/cfgfield.h
 	@mkdir -p x64

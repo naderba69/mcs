@@ -512,6 +512,7 @@ void *telnet_thread(void *param)
 						 * the source address. Same wire behavior when both
 						 * are off. */
 						struct telnet_conn_data *param = malloc( sizeof(struct telnet_conn_data) );
+						if (!param) { close( clientsock ); continue; }
 						param->fd = clientsock;
 						param->ip = client_addr.sin_addr.s_addr;
 						if ( !create_thread(&cli_tid, (threadfn)telnetprocess,param) ) {

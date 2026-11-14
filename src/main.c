@@ -552,7 +552,7 @@ static void cwentropy_note(struct trust_table *t,
 {
 	struct cwen_match near;
 	uint64_t ecmid = 0;
-	unsigned mask, scored;
+	unsigned mask, scored = 0; /* set only under report; read after unlock */
 	char what[64];
 	int report = 0, again = 0, why = 0;
 	int i;

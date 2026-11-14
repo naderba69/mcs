@@ -722,6 +722,7 @@ void *camd35_recvmsg_thread(void *param)
 			} else if (retval<0) usleep(99000);
 		} else sleep(1);
 	}
+	return NULL; /* reached on prg.restart; a void* thread must return a value */
 }
 
 ///////////////////////////////////////////////////////////////////////////////
