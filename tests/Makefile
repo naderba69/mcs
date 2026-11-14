@@ -185,6 +185,9 @@ cacheex-provider-collision:
 tsan-r22:
 	@sh ./tsan-r22-session.sh
 
+freecccam-live:
+	@python3 freecccam-live.py $(BIN)
+
 doublecheck-live:
 	@MODE=agree python3 doublecheck-live.py $(BIN)
 	@MODE=mismatch python3 doublecheck-live.py $(BIN)

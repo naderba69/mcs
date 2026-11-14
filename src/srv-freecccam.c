@@ -244,7 +244,7 @@ static void *freecc_connect_cli_inner(struct connect_cli_data *param)
 	cli->chkrecvtime = 0;
 	cli->ip = ip;
 	cli->msg.len = 0;
-	cli->handle = sock;
+	__atomic_store_n(&cli->handle, sock, __ATOMIC_RELAXED); /* published for frcc_recvmsg_thread's poll loop, which only holds the config read gate alongside this writer */
 	cli->ecm.busy = 0;
 
 //	pthread_mutex_unlock(&prg.lockfreecccli);
@@ -754,7 +754,10 @@ void *frcc_recvmsg_thread(void *param)
 				//pthread_mutex_lock(&prg.lockcccli);
 				struct cc_client_data *cli = freecccam->client;
 				while (cli) {
-					if ( !IS_DISABLED(cli->flags)&&(cli->handle>0)&&(cli->ipoll>=0)&&(cli->handle==pfd[cli->ipoll].fd) ) {
+					/* handle is published atomically by the connect worker
+					 * (same read gate, so no mutual exclusion): load it once. */
+					int cli_handle = __atomic_load_n(&cli->handle, __ATOMIC_RELAXED);
+					if ( !IS_DISABLED(cli->flags)&&(cli_handle>0)&&(cli->ipoll>=0)&&(cli_handle==pfd[cli->ipoll].fd) ) {
 						if ( pfd[cli->ipoll].revents & (POLLHUP|POLLNVAL) ) frcc_disconnect_cli(cli);
 						else if ( pfd[cli->ipoll].revents & (POLLIN|POLLPRI) ) {
 							freecc_cli_recvmsg(cli);

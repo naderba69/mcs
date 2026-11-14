@@ -10,7 +10,7 @@
 # (server stdout disappears into harness temp dirs; log_path does not).
 #
 # Usage: sh tests/tsan-r22-session.sh [scenario ...]
-#   scenarios: dc cc cache up pi reload   (default: all)
+#   scenarios: dc cc cache up pi reload free   (default: all)
 # Exit status is nonzero if any scenario fails or any race is reported.
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -48,7 +48,7 @@ run() {
     fi
 }
 
-scenarios=${*:-"dc cc cache up pi reload"}
+scenarios=${*:-"dc cc cache up pi reload free"}
 for sc in $scenarios; do
     case $sc in
         dc)     run dc     python3 "$ROOT/tests/doublecheck-live.py" "$DEST/multics" ;;
@@ -57,6 +57,7 @@ for sc in $scenarios; do
         up)     run up     python3 "$ROOT/tests/cccam-upstream-trace.py" "$DEST/multics" ;;
         pi)     MODE=same run pi python3 "$ROOT/tests/ecm-provider-identity.py" "$DEST/multics" ;;
         reload) (cd "$ROOT/tests" && BIN="$DEST/multics" run reload sh newcamd-config-reload.sh) ;;
+        free)   run free   python3 "$ROOT/tests/freecccam-live.py" "$DEST/multics" ;;
         *) echo "unknown scenario: $sc"; FAIL=1 ;;
     esac
 done
