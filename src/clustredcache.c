@@ -4665,7 +4665,10 @@ void cache_check_peers(struct cacheserver_data *cache)
 void *cache_thread(void *param)
 {
 	__atomic_store_n(&prg.pid_cache, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
-	prg.tid_cache = pthread_self();
+	/* Lock audit (D49): no prg.tid_cache self-write -- create_thread copies
+	 * the handle into the slot, and several cache threads are created into
+	 * the same slot, so self-writes raced the main thread's copies. The
+	 * slot is diagnostic-only and never read. */
 	prctl(PR_SET_NAME,"Cache RecvMSG Thread",0,0,0);
 
 	sleep(3);
@@ -4761,7 +4764,10 @@ void *cache_thread(void *param)
 void *cache_thread(void *param)
 {
 	__atomic_store_n(&prg.pid_cache, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
-	prg.tid_cache = pthread_self();
+	/* Lock audit (D49): no prg.tid_cache self-write -- create_thread copies
+	 * the handle into the slot, and several cache threads are created into
+	 * the same slot, so self-writes raced the main thread's copies. The
+	 * slot is diagnostic-only and never read. */
 	prctl(PR_SET_NAME,"Cache RecvMSG Thread",0,0,0);
 
 	uint32_t chkticks = 0;

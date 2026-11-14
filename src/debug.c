@@ -44,9 +44,23 @@ void add_dbgline(char *line)
 {
 	/* TASK 3.3 -- was strcpy(slot, line): a caller line longer than the
 	 * slot wrote past dbgline[..][512] in .bss. Clamped-copy instead. */
-	dbg_addline( dbgline[idbgline], (int)sizeof(dbgline[0]), line );
-	idbgline++;
-	if (idbgline>=MAX_DBGLINES) idbgline = 0;
+	/* Lock audit (D49): the ring index was incremented unsynchronized from
+	 * every thread that logs; two writers could claim the same slot and
+	 * readers (debug page, telnet) read the index racily. Claim the slot
+	 * atomically instead. Slot CONTENT remains a lock-free ring by design:
+	 * readers copy a bounded, always-terminated line that may be mid-write,
+	 * exactly as before -- only the index is now race-free. */
+	/* The cursor must stay wrapped (< MAX_DBGLINES): the debug page and
+	 * telnet readers do modular arithmetic on it. Claim-and-advance it
+	 * with a CAS loop so the wrap survives. */
+	int slot, nxt;
+	do {
+		slot = __atomic_load_n(&idbgline, __ATOMIC_RELAXED);
+		nxt = slot + 1;
+		if (nxt >= MAX_DBGLINES) nxt = 0;
+	} while (!__atomic_compare_exchange_n(&idbgline, &slot, nxt, 0,
+	                                      __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+	dbg_addline( dbgline[slot], (int)sizeof(dbgline[0]), line );
 }
 
 void encryptstr( unsigned char *src, unsigned char *dest)

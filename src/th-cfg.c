@@ -73,7 +73,6 @@ void *reread_config_thread(void *param)
 	read_config(&cfg);
 	dcw_filter_globals_publish(&cfg);
 	dcw_badlist_commit(cfg.bad_dcw);	/* TASK 3.14 — the list is committed */
-	mark_config_ready();			/* TASK 4.1 — main may now look */
 
 	/*
 	 * The missing-profile check happens HERE, not in main(), and that is the
@@ -92,18 +91,30 @@ void *reread_config_thread(void *param)
 	 */
 	if ( !cfg.cardserver ) {
 		fprintf( stderr, "\nError: no profile configured.\n"
-		                 "  Add at least one profile to %s, for example:\n\n"
-		                 "    [ myprofile ]\n"
-		                 "    CAID: 1884\n"
-		                 "    PORT: 15001\n"
-		                 "    USER: user pass\n\n",
-		                 config_file );
+				 "  Add at least one profile to %s, for example:\n\n"
+				 "    [ myprofile ]\n"
+				 "    CAID: 1884\n"
+				 "    PORT: 15001\n"
+				 "    USER: user pass\n\n",
+				 config_file );
 		exit(1);
 	}
 
-	usleep(100000);
-	check_config(&cfg);
+	/*
+	 * Lock audit (D49) -- complete TASK 4.1's cfg_ready instead of stopping
+	 * halfway. mark_config_ready() used to be published right after parsing,
+	 * with check_config() (which opens every listener handle) and
+	 * cfg_set_id_counters() running ~100 ms later on this thread while main
+	 * had already started the HTTP/server/ECM threads: TSan showed those
+	 * threads reading cfg handles and profile ids mid-initialization (12
+	 * reports, all in this startup window; the SIGHUP reload path already
+	 * does counters+check under the exclusive config lock). Run the same
+	 * order as reload -- ids, then listeners -- BEFORE publishing ready.
+	 * No thread can observe a half-initialized cfg now, and the 100 ms
+	 * "hope" sleep is gone.
+	 */
 	cfg_set_id_counters(&cfg);
+	check_config(&cfg);
 
 	/*
 	 * TASK 2.10 -- restore the trust lifecycle snapshot exactly once, here:
@@ -112,6 +123,8 @@ void *reread_config_thread(void *param)
 	 * on while the state is being read back. A SIGHUP reread skips this.
 	 */
 	lifecycle_load();
+
+	mark_config_ready();			/* TASK 4.1 — main may now look */
 
 	int fd = inotify_init(); //1(IN_NONBLOCK);
 	while (1) {

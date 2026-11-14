@@ -158,13 +158,13 @@ void *telnetprocess(int *param )
 			writes(fd, wbuf);
 		}
 		else if ( !strcmp(str, "DEBUG") ) {
-			int i=idbgline;
+			int i=__atomic_load_n(&idbgline, __ATOMIC_RELAXED);
 			do {
 				sprintf( wbuf, "%s", dbgline[i] );
 				writes(fd, wbuf);
 				i++;
 				if (i>=MAX_DBGLINES) i=0;
-			} while (i!=idbgline);
+			} while (i!=__atomic_load_n(&idbgline, __ATOMIC_RELAXED));
 		}
 		else if ( !strcmp(str, "LOADAVG") ) {
 			FILE *fp = fopen ("/proc/loadavg", "r");

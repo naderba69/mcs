@@ -1465,7 +1465,7 @@ void http_send_debug(int sock, http_request *req)
 		if (sel==DBG_ERROR) tcp_writestr(&tcpbuf, sock, "<option value='ERROR' selected>ERROR</option>"); else tcp_writestr(&tcpbuf, sock, "<option value='ERROR'>ERROR</option>");
 		tcp_writestr(&tcpbuf, sock, "</select></legend>\n");
 		sprintf( http_buf, "<pre style=\"font-size:10; color:#004455;\">"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		int current = idbgline;
+		int current = __atomic_load_n(&idbgline, __ATOMIC_RELAXED);
 		int i = current - 35;
 		if (i<0) i += 70;
 		do {

@@ -988,7 +988,10 @@ inline void srv_recvmsg( struct server_data *srv )
 void *recv_msg_thread(void *param)
 {
 	__atomic_store_n(&prg.pid_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
-	prg.tid_msg = pthread_self();
+	/* Lock audit (D49): no prg.tid_msg self-write here -- create_thread
+	 * already copies the created handle into the slot, and this thread's
+	 * own write raced the main thread's copy for the NEXT thread created
+	 * into the same slot. The slot is diagnostic-only and never read. */
 	prctl(PR_SET_NAME,"ECM Thread",0,0,0);
 
 	struct epoll_event evlist[MAX_EPOLL_EVENTS]; // epoll recv events
@@ -1077,7 +1080,10 @@ void *recv_msg_thread(void *param)
 	int pfdcount;
 
 	__atomic_store_n(&prg.pid_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
-	prg.tid_msg = pthread_self();
+	/* Lock audit (D49): no prg.tid_msg self-write here -- create_thread
+	 * already copies the created handle into the slot, and this thread's
+	 * own write raced the main thread's copy for the NEXT thread created
+	 * into the same slot. The slot is diagnostic-only and never read. */
 	prctl(PR_SET_NAME,"ECM Thread",0,0,0);
 
 	while (!prg.restart) {
