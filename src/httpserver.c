@@ -9273,14 +9273,20 @@ static void http_send_user_trace(int sock, http_request *req)
                 while (fclient && !(cfg.freecccam.server.flags & FLAG_DELETE)) {
                     if (!(fclient->flags & FLAG_DELETE)) {
                         if (n == 4096) { truncated = 1; break; }
-                        options[n].id = fclient->id;
-                        options[n].connected = fclient->connection.status > 0;
-                        options[n].caid = fclient->lastecm.caid;
-                        options[n].provider = fclient->lastecm.prov;
-                        options[n].sid = fclient->lastecm.sid;
-                        memcpy(options[n].name, fclient->user, sizeof(options[n].name));
-                        options[n].name[sizeof(options[n].name)-1] = 0;
-                        ++n;
+                        /* Snapshot under the client state lock: connect
+                         * and ECM writers mutate these fields under it,
+                         * and the bare reads raced them (TSan, band 28). */
+                        if (client_state_lock(fclient) == 0) {
+                            options[n].id = fclient->id;
+                            options[n].connected = fclient->connection.status > 0;
+                            options[n].caid = fclient->lastecm.caid;
+                            options[n].provider = fclient->lastecm.prov;
+                            options[n].sid = fclient->lastecm.sid;
+                            memcpy(options[n].name, fclient->user, sizeof(options[n].name));
+                            options[n].name[sizeof(options[n].name)-1] = 0;
+                            client_state_unlock(fclient);
+                            ++n;
+                        }
                     }
                     fclient = fclient->next;
                 }
@@ -9292,14 +9298,17 @@ static void http_send_user_trace(int sock, http_request *req)
                 while (client) {
                     if (!(server->flags & FLAG_DELETE) && !(client->flags & FLAG_DELETE)) {
                         if (n == 4096) { truncated = 1; break; }
-                        options[n].id = client->id;
-                        options[n].connected = client->connection.status > 0;
-                        options[n].caid = client->lastecm.caid;
-                        options[n].provider = client->lastecm.prov;
-                        options[n].sid = client->lastecm.sid;
-                        memcpy(options[n].name, client->user, sizeof(options[n].name));
-                        options[n].name[sizeof(options[n].name)-1] = 0;
-                        ++n;
+                        if (client_state_lock(client) == 0) {
+                            options[n].id = client->id;
+                            options[n].connected = client->connection.status > 0;
+                            options[n].caid = client->lastecm.caid;
+                            options[n].provider = client->lastecm.prov;
+                            options[n].sid = client->lastecm.sid;
+                            memcpy(options[n].name, client->user, sizeof(options[n].name));
+                            options[n].name[sizeof(options[n].name)-1] = 0;
+                            client_state_unlock(client);
+                            ++n;
+                        }
                     }
                     client = client->next;
                 }

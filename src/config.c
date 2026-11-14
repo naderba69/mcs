@@ -476,6 +476,7 @@ void init_config(struct config_data *cfg)
 	sprintf(cfg->freecccam.build, "%d", cc_build[0]);
 	memcpy(cfg->freecccam.nodeid, cccam_nodeid, 8);
 
+	cfg->freecccam.clientid = 1;
 	cfg->freecccam.server.client = NULL;
 	cfg->freecccam.server.handle = -1;
 	cfg->freecccam.server.port = 0;
@@ -5799,7 +5800,18 @@ link_mgcamd_user:
 		struct cc_client_data *cli = malloc( sizeof(struct cc_client_data) );
 		memset(cli, 0, sizeof(struct cc_client_data) );
 		// init Default
-		cli->id = i+1;
+		/* One id space for every cc_client_data: the slots used to be
+		 * numbered 1..maxusers independently of cccam.clientid, so a
+		 * FreeCCcam slot and a CCcam client could share an id and the
+		 * user trace (which matches by id alone) could bind to the
+		 * wrong client. Draw from the CCcam counter instead; the
+		 * setup sweep assigns regular clients afterwards, so ids stay
+		 * unique within one config build either way. */
+#ifdef CCCAM_SRV
+		cli->id = cfg->cccam.clientid++;
+#else
+		cli->id = cfg->freecccam.clientid++;
+#endif
 		cli->handle = -1;
 		cli->dnhops = 0;
 		cli->uphops = 0;

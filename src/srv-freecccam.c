@@ -230,6 +230,9 @@ static void *freecc_connect_cli_inner(struct connect_cli_data *param)
 	}
 
   // Setup Client Data
+	/* State lock: the trace-page picker snapshots these fields under
+	 * client_state_lock, as do the CCcam connect/parse writers. */
+	client_state_lock(cli);
 //	pthread_mutex_lock(&prg.lockfreecccli);
 	memcpy( cli->nodeid, buf+24, 8);
 	memcpy( cli->version, buf+33, 32);
@@ -246,6 +249,7 @@ static void *freecc_connect_cli_inner(struct connect_cli_data *param)
 	cli->msg.len = 0;
 	__atomic_store_n(&cli->handle, sock, __ATOMIC_RELAXED); /* published for frcc_recvmsg_thread's poll loop, which only holds the config read gate alongside this writer */
 	cli->ecm.busy = 0;
+	client_state_unlock(cli);
 
 //	pthread_mutex_unlock(&prg.lockfreecccli);
   // send cli data ack (under I/O guard; cli not yet published)

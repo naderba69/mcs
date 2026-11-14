@@ -54,12 +54,13 @@ def main():
                         str(ROOT / "src/des.c"), str(ROOT / "src/msg-newcamd.c"), str(ROOT / "src/md5.c")], check=True)
         ports = set()
         while len(ports) < 5: ports.add(free_port())
-        http, freeport, newcamd, card, _unused = ports
+        http, freeport, newcamd, card, ccport = ports
         cfg = tmp / "mcs.cfg"
         gate = "CACHE CI VALIDATE: ON\n" if os.environ.get("CI_MODE") == "on" else "CACHE CI VALIDATE: OFF\n"
         cfg.write_text(
             gate +            f"HTTP PORT: {http}\nHTTP USER: test\nHTTP PASS: isolated\n"
             f"TELNET PORT: 0\n"
+            f"CCCAM PORT: {ccport}\nF: ccuser ccpass\n"
             f"FREECCCAM PORT: {freeport}\nFREECCCAM USERNAME: freeuser\n"
             f"FREECCCAM PASSWORD: freepass\nFREECCCAM MAXUSERS: 5\nFREECCCAM PROFILES: {newcamd}\n"
             f"N: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n"
@@ -98,7 +99,9 @@ def main():
                     csrf = re.search(r"name='csrf' value='([0-9a-f]+)'", form).group(1)
                     # slots are listed head-first; the connect path also takes the
                     # head slot first, so the first option is our client
-                    cid = re.search(r"<option value='(\d+)' data-caid", form).group(1)
+                    all_ids = re.findall(r"<option value='(\d+)' data-caid", form)
+                    assert len(all_ids) == len(set(all_ids)), f"duplicate client ids on picker: {all_ids}"
+                    cid = all_ids[0]
                     body = urllib.parse.urlencode(
                         {"csrf": csrf, "action": "start", "client": cid, "mode": "all"}).encode()
                     req = urllib.request.Request(f"http://127.0.0.1:{http}/user-trace", data=body,
