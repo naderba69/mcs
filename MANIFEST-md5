@@ -51,16 +51,17 @@ f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 8e7521c856bf7b956bd4b27903e51b7f  bin/multics-r82a-queue-stats-x64
 5392840310182c115bf07767de740867  bin/multics-r82a-queue-x64
-cb8d63310b471c12f2765d680481da39  bin/multics-r82a-r22-x64
+a50485a9a1622b1e93c20ec4abeb3731  bin/multics-r82a-r22-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
 2a5423d0428f83f35ece6536043fd4a8  bin/multics-r82a-stats-x64
-4c14e28ec1b791a9e24274e24043ccf9  bin/multics-r82a-stock-x64
+d9be9bc3ea8655affd91478321a29ec5  bin/multics-r82a-stock-x64
 fbfef2a162b03fed8d56aca7babd3ef3  bin/multics-r82a-x64
 2a5423d0428f83f35ece6536043fd4a8  bin/multics.x64
 9d212081c5d435e4166a24fd6a48d666  dist/multics-r82a-queue-stats-x64
 4a574b9f126f88809cbbe56f4ceaa633  dist/multics-r82a-queue-x64
+a50485a9a1622b1e93c20ec4abeb3731  dist/multics-r82a-r22-x64
 b7d233a412a3be8a55a277cbb1a0e6f1  dist/multics-r82a-stats-x64
-b151aaa0b991c71e660440701e5615df  dist/multics-r82a-stock-x64
+d9be9bc3ea8655affd91478321a29ec5  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
 fca6bb5931ff91b9593f86bf16734ebc  docs/BLACKSCREEN.md
@@ -149,7 +150,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-c19c6499af6b0374f50edb9c7724318d  docs/REPORT-R48-ar.md
+fc0a800b2db503f0a2e69662fd2868fd  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -655,7 +656,7 @@ bf1e2dc78d827cbcbd75b45ea31e56d5  src/srv-camd35.c
 8ecea40538beb1bf4ca05f81b7e23725  src/srv-cccam.c
 5ee55026c9116b254dc01fc93c30171d  src/srv-common.c
 d9f4388c8fb16bf6b7d3e78d88478b7c  src/srv-cs378x.c
-d50978d5cb58474f7a5cc704b12da877  src/srv-freecccam.c
+78a9cb933d33ecb91f5bc65b3036f9c7  src/srv-freecccam.c
 ee7c1490374dc98af21b5ff9b25e66bc  src/srv-mgcamd.c
 f1a33d67f73149dcc7941d7e86457c5f  src/srv-newcamd.c
 e1dd36053481d6f4abd4a1cd15030109  src/srv-radegast.c
@@ -729,8 +730,8 @@ addad57e2865ca125b0a0e344a04d5b2  src/zerohandoff.h
 d891e63347205f1bde3fca5ae2239420  src/zerolatency.h
 49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-8698062e93adf94718652f87fc1153d6  tests/Makefile
-df71a5a5a9215944cd78558a1743dce5  tests/__pycache__/cccam-trace-success.cpython-311.pyc
+2b381b12f5887ada37c7ed1cc44b10ab  tests/Makefile
+463f55c5dded82ebe9c6cbc332606499  tests/__pycache__/cccam-trace-success.cpython-311.pyc
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 20d219f9c855160bef706a75cc36cea2  tests/ca-bite.c
 5aca781251bd8d1cfefe116689ea3504  tests/cache-1884-compare.py
@@ -772,7 +773,7 @@ b660590b0a8c9ed2aca2fa38cabdd312  tests/cccam-repeated-cw.py
 7d604bbe5c9d4eba9aab2696638f4460  tests/cccam-setdcw-trace-identity.py
 e198eff69959679f80509fe2d99a1f86  tests/cccam-trace-success.py
 77c9cbc91a3c4511021448e5ec1b1b50  tests/cccam-upstream-trace.py
-851d73c3a914ec40d1a6212aebced15f  tests/ccdcw.c
+7a0fcaee202f49aa4fd04a3b7e4907d3  tests/ccdcw.c
 0ff0ccc77e0e2d3673a64f0a4945cc86  tests/cedcw.py
 6f67de55975f4ae7f7a202a97a69ce46  tests/cfgcheck.py
 23cc74be3f43edc4814aeb88e6859a32  tests/crypto-alignment.c
@@ -790,6 +791,7 @@ b6379a08119c84be4dde275a46bab425  tests/ecm-radegast-identity.c
 e25c7c7c2f729f01636556594a890ebb  tests/ecmdata-allocation.c
 c5904454e1596815cbd4713519ab7a2f  tests/ecmdata-allocation.sh
 1641e4dbe846e822b6becf20919388bd  tests/expert-config.py
+0cd1a6f8b2b243e4e8c5bacf431de50d  tests/freecccam-live.py
 d1f2daf529a78e58ace3fede4ed50f76  tests/log-viewer-regression.c
 be36a40834f6b8b4be29de871b8843a5  tests/multics-filter.cfg
 b2caeeac7e48b211710f9236a020fdb7  tests/multics-live.cfg
@@ -818,7 +820,7 @@ ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
 53ae8bfafba95484e8e78ca411323617  tests/test_cfgcheck_blind.py
 4b0b7518bc1609cb2f0eb1bb406b8b58  tests/thread-create-unaligned.c
 d4e117e8a0eaf59dc09c0c920a102e47  tests/time-native-oracle.c
-87f8db7c587a564f9d9bf418964d874d  tests/tsan-r22-session.sh
+2232ab45280ebd1d620b35150dfd5888  tests/tsan-r22-session.sh
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c
 dedb62153a5f386129d68373a5be6124  tests/user-trace.c
 40ac70ed40cc628bcb2a85c769b9ff43  tools/generate-expert-config.py
