@@ -9264,6 +9264,28 @@ static void http_send_user_trace(int sock, http_request *req)
         if (options) {
             struct cccam_server_data *server;
             user_trace_config_lock();
+#ifdef FREECCCAM_SRV
+            /* FreeCCcam clients live on the embedded freecccam server,
+             * not in the cccam server list; without this the operator
+             * cannot select them for a trace at all. */
+            {
+                struct cc_client_data *fclient = cfg.freecccam.server.client;
+                while (fclient && !(cfg.freecccam.server.flags & FLAG_DELETE)) {
+                    if (!(fclient->flags & FLAG_DELETE)) {
+                        if (n == 4096) { truncated = 1; break; }
+                        options[n].id = fclient->id;
+                        options[n].connected = fclient->connection.status > 0;
+                        options[n].caid = fclient->lastecm.caid;
+                        options[n].provider = fclient->lastecm.prov;
+                        options[n].sid = fclient->lastecm.sid;
+                        memcpy(options[n].name, fclient->user, sizeof(options[n].name));
+                        options[n].name[sizeof(options[n].name)-1] = 0;
+                        ++n;
+                    }
+                    fclient = fclient->next;
+                }
+            }
+#endif
             server = cfg.cccam.server;
             while (server) {
                 struct cc_client_data *client = server->client;

@@ -12,6 +12,7 @@ log must show the CACHE-AI-REJECT line.
 Usage: python3 tests/ci-validate-live.py [path-to-multics-binary]
 """
 import base64, os, re, socket, subprocess, sys, tempfile, time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -83,21 +84,46 @@ def main():
                 # FreeCCcam's handshake wants the 93-byte CLI_INFO form
                 # and resolves the profile by card id; profile ids start
                 # at 0x64 (config.c), and this is the first profile.
+                if os.environ.get("CI_MODE") == "on":
+                    # Start an operator trace for the FreeCCcam client
+                    # exactly as the page's form does, so the rejection
+                    # must become visible on /user-trace itself.
+                    auth = "Basic " + base64.b64encode(b"test:isolated").decode()
+                    def page():
+                        req = urllib.request.Request(f"http://127.0.0.1:{http}/user-trace",
+                                                     headers={"Authorization": auth})
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            return resp.read().decode("utf-8", "replace")
+                    form = page()
+                    csrf = re.search(r"name='csrf' value='([0-9a-f]+)'", form).group(1)
+                    # slots are listed head-first; the connect path also takes the
+                    # head slot first, so the first option is our client
+                    cid = re.search(r"<option value='(\d+)' data-caid", form).group(1)
+                    body = urllib.parse.urlencode(
+                        {"csrf": csrf, "action": "start", "client": cid, "mode": "all"}).encode()
+                    req = urllib.request.Request(f"http://127.0.0.1:{http}/user-trace", data=body,
+                                                 headers={"Authorization": auth,
+                                                          "Content-Type": "application/x-www-form-urlencoded"})
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        assert resp.status == 200
                 client_env = dict(os.environ, CCDCW_CLIINFO97="1", CCDCW_CARDID="100")
                 result = subprocess.run([str(cc), "127.0.0.1", str(freeport), "freeuser", "freepass",
                                          "1884", "1136", "0x80"], capture_output=True, text=True,
                                         timeout=25, env=client_env)
                 print("client:", result.stdout.strip().splitlines()[:2])
                 if os.environ.get("CI_MODE") == "on":
-                    # Attribution is the differential itself: the two
-                    # runs are identical except CACHE CI VALIDATE
-                    # ON|OFF (the OFF run below delivers this same CW).
-                    # Note: FreeCCcam-sourced ECMs carry no trace
-                    # instance, so this rejection does not reach
-                    # /user-trace -- an observability gap, named in
-                    # the audit follow-up.
+                    # Differential (OFF below delivers this same CW)
+                    # plus the operator page: the rejection must be
+                    # visible on /user-trace for the traced FreeCCcam
+                    # client.
                     assert "ECM1 tag=80 DCW" not in result.stdout, result.stdout
-                    print("OK CI VALIDATE rejected the low-entropy CW on the live path")
+                    auth = "Basic " + base64.b64encode(b"test:isolated").decode()
+                    req = urllib.request.Request(f"http://127.0.0.1:{http}/user-trace",
+                                                 headers={"Authorization": auth})
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        page = resp.read().decode("utf-8", "replace")
+                    assert "Cache Intelligence validation" in page, "CI rejection missing from /user-trace"
+                    print("OK CI VALIDATE rejected the low-entropy CW on the live path (visible on /user-trace)")
                     return
                 assert "ECM1 tag=80 DCW" in result.stdout, result.stdout
                 # the operator page must still answer after the session

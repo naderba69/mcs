@@ -531,9 +531,21 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						uint32_t provid = ecm_getprovid( data, len-17, caid );
 						if (provid==0) provid = buf[6]<<24 | buf[7]<<16 | buf[8]<<8 | buf[9];
 
+						/* User trace (mirrors srv-cccam.c): FreeCCcam-sourced
+						 * ECMs previously carried no trace instance, so gate
+						 * rejections on this path never reached /user-trace. */
+						uint64_t trace_session = 0, trace_attempt = 0;
+						uint32_t trace_hash = 0;
+						if (user_trace_matches(cli->id, caid, provid, sid)) {
+							trace_hash = hashCode(data + 3, len - 20);
+							trace_attempt = user_trace_begin(cli->id, caid, provid, sid,
+							                                 trace_hash, &trace_session);
+						}
+
 						// Check for Profile
 						struct cardserver_data *cs=getcsbyid( cardid );
 						if (!cs) {
+							if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "profile not found");
 							cli->ecmdenied++;
 							if (client_io_lock(cli) == 0) {
 								int sock = cli->handle;
@@ -587,6 +599,11 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						}
 						int isnew =  ( ecm==NULL );
 						if (ecm) {
+							if (trace_attempt) {
+								if (!ecm->trace_instance) ecm->trace_instance = user_trace_next_instance();
+								if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
+									user_trace_add(trace_session, trace_attempt, USER_TRACE_JOINED, trace_hash, 0, 0, 0, "joined existing ECM; earlier events unavailable");
+							}
 							ecm->lastrecvtime = ticks;
 							if (ecm->dcwstatus==STAT_DCW_FAILED) {
 								cc_store_ecmclient(ecm, cli);
@@ -631,6 +648,11 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 								break;
 							}
 							__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
+							if (trace_attempt) {
+								ecm->trace_instance = user_trace_next_instance();
+								if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
+									user_trace_add(trace_session, trace_attempt, USER_TRACE_NEW, trace_hash, 0, 0, 0, "new ECM accepted");
+							}
 							cc_store_ecmclient(ecm, cli);
 							debugf( getdbgflagpro(DBG_CCCAM,0,cli->id,cs->id), " <- ecm from FreeCCcam client(%s) ch %04x:%06x:%04x\n", cli->user,caid,provid,sid);
 							cli->ecm.busy=1;

@@ -79,6 +79,18 @@ struct cc_client_data *getcccamclientbyid(uint32_t id)
 		}
 		cccam = cccam->next;
 	}
+#ifdef FREECCCAM_SRV
+	/* FreeCCcam clients are cc_client_data on the embedded freecccam
+	 * server; id lookups (trace start, client pages) must find them. */
+	if (!(cfg.freecccam.server.flags&FLAG_DELETE)) {
+		struct cc_client_data *cli = cfg.freecccam.server.client;
+		while (cli) {
+			if (!(cli->flags&FLAG_DELETE))
+				if (cli->id==id) return cli;
+			cli = cli->next;
+		}
+	}
+#endif
 	return NULL;
 }
 
