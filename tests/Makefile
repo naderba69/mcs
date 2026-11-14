@@ -16,7 +16,7 @@ HTTPPORT = 15500
 R48_STATS_BIN ?= ../bin/multics-r82a-stats-x64
 R48_CWLOG_CHECK ?= 0
 
-.PHONY: pm jm sk cn smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr soak pq qv rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates all
+.PHONY: pm jm sk cn smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr soak pq qv rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates tm all
 include stability.mk
 
 # TASK R48: exercise the real server's LOGIN_ACK socket backpressure path,
@@ -30,7 +30,7 @@ newcamd-config-reload:
 	@BIN="$(BIN)" CC="$(CC)" sh ./newcamd-config-reload.sh
 
 # soak is deliberately NOT in `all`. It runs for about 20 minutes.
-all: smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr jm pq sk cn vl ri md fk fz at md sc qv cf rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates
+all: smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr jm pq sk cn vl ri md fk fz at md sc qv cf rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates tm
 
 # TASK 4.2. Stats binary, not the stock one: counters must be on.
 SOAK_BIN ?= ../bin/multics-r82a-stats-x64

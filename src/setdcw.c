@@ -1167,6 +1167,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
             case DCW_INVALID_PATTERN: why = "CW rejected by ECM worker profile validation: enabled pattern"; break;
             }
             trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, why);
+            diagnostics_record_rejection();
             newcamd_config_read_unlock(); return;
         }
     }
@@ -1207,6 +1208,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
             if (!checksumDCW(dcw)) {
                 trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid,
                                        "CW rejected by ECM worker: fake CW (Nagravision checksum)");
+                diagnostics_record_rejection();
                 debugf(0, "    ❌ [FAKE-CW] %04X:%06X:%04X -- Nagravision checksum failed\n",
                        ecm->caid, ecm->provid, ecm->sid);
                 newcamd_config_read_unlock(); return;
@@ -1321,6 +1323,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
             snprintf(detail, sizeof(detail), "CW rejected by ECM worker: DCW STRICT; reason=%s",
                      dcwstrict_reason ? dcwstrict_reason : "unknown");
             trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, detail);
+            diagnostics_record_rejection();
 			debugf(0, "    ❌ [DCW-STRICT-REJECT] %04X:%06X:%04X -- %s\n",
 				ecm->caid, ecm->provid, ecm->sid, dcwstrict_reason ? dcwstrict_reason : "unknown");
 			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
@@ -1344,6 +1347,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
             char detail[96];
             snprintf(detail, sizeof(detail), "CW rejected by ECM worker: SuperSmartFilter reason code %d", ssf_reason);
             trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, detail);
+            diagnostics_record_rejection();
 			debugf(0, "    ❌ [SSF-v2-REJECT] %04X:%06X:%04X -- reason code %d\n",
 				ecm->caid, ecm->provid, ecm->sid, ssf_reason);
 			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
@@ -1497,6 +1501,15 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 		    ecm, cache_reference_cw, &cache_reference_peerid,
 		    &cache_reference_cwmark, &cache_reference_origin_mask);
 trusted_deliver:
+	/* Telemetry feed for /cache-analytics and /diagnostics (advisory only).
+	 * Both take only their own leaf locks; lockecm -> leaf is one-way, the
+	 * page readers never take lockecm, so no inversion is possible. */
+	{
+		uint32_t elapsed_ms = tick32_elapsed(GetTickCount(), ecm->recvtime);
+		cache_analytics_record_request(ecm->caid, ecm->provid, ecm->sid,
+		                               srctype == DCW_SOURCE_CACHE, elapsed_ms);
+		diagnostics_record_delivery(srctype == DCW_SOURCE_CACHE, elapsed_ms);
+	}
 	ecm->statusmsg = "Decode Success";
 	int instant = (ecm->dcwstatus==STAT_DCW_WAITCACHE);
 	ecm->dcwsrctype = srctype;

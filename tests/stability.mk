@@ -5524,3 +5524,61 @@ rt: .ccdcw.bin $(CACHEPEER)
 	if [ "$$ok" = "1" ]; then rm -f $(RT_CFG) .rt-srv.log .rt-peer.log .rt-a.log .rt-b.log .rt-c.log; \
 	else echo "[FAIL] logs kept under tests/.rt-*"; fi; \
 	[ "$$ok" = "1" ]
+
+# ---------------------------------------------------------------------------
+# TASK R48 telemetry feed -- /cache-analytics and /diagnostics used to render
+# permanent zeros: cache_analytics_record_request had no caller at all and
+# diagnostics had counters nobody wrote. Both are now fed from the single
+# delivery commit point (trusted_deliver in ecm_setdcwdata) plus the traced
+# rejection sites. This target proves the counters MOVE after a real cache
+# delivery, and stay at zero before it. Advisory only: nothing gates on them.
+#
+# PORTS: 17300 http, 17301 newcamd, 17302 cache, 17303 peer.
+# ---------------------------------------------------------------------------
+
+TM_HPORT = 17300
+TM_NPORT = 17301
+TM_CACHE = 17302
+TM_PEER  = 17303
+TM_CFG   = .tm.cfg
+TM_KEY   = 0102030405060708091011121314
+TM_CW    = 10203060405060F070809080A0B0C010
+
+.PHONY: tm
+tm: $(CACHEPEER) $(NCCLIENT)
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 -x multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; true
+	@{ printf 'HTTP PORT: $(TM_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nHTTP TITLE: mcs-tm\nTELNET PORT: 0\n'; \
+	   printf 'CACHE PORT: $(TM_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(TM_PEER)\n\n'; \
+	   printf '[ tm ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(TM_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n'; } > $(TM_CFG); \
+	ok=1; rm -f .tm-srv.log .tm-peer.log .tm-cli.log; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(TM_CACHE) $(TM_PEER) "$(TM_CW)" 64 > .tm-peer.log 2>&1 & peer=$$!; \
+	for i in $$(seq 1 30); do grep -q "PEER: bound" .tm-peer.log && break; sleep 0.1; done; \
+	stdbuf -o0 -e0 $(BIN) -C $(TM_CFG) -v > .tm-srv.log 2>&1 & srv=$$!; \
+	for i in $$(seq 1 40); do curl -s -m 2 -o /dev/null -u admin:admin http://127.0.0.1:$(TM_HPORT)/ && break; sleep 1; done; \
+	ca0=$$(curl -s -m 3 -u admin:admin http://127.0.0.1:$(TM_HPORT)/cache-analytics); \
+	dg0=$$(curl -s -m 3 -u admin:admin http://127.0.0.1:$(TM_HPORT)/diagnostics); \
+	if [ -n "$$ca0" ] && [ -n "$$dg0" ]; then echo "  [ ok ] both telemetry pages serve before traffic"; \
+	else echo "[FAIL] a telemetry page did not serve before traffic"; ok=0; fi; \
+	if echo "$$dg0" | grep -q '>100%<'; then echo "[FAIL] diagnostics claims 100% before any delivery"; ok=0; \
+	else echo "  [ ok ] diagnostics is honestly zeroed before traffic"; fi; \
+	for i in $$(seq 1 60); do grep -q "come Online" .tm-srv.log && break; sleep 0.5; done; \
+	if grep -q "come Online" .tm-srv.log; then echo "  [ ok ] cache peer completed the handshake"; \
+	else echo "[FAIL] cache peer did not come online"; ok=0; fi; \
+	env NC_ECMS=2 ./$(NCCLIENT) 127.0.0.1 $(TM_NPORT) u1 p1 $(TM_KEY) 0 1884 0064 > .tm-cli.log 2>&1; sleep 1; \
+	nd=$$(grep -c "DELIVERED" .tm-cli.log); \
+	if [ "$$nd" -ge 1 ]; then echo "  [ ok ] the cache CW was delivered to a real client ($$nd)"; \
+	else echo "[FAIL] no delivery to count"; ok=0; fi; \
+	ca1=$$(curl -s -m 3 -u admin:admin http://127.0.0.1:$(TM_HPORT)/cache-analytics); \
+	dg1=$$(curl -s -m 3 -u admin:admin http://127.0.0.1:$(TM_HPORT)/diagnostics); \
+	if echo "$$ca1" | grep -q '1884' && echo "$$ca1" | grep -q '>1<'; then \
+	  echo "  [ ok ] /cache-analytics moved: CAID 1884 shows a delivered request"; \
+	else echo "[FAIL] /cache-analytics still zero after a delivery"; ok=0; fi; \
+	if echo "$$dg1" | grep -q '>100%<' && echo "$$dg1" | grep -q '>1<'; then \
+	  echo "  [ ok ] /diagnostics moved: success rate and counters are live"; \
+	else echo "[FAIL] /diagnostics still zero after a delivery"; ok=0; fi; \
+	if grep -qi "segmentation\|SIGSEGV" .tm-srv.log; then echo "[FAIL] server logged a segfault"; ok=0; fi; \
+	kill $$srv $$peer 2>/dev/null; sleep 1; kill -9 $$srv $$peer 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
+	if [ "$$ok" = "1" ]; then rm -f $(TM_CFG) .tm-srv.log .tm-peer.log .tm-cli.log; \
+	else echo "[FAIL] logs kept under tests/.tm-*"; fi; \
+	[ "$$ok" = "1" ]

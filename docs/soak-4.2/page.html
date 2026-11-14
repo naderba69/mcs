@@ -3,18 +3,20 @@
 <title>Multi CardServer - Home</title>
 <meta http-equiv="Content-type" content="text/html; charset=utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1"> <link rel="icon" type="image/png" href="/favicon.png">
 <style type="text/css">
-:root{--bg:#eef2f6;--panel:#ffffff;--ink:#1c2733;--muted:#5b6b7b;--line:#d5dde5;--accent:#0f5f8a;--accent-soft:#e3eef5;--good:#1e7a46;--bad:#c0392b;--warn:#9a6b0f;}
+:root{--bg:#eef2f6;--panel:#ffffff;--ink:#1c2733;--muted:#5b6b7b;--line:#d5dde5;--accent:#0f5f8a;--accent-soft:#e3eef5;--good:#1e7a46;--bad:#c0392b;--warn:#9a6b0f;--card-shadow:0 2px 8px rgba(16,35,55,.1);}
+[data-theme=dark]{--bg:#0f1419;--panel:#1a222c;--ink:#e6edf3;--muted:#8b9bb4;--line:#2d3a4a;--accent:#2f81f7;--accent-soft:#1c2d42;--good:#3fb950;--bad:#f85149;--warn:#d29922;--card-shadow:0 2px 8px rgba(0,0,0,.4);}
 *{box-sizing:border-box;}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,'Segoe UI',Tahoma,Arial,sans-serif;}
 a{color:var(--accent);text-decoration:none;}
 a:hover{text-decoration:underline;}
 hr{border:0;border-top:1px solid var(--line);}
-.menu{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);box-shadow:0 1px 4px rgba(16,35,55,.08);padding:4px 10px;overflow:hidden;}
-.menu ul{margin:0;padding:0;display:flex;flex-wrap:wrap;align-items:center;list-style:none;}
-.menu li{margin:2px 2px;}
-.menu li a{display:block;padding:6px 13px;border-radius:6px;font-weight:600;font-size:13px;color:var(--ink);}
-.menu li a:hover{background:var(--accent-soft);text-decoration:none;}
-.menu a.selected{background:var(--accent);color:#fff;}
+.menu{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);box-shadow:0 1px 4px rgba(16,35,55,.08);padding:4px 10px;overflow:hidden;perspective:800px;}
+.menu ul{margin:0;padding:0;display:flex;flex-wrap:wrap;align-items:center;list-style:none;transform-style:preserve-3d;}
+.menu li{margin:2px 2px;transform:translateZ(0);transition:transform .2s;}
+.menu li:hover{transform:translateZ(8px);}
+.menu li a{display:block;padding:6px 13px;border-radius:6px;font-weight:600;font-size:13px;color:var(--ink);transition:all .2s;}
+.menu li a:hover{background:var(--accent-soft);text-decoration:none;transform:translateY(-1px);box-shadow:0 2px 6px rgba(16,35,55,.12);}
+.menu a.selected{background:var(--accent);color:#fff;box-shadow:0 2px 8px rgba(15,95,138,.3);}
 .menu a.selected:hover{background:var(--accent);}
 .menu a.disabled{color:#b3bfc9;text-decoration:line-through;}
 .menu span{float:right;color:var(--muted);font-size:11px;padding:8px 2px;}
@@ -59,6 +61,16 @@ div.right{width:100%;margin-left:50%;}
 div.top,div.bottom{position:absolute;width:50%;}
 div.top{top:0;}
 div.bottom{bottom:0;}
+.perf-cards{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0;}
+.perf-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px;min-width:160px;flex:1;box-shadow:var(--card-shadow);transition:transform .2s;}
+.perf-card:hover{transform:translateY(-2px);}
+.perf-card .label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px;}
+.perf-card .value{font-size:24px;font-weight:700;color:var(--ink);}
+.perf-card .sub{font-size:11px;color:var(--muted);margin-top:2px;}
+.perf-card.good .value{color:var(--good);}
+.perf-card.bad .value{color:var(--bad);}
+.perf-card.warn .value{color:var(--warn);}
+.theme-toggle{cursor:pointer;padding:6px 10px;border-radius:6px;background:var(--accent-soft);color:var(--ink);font-weight:600;font-size:13px;border:1px solid var(--line);}
 @media (max-width:760px){
  body{font-size:13px;}
  td,th{font-size:11px;padding:3px 5px;}
@@ -142,6 +154,10 @@ function start()
 }
 </script>
 </HEAD>
-<body onload="start();"><div class=menu><ul><li><a class=selected href='/'>Home</a></li><li><a href='/debug'>Debug</a></li><li><a href='/threads'>Threads</a></li><li><a class=disabled href='/servers'>Servers</a></li><li><a href='/cache'>Cache</a></li><li><a href='/profiles'>Profiles</a></li><li><a href='/newcamd'>Newcamd</a></li><li><a href='/cacheex'>CacheEX</a></li><li><a href='/editor'>Editor</a></li><li><a href='/restart'>Restart</a></li><li><a href='?lang=ar'>عربي</a></li><li><a href='/logout'>Logout</a></li></ul><span style='float:right;'>Multi Card Server r82</span></div>
+<body onload="start();"><div class=menu><ul><li><a class=selected href='/'>Home</a></li><li><a href='/debug'>Debug</a></li><li><a href='/threads'>Threads</a></li><li><a class=disabled href='/servers'>Servers</a></li><li><a href='/cache'>Cache</a></li><li><a href='/biss'>BISS</a></li><li><a href='/profiles'>Profiles</a></li><li><a href='/newcamd'>Newcamd</a></li><li><a href='/cacheex'>CacheEX</a></li><li><a href='/cwlog'>CW Log</a></li><li><a href='/smartfilter'>SmartFilter</a></li><li><a href='/editor'>Editor</a></li><li><a href='/restart'>Restart</a></li><li><a href='/diagnostics'>Diagnostics</a></li><li><a href='/debug-ecm'>Debug ECM</a></li><li><a href='/server-stats'>Server Stats</a></li><li><a href='/log-viewer'>Log Viewer</a></li><li><a href='/user-trace'>CCcam Trace</a></li><li><a href='/cache-analytics'>Cache Analytics</a></li><li><a href='/auto-tuning'>Auto-Tuning</a></li><li><a href='?lang=ar'>عربي</a></li><li><a href='#' onclick='toggleTheme();return false;' class='theme-toggle'>🌙</a></li><li><a href='/logout'>Logout</a></li><script>
+function toggleTheme(){var t=document.documentElement.getAttribute('data-theme');var n=t==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',n);try{localStorage.setItem('mcs-theme',n);}catch(e){}}
+(function(){try{var t=localStorage.getItem('mcs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
+</script>
+</ul><span style='float:right;'>Multi Card Server r82</span></div>
 <div align=right>Autorefresh <select onchange='setautorefresh(this.value);'><option value=0 selected>OFF</option><option value=1000>1s</option><option value=2000>2s</option><option value=3000>3s</option><option value=4000>4s</option><option value=5000>5s</option><option value=6000>6s</option><option value=7000>7s</option><option value=8000>8s</option><option value=9000>9s</option><option value=10000>10s</option></select></div>
-<div id='mainDiv'><div style="margin-left:10px;">Uptime: 00d 00:20:12<br>Load Average: 0.02<br>Free Memory: 1299428 kB<br>Total Profiles: 1<br>Total Servers: 0<br>Total Cache Servers: 1<br>Total CCcam Servers: 0<br>Total Mgcamd Servers: 0<br>Total Camd35 Servers: 0<br>Total cs378x Servers: 0<br><br><b>DCW stats</b> ON<table class=option border=1px cellspacing=0><tr><th>Reason</th><th>Count</th></tr><tr><td>accepted</td><td>3412</td></tr><tr><td>checksum</td><td>487</td></tr><tr><td>null/half-null</td><td>0</td></tr><tr><td>repeat-3-bytes</td><td>0</td></tr><tr><td>bad-dcw-list</td><td>0</td></tr><tr><td>cacheex-local-only</td><td>0</td></tr><tr><td>cacheex-fake-cw</td><td>0</td></tr><tr><td>cacheex-confirm-wait</td><td>0</td></tr><tr><td>cycle-contradiction</td><td>0</td></tr><tr><td>consensus-mismatch</td><td>0</td></tr></table></div></body></html>
+<div id='mainDiv'><div style="margin-left:10px;">Uptime: 00d 00:01:40<br>Load Average: 0.15<br>Free Memory: 3713952 kB<br>Total Profiles: 1<br>Total Servers: 0<br>Total Cache Servers: 1<br>Total CCcam Servers: 0<br>Total Mgcamd Servers: 0<br>Total Camd35 Servers: 0<br>Total cs378x Servers: 0<div class='perf-cards'><div class='perf-card'><div class='label'>Total ECM</div><div class='value'>86</div><div class='sub'>all profiles</div></div><div class='perf-card'><div class='label'>Accepted</div><div class='value'>86</div><div class='sub'>passed validation</div></div><div class='perf-card bad'><div class='label'>Success Rate</div><div class='value'>0%</div><div class='sub'>ECM OK / Total</div></div><div class='perf-card'><div class='label'>Profiles</div><div class='value'>1</div><div class='sub'>active bouquets</div></div></div><br><br><b>DCW stats</b> ON<table class=option border=1px cellspacing=0><tr><th>Reason</th><th>Count</th></tr><tr><td>accepted</td><td>516</td></tr><tr><td>checksum</td><td>85</td></tr><tr><td>null/half-null</td><td>0</td></tr><tr><td>repeat-3-bytes</td><td>0</td></tr><tr><td>bad-dcw-list</td><td>0</td></tr><tr><td>cacheex-local-only</td><td>0</td></tr><tr><td>cacheex-fake-cw</td><td>0</td></tr><tr><td>cacheex-confirm-wait</td><td>0</td></tr><tr><td>cycle-contradiction</td><td>0</td></tr><tr><td>consensus-mismatch</td><td>0</td></tr><tr><td>pattern-fake</td><td>0</td></tr></table></div></body></html>
