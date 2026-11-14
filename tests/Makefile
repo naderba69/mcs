@@ -182,6 +182,10 @@ ecm-radegast-identity:
 cacheex-provider-collision:
 	@python3 cacheex-provider-collision.py $(BIN)
 
+doublecheck-live:
+	@MODE=agree python3 doublecheck-live.py $(BIN)
+	@MODE=mismatch python3 doublecheck-live.py $(BIN)
+
 cache-check-characterization:
 	sh ./cache-check-characterization.sh
 

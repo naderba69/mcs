@@ -56,6 +56,7 @@ STATSFLAGS = $(PORTFLAGS) -DMCS_DCWSTATS
 # byte-identical to the pre-R6 releases (proven by fingerprint).
 # ---------------------------------------------------------------------------
 QUEUEFLAGS = $(PORTFLAGS) -DCACHE_QUEUE
+R22FLAGS = $(PORTFLAGS) -DR22_LAYERS
 
 # dev build with the bounded cache queue (result stays in x64/multics)
 .PHONY: queue
@@ -81,6 +82,15 @@ release-queue-stats:
 	@mkdir -p ../bin && cp $(DIST)/multics-r82a-queue-stats-x64 ../bin/
 	@echo "persistent copy: ../bin/multics-r82a-queue-stats-x64"
 	@nm x64/multics | grep -c cq_ | sed 's/^/  cachequeue symbols (expect 7+): /'
+	@rm -rf x64
+
+release-r22:
+	@rm -rf x64 && $(MAKE) --no-print-directory link PORTFLAGS="$(R22FLAGS)"
+	@mkdir -p $(DIST)
+	@strip -o $(DIST)/multics-r82a-r22-x64 x64/multics
+	@echo "built $(DIST)/multics-r82a-r22-x64 (R22_LAYERS: candidate CW layers at the cache/card hooks)"
+	@mkdir -p ../bin && cp $(DIST)/multics-r82a-r22-x64 ../bin/
+	@echo "persistent copy: ../bin/multics-r82a-r22-x64"
 	@rm -rf x64
 
 # ---------------------------------------------------------------------------
@@ -756,4 +766,4 @@ x64/test_sha256: test_sha256.c ../src/advanced-optimizations.h ../src/aes.c ../s
 
 # These two standalone dashboard modules use C99 loop declarations. Keep the
 # rest of the legacy tree in gnu89; preserve GNU89 inline semantics in both.
-x64/auto-tuning.o x64/web-dashboard.o: CFLAGS += -std=gnu99 -fgnu89-inline
+x64/auto-tuning.o: CFLAGS += -std=gnu99 -fgnu89-inline
