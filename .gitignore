@@ -8,3 +8,4 @@ make-x64/test_adv
 tests/multics.peers
 .tsan-r22-session/
 .tsan2/
+docs/memcheck-4.1/compile-*.log
