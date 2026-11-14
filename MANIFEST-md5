@@ -74,7 +74,7 @@ c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 ce9abc6aa510e68693ae7ec947ef77c2  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
-e80a2a825d4ed2393833b004b6339a8f  docs/FIELD-GUIDE-ar.md
+ebaec66ca5891b924d6b2fb19777ce42  docs/FIELD-GUIDE-ar.md
 6a549c88dcfd53e331e2ff2bcf0e0180  docs/FINAL-SUMMARY-REPORT-ar.md
 93d04a1492bcff14819bc26483ac5525  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
@@ -151,7 +151,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-60876a515c9d06d64c15d1930119a8a5  docs/REPORT-R48-ar.md
+0a3c5dcdefa1f1ee2bc96adc3ed8e080  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -778,6 +778,7 @@ e198eff69959679f80509fe2d99a1f86  tests/cccam-trace-success.py
 0ff0ccc77e0e2d3673a64f0a4945cc86  tests/cedcw.py
 6f67de55975f4ae7f7a202a97a69ce46  tests/cfgcheck.py
 1517d1189393ad3e054351259e5f0537  tests/ci-validate-live.py
+2af59e7fd9d55d06e734176d176568a7  tests/client-id-reload.py
 23cc74be3f43edc4814aeb88e6859a32  tests/crypto-alignment.c
 abffc972c0f923130b52d0695fd5ea2c  tests/cwconsensus-1884-research.c
 91a36a2c4e35a2e6e4814d12328c45d9  tests/cwconsensus-load.c
