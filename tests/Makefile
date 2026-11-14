@@ -188,6 +188,9 @@ tsan-r22:
 freecccam-live:
 	@python3 freecccam-live.py $(BIN)
 
+ci-validate-live:
+	@python3 ci-validate-live.py $(BIN)
+
 doublecheck-live:
 	@MODE=agree python3 doublecheck-live.py $(BIN)
 	@MODE=mismatch python3 doublecheck-live.py $(BIN)

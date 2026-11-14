@@ -1511,6 +1511,9 @@ struct config_data
 		 * corroboration window in ms (0 -> callers clamp to 400). */
 		int consensus;
 		int consensus_window;
+		/* CI VALIDATE (audit band 25): arms ci_validate_cw as a rejecting
+		 * gate on the live THREAD_DCW path. 0/absent = OFF (stock). */
+		int ci_validate;
 		/* TASK R29 (D80): distinct voters required for the early
 		 * delivery (0/unset = the engine default 2; 2..8 armed). */
 		int consensus_sources;

@@ -3264,7 +3264,7 @@ void mainprocess()
 	doublecheck_autofill_from_profiles(); /* no explicit line -> operator's profile CAIDs */
 	{ int n_dbl = ecm_doublecheck_apply_config(); /* ECM DOUBLECHECK config line; 0 = inert */
 	  if (n_dbl) debugf(0, "   [ECM-DOUBLECHECK] observe-mode double check on for %d configured CAIDs\n", n_dbl); }
-	debugf(0, " [CACHE-SPEED] Cache Speed Optimization Suite initialized (8 systems)\n");
+	debugf(0, " [CACHE-SPEED] state initialized; its 8 advisory getters have no live consumer (real wait window is D111 in th-ecm)\n");
 	debugf(0, "   [EMM-CACHE] inert: no EMM ingress path in this flavour (no protocol handler receives EMM; cache_speed_on_emm has no caller)\n");
 	debugf(0, "   [CW-CACHE-SETTINGS] Per-CAID cache settings loaded\n");
 	debugf(0, "   [CACHEX-WAITTIME] Per-CAID wait times loaded\n");
@@ -3272,12 +3272,12 @@ void mainprocess()
 
 	/* CW Post-Validation - Detect fake CWs after acceptance */
 	cwpostval_init();
-	debugf(0, " [CW-POSTVAL] Post-descramble CW validation system initialized\n");
-	debugf(0, "   [TS-VALIDATE] Transport Stream validation active (95%% accuracy)\n");
-	debugf(0, "   [CW-ENTROPY] Shannon entropy analysis active\n");
-	debugf(0, "   [FAKE-DB] Fake CW fingerprint database ready (max 2048)\n");
-	debugf(0, "   [PEER-TRUST] Peer trust scoring system active (128 peers)\n");
-	debugf(0, "   [PLAUSIBILITY] CW plausibility scoring active (0-12 scale)\n");
+	debugf(0, " [CW-POSTVAL] peer-trust state initialized (telemetry only on the live path)\n");
+	debugf(0, "   [TS-VALIDATE] inert: a proxy server never sees TS data; no confirm hook exists\n");
+	debugf(0, "   [CW-ENTROPY] live only via CACHE CI VALIDATE: ON (Cache Intelligence gate)\n");
+	debugf(0, "   [FAKE-DB] known-fake DB consulted only by the CI VALIDATE gate\n");
+	debugf(0, "   [PEER-TRUST] scoring recorded; no live consumer rejects on it\n");
+	debugf(0, "   [PLAUSIBILITY] inert on the live path (0-12 scoring runs only in dead code)\n");
 
 	/* ECM Pattern Analysis - Detect coordinated attacks */
 	ecmpat_init();
@@ -3297,14 +3297,11 @@ void mainprocess()
 
 	/* Cache Intelligence — 7-level smart cache optimization */
 	ci_init();
-	debugf(0, " [CACHE-AI] Cache Intelligence System initialized (7 levels)\n");
-	debugf(0, "   [L1] Trust Scoring: Per-peer trust (0-100)\n");
-	debugf(0, "   [L2] Tiered Priority: A-Elite/B-Average/C-Unreliable\n");
-	debugf(0, "   [L3] Quick Validation: Fast CW check on arrival\n");
-	debugf(0, "   [L4] Channel Learning: Best peers per channel\n");
-	debugf(0, "   [L5] Reward & Penalty: Auto-adjust trust\n");
-	debugf(0, "   [L6] Smart Prediction: Predict good CW source\n");
-	debugf(0, "   [L7] Predictive Cache: Pre-fetch CW before needed\n");
+	debugf(0, " [CACHE-AI] Cache Intelligence state initialized\n");
+	debugf(0, "   [L1/L2/L4/L5] trust, tiers, channel learning: recorded; no live consumer\n");
+	debugf(0, "   [L3] Quick Validation: live only via CACHE CI VALIDATE: ON\n");
+	debugf(0, "   [L6] Smart Prediction: inert (no consumer)\n");
+	debugf(0, "   [L7] Predictive Cache: deliberately NOT revived (its dead-path fetch replaces candidate CWs)\n");
 
 // THREADS - detached
 	start_thread_dns();

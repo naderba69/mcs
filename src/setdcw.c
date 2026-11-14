@@ -1381,6 +1381,25 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 	}
 
 
+	/* CI VALIDATE (audit band 25): ci_validate_cw alone, moved from the
+	 * dead #ifndef THREAD_DCW stack to this live path behind
+	 * CACHE CI VALIDATE: ON (default OFF = stock). Its structural checks
+	 * overlap the profile gate; the entropy and known-fake checks are
+	 * the new evidence. The rest of that stack stays dead on purpose:
+	 * its predictive fetch replaces candidate CWs and must not be
+	 * revived as-is. */
+	if (cfg.cache.ci_validate) {
+		ci_cw_status_t ci_status = ci_validate_cw(dcw, ecm->caid, ecm->provid, ecm->sid);
+		if (ci_status != CI_CW_VALID) {
+			char detail[96];
+			snprintf(detail, sizeof(detail), "CW rejected by ECM worker: Cache Intelligence validation (%s)", ci_cw_status_name(ci_status));
+			trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, detail);
+			diagnostics_record_rejection();
+			debugf(0, "    \u274c [CACHE-AI-REJECT] %04X:%06X:%04X from src %d -- %s\n",
+			       ecm->caid, ecm->provid, ecm->sid, srcid, ci_cw_status_name(ci_status));
+			newcamd_config_read_unlock(); return;
+		}
+	}
 
 	int cwpart = 2;
 	if (ecm->cw1cycle) {

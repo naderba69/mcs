@@ -598,15 +598,23 @@ static inline ci_cw_status_t ci_validate_cw(
     float entropy = ci_cw_entropy(cw);
     if (entropy < CI_ENTROPY_MAX_FAKE) return CI_CW_LOW_ENTROPY;
 
-    /* Check 6: Known-fake database */
-    int i;
-    for (i = 0; i < g_ci.fake_cw_count; i++) {
-        if (memcmp(g_ci.fake_cws[i].cw, cw, 16) == 0) {
-            if (g_ci.fake_cws[i].caid == 0 || g_ci.fake_cws[i].caid == caid) {
-                g_ci.fake_cws[i].hit_count++;
-                return CI_CW_KNOWN_FAKE;
+    /* Check 6: Known-fake database (locked: ci_add_fake_cw writes it
+     * from other threads; this reader used to scan it bare) */
+    {
+        int i;
+        ci_cw_status_t found = CI_CW_VALID;
+        pthread_mutex_lock(&g_ci.lock);
+        for (i = 0; i < g_ci.fake_cw_count; i++) {
+            if (memcmp(g_ci.fake_cws[i].cw, cw, 16) == 0) {
+                if (g_ci.fake_cws[i].caid == 0 || g_ci.fake_cws[i].caid == caid) {
+                    g_ci.fake_cws[i].hit_count++;
+                    found = CI_CW_KNOWN_FAKE;
+                    break;
+                }
             }
         }
+        pthread_mutex_unlock(&g_ci.lock);
+        if (found != CI_CW_VALID) return found;
     }
 
     return CI_CW_VALID;
