@@ -1401,6 +1401,23 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 		}
 	}
 
+	/* DROPDIFFS (band 32): behind CACHE DROPDIFFS: ON (default OFF =
+	 * stock). If a known-good CW is already stored for this exact ECM
+	 * (ecmd5 identity, 60s TTL backstop), a differing candidate is
+	 * refused; the first arrival for an ECM is never judged here --
+	 * it cannot tell a first fake from a first truth, which is the
+	 * consensus/profile gates' job. */
+	if (cfg.cache.dropdiffs &&
+	    !cacheex_dropdiffs_check(ecm->caid, ecm->provid, ecm->sid, dcw, ecm->ecmd5)) {
+		char detail[96];
+		snprintf(detail, sizeof(detail), "CW rejected by ECM worker: DropDiffs (differs from known-good for this ECM)");
+		trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, detail);
+		diagnostics_record_rejection();
+		debugf(0, "    \u274c [DROPDIFFS-REJECT] %04X:%06X:%04X from src %d\n",
+		       ecm->caid, ecm->provid, ecm->sid, srcid);
+		newcamd_config_read_unlock(); return;
+	}
+
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
 		if (ecm->ecm[0]==ecm->cw1cycle) cwpart = 1; else cwpart = 0;
@@ -1556,6 +1573,11 @@ trusted_deliver:
 	ecm->waitserver = 0;
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
+	/* DROPDIFFS: this committed CW becomes the known-good reference
+	 * for any later differing candidate for the same ECM. */
+	if (cfg.cache.dropdiffs)
+		cacheex_dropdiffs_store_good(ecm->caid, ecm->provid, ecm->sid, dcw, ecm->ecmd5,
+		                             srctype == DCW_SOURCE_SERVER ? 10 : 5);
 	cache_reply_len = pipe_cache_reply(ecm, cs, cache_reply_buf,
 	                                   sizeof(cache_reply_buf), source_origin_mask);
 	delivery_valid = ledger_delivery_snapshot_capture_locked(&delivery, ecm);

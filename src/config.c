@@ -4087,6 +4087,12 @@ link_mgcamd_user:
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CI VALIDATE: %s\n",file->nbline,iparser-currentline, cfg->cache.ci_validate?"ON":"OFF");
 				}
 			}
+			else if (!strcmp(str,"DROPDIFFS")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				cfg->cache.dropdiffs = parse_boolean();
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE DROPDIFFS: %s\n",file->nbline,iparser-currentline, cfg->cache.dropdiffs?"ON":"OFF");
+			}
 			else if (!strcmp(str,"CONSENSUS")) {
 				parse_spaces();
 				if ((*iparser==':')||(*iparser=='=')) {

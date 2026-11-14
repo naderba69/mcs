@@ -139,7 +139,7 @@ void camd35_srv_recvmsg(struct server_data *srv)
 				// Store ECM Answer
 				ecm_setdcw( ecm, buf+24, DCW_SOURCE_SERVER, srv->id );
 			}
-			else if (ecm->dcwsrctype == DCW_SOURCE_CACHE) {
+			else if (ecm->dcwsrctype == DCW_SOURCE_CACHE || cfg.cache.dropdiffs) { /* DROPDIFFS (band 32): queue the late reply for validation so it can be refused against the known-good; OFF = stock drop */
 				/* D111 D-1: queue a late line reply as a reference candidate only. */
 				ecm_setdcw( ecm, buf+24, DCW_SOURCE_SERVER, srv->id );
 			}

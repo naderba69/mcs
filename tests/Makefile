@@ -194,6 +194,9 @@ ci-validate-live:
 client-id-reload:
 	@python3 client-id-reload.py $(BIN)
 
+dropdiffs-live:
+	@python3 dropdiffs-live.py $(BIN)
+
 doublecheck-live:
 	@MODE=agree python3 doublecheck-live.py $(BIN)
 	@MODE=mismatch python3 doublecheck-live.py $(BIN)

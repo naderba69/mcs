@@ -1514,6 +1514,10 @@ struct config_data
 		/* CI VALIDATE (audit band 25): arms ci_validate_cw as a rejecting
 		 * gate on the live THREAD_DCW path. 0/absent = OFF (stock). */
 		int ci_validate;
+		/* DROPDIFFS (band 32): reject live-path candidates that differ
+		 * from the known-good CW stored for the same ecmd5.
+		 * 0/absent = OFF (stock). */
+		int dropdiffs;
 		/* TASK R29 (D80): distinct voters required for the early
 		 * delivery (0/unset = the engine default 2; 2..8 armed). */
 		int consensus_sources;
