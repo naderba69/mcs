@@ -265,7 +265,7 @@ int monjson_build(char *buf, int cap, const struct monjson_in *in)
 		mjkv_int(&o, "ping", w->ping, 1);
 		mjkv_int(&o, "cards", w->cards, 1);
 		mjkv_int(&o, "ecm", (long)w->ecmnb, 1);
-		mjkv_int(&o, "ecm_ok", (long)w->ecmok, 1);
+		mjkv_int(&o, "ecm_ok", (long)__atomic_load_n(&w->ecmok, __ATOMIC_RELAXED), 1);
 		mjkv_int(&o, "hits", (long)w->hitnb, 1);
 		mjkv_int(&o, "disabled", w->disabled ? 1 : 0, 1);
 		mjkv_int(&o, "rep_stage", w->rep_stage, 1);

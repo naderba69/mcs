@@ -50,7 +50,6 @@
 #include "caid-integration.h"  /* CAID-specific optimizations */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include "auto-tuning.h"  /* Auto-tuning system */
-#include "web-dashboard.h"  /* Web dashboard */
 #include "cache-speed-suite.h"  /* Cache Speed Optimization Suite (8 systems) */
 #include "cache-window.h"  /* R48: bounded opt-in per-profile/CAID cache window */
 #include "cw-postvalidate.h"  /* Post-descramble CW validation + Fake CW detection */
@@ -93,6 +92,8 @@
 #include "r48-source-reputation.h"	/* D111: opt-in source x provider EWMA facts */
 #include "rotation.h"	/* TASK 1.6 instant rotation, used by srv-newcamd.c / loadbalance.c */
 #include "cachepref.h"	/* TASK 1.7 TRUSTED-CACHE-FIRST, used by clustredcache.c (included below) */
+#include "r22layers.h"
+#include "field-status.h"	/* operator-page snapshot of the field-trial state */	/* R22 candidate layers: hooks are no-ops unless built with -DR22_LAYERS (make-x64 release-r22) */
 
 #include "pipe.c"
 
@@ -2139,6 +2140,72 @@ char ecm_file[256];
 ///
 ///
 struct config_data cfg;
+int cfg_doublecheck_caids[64];
+int cfg_doublecheck_caid_count = 0;
+/* Field kill switch for the R22 candidate layers (only compiled in the
+ * release-r22 flavour): 1 = layers active (default), 0 = hooks return
+ * immediately. Set by the config line "R22 LAYERS: YES/NO" and applied
+ * live on config reload -- no rebuild needed to back out in the field. */
+int cfg_r22_layers_enabled = 1;
+
+/* Field activation (2026-11-14): with no explicit "ECM DOUBLECHECK:"
+ * line, arm the observe-mode double check for the CAIDs the operator
+ * already declared on their own profiles. Nothing is invented: every
+ * CAID here came from the operator's config file. An explicit line
+ * always wins; "ECM DOUBLECHECK: OFF" (count = -1) disables for good. */
+
+/* Snapshot for httpserver.o (separate TU): the DoubleCheck ring and
+ * the R22 counters are statics of this TU, so the trace page reads
+ * this POD copy instead of including their headers and silently
+ * seeing zeros. Cheap relaxed loads; display data only. */
+void mcs_field_status_fill(struct mcs_field_status *st) {
+	memset(st, 0, sizeof(*st));
+	st->r22_enabled = cfg_r22_layers_enabled;
+#ifdef R22_LAYERS
+	st->r22_compiled = 1;
+	{
+		const struct r22stats *rs = r22stats_get();
+		st->r22_cache_total = __atomic_load_n(&rs->hook_cache_total, __ATOMIC_RELAXED);
+		st->r22_cache_accepted = __atomic_load_n(&rs->hook_cache_accepted, __ATOMIC_RELAXED);
+		st->r22_cache_rejected = __atomic_load_n(&rs->hook_cache_rejected, __ATOMIC_RELAXED);
+		st->r22_pattern_fake = __atomic_load_n(&rs->pattern_obvious_fake, __ATOMIC_RELAXED);
+		st->r22_cross_blocked = __atomic_load_n(&rs->crosschannel_blocked, __ATOMIC_RELAXED);
+		st->r22_propblock_hit = __atomic_load_n(&rs->propblock_hit, __ATOMIC_RELAXED);
+		st->r22_quarantine_held = __atomic_load_n(&rs->quarantine_held, __ATOMIC_RELAXED);
+		st->r22_server_total = __atomic_load_n(&rs->hook_server_total, __ATOMIC_RELAXED);
+	}
+#endif
+	st->dc_caids = cfg_doublecheck_caid_count > 0 ? cfg_doublecheck_caid_count : 0;
+	{
+		doublecheck_event_t ev[DOUBLECHECK_EVENT_MAX];
+		int i, n = ecm_doublecheck_recent_events(ev, DOUBLECHECK_EVENT_MAX,
+		                                         &st->dc_ok, &st->dc_fail,
+		                                         &st->dc_total, &st->dc_timeouts);
+		st->dc_event_count = n;
+		for (i = 0; i < n; i++) {
+			st->dc_events[i].timestamp = ev[i].timestamp;
+			st->dc_events[i].caid = ev[i].caid;
+			st->dc_events[i].provid = ev[i].provid;
+			st->dc_events[i].sid = ev[i].sid;
+			st->dc_events[i].kind = ev[i].kind;
+			st->dc_events[i].sources = ev[i].sources;
+		}
+	}
+}
+
+static void doublecheck_autofill_from_profiles(void) {
+	struct cardserver_data *cs;
+	int i;
+	if (cfg_doublecheck_caid_count != 0) return;
+	for (cs = cfg.cardserver; cs; cs = cs->next) {
+		int dup = 0;
+		if (!cs->card.caid) continue;
+		for (i = 0; i < cfg_doublecheck_caid_count; i++)
+			if (cfg_doublecheck_caids[i] == (int)cs->card.caid) dup = 1;
+		if (!dup && cfg_doublecheck_caid_count < 64)
+			cfg_doublecheck_caids[cfg_doublecheck_caid_count++] = (int)cs->card.caid;
+	}
+}
 struct program_data prg;
 
 /* Track lock ownership on this thread so disconnect cleanup can reuse an
@@ -2403,7 +2470,7 @@ void sid_newecm(ECM_DATA *ecm)
 		for(i=0;i<MAX_SIDS;i++,sids++) {
 			if (!sids->sid) break;
 			if ( (sids->sid==ecm->sid)&&(!sids->chid||(sids->chid==ecm->chid))&&(!sids->ecmlen||(sids->ecmlen==ecm->ecmlen)) ) {
-				if (ecm->dcwstatus==STAT_DCW_SUCCESS) sids->ecmok++;
+				if (ecm->dcwstatus==STAT_DCW_SUCCESS) __atomic_fetch_add(&sids->ecmok, 1, __ATOMIC_RELAXED);
 				sids->ecmnb++;
 				break;
 			}
@@ -3090,7 +3157,6 @@ void mainprocess()
 	cache_priority_init();
 	prefetch_init();
 	cw_prediction_init();
-	parallel_ecm_init();
 	auto_recovery_init();
 	predictive_warming_init();
 	caid_optimizations_init();
@@ -3184,19 +3250,24 @@ void mainprocess()
 	auto_tuning_init();
 	debugf(0, " [AUTO-TUNING] Automatic profile optimization system initialized\n");
 
-	/* Web Dashboard - DISABLED: conflicts with httpserver.c on port 8080
-	 * Use httpserver.c web interface instead (port 8080)
-	 * Access: http://<ip>:8080/log-viewer for live logs */
-	// web_dashboard_init();
-	// web_dashboard_start();
+	/* Web Dashboard: the standalone web-dashboard module was removed --
+	 * it bound a hardcoded port 8080 with no authentication and nothing
+	 * ever fed its statistics. Its overview data now renders inside the
+	 * CCcam Trace page (/user-trace) -- the operator's single page. */
 
 	/* Cache Speed Suite - 8 cache optimization systems */
+	r22_layers_init();	/* R22 candidate layers; no-op unless built -DR22_LAYERS */
+#ifdef R22_LAYERS
+	debugf(0, " [R22-LAYERS] candidate CW layers %s (config: R22 LAYERS: YES/NO)\n", cfg_r22_layers_enabled ? "ACTIVE" : "OFF by config");
+#endif
 	cache_speed_suite_init();
+	doublecheck_autofill_from_profiles(); /* no explicit line -> operator's profile CAIDs */
+	{ int n_dbl = ecm_doublecheck_apply_config(); /* ECM DOUBLECHECK config line; 0 = inert */
+	  if (n_dbl) debugf(0, "   [ECM-DOUBLECHECK] observe-mode double check on for %d configured CAIDs\n", n_dbl); }
 	debugf(0, " [CACHE-SPEED] Cache Speed Optimization Suite initialized (8 systems)\n");
 	debugf(0, "   [EMM-CACHE] EMM cache system active (rewrite=3, TTL=3600s)\n");
 	debugf(0, "   [CW-CACHE-SETTINGS] Per-CAID cache settings loaded\n");
 	debugf(0, "   [CACHEX-WAITTIME] Per-CAID wait times loaded\n");
-	debugf(0, "   [ECM-DOUBLECHECK] ECM double check active for 8 CAIDs\n");
 	debugf(0, "   [CACHEX-ADVANCED] DropDiffs + NoPushAfter + DoubleCheck active\n");
 
 	/* CW Post-Validation - Detect fake CWs after acceptance */

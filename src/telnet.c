@@ -177,7 +177,7 @@ void *telnetprocess(int *param )
 		else if ( !strcmp(str, "DEBUG") ) {
 			int i=__atomic_load_n(&idbgline, __ATOMIC_RELAXED);
 			do {
-				sprintf( wbuf, "%s", dbgline[i] );
+				dbg_copy_line(i, wbuf, (int)sizeof(wbuf));
 				writes(fd, wbuf);
 				i++;
 				if (i>=MAX_DBGLINES) i=0;

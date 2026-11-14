@@ -754,7 +754,7 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 					uint8_t cw1cycle;
 					char *error = cs_accept_ecm(cs,clicd.caid,clicd.provid,clicd.sid,ecm_getchid(data,len,clicd.caid), len, data, &cw1cycle);
 					if (error) {
-						cs->ecmdenied++;
+						__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 						cli->ecmdenied++;
 						buf[1] = 0; buf[2] = 0;
 						if (cs_message_send_client_locked(cli, &clicd, buf, 3, client_state_locked) > 0) debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <|> decode failed to client '%s' ch %04x:%06x:%04x, %s\n",cli->user, clicd.caid,clicd.provid,clicd.sid, error);
@@ -1089,7 +1089,7 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 						// Setup ECM Request for Server(s)
 						ecm = store_ecmdata(cs, data, len, clicd.sid, clicd.caid, clicd.provid);
 						if (!ecm) {
-							cs->ecmdenied++;
+							__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 							cli->ecmdenied++;
 							uint8_t failure[3] = { data[0], 0, 0 };
 							ecm_unlock();
@@ -1097,7 +1097,7 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 							cs_message_send_client_locked(cli, &clicd, failure, sizeof(failure), client_state_locked);
 							break;
 						}
-						cs->ecmaccepted++;
+						__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 						cs_store_ecmclient(cs, ecm, cli, clicd.msgid);
 						debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <- ecm from client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,clicd.caid,clicd.provid,clicd.sid,ecm->hash);
 						cli->ecm.busy=1;
@@ -1402,8 +1402,8 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli,
 #endif
 		cli->lastecm.status = 1;
 		cli->lastdcwtime = sent_at;
-		cli->ecmok++;
-		cli->ecmoktime += sent_at-response_recvtime;
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at-response_recvtime), __ATOMIC_RELAXED);
 #ifdef CACHEEX
 		ledger_note_delivered(delivery, sent_at);
 #endif
@@ -1483,7 +1483,6 @@ void cs_recv_pipe()
 {
 	uint8_t buf[1024];
 	struct pollfd pfd[2];
-	struct cs_client_data *cli;
 
 	do {
 		int len = pipe_recv( prg.pipe.newcamd[0], buf, sizeof(buf));
@@ -1573,8 +1572,7 @@ void *cs_recvmsg_thread(void *param)
 			uint32_t client_id = 0;
 			uint32_t event_generation_low = 0;
 			uint32_t events = evlist[i].events;
-			struct cs_client_data *cli;
-			if (evlist[i].data.u64 &&
+				if (evlist[i].data.u64 &&
 			    !newcamd_epoll_client_token_decode(evlist[i].data.u64,
 			                                      &client_id,
 			                                      &event_generation_low))

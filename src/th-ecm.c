@@ -1106,11 +1106,16 @@ void *recv_msg_thread(void *param)
 
 		struct server_data *srv = cfg.server;
 		while (srv) {
+			/* Connect workers publish srv->handle with an atomic store
+			 * under prg.locksrv (cli-*.c); this poll build runs under the
+			 * config read gate only, so load it atomically too (TSan
+			 * proved the plain pair racing, th-ecm vs cli-newcamd). */
+			int srv_handle = __atomic_load_n(&srv->handle, __ATOMIC_RELAXED);
 			srv->ipoll = -1;
-			if (!IS_DISABLED(srv->flags) && srv->handle > 0 &&
+			if (!IS_DISABLED(srv->flags) && srv_handle > 0 &&
 			    pfdcount < SERVER_MAX_PFD && pfdcount < MAX_PFD) {
 				srv->ipoll = pfdcount;
-				pfd[pfdcount].fd = srv->handle;
+				pfd[pfdcount].fd = srv_handle;
 				pfd_generation[pfdcount] = srv->connect_generation;
 				pfd[pfdcount++].events = POLLIN | POLLPRI;
 			}

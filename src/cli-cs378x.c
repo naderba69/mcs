@@ -107,7 +107,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 		else if ( (srv->keepalive.status>1) && ((srv->keepalive.time+10000)<ticks) ) {
 			debugf(getdbgflag(DBG_SERVER,0,srv->id),, " cs378x server disconnected, keepalive timeout\n");
 			close(srv->handle);
-			srv->handle = -1;
+			__atomic_store_n(&srv->handle, -1, __ATOMIC_RELAXED);
 			srv->pid = 0;
 			srv->connected = 0;
 			srv->keepalive.status = 0;
@@ -198,9 +198,9 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 				}
 				srv->busy = 0;
 				pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
-				srv->ecmok++;
+				__atomic_fetch_add(&srv->ecmok, 1, __ATOMIC_RELAXED);
 				srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
-				srv->ecmoktime += srv->lastecmoktime;
+				__atomic_fetch_add(&srv->ecmoktime, (srv->lastecmoktime), __ATOMIC_RELAXED);
 				ecm_setsrvflagdcw( ecm, srv->id, ECM_SRV_REPLY_GOOD, buf+24 );
 				debugf(getdbgflagpro(DBG_SERVER,0,srv->id,(ecm->cs ? ecm->cs->id : 0))," <= cw from cs378x server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 
@@ -428,12 +428,12 @@ int cs378x_connect_srv(struct server_data *srv, int fd)
 {
 
 	pthread_mutex_lock(&prg.locksrv);
-	srv->handle = fd;
+	__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.locksrv);
 	SetSocketTimeout(fd, 5000);
 	cs378x_send_keepalive(srv);
 	pthread_mutex_lock(&prg.locksrv);
-	srv->handle = 0;
+	__atomic_store_n(&srv->handle, 0, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.locksrv);
 	// Poll
 	struct pollfd pfd;
@@ -453,7 +453,7 @@ int cs378x_connect_srv(struct server_data *srv, int fd)
 			srv->connection.time = GetTickCount();
 			srv->keepalive.status = 0;
 			srv->keepalive.time = GetTickCount();
-			srv->handle = fd;
+			__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 			pthread_mutex_unlock(&prg.locksrv);
 			//
 			char str[8*3+1];
@@ -501,7 +501,7 @@ int cs378x_connect_srv(struct server_data *srv, int fd)
 			srv->connection.time = GetTickCount();
 			srv->keepalive.status = 0;
 			srv->keepalive.time = GetTickCount();
-			srv->handle = fd;
+			__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 			pthread_mutex_unlock(&prg.locksrv);
 			server_publish_connection_ready(srv, fd);
 			return 0;

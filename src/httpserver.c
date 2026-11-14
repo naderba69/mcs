@@ -17,6 +17,7 @@
 #include "server-stats.h"	/* Server statistics */
 #include "log-viewer.h"	/* Live log viewer */
 #include "user-trace.h"
+#include "field-status.h"	/* field-trial snapshot filled by main.c */
 #include "cache-analytics.h"	/* Cache analytics */
 #include "auto-tuning.h"	/* Auto-tuning suggestions */
 #include "common.h"
@@ -900,6 +901,7 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 		sprintf( buf, class, "/diagnostics", mlabel("Diagnostics","التشخيص")); tcp_writestr(tcpbuf, sock, buf);
 		sprintf( buf, class, "/debug-ecm", mlabel("Debug ECM","تتبع ECM")); tcp_writestr(tcpbuf, sock, buf);
 		sprintf( buf, class, "/server-stats", mlabel("Server Stats","إحصائيات الخوادم")); tcp_writestr(tcpbuf, sock, buf);
+		/* No separate dashboard: everything lives on the CCcam Trace page (/user-trace). */
 		sprintf( buf, class, "/log-viewer", mlabel("Log Viewer","عارض السجلات")); tcp_writestr(tcpbuf, sock, buf);
 #ifdef CCCAM_SRV
 		if (!snapshot.nocccam) { sprintf(buf, class, "/user-trace", mlabel("CCcam Trace", "متابعة CCcam")); tcp_writestr(tcpbuf, sock, buf); }
@@ -1247,6 +1249,15 @@ void flagdebugvalue( char *str )
 }
 
 
+
+///////////////////////////////////////////////////////////////////////////////
+static char *escf( char *buf, const char *src );	/* defined below; used by the trace overview */
+
+/* The former /dashboard page was folded into the CCcam Trace page
+ * (/user-trace, trace_overview_write) on 2026-11-14: the operator
+ * asked for one single page instead of navigating between pages
+ * and log files. Its data now renders there, auto-refreshed. */
+
 void http_send_index(int sock, http_request *req)
 {
 	char http_buf[2048];
@@ -1297,7 +1308,7 @@ void http_send_index(int sock, http_request *req)
 	FILE *fp = fopen ("/proc/loadavg", "r");
 	if (fp) {
 		float avg;
-		int i = fscanf(fp, "%f", &avg);
+		(void)fscanf(fp, "%f", &avg);
 		sprintf( http_buf,"<br>Load Average: %01.2f", avg); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		fclose(fp);
 	}
@@ -1305,7 +1316,7 @@ void http_send_index(int sock, http_request *req)
 	fp = fopen ("/proc/meminfo", "r");
 	if (fp) {
 		int memfree;
-		int i = fscanf (fp, "MemTotal: %*d kB MemFree: %d kB", &memfree);
+		(void)fscanf (fp, "MemTotal: %*d kB MemFree: %d kB", &memfree);
 		sprintf( http_buf,"<br>Free Memory: %d kB", memfree); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		fclose(fp);
 	}
@@ -1321,9 +1332,9 @@ void http_send_index(int sock, http_request *req)
 		int total_ecm = 0, accepted_ecm = 0, ok_ecm = 0;
 		struct cardserver_data *cs;
 		for (cs = cfg.cardserver; cs; cs = cs->next) {
-			total_ecm += cs->ecmaccepted + cs->ecmdenied;
-			accepted_ecm += cs->ecmaccepted;
-			ok_ecm += cs->ecmok;
+			total_ecm += __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED) + __atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED);
+			accepted_ecm += __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED);
+			ok_ecm += __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
 		}
 		int success_rate = total_ecm > 0 ? (ok_ecm * 100 / total_ecm) : 100;
 		const char *rate_class = success_rate >= 90 ? "good" : (success_rate >= 70 ? "warn" : "bad");
@@ -1469,7 +1480,7 @@ void http_send_debug(int sock, http_request *req)
 		int i = current - 35;
 		if (i<0) i += 70;
 		do {
-			{ char hesc[3200]; html_esc(hesc,(int)sizeof(hesc),dbgline[i]);
+			{ char hesc[3200]; char line_copy[512]; dbg_copy_line(i, line_copy, (int)sizeof(line_copy)); html_esc(hesc,(int)sizeof(hesc),line_copy);
 			  tcp_write(&tcpbuf, sock, hesc, strlen(hesc)); }	/* TASK 3.2 -- log lines are text, not markup */
 			i++;
 			if (i>=MAX_DBGLINES) i=0;
@@ -1605,8 +1616,8 @@ static void http_server_detail_snapshot_take(
 	snapshot->uptime = srv->connection.uptime;
 	snapshot->host_ip = host_ip_snapshot(srv->host);
 	snapshot->ecmnb = srv->ecmnb;
-	snapshot->ecmok = srv->ecmok;
-	snapshot->ecmoktime = srv->ecmoktime;
+	snapshot->ecmok = __atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED);
+	snapshot->ecmoktime = __atomic_load_n(&srv->ecmoktime, __ATOMIC_RELAXED);
 	memcpy(snapshot->version, srv->version, sizeof(snapshot->version));
 	snapshot->version[sizeof(snapshot->version) - 1] = 0;
 #ifdef CCCAM_CLI
@@ -1648,9 +1659,9 @@ static void http_server_detail_snapshot_take(
 #else
 			snapshot->cards[index].id = card->localid;
 #endif
-			snapshot->cards[index].ecmok = card->ecmok;
+			snapshot->cards[index].ecmok = __atomic_load_n(&card->ecmok, __ATOMIC_RELAXED);
 			snapshot->cards[index].ecmnb = card->ecmnb;
-			snapshot->cards[index].ecmoktime = card->ecmoktime;
+			snapshot->cards[index].ecmoktime = __atomic_load_n(&card->ecmoktime, __ATOMIC_RELAXED);
 			snapshot->cards[index].caid = card->caid;
 			snapshot->cards[index].nbprov = card->nbprov;
 			if (snapshot->cards[index].nbprov < 0)
@@ -1843,12 +1854,12 @@ void getservercells(struct server_data *srv, char cell[8][2048] )
 	{
 		// CELL4
 		if (srv->ecmnb)
-			sprintf( cell[4],"%d / %d<span style=\"float: right;\">%d%%</span><br>Hits = %d",srv->ecmok ,srv->ecmnb, (srv->ecmok*100)/srv->ecmnb, srv->hits);
+			sprintf( cell[4],"%d / %d<span style=\"float: right;\">%d%%</span><br>Hits = %d",__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED) ,srv->ecmnb, (__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED)*100)/srv->ecmnb, srv->hits);
 		else
 			sprintf( cell[4],"<span style=\"float: right;\">0%%</span>");
 		// CELL5
-		if (srv->ecmok)
-			sprintf( cell[5],"%d ms",(srv->ecmoktime/srv->ecmok) ); //, srv->hits );
+		if (__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED))
+			sprintf( cell[5],"%d ms",(__atomic_load_n(&srv->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED)) ); //, srv->hits );
 		else
 			sprintf( cell[5],"-- ms");
 	}
@@ -2385,17 +2396,17 @@ void http_send_server(int sock, http_request *req)
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
 #ifdef CCCAM_CLI
-					sprintf( http_buf,"<td class=alt%d>%d / %d<span style=\"float:right\">",alt,card->ecmok,card->ecmnb);
+					sprintf( http_buf,"<td class=alt%d>%d / %d<span style=\"float:right\">",alt,__atomic_load_n(&card->ecmok, __ATOMIC_RELAXED),card->ecmnb);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
 					if (card->ecmnb)
-						sprintf( http_buf,"%d%%</span></td>", card->ecmok*100/card->ecmnb);
+						sprintf( http_buf,"%d%%</span></td>", __atomic_load_n(&card->ecmok, __ATOMIC_RELAXED)*100/card->ecmnb);
 					else
 						sprintf( http_buf,"0%%</span></td>");
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
-					if (card->ecmok)
-						sprintf( http_buf,"<td class=alt%d align=center>%d ms</td>",alt, card->ecmoktime/card->ecmok );
+					if (__atomic_load_n(&card->ecmok, __ATOMIC_RELAXED))
+						sprintf( http_buf,"<td class=alt%d align=center>%d ms</td>",alt, __atomic_load_n(&card->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&card->ecmok, __ATOMIC_RELAXED) );
 					else
 						sprintf( http_buf,"<td class=alt%d align=center>-- ms</td>",alt);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
@@ -3299,14 +3310,14 @@ void http_send_cache_peer(int sock, http_request *req)
 			struct http_cache_peer_sms_snapshot *sms = &detail.sms[sms_index];
 			char timebuf[80];
 			time_t sms_rawtime;
-			struct tm time_storage;
+			union { struct tm tm; char slack[sizeof(struct tm) + 32]; } time_storage; /* tail slack: packed TU, libc writes native tm (ASan-proven) */
 			struct tm *timeinfo;
 			const char *color;
 			char escaped_msg[sizeof(sms->msg) * 6];
 			const char *display_msg = sms->msg;
 			int display_len;
 			memcpy(&sms_rawtime, PACKED_MPTR(sms, time_t, rawtime), sizeof(sms_rawtime));
-			timeinfo = localtime_r(&sms_rawtime, &time_storage);
+			timeinfo = localtime_r(&sms_rawtime, &time_storage.tm);
 			if (timeinfo) strftime(timebuf, sizeof(timebuf), "%x %X", timeinfo);
 			else snprintf(timebuf, sizeof(timebuf), "unknown time");
 			if (sms->status & 1) color = (sms->status & 2) ? "blue" : "grey";
@@ -3384,22 +3395,22 @@ static int newcamd_web_client_matches_list(struct cs_client_data *cli,
 void getprofilecells(struct cardserver_data *cs, char cell[11][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 	// CELL0 # Profile name
 	sprintf( cell[0],"<a href=\"/profile?id=%d\">%s</a>", cs->id, escf(et1,cs->name));
 	// CELL1 # Port
 	sprintf( cell[1],"<a href=\"/newcamd?pid=%d\">%d</a>", cs->id, cs->newcamd.port); 
 	if (cs->newcamd.handle>0) sprintf( cell[10],"online"); else sprintf( cell[10],"offline"); 
 	// CELL2 # Ecm Time
-	if (cs->ecmok) sprintf( cell[2],"%d ms",(cs->ecmoktime/cs->ecmok) ); else sprintf( cell[2],"-- ms");
+	if (__atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED)) sprintf( cell[2],"%d ms",(__atomic_load_n(&cs->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED)) ); else sprintf( cell[2],"-- ms");
 
 	// CELL3 # TotalECM
-	int ecmnb = cs->ecmaccepted+cs->ecmdenied;
+	int ecmnb = __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED)+__atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED);
 	sprintf( cell[3], "%d", ecmnb );
 	// CELL4 # AcceptedECM
-	getstatcell( cs->ecmaccepted, ecmnb, cell[4] );
+	getstatcell( __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED), ecmnb, cell[4] );
 	// CELL5 # ECM OK
-	getstatcell( cs->ecmok, cs->ecmaccepted, cell[5] );
+	getstatcell( __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED), __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED), cell[5] );
 	/* Cache-source hit counters are updated under lockcacheex. */
 	int csp_hits, csp_ihits, cacheex_hits = 0, cacheex_ihits = 0;
 	pthread_mutex_lock(&prg.lockcacheex);
@@ -3411,10 +3422,10 @@ void getprofilecells(struct cardserver_data *cs, char cell[11][2048])
 #endif
 	pthread_mutex_unlock(&prg.lockcacheex);
 	// CELL6 # CacheHits
-	getstatcell( csp_hits, cs->ecmok, cell[6] );
+	getstatcell( csp_hits, __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED), cell[6] );
 #ifdef CACHEEX
 	if (cs->option.fallowcacheex) {
-		getstatcell( cacheex_hits, cs->ecmok, temp );
+		getstatcell( cacheex_hits, __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED), temp );
 		strcat( cell[6], "<br>" );
 		strcat( cell[6], temp );
 	}
@@ -3496,7 +3507,7 @@ static void http_send_profiles_inner(int sock, http_request *req)
 			}
 			sprintf(http_buf, "<totalecm>%d</totalecm>", srv->ecmaccepted+srv->ecmdenied); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			sprintf(http_buf, "<acceptedecm>%d</acceptedecm>", srv->ecmaccepted); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-			sprintf(http_buf, "<ecmok>%d</ecmok>", srv->ecmok); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+			sprintf(http_buf, "<ecmok>%d</ecmok>", __atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED)); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			tcp_writestr(&tcpbuf, sock, "\n</profile>");
 			if (cs) break; else srv = srv->next;
 		}
@@ -3584,9 +3595,9 @@ static void http_send_profiles_inner(int sock, http_request *req)
 	int totcacheihits = 0;
 	cs = cfg.cardserver;
 	while(cs) {
-		totecm += cs->ecmaccepted+cs->ecmdenied;
-		totecmaccepted += cs->ecmaccepted;
-		totecmok += cs->ecmok;
+		totecm += __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED)+__atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED);
+		totecmaccepted += __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED);
+		totecmok += __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
 		cs = cs->next;
 	}
 	pthread_mutex_lock(&prg.lockcacheex);
@@ -3758,7 +3769,7 @@ void getnewcamdclientcells(struct cs_client_data *cli, char cell[10][2048])
 {
 	struct cs_client_data client_snapshot;
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 	unsigned int ticks = GetTickCount();
 	unsigned int d;
 	if (!cli) return;
@@ -3816,10 +3827,10 @@ void getnewcamdclientcells(struct cs_client_data *cli, char cell[10][2048])
 	//
 	int ecmaccepted = cli->ecmnb-cli->ecmdenied;
 	getstatcell( ecmaccepted, cli->ecmnb, cell[5]);
-	getstatcell( cli->ecmok, ecmaccepted, cell[6]);
+	getstatcell( __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED), ecmaccepted, cell[6]);
 	// Ecm Time
-	if (cli->ecmok)
-		sprintf( cell[7],"%d ms",(cli->ecmoktime/cli->ecmok) );
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED))
+		sprintf( cell[7],"%d ms",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) );
 	else
 		sprintf( cell[7],"-- ms");
 
@@ -4320,11 +4331,11 @@ sprintf( http_buf,"<tr><td class=left>User name</td><td class=right>%s</td></tr>
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<tr><td class=left>Accepted ECM requests</td><td class=right>%d</td></tr>\n", ecmaccepted);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", cli->ecmok);
+	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED));
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	//Ecm Time
-	if (cli->ecmok) {
-		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(cli->ecmoktime/cli->ecmok) );
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) {
+		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) );
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	}
 #ifdef SRV_CSCACHE
@@ -4530,7 +4541,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 	csp_hits = cs->hits.csp;
 	csp_ihits = cs->hits.instant.csp;
 	pthread_mutex_unlock(&prg.lockcacheex);
-	sprintf( http_buf, "</li><li>Total ECM = %d</li> <li>Accepted ECM = %d</li><li>Ecm OK = %d</li><li>Ecm Time = %dms</li><li>Total Cache Hits = %d</li><li>Instant Cache Hits = %d</li></ul>", cs->ecmaccepted+cs->ecmdenied, cs->ecmaccepted, cs->ecmok, cs->ecmoktime/(cs->ecmok+1), csp_hits, csp_ihits);
+	sprintf( http_buf, "</li><li>Total ECM = %d</li> <li>Accepted ECM = %d</li><li>Ecm OK = %d</li><li>Ecm Time = %dms</li><li>Total Cache Hits = %d</li><li>Instant Cache Hits = %d</li></ul>", __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED)+__atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED), __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED), __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED), __atomic_load_n(&cs->ecmoktime, __ATOMIC_RELAXED)/(__atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED)+1), csp_hits, csp_ihits);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
 	sprintf( http_buf, "</div><span style=\"float:right\"><table class=option border=1px cellspacing=0><tr><th width=150px>Option</th><th width=50px>Value</th></tr>");
@@ -4602,10 +4613,10 @@ static void http_send_profile_inner(int sock, http_request *req)
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				int ecmaccepted = rdgdcli->ecmnb-rdgdcli->ecmdenied;
 				tcp_writeecmdata(&tcpbuf, sock, ecmaccepted, rdgdcli->ecmnb);
-				tcp_writeecmdata(&tcpbuf, sock, rdgdcli->ecmok, ecmaccepted);
+				tcp_writeecmdata(&tcpbuf, sock, __atomic_load_n(&rdgdcli->ecmok, __ATOMIC_RELAXED), ecmaccepted);
 				//Ecm Time
-				if (rdgdcli->ecmok)
-					sprintf( http_buf,"<td align=center>%d ms</td>",(rdgdcli->ecmoktime/rdgdcli->ecmok) );
+				if (__atomic_load_n(&rdgdcli->ecmok, __ATOMIC_RELAXED))
+					sprintf( http_buf,"<td align=center>%d ms</td>",(__atomic_load_n(&rdgdcli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&rdgdcli->ecmok, __ATOMIC_RELAXED)) );
 				else
 					sprintf( http_buf,"<td align=center>-- ms</td>");
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
@@ -4661,7 +4672,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 	sprintf( http_buf, "<style type=\"text/css\">\n.cacheexborder { background: darkblue; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n</style>\n");
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 #endif
-	if (cs->ecmok) {
+	if (__atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED)) {
 		sprintf( http_buf, "\n<br><br><table class=\"mainborder\" width=100%%>"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		sprintf( http_buf, "<tr><td><div class=\"redborder\" style=\"height: 10px; width: 10px;\"></div> </td><td width=100%%>Total DCW number</td></tr><tr><td><div class=greenborder style=\"height: 10px; width: 10px;\"></div> </td><td width=100%%>Number of DCW from servers</td></tr><tr><td><div class=cacheborder style=\"height: 10px; width: 10px;\"></div> </td><td width=100%%>Number of DCW from Cache</td></tr><tr><td><div class=cacheexborder style=\"height: 10px; width: 10px;\"></div> </td><td width=100%%>Number of DCW from CacheEX</td></tr><tr><td><div class=clientsborder style=\"height: 10px; width: 10px;\"></div> </td><td width=100%%>Number of DCW from Newcamd/Mgcamd Clients</td></tr>\n"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		//Get Max of ttime
@@ -4756,7 +4767,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 		struct sid_chid_ecmlen_data *sids = cs->sidlist.data;
 		for(i=0;i<MAX_SIDS;i++,sids++) {
 			if (!sids->sid) break;
-			sprintf( http_buf, "<tr> <td>%04x:%04x:%04x.%02x</td> <td>%d</td> <td>%d</td> </tr>", sids->sid, sids->chid, sids->ecmlen, sids->cw1cycle, sids->ecmnb, sids->ecmok );
+			sprintf( http_buf, "<tr> <td>%04x:%04x:%04x.%02x</td> <td>%d</td> <td>%d</td> </tr>", sids->sid, sids->chid, sids->ecmlen, sids->cw1cycle, sids->ecmnb, __atomic_load_n(&sids->ecmok, __ATOMIC_RELAXED) );
 			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		}
 
@@ -4788,7 +4799,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 			for(j=0;j<MAX_SIDS;j++,sids++) {
 				if (j>=cs->card.prov[i].sidlist.total) break;
 				if (!sids->sid) break;
-				sprintf( http_buf, "<tr> <td>%04x:%04x:%04x.%02x</td> <td>%d</td> <td>%d</td> </tr>", sids->sid, sids->chid, sids->ecmlen, sids->cw1cycle, sids->ecmnb, sids->ecmok );
+				sprintf( http_buf, "<tr> <td>%04x:%04x:%04x.%02x</td> <td>%d</td> <td>%d</td> </tr>", sids->sid, sids->chid, sids->ecmlen, sids->cw1cycle, sids->ecmnb, __atomic_load_n(&sids->ecmok, __ATOMIC_RELAXED) );
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			sprintf( http_buf, "</table>");
@@ -4909,9 +4920,9 @@ void getcccamcells(struct cc_client_data *cli, char cell[10][2048])
 	sprintf( cell[4], "%d", cli->ecmnb);
 	int ecmaccepted = cli->ecmnb-cli->ecmdenied;
 	getstatcell( ecmaccepted, cli->ecmnb, cell[5]);
-	getstatcell( cli->ecmok, ecmaccepted, cell[6]);
+	getstatcell( __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED), ecmaccepted, cell[6]);
 	// CELL7 # Ecm Time
-	if (cli->ecmok) sprintf( cell[7],"%d ms",(cli->ecmoktime/cli->ecmok) ); else sprintf( cell[7],"-- ms");
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) sprintf( cell[7],"%d ms",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) ); else sprintf( cell[7],"-- ms");
 	// CELL8 # Last Used Share
 	if ( cli->connection.status<=0 && cli->connection.lastseen) {
 		d = (ticks-cli->connection.lastseen)/1000;
@@ -5281,7 +5292,7 @@ void http_send_cccam(int sock, http_request *req)
 void getcs378xcells(struct camd35_client_data *cli, char cell[10][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 
 	// CELL0 # NAME
 	sprintf( cell[0],"<a href='/mgcamdclient?id=%d'>%s</a>",cli->id,escf(et1,cli->user));
@@ -5316,10 +5327,10 @@ void getcs378xcells(struct camd35_client_data *cli, char cell[10][2048])
 
 	int ecmaccepted = cli->ecmnb-cli->ecmdenied;
 	getstatcell( ecmaccepted, cli->ecmnb, cell[5]);
-	getstatcell( cli->ecmok, ecmaccepted, cell[6]);
+	getstatcell( __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED), ecmaccepted, cell[6]);
 
 	// CELL7 # Ecm Time
-	if (cli->ecmok) sprintf( cell[7],"%d ms",(cli->ecmoktime/cli->ecmok) ); else sprintf( cell[7],"-- ms");
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) sprintf( cell[7],"%d ms",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) ); else sprintf( cell[7],"-- ms");
 
 	// CELL8 # Last Used Share
 /*
@@ -5684,7 +5695,7 @@ void http_send_cs378x(int sock, http_request *req)
 void getcamd35cells(struct camd35_client_data *cli, char cell[10][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 
 	// CELL0 # NAME
 	sprintf( cell[0],"<a href='/mgcamdclient?id=%d'>%s</a>",cli->id,escf(et1,cli->user));
@@ -5719,10 +5730,10 @@ void getcamd35cells(struct camd35_client_data *cli, char cell[10][2048])
 
 	int ecmaccepted = cli->ecmnb-cli->ecmdenied;
 	getstatcell( ecmaccepted, cli->ecmnb, cell[5]);
-	getstatcell( cli->ecmok, ecmaccepted, cell[6]);
+	getstatcell( __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED), ecmaccepted, cell[6]);
 
 	// CELL7 # Ecm Time
-	if (cli->ecmok) sprintf( cell[7],"%d ms",(cli->ecmoktime/cli->ecmok) ); else sprintf( cell[7],"-- ms");
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) sprintf( cell[7],"%d ms",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) ); else sprintf( cell[7],"-- ms");
 
 	// CELL8 # Last Used Share
 /*
@@ -5828,7 +5839,6 @@ void http_send_camd35(int sock, http_request *req)
 
 	if (get_action==ACTION_ROW) {
 		// Check for XML ROW
-		struct camd35_client_data *cli = NULL;
 		if (str_clid) {
 			int id = atoi(str_clid);
 			struct camd35_server_data *camd35 = cfg.camd35.server;
@@ -6090,7 +6100,7 @@ void http_send_camd35(int sock, http_request *req)
 void cacheex_server_cells(struct server_data *srv, char cell[10][2048] )
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 	unsigned int ticks = GetTickCount();
 	uint32_t d;
 
@@ -6218,7 +6228,7 @@ void cacheex_server_cells(struct server_data *srv, char cell[10][2048] )
 void cacheex_cccamclient_cells(struct cc_client_data *cli, char cell[10][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 	unsigned int ticks = GetTickCount();
 	unsigned int d;
 	memset(cell, 0, 10*2048);
@@ -6316,7 +6326,7 @@ void cacheex_cccamclient_cells(struct cc_client_data *cli, char cell[10][2048])
 void cacheex_camd35client_cells(struct camd35_client_data *cli, char cell[10][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 	unsigned int ticks = GetTickCount();
 	unsigned int d;
 	memset(cell, 0, 10*2048);
@@ -6760,7 +6770,7 @@ void http_send_cccam_client(int sock, http_request *req)
 		}
 		sprintf(http_buf, "<ecmnb>%d</ecmnb>", cli->ecmnb); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		sprintf(http_buf, "<ecmaccepted>%d</ecmaccepted>", cli->ecmnb-cli->ecmdenied); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf(http_buf, "<ecmok>%d</ecmok>", cli->ecmok); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf(http_buf, "<ecmok>%d</ecmok>", __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		tcp_writestr(&tcpbuf, sock, "\n</client>");
 		tcp_flush(&tcpbuf, sock);
 		return;
@@ -6886,11 +6896,11 @@ sprintf( http_buf,"<tr><td class=left>User name</td><td class=right>%s</td></tr>
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<tr><td class=left>Accepted ECM requests</td><td class=right>%d</td></tr>\n", ecmaccepted);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", cli->ecmok);
+	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED));
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	//Ecm Time
-	if (cli->ecmok) {
-		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(cli->ecmoktime/cli->ecmok) );
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) {
+		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) );
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	}
 	// Freeze
@@ -7123,7 +7133,7 @@ void http_send_freecccam(int sock, http_request *req)
 void getmgcamdcells(struct mg_client_data *cli, char cell[10][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 
 	// CELL0 # NAME
 	if (cli->realname)
@@ -7179,10 +7189,10 @@ void getmgcamdcells(struct mg_client_data *cli, char cell[10][2048])
 
 	int ecmaccepted = cli->ecmnb-cli->ecmdenied;
 	getstatcell( ecmaccepted, cli->ecmnb, cell[5]);
-	getstatcell( cli->ecmok, ecmaccepted, cell[6]);
+	getstatcell( __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED), ecmaccepted, cell[6]);
 
 	// CELL7 # Ecm Time
-	if (cli->ecmok) sprintf( cell[7],"%d ms",(cli->ecmoktime/cli->ecmok) ); else sprintf( cell[7],"-- ms");
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) sprintf( cell[7],"%d ms",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) ); else sprintf( cell[7],"-- ms");
 
 	// CELL8 # Last Used Share
 	if ( cli->lastecm.caid ) {
@@ -7716,11 +7726,11 @@ sprintf( http_buf,"<tr><td class=left>User name</td><td class=right>%s</td></tr>
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<tr><td class=left>Accepted ECM requests</td><td class=right>%d</td></tr>\n", ecmaccepted);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", cli->ecmok);
+	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED));
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	//Ecm Time
-	if (cli->ecmok) {
-		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(cli->ecmoktime/cli->ecmok) );
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) {
+		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) );
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	}
 #ifdef SRV_CSCACHE
@@ -9095,6 +9105,82 @@ static void trace_summary_write(struct tcp_buffer_data *tcpbuf, int sock,
     else tcp_writestr(tcpbuf, sock, "<li>بحث الكاش: غير معروف لهذه المحاولة من الأحداث المحتفظ بها.</li>");
     tcp_writestr(tcpbuf, sock, "</ul><p>أحداث الكاش المصنفة «قناة فقط» لا تثبت أنها تخص هذه المحاولة؛ لذلك لا تُنسب إليها كسبب. القيم المسجلة لقطة عند البحث؛ قد تنتهي المهلة قبل وقتها بسبب مسارات أخرى.</p>");
 }
+
+/* Everything the operator used to hunt across /dashboard and the
+ * [ECM-DBLCHK] log lines, on the CCcam trace page itself (field request,
+ * 2026-11-14): system counters, per-profile state, the R22 anti-fake
+ * layers' live counters, and the last DoubleCheck decisions from the
+ * in-memory ring in ecm-doublecheck.h. Rendered inside the auto-refreshed
+ * #trace-data section, so this page is now the single place to look. */
+static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
+{
+    char out[2048];
+    long tot_req = 0, tot_ok = 0;
+    int profiles = 0;
+    struct cardserver_data *cs = cfg.cardserver;
+    while (cs) {
+        profiles++;
+        tot_req += __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED) + __atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED);
+        tot_ok += __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
+        cs = cs->next;
+    }
+    {
+        double rate = tot_req ? (100.0 * tot_ok / tot_req) : 0.0;
+        unsigned int up = GetTickCount()/1000;
+        tcp_writestr(tcpbuf, sock, "<h2>نظرة عامة — النظام والطبقات والتحقق المزدوج</h2>");
+        snprintf(out, sizeof(out), "<p>✅ النظام نشط | وقت التشغيل %02dd %02d:%02d:%02d | الباقات: %d | إجمالي الطلبات: %ld | فك تشفير ناجح: %ld | مرفوض/فاشل: %ld | نسبة النجاح: %.1f%%</p>",
+                 up/(3600*24), (up/3600)%24, (up/60)%60, up%60, profiles, tot_req, tot_ok, tot_req - tot_ok, rate);
+        tcp_writestr(tcpbuf, sock, out);
+    }
+    tcp_writestr(tcpbuf, sock, "<table><tr><th>الباقة</th><th>CAID</th><th>الطلبات</th><th>نسبة النجاح</th><th>الحالة</th></tr>");
+    cs = cfg.cardserver;
+    while (cs) {
+        char et1[1024];
+        long req_p = __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED) + __atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED);
+        long ok_p = __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
+        double rate = req_p ? (100.0 * ok_p / req_p) : 0.0;
+        int online = (__atomic_load_n(&cs->newcamd.handle, __ATOMIC_RELAXED) > 0);
+        snprintf(out, sizeof(out), "<tr><td>%s</td><td>%04X</td><td>%ld</td><td>%.1f%%</td><td>%s</td></tr>",
+                 escf(et1, cs->name), cs->card.caid, req_p, rate, online ? "✅ نشط" : "❌ متوقف");
+        tcp_writestr(tcpbuf, sock, out);
+        cs = cs->next;
+    }
+    tcp_writestr(tcpbuf, sock, "</table>");
+{
+        struct mcs_field_status st;
+        int i;
+        mcs_field_status_fill(&st);
+        if (st.r22_compiled) {
+            snprintf(out, sizeof(out), "<p><b>طبقات R22 المضادة للفايك:</b> %s | CWs من الكاش فُحصت: %u | قُبلت: %u | رُفضت: %u (فايك واضح: %u، قائمة الحظر: %u) | محتجزة بالحجر: %u | CWs بطاقات سُجلت كحقيقة: %u | اشتباه متعدد القنوات (مراقبة فقط): %u</p>",
+                     st.r22_enabled ? "✅ مفعّلة" : "⏸️ موقوفة من الإعداد (R22 LAYERS: NO)",
+                     st.r22_cache_total, st.r22_cache_accepted, st.r22_cache_rejected,
+                     st.r22_pattern_fake, st.r22_propblock_hit,
+                     st.r22_quarantine_held, st.r22_server_total, st.r22_cross_blocked);
+            tcp_writestr(tcpbuf, sock, out);
+        } else {
+            tcp_writestr(tcpbuf, sock, "<p><b>طبقات R22 المضادة للفايك:</b> ➖ غير مُجمّعة في نكهة stock هذه (ثنائي التجربة الميدانية release-r22 يفعّلها).</p>");
+        }
+        snprintf(out, sizeof(out), "<p><b>التحقق المزدوج (DoubleCheck — مراقبة فقط، لا يحجب التسليم):</b> CAIDs مراقبة: %d | فحوص بدأت: %llu | تطابق مصدرين: %llu | قرارات عدم تطابق: %llu | مهلات: %llu</p>",
+                 st.dc_caids,
+                 (unsigned long long)st.dc_total, (unsigned long long)st.dc_ok,
+                 (unsigned long long)st.dc_fail, (unsigned long long)st.dc_timeouts);
+        tcp_writestr(tcpbuf, sock, out);
+        if (st.dc_event_count) {
+            tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>القناة</th><th>قرار DoubleCheck</th><th>مصادر</th></tr>");
+            for (i = 0; i < st.dc_event_count; i++) {
+                char timestr[32];
+                mcs_format_local_time(timestr, sizeof(timestr), (time_t)st.dc_events[i].timestamp, "%H:%M:%S");
+                snprintf(out, sizeof(out), "<tr><td>%s</td><td><code>%04X:%06X:%04X</code></td><td>%s</td><td>%d</td></tr>",
+                         timestr, st.dc_events[i].caid, st.dc_events[i].provid, st.dc_events[i].sid,
+                         st.dc_events[i].kind == 1 ? "✅ تطابق مصدرين" : "⚠️ عدم تطابق المصادر", st.dc_events[i].sources);
+                tcp_writestr(tcpbuf, sock, out);
+            }
+            tcp_writestr(tcpbuf, sock, "</table>");
+        } else {
+            tcp_writestr(tcpbuf, sock, "<p>لا قرارات DoubleCheck بعد في هذه الجلسة (تظهر هنا فور حدوثها، بدل سجلات [ECM-DBLCHK]).</p>");
+        }
+    }
+}
 static void http_send_user_trace(int sock, http_request *req)
 {
     struct tcp_buffer_data tcpbuf;
@@ -9214,7 +9300,9 @@ static void http_send_user_trace(int sock, http_request *req)
     }
     snprintf(out, sizeof(out), "</select></label><label>نطاق المراقبة <select name='mode' onchange='traceMode(this)'><option value='single'%s>قناة واحدة</option><option value='all'%s>كل قنوات العميل</option></select></label><label>CAID <input name='caid' maxlength='4' value='%04X'></label><label>Provider <input name='provid' maxlength='6' value='%06X'></label><label>SID <input name='sid' maxlength='4' value='%04X'></label><button type='submit'>بدء متابعة جديدة</button></form><form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='stop'><button type='submit'>إيقاف</button></form>", snap->target.all_channels ? "" : " selected", snap->target.all_channels ? " selected" : "", snap->active ? snap->target.caid : 0, snap->active ? snap->target.provider : 0, snap->active ? snap->target.sid : 0, trace_csrf);
     tcp_writestr(&tcpbuf, sock, out);
-    snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
+    tcp_writestr(&tcpbuf, sock, "<section id='trace-data'>");
+    trace_overview_write(&tcpbuf, sock);
+    snprintf(out, sizeof(out), "<p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
     tcp_writestr(&tcpbuf, sock, out);
     tcp_writestr(&tcpbuf, sock, "<details><summary>كيف أقرأ أدلة الكاش؟</summary><p>عند امتلاء Consensus: used عدد الخانات المستعملة من الإجمالي، held خانات تنتظر انتهاء النافذة، overdue خانات محتجزة تجاوزت النافذة، reclaimable خانات غير محتجزة يمكن إعادة استخدامها، oldest hold عمر أقدم حجز وwindow مدة النافذة. الخانات التي ليست held هي سجلات غير محتجزة محفوظة مؤقتاً. هذه حالة الجدول العام عند الحدث، لا هوية أصحاب الخانات ولا سببًا مثبتًا لفشل هذا العميل.</p><p>في أحداث الدورة: incoming الدورة التي وصلت إلى مسار الفحص، وقد تكون محفوظة من أول رد عند انتهاء Consensus؛ expected المتوقعة في سجل الكاش وassessed الدورة التي قيّمها الفلتر. no marker تعني عدم وجود علامة دورة معروفة في هذا المسار؛ previous CW يبين توفر CW سابقة للمقارنة، وليس صحتها. اختلاف الدورة لا يثبت وحده أن المصدر خبيث أو أن الصورة لن تظهر.</p></details>");
     snprintf(out, sizeof(out), "<p>ردود CSP قصيرة جدًا لا تكفي لقراءة القناة: %llu خلال جلسة المتابعة، على مستوى السيرفر كله؛ لا يمكن نسبتها لهذا العميل أو قناته. أحداث CSP المرفوضة ذات الترويسة غير المتحقق منها تعرض قناة يدّعيها المرسل فقط، دون CW أو إثبات طلب العميل.</p>", (unsigned long long)snap->csp_unattributed_short);
@@ -9447,6 +9535,13 @@ void *gererClient(struct connect_data *param)
 					http_send_server_stats(sock,&req);
 				}
 #ifdef CCCAM_SRV
+				else if (strcmp(req.path,"/dashboard")==0) {
+					/* Folded into the trace page: old bookmarks land there. */
+					struct tcp_buffer_data tcpbuf;
+					tcp_init(&tcpbuf);
+					tcp_writestr(&tcpbuf, sock, "HTTP/1.1 303 See Other\r\nLocation: /user-trace\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
+					tcp_flush(&tcpbuf, sock);
+				}
 				else if (strcmp(req.path,"/user-trace")==0) {
 					if (!cfg.http.show.nocccam) http_send_user_trace(sock,&req);
 				}
@@ -9733,12 +9828,10 @@ void http_send_biss(int sock, struct http_request *req)
 			char added_time[32] = "Never";
 			char last_used[32] = "Never";
 			if (biss_keys.keys[i].added_time > 0) {
-				time_t t = biss_keys.keys[i].added_time;
-				strftime(added_time, sizeof(added_time), "%Y-%m-%d %H:%M", localtime(&t));
+				mcs_format_local_time(added_time, sizeof(added_time), biss_keys.keys[i].added_time, "%Y-%m-%d %H:%M");
 			}
 			if (biss_keys.keys[i].last_used > 0) {
-				time_t t = biss_keys.keys[i].last_used;
-				strftime(last_used, sizeof(last_used), "%Y-%m-%d %H:%M", localtime(&t));
+				mcs_format_local_time(last_used, sizeof(last_used), biss_keys.keys[i].last_used, "%Y-%m-%d %H:%M");
 			}
 
 			sprintf(http_buf,

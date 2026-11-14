@@ -127,9 +127,9 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			}
 			srv->busy = 0;
 			pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
-			srv->ecmok++;
+			__atomic_fetch_add(&srv->ecmok, 1, __ATOMIC_RELAXED);
 			srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
-			srv->ecmoktime += srv->lastecmoktime;
+			__atomic_fetch_add(&srv->ecmoktime, (srv->lastecmoktime), __ATOMIC_RELAXED);
 			ecm_setsrvflagdcw( ecm, srv->id, ECM_SRV_REPLY_GOOD, buf+24 );
 			debugf(getdbgflagpro(DBG_SERVER,0,srv->id,(ecm->cs ? ecm->cs->id : 0))," <= cw from camd35 server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 
@@ -376,7 +376,7 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 				srv->connection.time = GetTickCount();
 				srv->keepalive.status = 0;
 				srv->keepalive.time = GetTickCount();
-				srv->handle = fd;
+				__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 				pthread_mutex_unlock(&prg.locksrv);
 				if (!server_connection_is_enabled(srv, fd)) return 0;
 				if (srv->cacheex_mode==2) {
@@ -443,7 +443,7 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 				srv->connection.time = GetTickCount();
 				srv->keepalive.status = 0;
 				srv->keepalive.time = GetTickCount();
-				srv->handle = fd;
+				__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 				pthread_mutex_unlock(&prg.locksrv);
 				server_publish_connection_ready(srv, fd);
 				return 0;

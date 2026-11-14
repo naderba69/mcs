@@ -65,7 +65,7 @@ static inline void r22stats_init(void)
 
 static inline void r22stats_inc(uint32_t *counter)
 {
-    if (counter) (*counter)++;
+    if (counter) __atomic_fetch_add(counter, 1, __ATOMIC_RELAXED);
 }
 
 /* Read-only access for telnet/HTTP */

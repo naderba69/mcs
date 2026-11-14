@@ -138,12 +138,12 @@ int cc_connect_srv(struct server_data *srv, int fd)
 	}// else debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: login succeeded to Server (%s:%d)\n",srv->host->name,srv->port);
 
 	pthread_mutex_lock(&prg.locksrv);
-	srv->handle = fd;
+	__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.locksrv);
 	if (!cc_sendinfo_srv(srv,ismultics)) {
 		static char msg[]= "Error sending client data";
 		pthread_mutex_lock(&prg.locksrv);
-		srv->handle = -1;
+		__atomic_store_n(&srv->handle, -1, __ATOMIC_RELAXED);
 		srv->statmsg = msg;
 		pthread_mutex_unlock(&prg.locksrv);
 		debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: login failed to Server (%s:%d), could not send client data\n",srv->host->name,srv->port);
@@ -316,8 +316,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 						        ? "CCcam CW passed initial checks under scoped checksum exemption; validity and picture unknown"
 						        : "CCcam CW passed initial validation; further gates remain");
 					srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
-					srv->ecmoktime += srv->lastecmoktime;
-					srv->ecmok++;
+					__atomic_fetch_add(&srv->ecmoktime, (srv->lastecmoktime), __ATOMIC_RELAXED);
+					__atomic_fetch_add(&srv->ecmok, 1, __ATOMIC_RELAXED);
 
 					ecm_setsrvflagdcw(srv->ecm.request, srv->id, ECM_SRV_REPLY_GOOD,dcw);
 #ifdef SID_FILTER
@@ -327,8 +327,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 					}
 #endif
 					if (card) {
-						card->ecmoktime += GetTickCount()-srv->lastecmtime;
-						card->ecmok++;
+						__atomic_fetch_add(&card->ecmoktime, (GetTickCount()-srv->lastecmtime), __ATOMIC_RELAXED);
+						__atomic_fetch_add(&card->ecmok, 1, __ATOMIC_RELAXED);
 					}
 
 			if (ecm->dcwstatus!=STAT_DCW_SUCCESS) {

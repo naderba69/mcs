@@ -3,7 +3,6 @@
  * PURPOSE: Additional optimizations for maximum performance and reliability
  *
  * Optimizations included:
- * 6. Parallel ECM Requests
  * 7. Auto-Recovery System
  * 8. CW Encryption (simplified)
  * 9. Predictive Cache Warming
@@ -16,109 +15,10 @@
 #include <time.h>
 #include <pthread.h>
 #include <string.h>
+/* OPTIMIZATION #6 (Parallel ECM Requests) was removed 2026-11-14:
+ * the table was initialised from main() and never read or written
+ * by any request path -- dead state, not a feature. */
 
-// ============================================================================
-// OPTIMIZATION #6: PARALLEL ECM REQUESTS
-// ============================================================================
-
-#define PARALLEL_MAX_SERVERS 10
-
-struct parallel_ecm_state {
-    uint32_t ecm_id;
-    uint32_t caid;
-    uint32_t provid;
-    uint16_t sid;
-    int servers_contacted[PARALLEL_MAX_SERVERS];
-    int servers_responded;
-    int first_response_server;
-    uint32_t start_time;
-    uint8_t cw_received;
-};
-
-struct parallel_ecm_table {
-    struct parallel_ecm_state requests[256];
-    int count;
-    pthread_mutex_t lock;
-};
-
-extern struct parallel_ecm_table parallel_tab;
-
-static inline void parallel_ecm_init(void) {
-    memset(&parallel_tab, 0, sizeof(parallel_tab));
-    pthread_mutex_init(&parallel_tab.lock, NULL);
-}
-
-static inline int parallel_ecm_start(uint32_t ecm_id, uint32_t caid, uint32_t provid, uint16_t sid) {
-    int i;
-    
-    pthread_mutex_lock(&parallel_tab.lock);
-    
-    // Find empty slot
-    for (i = 0; i < 256; i++) {
-        if (parallel_tab.requests[i].ecm_id == 0) {
-            parallel_tab.requests[i].ecm_id = ecm_id;
-            parallel_tab.requests[i].caid = caid;
-            parallel_tab.requests[i].provid = provid;
-            parallel_tab.requests[i].sid = sid;
-            parallel_tab.requests[i].start_time = time(NULL);
-            parallel_tab.requests[i].cw_received = 0;
-            parallel_tab.requests[i].servers_responded = 0;
-            parallel_tab.requests[i].first_response_server = -1;
-            memset(parallel_tab.requests[i].servers_contacted, 0, sizeof(parallel_tab.requests[i].servers_contacted));
-            pthread_mutex_unlock(&parallel_tab.lock);
-            return i;
-        }
-    }
-    
-    pthread_mutex_unlock(&parallel_tab.lock);
-    return -1;
-}
-
-static inline void parallel_ecm_record_contact(uint32_t ecm_id, int server_id) {
-    int i;
-    
-    pthread_mutex_lock(&parallel_tab.lock);
-    
-    for (i = 0; i < 256; i++) {
-        if (parallel_tab.requests[i].ecm_id == ecm_id) {
-            int j;
-            for (j = 0; j < PARALLEL_MAX_SERVERS; j++) {
-                if (parallel_tab.requests[i].servers_contacted[j] == 0) {
-                    parallel_tab.requests[i].servers_contacted[j] = server_id;
-                    break;
-                }
-            }
-            break;
-        }
-    }
-    
-    pthread_mutex_unlock(&parallel_tab.lock);
-}
-
-static inline int parallel_ecm_record_response(uint32_t ecm_id, int server_id) {
-    int i;
-    
-    pthread_mutex_lock(&parallel_tab.lock);
-    
-    for (i = 0; i < 256; i++) {
-        if (parallel_tab.requests[i].ecm_id == ecm_id) {
-            parallel_tab.requests[i].servers_responded++;
-            
-            if (!parallel_tab.requests[i].cw_received) {
-                parallel_tab.requests[i].cw_received = 1;
-                parallel_tab.requests[i].first_response_server = server_id;
-                pthread_mutex_unlock(&parallel_tab.lock);
-                return 1;  // First response
-            }
-            
-            pthread_mutex_unlock(&parallel_tab.lock);
-            return 0;  // Not first
-        }
-    }
-    
-    pthread_mutex_unlock(&parallel_tab.lock);
-    return -1;
-}
 
 // ============================================================================
 // OPTIMIZATION #7: AUTO-RECOVERY SYSTEM

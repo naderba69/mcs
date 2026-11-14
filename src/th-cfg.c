@@ -173,6 +173,8 @@ void *reread_config_thread(void *param)
 			user_trace_stop_active();
 			free_filenames( &cfg );
 				reread_config(&cfg);
+				doublecheck_autofill_from_profiles();
+				ecm_doublecheck_apply_config(); /* ECM DOUBLECHECK list follows the file, like the rest */
 				/*
 				 * Graceful degradation on a reload that lost the profile section:
 				 * say so loudly instead of quietly serving nothing. Editors that

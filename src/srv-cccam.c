@@ -1047,9 +1047,9 @@ static void cc_senddcw_cli_locked(struct cc_client_data *cli,
 		memcpy(cli->lastecm.dcw, delivery->cw, sizeof(cli->lastecm.dcw));
 #endif
 		cli->lastecm.status = 1;
-		cli->ecmok++;
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
 		cli->lastdcwtime = sent_at;
-		cli->ecmoktime += sent_at - response_recvtime;
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at - response_recvtime), __ATOMIC_RELAXED);
 		if (delivery->trace_instance)
 			user_trace_client_cw(cli->id, delivery->trace_instance, delivery->hash,
 			                     delivery->srctype, delivery->srcid,
@@ -1281,7 +1281,7 @@ static void cc_cli_parsemsg_locked(struct cc_client_data *cli, uint8_t *buf, int
 			char *error = cs_accept_ecm(cs,caid,provid,sid,ecm_getchid(data,len-17,caid), len-17, data, &cw1cycle);
 			if (error) {
 				if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, error);
-				cs->ecmdenied++;
+				__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 				cli->ecmdenied++;
 				if (!cc_msg_send_client_locked(cli, CC_MSG_ECM_NOK1, 0, NULL, NULL, 0,
 							      client_state_locked)) {
@@ -1393,7 +1393,7 @@ static void cc_cli_parsemsg_locked(struct cc_client_data *cli, uint8_t *buf, int
 				// Setup ECM Request for Server(s)
 				ecm = store_ecmdata(cs, data, len-17, sid, caid, provid);
 				if (!ecm) {
-					cs->ecmdenied++;
+					__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 					cli->ecmdenied++;
 					if (trace_attempt) {
 						user_trace_add(trace_session, trace_attempt, USER_TRACE_FAILED, trace_hash, 0, 0, 0, "ECM allocation failed; request not queued");
@@ -1404,7 +1404,7 @@ static void cc_cli_parsemsg_locked(struct cc_client_data *cli, uint8_t *buf, int
 						      client_state_locked)) cc_disconnect_cli_unlocked(cli);
 					break;
 				}
-				cs->ecmaccepted++;
+				__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 				if (trace_attempt) {
 					ecm->trace_instance = user_trace_next_instance();
 					if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
@@ -1789,7 +1789,6 @@ void cc_recv_pipe()
 	struct cardserver_data *cs;
 	struct cardserver_data card_event;
 
-	struct cc_client_data *cli;
 
 	//debugf(getdbgflag(DBG_CCCAM,0,0)," CCcam: recv_msg from pipe\n");
 
@@ -2058,7 +2057,6 @@ void *cc_recvmsg_thread(void *param)
 
 int start_thread_cccam()
 {
-	pthread_t tid;
 #ifndef MONOTHREAD_ACCEPT
 	create_thread(&tid, cccam_accept_thread,NULL);
 #endif

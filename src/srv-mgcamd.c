@@ -646,7 +646,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					uint8_t cw1cycle;
 					if ( !accept_sid(cs, clicd.provid, clicd.sid, ecm_getchid(ecmdata,ecmlen,clicd.caid), ecmlen, &cw1cycle) ) {
 						cli->ecmdenied++;
-						cs->ecmdenied++;
+						__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 						// send decode failed
 						buf[1] = 0; buf[2] = 0;
 						if ( !cs_message_send( cli->handle, &clicd, buf, 3, cli->sessionkey) ) { mg_disconnect_cli( cli ); return; }
@@ -656,7 +656,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 
 					if ( !accept_ecmlen(len) ) {
 						cli->ecmdenied++;
-						cs->ecmdenied++;
+						__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 						// send decode failed
 						buf[1] = 0; buf[2] = 0;
 						if ( !cs_message_send( cli->handle, &clicd, buf, 3, cli->sessionkey) ) { mg_disconnect_cli( cli ); return; }
@@ -755,14 +755,14 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 						// Setup ECM Request for Server(s)
 						ecm = store_ecmdata(cs, ecmdata, ecmlen, clicd.sid,clicd.caid,clicd.provid);
 						if (!ecm) {
-							cs->ecmdenied++;
+							__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 							cli->ecmdenied++;
 							uint8_t failure[3] = { ecmdata[0], 0, 0 };
 							if (!cs_message_send(cli->handle, &clicd, failure, sizeof(failure), cli->sessionkey)) mg_disconnect_cli(cli);
 							ecm_unlock();
 							break;
 						}
-						cs->ecmaccepted++;
+						__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 						mg_store_ecmclient(ecm, cli, clicd.msgid);
 						debugf(getdbgflagpro(DBG_MGCAMD,0,cli->id, cs->id)," <- ecm from mgcamd client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,clicd.caid,clicd.provid,clicd.sid,ecm->hash);
 						cli->ecm.busy=1;
@@ -895,7 +895,6 @@ void mg_senddcw_cli(struct mg_client_data *cli, const struct ledger_delivery_sna
 	}
 
 #ifdef CACHEEX
-	ECM_DATA *ecm = NULL;
 	uint16_t response_caid = delivery->caid;
 	uint32_t response_provid = delivery->provid;
 	uint8_t response_provider_known = delivery->provider_known;
@@ -970,8 +969,8 @@ void mg_senddcw_cli(struct mg_client_data *cli, const struct ledger_delivery_sna
 		memcpy(cli->lastecm.dcw, ecm->cw, sizeof(cli->lastecm.dcw));
 #endif
 		cli->lastecm.status=1;
-		cli->ecmok++;
-		cli->ecmoktime += sent_at-response_recvtime;
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at-response_recvtime), __ATOMIC_RELAXED);
 		cli->lastdcwtime = sent_at;
 #ifdef CACHEEX
 		ledger_note_delivered(delivery, sent_at);
@@ -1037,7 +1036,6 @@ void mg_recv_pipe()
 	struct cardserver_data *cs;
 	struct cardserver_data card_event;
 
-	struct mg_client_data *cli;
 
 	uint8_t buf[1024];
 	struct pollfd pfd[2];
@@ -1275,7 +1273,6 @@ void *mg_recvmsg_thread(void *param)
 
 int start_thread_mgcamd()
 {
-	pthread_t tid;
 #ifndef MONOTHREAD_ACCEPT
 	create_thread(&tid, mgcamd_accept_thread,NULL);
 #endif

@@ -26,7 +26,7 @@ int rdgd_connect_srv(struct server_data *srv, int fd)
 	srv->lastecmtime = 0;
 	srv->lastdcwtime = 0;
 	srv->chkrecvtime = 0;
-	srv->handle = fd;
+	__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.locksrv);
 	server_publish_connection_ready(srv, fd);
 	return 0;
@@ -139,8 +139,8 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 							ecm_unlock(); //###
 							break;
 						}
-						srv->ecmok++;
-						srv->ecmoktime += GetTickCount()-srv->lastecmtime;
+						__atomic_fetch_add(&srv->ecmok, 1, __ATOMIC_RELAXED);
+						__atomic_fetch_add(&srv->ecmoktime, (GetTickCount()-srv->lastecmtime), __ATOMIC_RELAXED);
 						srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
 
 						ecm_setsrvflagdcw(srv->ecm.request, srv->id, ECM_SRV_REPLY_GOOD, &buf[4]);

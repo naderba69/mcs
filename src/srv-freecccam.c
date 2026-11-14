@@ -215,7 +215,7 @@ static void *freecc_connect_cli_inner(struct connect_cli_data *param)
 	}
 	sprintf(cli->user,"%s", ip2string(ip));
 	//cli->ecmnb=0;
-	//cli->ecmok=0;
+	//__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)=0;
 	memcpy(&cli->sendblock,&sendblock,sizeof(sendblock));
 	memcpy(&cli->recvblock,&recvblock,sizeof(recvblock));
 	debugf(0," FreeCCcam: client(%s) connected\n",ip2string(ip));
@@ -381,14 +381,12 @@ void frcc_senddcw_cli(struct cc_client_data *cli, const struct ledger_delivery_s
 	}
 
 #ifdef CACHEEX
-	ECM_DATA *ecm = NULL;
 	uint16_t response_caid = delivery->caid;
 	uint32_t response_provid = delivery->provid;
 	uint8_t response_provider_known = delivery->provider_known;
 	uint16_t response_sid = delivery->sid;
 	uint32_t response_hash = delivery->hash;
 	uint8_t response_tag = delivery->tag;
-	uint32_t response_profile = delivery->profile_id;
 	uint32_t response_recvtime = delivery->recvtime;
 #else
 	ECM_DATA *ecm = cli->ecm.request;
@@ -454,9 +452,9 @@ void frcc_senddcw_cli(struct cc_client_data *cli, const struct ledger_delivery_s
 		memcpy(cli->lastecm.dcw, ecm->cw, sizeof(cli->lastecm.dcw));
 #endif
 		cli->lastecm.status=1;
-		cli->ecmok++;
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
 		cli->lastdcwtime = sent_at;
-		cli->ecmoktime += sent_at-response_recvtime;
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at-response_recvtime), __ATOMIC_RELAXED);
 
 #ifdef CACHEEX
 		ledger_note_delivered(delivery, sent_at);
@@ -550,7 +548,7 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						char *error = cs_accept_ecm(cs,caid,provid,sid,ecm_getchid(data,len-17,caid), len-17, data, &cw1cycle);
 						if (error) {
 							cli->ecmdenied++;
-							cs->ecmdenied++;
+							__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 							if (client_io_lock(cli) == 0) {
 								int sock = cli->handle;
 								if (sock > 0) cc_msg_send(sock, &cli->sendblock, CC_MSG_ECM_NOK2, 0, NULL);
@@ -618,7 +616,7 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 							// Setup ECM Request for Server(s)
 							ecm = store_ecmdata(cs, data, len-17, sid, caid, provid);
 							if (!ecm) {
-								cs->ecmdenied++;
+								__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 								cli->ecmdenied++;
 								/* R48: ecm_lock released before socket I/O;
 								 * the send runs under the I/O guard. */
@@ -632,7 +630,7 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 								}
 								break;
 							}
-							cs->ecmaccepted++;
+							__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 							cc_store_ecmclient(ecm, cli);
 							debugf( getdbgflagpro(DBG_CCCAM,0,cli->id,cs->id), " <- ecm from FreeCCcam client(%s) ch %04x:%06x:%04x\n", cli->user,caid,provid,sid);
 							cli->ecm.busy=1;

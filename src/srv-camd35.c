@@ -93,7 +93,6 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 	}
 
 #ifdef CACHEEX
-	ECM_DATA *ecm = NULL;
 	uint16_t response_caid = delivery->caid;
 	uint32_t response_provid = delivery->provid;
 	uint8_t response_provider_known = delivery->provider_known;
@@ -197,9 +196,9 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 		memcpy(cli->lastecm.dcw, ecm->cw, sizeof(cli->lastecm.dcw));
 #endif
 		cli->lastecm.status=1;
-		cli->ecmok++;
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
 		cli->lastdcwtime = sent_at;
-		cli->ecmoktime += sent_at-response_recvtime;
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at-response_recvtime), __ATOMIC_RELAXED);
 #ifdef CACHEEX
 		ledger_note_delivered(delivery, sent_at);
 #endif
@@ -540,7 +539,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			uint8_t cw1cycle;
 			if ( !accept_sid(cs, provid, sid, ecm_getchid(ecmdata,ecmlen,caid), ecmlen, &cw1cycle) ) {
 				cli->ecmdenied++;
-				cs->ecmdenied++;
+				__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 				buf[4] = 0x44;
 				buf[5] = 0;
 				camd35_sendto( camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf+4, 20);
@@ -639,7 +638,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 				// Setup ECM Request for Server(s)
 				ecm = store_ecmdata(cs, ecmdata, ecmlen, sid,caid,provid);
 				if (!ecm) {
-					cs->ecmdenied++;
+					__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 					cli->ecmdenied++;
 					buf[4] = 0x44;
 					buf[5] = 0;
@@ -647,7 +646,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 					ecm_unlock();
 					break;
 				}
-				cs->ecmaccepted++;
+				__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 				camd35_store_ecmclient(ecm, cli);
 				cli->ecm.pin = pin;
 				debugf(getdbgflagpro(DBG_CAMD35,0,cli->id, cs->id)," <- ecm from camd35 client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,caid,provid,sid, ecm->hash);

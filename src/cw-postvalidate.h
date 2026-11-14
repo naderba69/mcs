@@ -493,8 +493,6 @@ static inline int cwpostval_validate_ts(const uint8_t *ts_data, int ts_len)
     int packet_count, i;
     int sync_errors = 0;
     int scramble_errors = 0;
-    int cc_errors = 0;
-    int pes_errors = 0;
     int total_checked = 0;
 
     if (!ts_data || ts_len < CWPOSTVAL_TS_PACKET_SIZE) return 0;

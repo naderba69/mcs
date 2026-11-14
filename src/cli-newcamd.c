@@ -189,7 +189,7 @@ int cs_connect_srv(struct server_data *srv, int fd)
 #ifdef CLI_CSCACHE
 	srv->cscached = 0;
 #endif
-	srv->handle = fd;
+	__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.locksrv);
 	server_publish_connection_ready(srv, fd);
 	return 0;
@@ -337,9 +337,9 @@ void cs_srv_recvmsg(struct server_data *srv)
 						    checksum_exemption_used
 						        ? "Newcamd CW passed initial checks under scoped checksum exemption; validity and picture unknown"
 						        : "Newcamd CW passed initial validation; further gates remain");
-						srv->ecmok++;
+						__atomic_fetch_add(&srv->ecmok, 1, __ATOMIC_RELAXED);
 						srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
-						srv->ecmoktime += srv->lastecmoktime;
+						__atomic_fetch_add(&srv->ecmoktime, (srv->lastecmoktime), __ATOMIC_RELAXED);
 
 						/*
 						 * TASK 2.3 -- the latency this source just took, offered to the

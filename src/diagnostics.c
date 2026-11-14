@@ -352,7 +352,6 @@ void http_send_diagnostics(int sock, struct http_request *req)
 {
     struct tcp_buffer_data tcpbuf;
     char buf[8192];
-    char temp[1024];
     int i;
     
     tcp_init(&tcpbuf);

@@ -247,7 +247,6 @@ void http_send_debug_ecm(int sock, struct http_request *req)
 {
     struct tcp_buffer_data tcpbuf;
     char buf[16384];
-    char temp[512];
     int i, j;
     
     tcp_init(&tcpbuf);

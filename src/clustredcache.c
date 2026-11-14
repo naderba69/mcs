@@ -2035,10 +2035,10 @@ static void save_sms_record(const struct sms_data *sms,
 	if (fhandle) {
 		char timebuf[80];
 		time_t rawtime;
-		struct tm time_storage;
+		union { struct tm tm; char slack[sizeof(struct tm) + 32]; } time_storage; /* tail slack: packed TU, libc writes native tm (ASan-proven) */
 		struct tm *timeinfo;
 		memcpy(&rawtime, PACKED_MPTR(sms, time_t, rawtime), sizeof(rawtime));
-		timeinfo = localtime_r(&rawtime, &time_storage);
+		timeinfo = localtime_r(&rawtime, &time_storage.tm);
 		if (timeinfo) strftime(timebuf, sizeof(timebuf), "%x %X", timeinfo);
 		else snprintf(timebuf, sizeof(timebuf), "unknown time");
 		if (sms->status & 1)
@@ -2955,6 +2955,12 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 #endif
 		return DCW_ERROR;
 	}
+
+	/* R22 layers (opt-in build -DR22_LAYERS, no-op in stock): learned-pattern
+	 * gates over the same arrival, after the proof gates above and before
+	 * the entry is stored. A reject here is a layer verdict, not a proof:
+	 * it never touches negative memory or any source's standing. */
+	if ( r22_hook_cache_setdcw(req->caid, req->provid, req->sid, cw, peerid, GetTickCount()) != 0 ) return DCW_ERROR;
 
 	/*
 	 * TASK R30 (D81) -- attestation gate. A key that independent clients

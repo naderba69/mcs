@@ -133,8 +133,8 @@ void rdgd_senddcw_cli(struct cardserver_data *cs, struct rdgd_client_data *cli)
 		memcpy(cli->ecm.lastcw, ecm->cw, sizeof(cli->ecm.lastcw));
 #endif
 		cli->ecm.laststatus=1;
-		cli->ecmok++;
-		cli->ecmoktime += sent_at-response_recvtime;
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at-response_recvtime), __ATOMIC_RELAXED);
 		cli->lastdcwtime = sent_at;
 #ifdef CACHEEX
 		debugf(0, " => cw to client (%s) ch %04x:%06x:%04x (%dms)\n", ip2string(cli->ip), delivered.caid,delivered.provid,delivered.sid, sent_at-response_recvtime);
@@ -357,7 +357,7 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 					cli->lastecmtime = GetTickCount();
 					cli->ecmnb++;
 					if (cli->ecm.busy) {
-						cs->ecmdenied++;
+						__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 						cli->ecmdenied++;
 						rdgd_send_failure(cli); // reject this new ECM; preserve the active request
 						break;
@@ -408,7 +408,7 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 					}
 					if (!ecmlen) malformed = 1;
 					if (malformed) {
-						cs->ecmdenied++;
+						__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 						cli->ecmdenied++;
 						rdgd_send_failure(cli);
 						break;
@@ -423,7 +423,7 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 
 					uint8_t cw1cycle = 0;
 					if (!accept_ecm(cs, caid, provid, 0, ecm_getchid(ecmdata, ecmlen, caid), ecmlen, &cw1cycle)) {
-						cs->ecmdenied++;
+						__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 						cli->ecmdenied++;
 						rdgd_send_failure(cli);
 						break;
@@ -445,13 +445,13 @@ void rdgd_cli_recvmsg(struct rdgd_client_data *cli, struct cardserver_data *cs)
 						// Setup ECM Request for Server(s)
 						ecm = store_ecmdata_known(cs, ecmdata, ecmlen, 0, caid, provid, provider_known);
 						if (!ecm) {
-							cs->ecmdenied++;
+							__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 							cli->ecmdenied++;
 							rdgd_send_failure(cli);
 							ecm_unlock();
 							break;
 						}
-						cs->ecmaccepted++;
+						__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 						rdgd_store_ecmclient(cs, ecm, cli);
 						debugf(0, " <- ecm from client (%s) ch %04x:%06x:%04x\n", ip2string(cli->ip), caid, provid, 0);
 						cli->ecm.busy=1;

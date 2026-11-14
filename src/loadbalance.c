@@ -226,9 +226,9 @@ int srvtab_arrange(struct cardserver_data *cs, ECM_DATA *ecm, int bestone )
 								if (pcard) {
 									int ecmtime = 0;
 									if (srv->type==TYPE_CCCAM)
-										if (pcard->ecmok>10) ecmtime = pcard->ecmoktime/pcard->ecmok; else ecmtime = 0;
+										if (__atomic_load_n(&pcard->ecmok, __ATOMIC_RELAXED)>10) ecmtime = __atomic_load_n(&pcard->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&pcard->ecmok, __ATOMIC_RELAXED); else ecmtime = 0;
 									else
-										if (srv->ecmok>10) ecmtime = srv->ecmoktime/srv->ecmok; else ecmtime = 0;
+										if (__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED)>10) ecmtime = __atomic_load_n(&srv->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED); else ecmtime = 0;
 									if ( !cs->option.server.validecmtime || (ecmtime<cs->option.server.validecmtime) ) {
 										srvlist[nbsrv].srv = srv;
 										srvlist[nbsrv].card = pcard; // default card

@@ -255,7 +255,6 @@ void cs378x_senddcw_cli(struct camd35_client_data *cli, const struct ledger_deli
 	}
 
 #ifdef CACHEEX
-	ECM_DATA *ecm = NULL;
 	uint16_t response_caid = delivery->caid;
 	uint32_t response_provid = delivery->provid;
 	uint8_t response_provider_known = delivery->provider_known;
@@ -346,9 +345,9 @@ void cs378x_senddcw_cli(struct camd35_client_data *cli, const struct ledger_deli
 		memcpy(cli->lastecm.dcw, ecm->cw, sizeof(cli->lastecm.dcw));
 #endif
 		cli->lastecm.status=1;
-		cli->ecmok++;
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
 		cli->lastdcwtime = sent_at;
-		cli->ecmoktime += sent_at-response_recvtime;
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at-response_recvtime), __ATOMIC_RELAXED);
 #ifdef CACHEEX
 		ledger_note_delivered(delivery, sent_at);
 #endif
@@ -689,7 +688,7 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 			uint8_t cw1cycle;
 			if ( !accept_sid(cs, provid, sid, ecm_getchid(ecmdata,ecmlen,caid), ecmlen, &cw1cycle) ) {
 				cli->ecmdenied++;
-				cs->ecmdenied++;
+				__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 				buf[4] = 0x44;
 				buf[5] = 0;
 				if ( !cs378x_send( cli->handle, &cli->encryptkey, cli->ucrc, buf+4, 20) ) cs378x_disconnect_cli( cli );
@@ -788,7 +787,7 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 				// Setup ECM Request for Server(s)
 				ecm = store_ecmdata(cs, ecmdata, ecmlen, sid,caid,provid);
 				if (!ecm) {
-					cs->ecmdenied++;
+					__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 					cli->ecmdenied++;
 					buf[4] = 0x44;
 					buf[5] = 0;
@@ -796,7 +795,7 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 					ecm_unlock();
 					break;
 				}
-				cs->ecmaccepted++;
+				__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 				cs378x_store_ecmclient(ecm, cli);
 				cli->ecm.pin = pin;
 				debugf(getdbgflagpro(DBG_CS378X,0,cli->id, cs->id)," <- ecm from cs378x client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,caid,provid,sid, ecm->hash);
@@ -994,7 +993,6 @@ void *cs378x_cacheex_recvmsg_thread(void *param)
 
 int start_thread_cs378x()
 {
-	pthread_t tid;
 #ifndef MONOTHREAD_ACCEPT
 	create_thread(&tid, cs378x_accept_thread,NULL);
 #endif

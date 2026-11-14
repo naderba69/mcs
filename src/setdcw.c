@@ -83,8 +83,8 @@ static void cache_peer_hit_update(struct cardserver_data *cs, uint32_t peer_id,
 		cs->hits.csp++;
 		if (instant) cs->hits.instant.csp++;
 	}
-	if (time_bucket < 99) cs->ttimecache[time_bucket]++;
-	else cs->ttimecache[99]++;
+	if (time_bucket < 99) __atomic_fetch_add(&cs->ttimecache[time_bucket], 1, __ATOMIC_RELAXED);
+	else __atomic_fetch_add(&cs->ttimecache[99], 1, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.lockcacheex);
 }
 
@@ -670,10 +670,10 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 	ibs_on_cw_sent(0, ecm->caid, ecm->provid, ecm->sid, (uint32_t)srcid, dcw, GetTickCount());
 
 	// Update Stat
-	cs->ecmok++;
-	cs->ecmoktime += ecmtime;
+	__atomic_fetch_add(&cs->ecmok, 1, __ATOMIC_RELAXED);
+	__atomic_fetch_add(&cs->ecmoktime, (ecmtime), __ATOMIC_RELAXED);
 	int time = (ecmtime+50)/100;
-	if (time<99) cs->ttime[time]++; else cs->ttime[99]++;
+	if (time<99) __atomic_fetch_add(&cs->ttime[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttime[99], 1, __ATOMIC_RELAXED);
 
 	if (srctype==DCW_SOURCE_CACHE) {
 		if (srcid&PEER_CSP) {
@@ -703,7 +703,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 
 #ifdef CAMD35_SRV
@@ -727,7 +727,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 #endif
 
@@ -752,7 +752,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 #endif
 
@@ -775,7 +775,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 					srv->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 			pthread_mutex_unlock(&prg.lockcacheex);
 		}
@@ -785,18 +785,18 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 	else if (srctype==DCW_SOURCE_SERVER) {
 		struct server_data *srv = getsrvbyid( srcid&0xffff );
 		if (srv) srv->hits++;
-		if (time<99) cs->ttimecards[time]++; else cs->ttimecards[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimecards[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecards[99], 1, __ATOMIC_RELAXED);
 	}
 #ifdef SRV_CSCACHE
 	else if (srctype==DCW_SOURCE_CSCLIENT) {
 		/* cachedcw is updated by cs_check_sendcw() under the Newcamd
 		 * config/client locks, after lockecm has been released. */
-		if (time<99) cs->ttimeclients[time]++; else cs->ttimeclients[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimeclients[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimeclients[99], 1, __ATOMIC_RELAXED);
 	}
 	else if (srctype==DCW_SOURCE_MGCLIENT) {
 		struct mg_client_data *cli = getmgcamdclientbyid( srcid&0xffff );
 		if (cli) cli->cachedcw++;
-		if (time<99) cs->ttimeclients[time]++; else cs->ttimeclients[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimeclients[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimeclients[99], 1, __ATOMIC_RELAXED);
 	}
 #endif
 
@@ -962,6 +962,24 @@ static void cache_verify_setdcw_result_done(ECM_DATA *queued,
 	}
 	ecm_unlock();
 	if (wake) wakeup_sendecm();
+}
+
+/* ECM DOUBLECHECK feed (observe mode). One entry point for both the
+ * committed-CW feed below and the server-arrival feed from ecmdata.o
+ * (ecm_setsrvflagdcw), which is a separate translation unit and so
+ * reaches this TU's DoubleCheck state only through here. Finds the
+ * pending check by ECM hash and records this source's CW; decisions
+ * land in the ring the CCcam trace page renders. Never gates. */
+void mcs_doublecheck_feed(uint32_t ecm_hash, int reader_id, const uint8_t *cw, uint32_t response_ms)
+{
+	doublecheck_pending_t *dcp = ecm_doublecheck_find(ecm_hash);
+	if (dcp) {
+		int v = ecm_doublecheck_add_result(dcp, reader_id, cw, response_ms);
+		if (v==1)
+			debugf(0, " [ECM-DBLCHK] verified: two sources agree ch %04x:%06x:%04x\n", dcp->caid, dcp->provid, dcp->sid);
+		else if (dcp->result_count>=2)
+			debugf(DBG_ERROR, " !!! [ECM-DBLCHK] MISMATCH: sources disagree ch %04x:%06x:%04x (delivered key kept; observe mode)\n", dcp->caid, dcp->provid, dcp->sid);
+	}
 }
 
 void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
@@ -1622,6 +1640,25 @@ trusted_deliver:
 	ibs_on_cw_sent(0, committed_caid, committed_provid, committed_sid,
 	               (uint32_t)srcid, committed_cw, GetTickCount());
 
+	/* ECM DOUBLECHECK (observe mode; armed per configured CAID in th-ecm.c):
+	 * feed this committed CW into its pending check. Server replies are
+	 * also fed at arrival (ecm_setsrvflagdcw in ecmdata.c, via
+	 * mcs_doublecheck_feed below) so a late second card's CW -- dropped
+	 * as a delivery because the ECM is already satisfied -- still counts
+	 * as the second source. add_result dedupes per reader, so the
+	 * winning CW fed twice (arrival + commit) is never two sources.
+	 * Delivery above already happened: this never gates or alters a CW. */
+	mcs_doublecheck_feed(committed_hash, (int)srcid, committed_cw, ecmtime);
+
+	/* R22 layers (opt-in build -DR22_LAYERS, no-op in stock): a committed
+	 * card-server CW is the ground truth the candidate layers learn from.
+	 * Recorded after delivery, like every observer here: it cannot reject,
+	 * delay or alter the CW. Hooks cw_failed/cw_verified stay unwired --
+	 * no protocol message tells this server a client actually decrypted,
+	 * and calling them at delivery would fabricate that evidence. */
+	if (srctype==DCW_SOURCE_SERVER)
+		r22_hook_ecm_setsrvflagdcw(committed_caid, committed_provid, committed_sid, committed_cw, (unsigned int)srcid, GetTickCount());
+
 	/*
 	 * TASK 2.5 -- the cache hand-off, observed at the moment it happens (see
 	 * cwcycle.h). Only cache-sourced keys are watched, and srcid keeps every
@@ -1641,10 +1678,10 @@ trusted_deliver:
 		         cwcy_observed(cwmark));
 
 	// Update Stat
-	cs->ecmok++;
-	cs->ecmoktime += ecmtime;
+	__atomic_fetch_add(&cs->ecmok, 1, __ATOMIC_RELAXED);
+	__atomic_fetch_add(&cs->ecmoktime, (ecmtime), __ATOMIC_RELAXED);
 	int time = (ecmtime+50)/100;
-	if (time<99) cs->ttime[time]++; else cs->ttime[99]++;
+	if (time<99) __atomic_fetch_add(&cs->ttime[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttime[99], 1, __ATOMIC_RELAXED);
 
 	if (srctype==DCW_SOURCE_CACHE) {
 		if (srcid&PEER_CSP) {
@@ -1674,7 +1711,7 @@ trusted_deliver:
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 
 #ifdef CAMD35_SRV
@@ -1698,7 +1735,7 @@ trusted_deliver:
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 #endif
 
@@ -1723,7 +1760,7 @@ trusted_deliver:
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 #endif
 
@@ -1746,7 +1783,7 @@ trusted_deliver:
 					srv->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 			pthread_mutex_unlock(&prg.lockcacheex);
 		}
@@ -1761,18 +1798,18 @@ trusted_deliver:
 			srv->hits++;
 			pthread_mutex_unlock(&prg.locksrv);
 		}
-		if (time<99) cs->ttimecards[time]++; else cs->ttimecards[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimecards[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecards[99], 1, __ATOMIC_RELAXED);
 	}
 #ifdef SRV_CSCACHE
 	else if (srctype==DCW_SOURCE_CSCLIENT) {
 		/* cachedcw is updated by cs_check_sendcw() under the Newcamd
 		 * config/client locks, after lockecm has been released. */
-		if (time<99) cs->ttimeclients[time]++; else cs->ttimeclients[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimeclients[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimeclients[99], 1, __ATOMIC_RELAXED);
 	}
 	else if (srctype==DCW_SOURCE_MGCLIENT) {
 		struct mg_client_data *cli = getmgcamdclientbyid( srcid&0xffff );
 		if (cli) cli->cachedcw++;
-		if (time<99) cs->ttimeclients[time]++; else cs->ttimeclients[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimeclients[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimeclients[99], 1, __ATOMIC_RELAXED);
 	}
 #endif
 

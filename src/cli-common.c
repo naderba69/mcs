@@ -79,7 +79,7 @@ void disconnect_srv(struct server_data *srv)
 #endif
 	// close handle
 	if (srv->handle > 0) close(srv->handle);
-	srv->handle = -1;
+	__atomic_store_n(&srv->handle, -1, __ATOMIC_RELAXED);
 	// Set connection data
 	srv->connection.status = 0;
 	uint32_t ticks = GetTickCount();

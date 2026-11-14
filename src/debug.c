@@ -40,6 +40,22 @@ struct trace_data trace;
 char dbgline[MAX_DBGLINES][512];
 int idbgline = 0;
 
+/* Live-TSan follow-up: slot CONTENT was a lock-free ring by design, and the
+ * all-paths session flagged every reader (HTTP debug page, telnet DEBUG)
+ * against every logging thread. The copy is at most 512 bytes, so a plain
+ * mutex around write-copy and read-copy is the honest fix: logging stays
+ * bounded and readers now get one whole line, never a torn one. */
+static pthread_mutex_t dbg_ring_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void dbg_copy_line(int slot, char *out, int outsz)
+{
+	if (!out || outsz <= 0) return;
+	if (slot < 0 || slot >= MAX_DBGLINES) { out[0] = '\0'; return; }
+	pthread_mutex_lock(&dbg_ring_lock);
+	dbg_addline(out, outsz, dbgline[slot]);
+	pthread_mutex_unlock(&dbg_ring_lock);
+}
+
 void add_dbgline(char *line)
 {
 	/* TASK 3.3 -- was strcpy(slot, line): a caller line longer than the
@@ -47,9 +63,8 @@ void add_dbgline(char *line)
 	/* Lock audit (D49): the ring index was incremented unsynchronized from
 	 * every thread that logs; two writers could claim the same slot and
 	 * readers (debug page, telnet) read the index racily. Claim the slot
-	 * atomically instead. Slot CONTENT remains a lock-free ring by design:
-	 * readers copy a bounded, always-terminated line that may be mid-write,
-	 * exactly as before -- only the index is now race-free. */
+	 * atomically instead; slot content is copied under dbg_ring_lock and
+	 * readers go through dbg_copy_line(). */
 	/* The cursor must stay wrapped (< MAX_DBGLINES): the debug page and
 	 * telnet readers do modular arithmetic on it. Claim-and-advance it
 	 * with a CAS loop so the wrap survives. */
@@ -60,7 +75,9 @@ void add_dbgline(char *line)
 		if (nxt >= MAX_DBGLINES) nxt = 0;
 	} while (!__atomic_compare_exchange_n(&idbgline, &slot, nxt, 0,
 	                                      __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+	pthread_mutex_lock(&dbg_ring_lock);
 	dbg_addline( dbgline[slot], (int)sizeof(dbgline[0]), line );
+	pthread_mutex_unlock(&dbg_ring_lock);
 }
 
 void encryptstr( unsigned char *src, unsigned char *dest)
