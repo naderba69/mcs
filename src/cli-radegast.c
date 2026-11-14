@@ -70,7 +70,7 @@ int rdgd_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 	memcpy(&buf[index+2],ecm->ecm, ecm->ecmlen);
 	index += 2+ecm->ecmlen;
 	buf[1] = index-2;
-	return rdgd_message_send(srv->handle, buf, index);
+	return rdgd_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), buf, index);
 }	
 
 
@@ -82,9 +82,9 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 	ECM_DATA *ecm;
 	unsigned char buf[CWS_NETMSGSIZE];
 
-	if (srv->handle>0)
+	if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0)
 	if (srv->type==TYPE_RADEGAST) {
-		len = rdgd_check_message(srv->handle);
+		len = rdgd_check_message(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED));
 		if (len==0) {
 			debugf(getdbgflag(DBG_SERVER,0,srv->id)," radegast: server (%s:%d) read failed %d\n", srv->host->name, srv->port, len);
 			disconnect_srv(srv);
@@ -98,7 +98,7 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 		}
 		else if (len>0) {
 			srv->chkrecvtime = 0;
-			len = rdgd_message_receive(srv->handle, buf, 3);
+			len = rdgd_message_receive(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), buf, 3);
 			if (len==0) {
 				debugf(getdbgflag(DBG_SERVER,0,srv->id)," radegast: server (%s:%d) read failed %d\n", srv->host->name, srv->port, len);
 				disconnect_srv(srv);
@@ -207,7 +207,7 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 				default:
 					buf[0] = 0x81;
 					buf[1] = 0;
-					rdgd_message_send(srv->handle,buf,2);
+					rdgd_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED),buf,2);
 				}
 			}
 

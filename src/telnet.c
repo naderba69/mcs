@@ -315,7 +315,7 @@ void *telnetprocess(int *param )
 				while (srv) {
 					index++;
 					sprintf( wbuf, "id:%d  Port:%d", srv->id, srv->port);
-					if (srv->handle>0) strcat( wbuf, " Status:ON "); else strcat( wbuf, " Status:OFF");
+					if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) strcat( wbuf, " Status:ON "); else strcat( wbuf, " Status:OFF");
 					int total, connected, active;
 					cccam_clients( srv, &total, &connected, &active );
 					sprintf( str, "Clients Total:%d, Connected:%d, Active:%d", total, connected, active );
@@ -370,7 +370,7 @@ void *telnetprocess(int *param )
 				while (srv) {
 					index++;
 					sprintf( wbuf, "id:%d  Port:%d", srv->id, srv->port);
-					if (srv->handle>0) strcat( wbuf, " Status:ON "); else strcat( wbuf, " Status:OFF");
+					if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) strcat( wbuf, " Status:ON "); else strcat( wbuf, " Status:OFF");
 					int total, connected, active;
 					mgcamd_clients( srv, &total, &connected, &active );
 					sprintf( str, "Clients Total:%d, Connected:%d, Active:%d", total, connected, active );

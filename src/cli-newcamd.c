@@ -212,7 +212,7 @@ int cs_sendecm_srv(struct cardserver_data *cs, struct server_data *srv, ECM_DATA
 	srvcd.provid = ecm->provid;
 
 	memcpy( &buf[0], &ecm->ecm[0], ecm->ecmlen );
-	return cs_message_send(  srv->handle, &srvcd, buf, ecm->ecmlen, srv->sessionkey);
+	return cs_message_send(  __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srvcd, buf, ecm->ecmlen, srv->sessionkey);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -226,9 +226,9 @@ void cs_srv_recvmsg(struct server_data *srv)
 	ECM_DATA *ecm;
 	unsigned char buf[CWS_NETMSGSIZE];
 
-	if ( (srv->handle<=0)||(srv->type!=TYPE_NEWCAMD) ) return;
+	if ( (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)<=0)||(srv->type!=TYPE_NEWCAMD) ) return;
 
-	len = cs_peekmsg( srv->handle, &srv->msg, srv->sessionkey, &srvcd, buf );
+	len = cs_peekmsg( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->msg, srv->sessionkey, &srvcd, buf );
 	if (len==0) {
 		debugf(getdbgflag(DBG_SERVER,0,srv->id)," newcamd: server (%s:%d) read failed %d\n", srv->host->name, srv->port, len);
 		disconnect_srv(srv);
@@ -513,7 +513,7 @@ void cs_check_keepalive(struct server_data *srv)
 	unsigned char buf[CWS_NETMSGSIZE];
 	uint32_t ticks;
 
-	if (!srv || srv->handle <= 0 || srv->type != TYPE_NEWCAMD) return;
+	if (!srv || __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) <= 0 || srv->type != TYPE_NEWCAMD) return;
 	ticks = GetTickCount();
 
 	// Check for sending keep alive
@@ -524,7 +524,7 @@ void cs_check_keepalive(struct server_data *srv)
 			buf[1] = 0;
 			buf[2] = 0;
 			//debugf(getdbgflag(DBG_SERVER,0,srv->id)," -> keepalive to server (%s:%d)\n",srv->host->name,srv->port);
-			if (!cs_message_send(srv->handle, NULL, buf, 3, srv->sessionkey)) {
+			if (!cs_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), NULL, buf, 3, srv->sessionkey)) {
 				disconnect_srv(srv);
 			} else {
 				srv->keepalive.time = ticks;
@@ -541,7 +541,7 @@ void cs_check_keepalive(struct server_data *srv)
 		buf[0] = MSG_KEEPALIVE;
 		buf[1] = 0;
 		buf[2] = 0;
-		if (!cs_message_send(srv->handle, &clicd, buf, 3, srv->sessionkey)) {
+		if (!cs_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &clicd, buf, 3, srv->sessionkey)) {
 			disconnect_srv(srv);
 		} else {
 			/* status remains a pending-response flag; time is the deadline base. */

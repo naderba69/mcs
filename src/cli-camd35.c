@@ -11,7 +11,7 @@ void camd35_send_keepalive(struct server_data *srv)
 		buf[0] = 0x3D;
 		buf[1] = 12;
 		memcpy( buf+20, cccam_nodeid, 8);
-		camd35_sendto( srv->handle, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+12);
+		camd35_sendto( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+12);
 	}
 	else
 #endif
@@ -21,7 +21,7 @@ void camd35_send_keepalive(struct server_data *srv)
 		memset(buf,0, 21);
 		buf[0] = 0x37;
 		buf[1] = 1;
-		camd35_sendto( srv->handle, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+1);
+		camd35_sendto( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+1);
 	}
 }
 
@@ -47,7 +47,7 @@ int camd35_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 	buf[16] = srv->ecm.msgid>>8;
 	buf[17] = srv->ecm.msgid;
 	memcpy( buf+20, ecm->ecm, ecm->ecmlen);
-	camd35_sendto( srv->handle, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+ecm->ecmlen);
+	camd35_sendto( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+ecm->ecmlen);
 	return 1;
 }
 
@@ -65,7 +65,7 @@ void camd35_srv_recvmsg(struct server_data *srv)
 	socklen_t slen = sizeof(si_other);
 	unsigned char buf[1024];
 
-	int received = recvfrom( srv->handle, buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
+	int received = recvfrom( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
 	if ( (received<20)||(received>1020) ) return;
 
 	uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
@@ -382,7 +382,7 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 				if (srv->cacheex_mode==2) {
 					if (!server_receive_thread_start(srv)) {
 						pthread_mutex_lock(&prg.locksrv);
-						if (srv->handle == fd) disconnect_srv(srv);
+						if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == fd) disconnect_srv(srv);
 						pthread_mutex_unlock(&prg.locksrv);
 					}
 				}

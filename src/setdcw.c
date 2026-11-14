@@ -1851,7 +1851,7 @@ trusted_deliver:
 		buf[0] = committed_tag | 0x40; // 0xC0 | 0xC1
 		buf[2] = 0x10;
 		memcpy(&buf[3], committed_cw, sizeof(committed_cw));
-		if (!cs_message_send(srv->handle, &srvcd, buf, 19, srv->sessionkey))
+		if (!cs_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srvcd, buf, 19, srv->sessionkey))
 			disconnect_srv(srv);
 		pthread_mutex_unlock(&prg.locksrv);
 	}

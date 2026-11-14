@@ -1610,7 +1610,7 @@ static void http_server_detail_snapshot_take(
 	memset(snapshot, 0, sizeof(*snapshot));
 	pthread_mutex_lock(&prg.locksrv);
 	snapshot->connected = srv->connection.status > 0;
-	snapshot->handle_active = srv->handle > 0;
+	snapshot->handle_active = __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0;
 	snapshot->connection_time = srv->connection.time;
 	snapshot->lastseen = srv->connection.lastseen;
 	snapshot->uptime = srv->connection.uptime;
@@ -2242,7 +2242,7 @@ void http_send_server(int sock, http_request *req)
 	else if (get_action==5) {
 		int connected;
 		pthread_mutex_lock(&prg.locksrv);
-		connected = (srv->connection.status > 0 && srv->handle > 0);
+		connected = (srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0);
 		pthread_mutex_unlock(&prg.locksrv);
 		if (connected) http_send_text(sock,"connected"); else http_send_text(sock,"disconnected");
 		tcp_flush(&tcpbuf, sock);
@@ -5037,7 +5037,7 @@ void http_send_cccam(int sock, http_request *req)
 			tcp_writestr(&tcpbuf, sock, "\n<cccam>");
 			sprintf(http_buf, "<id>%d</id>", srv->id); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			sprintf(http_buf, "<port>%d</port>", srv->port); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-			sprintf(http_buf, "<status>%d</status>", (srv->handle>0) ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+			sprintf(http_buf, "<status>%d</status>", (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			uint32_t ticks = GetTickCount();
 			struct cc_client_data *cli = srv->client;
 			while (cli) {
@@ -7343,7 +7343,7 @@ void http_send_mgcamd(int sock, http_request *req)
 			tcp_writestr(&tcpbuf, sock, "\n<mgcamd>");
 			sprintf(http_buf, "<id>%d</id>", srv->id); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			sprintf(http_buf, "<port>%d</port>", srv->port); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-			sprintf(http_buf, "<status>%d</status>", (srv->handle>0) ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+			sprintf(http_buf, "<status>%d</status>", (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			uint32_t ticks = GetTickCount();
 			struct mg_client_data *cli = srv->client;
 			while (cli) {

@@ -895,7 +895,7 @@ void recv_ecm_pipe()
 						newcamd_config_read_lock();
 						struct server_data *srv = find_main_server_id(server_id);
 						if (srv && srv->connect_generation == connect_generation &&
-						    srv->connection.status > 0 && srv->handle > 0) {
+						    srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0) {
 #ifdef EPOLL_ECM
 							struct epoll_event ev;
 							memset(&ev, 0, sizeof(ev));
@@ -903,9 +903,9 @@ void recv_ecm_pipe()
 								ev.data.u64 = connect_generation;
 								if (prg.epoll.ecm > 0 &&
 							    epoll_ctl(prg.epoll.ecm, EPOLL_CTL_ADD,
-							              srv->handle, &ev) == -1 && errno != EEXIST)
+							              __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &ev) == -1 && errno != EEXIST)
 								debugf(DBG_ERROR, "Err! EPOLL_CTL_ADD %s (%d)\n",
-								       srv->user, srv->handle);
+								       srv->user, __atomic_load_n(&srv->handle, __ATOMIC_RELAXED));
 #endif
 						}
 						newcamd_config_read_unlock();
@@ -925,7 +925,7 @@ void recv_ecm_pipe()
 						pthread_mutex_lock(&prg.locksrv);
 						struct server_data *srv = find_main_server_id(server_id);
 						if (srv && srv->type == TYPE_NEWCAMD && srv->cscached &&
-						    srv->busy && srv->connection.status > 0 && srv->handle > 0 &&
+						    srv->busy && srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0 &&
 						    srv->ecm.lifetime_id == request_lifetime_id) {
 							struct cs_custom_data srvcd;
 							uint8_t reply_buf[19];
@@ -938,7 +938,7 @@ void recv_ecm_pipe()
 							reply_buf[0] = ecm_tag | 0x40; /* C0/C1 cached DCW */
 							reply_buf[2] = 0x10;
 							memcpy(reply_buf + 3, reply_cw, sizeof(reply_cw));
-							if (!cs_message_send(srv->handle, &srvcd, reply_buf,
+							if (!cs_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srvcd, reply_buf,
 							                      sizeof(reply_buf), srv->sessionkey))
 								disconnect_srv(srv);
 						}
@@ -1050,7 +1050,7 @@ void *recv_msg_thread(void *param)
 					if (!srv) continue; // event from a retired connection attempt
 					pthread_mutex_lock(&prg.locksrv);
 					if (srv->connect_generation == generation &&
-					    srv->connection.status > 0 && srv->handle > 0) {
+					    srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0) {
 						if (evlist[i].events & (EPOLLIN | EPOLLPRI)) srv_recvmsg(srv);
 						else if (evlist[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR))
 							disconnect_srv(srv);
@@ -1106,7 +1106,7 @@ void *recv_msg_thread(void *param)
 
 		struct server_data *srv = cfg.server;
 		while (srv) {
-			/* Connect workers publish srv->handle with an atomic store
+			/* Connect workers publish __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) with an atomic store
 			 * under prg.locksrv (cli-*.c); this poll build runs under the
 			 * config read gate only, so load it atomically too (TSan
 			 * proved the plain pair racing, th-ecm vs cli-newcamd). */
@@ -1134,9 +1134,9 @@ void *recv_msg_thread(void *param)
 				pthread_mutex_lock(&prg.locksrv);
 				srv = cfg.server;
 				while (srv) {
-					if (!IS_DISABLED(srv->flags) && srv->handle > 0 &&
+					if (!IS_DISABLED(srv->flags) && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0 &&
 						    srv->ipoll >= 0 && srv->ipoll < pfdcount &&
-						    srv->handle == pfd[srv->ipoll].fd &&
+						    __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == pfd[srv->ipoll].fd &&
 						    srv->connect_generation == pfd_generation[srv->ipoll]) {
 						if (pfd[srv->ipoll].revents & (POLLHUP | POLLNVAL))
 							disconnect_srv(srv);
@@ -1192,7 +1192,7 @@ void *thread_keepalive(void *param)
 					if ( !srv->keepalive.status && tick32_elapsed(ticks, srv->keepalive.time) > 75000u ) {
 						srv->keepalive.status = 1; // Sent and waiting for reply
 						srv->keepalive.time = ticks;
-						if ( !cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_KEEPALIVE, 0, NULL) ) disconnect_srv( srv );
+						if ( !cc_msg_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_KEEPALIVE, 0, NULL) ) disconnect_srv( srv );
 					}
 				}
 
@@ -1227,7 +1227,7 @@ void *thread_keepalive(void *param)
 					if ( !srv->keepalive.status && tick32_elapsed(ticks, srv->keepalive.time) > 75000u ) {
 						srv->keepalive.status = 1; // Sent and waiting for reply
 						srv->keepalive.time = ticks;
-						if ( !cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_KEEPALIVE, 0, NULL) ) disconnect_srv( srv );
+						if ( !cc_msg_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_KEEPALIVE, 0, NULL) ) disconnect_srv( srv );
 					}
 				}
 

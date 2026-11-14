@@ -29,7 +29,7 @@ void cs378x_send_keepalive(struct server_data *srv)
 		buf[0] = CAMD_CEX_IDREQUEST;
 		buf[1] = 12;
 		memcpy( buf+20, cccam_nodeid, 8);
-		cs378x_send( srv->handle, &srv->encryptkey, srv->ucrc, buf, 20+12);
+		cs378x_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->encryptkey, srv->ucrc, buf, 20+12);
 	}
 	else
 #endif
@@ -40,7 +40,7 @@ void cs378x_send_keepalive(struct server_data *srv)
 		buf[0] = CAMD_KEEPALIVE;
 		buf[1] = 1;
 		buf[2] = 0;
-		cs378x_send( srv->handle, &srv->encryptkey, srv->ucrc, buf, 20+1);
+		cs378x_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->encryptkey, srv->ucrc, buf, 20+1);
 	}
 }
 
@@ -72,7 +72,7 @@ int cs378x_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 	buf[16] = srv->ecm.msgid>>8;
 	buf[17] = srv->ecm.msgid;
 	memcpy( buf+20, ecm->ecm, ecm->ecmlen);
-	cs378x_send( srv->handle, &srv->encryptkey, srv->ucrc, buf, 20+ecm->ecmlen);
+	cs378x_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->encryptkey, srv->ucrc, buf, 20+ecm->ecmlen);
 	return 1;
 }
 
@@ -106,7 +106,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 		}
 		else if ( (srv->keepalive.status>1) && ((srv->keepalive.time+10000)<ticks) ) {
 			debugf(getdbgflag(DBG_SERVER,0,srv->id),, " cs378x server disconnected, keepalive timeout\n");
-			close(srv->handle);
+			close(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED));
 			__atomic_store_n(&srv->handle, -1, __ATOMIC_RELAXED);
 			srv->pid = 0;
 			srv->connected = 0;
@@ -117,7 +117,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 */
 
 		unsigned char buf[2048];
-		int received = recv_nonb( srv->handle, buf, 32+4, 1000);
+		int received = recv_nonb( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), buf, 32+4, 1000);
 		if (received<=0 || received < 36 || received > (int)sizeof(buf)) {
 			disconnect_srv(srv);
 			//debugf(getdbgflag(DBG_SERVER,0,srv->id), " cs378x server disconnected, receive timeout\n");
@@ -139,7 +139,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 		}
 		if (received<newlen) {
 			int need = newlen-received;
-			int n = recv_nonb( srv->handle, buf+received, need, 500);
+			int n = recv_nonb( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), buf+received, need, 500);
 			if ( n != need ) {
 				disconnect_srv(srv);
 				//debugf(getdbgflag(DBG_SERVER,0,srv->id), " cs378x server disconnected, receive timeout\n");
@@ -464,7 +464,7 @@ int cs378x_connect_srv(struct server_data *srv, int fd)
 			if (srv->cacheex_mode==2) {
 				if (!server_receive_thread_start(srv)) {
 					pthread_mutex_lock(&prg.locksrv);
-					if (srv->handle == fd) disconnect_srv(srv);
+					if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == fd) disconnect_srv(srv);
 					pthread_mutex_unlock(&prg.locksrv);
 					/* disconnect_srv already closed fd; don't close it again upstream. */
 					return 0;

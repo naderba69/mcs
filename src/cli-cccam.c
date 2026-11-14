@@ -35,7 +35,7 @@ int cc_sendinfo_srv(struct server_data *srv, int ismultics)
 	}
 	memcpy(buf + 61, cfg.cccam.build, 32);	// build number (ascii)
 	debugf( getdbgflag(DBG_SERVER, 0, srv->id), " Server: send client info User: '%s', Version: '%s', Build: '%s'.\n", srv->user, cfg.cccam.version, cfg.cccam.build);
-	return cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_CLI_INFO, 20 + 8 + 1 + 64, buf);
+	return cc_msg_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_CLI_INFO, 20 + 8 + 1 + 64, buf);
 }
 
 
@@ -171,7 +171,7 @@ int cc_connect_srv(struct server_data *srv, int fd)
 		if (!server_connection_is_enabled(srv, fd)) return 0;
 		if (!server_receive_thread_start(srv)) {
 			pthread_mutex_lock(&prg.locksrv);
-			if (srv->handle == fd) disconnect_srv(srv);
+			if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == fd) disconnect_srv(srv);
 			pthread_mutex_unlock(&prg.locksrv);
 		}
 	}
@@ -192,8 +192,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 	int i, len;
 	ECM_DATA *ecm;
 
-	if ( (srv->type==TYPE_CCCAM)&&(srv->handle>0) ) {
-		len = cc_peekmsg( srv->handle, &srv->recvblock, &srv->msg, buf );
+	if ( (srv->type==TYPE_CCCAM)&&(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) ) {
+		len = cc_peekmsg( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->recvblock, &srv->msg, buf );
 		if (len==0) {
 			debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: server (%s:%d) read failed %d\n", srv->host->name, srv->port, len);
 			disconnect_srv(srv);
@@ -516,7 +516,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 
 
 				case CC_MSG_BAD_ECM:
-					if ( !cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_BAD_ECM, 0, NULL) ) disconnect_srv(srv);
+					if ( !cc_msg_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_BAD_ECM, 0, NULL) ) disconnect_srv(srv);
 					//debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: cmd 0x05 from Server (%s:%d)\n",srv->host->name,srv->port);
 					//currentecm.state = ECM_STATUS_FAILED;
 					break;
@@ -763,7 +763,7 @@ int cc_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 {
 	unsigned char buf[CC_MAXMSGSIZE];
 
-	//if ( (srv->handle>0)&&(!srv->busy) ) {
+	//if ( (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0)&&(!srv->busy) ) {
 	//	if (!cc_getcardbyid(srv, srv->busycardid)) return 0;
 		//mlogf(LOGINFO,getdbgflag(DBG_SERVER, 0, srv->id), " -> ecm to CCcam server (%s:%d) ch %04x:%06x:%04x shareid %x\n", srv->host->name, srv->port,ecm->caid,ecm->provid,ecm->sid,srv->busycardid);
 	buf[0] = ecm->caid>>8;
@@ -784,7 +784,7 @@ int cc_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 	srv->lastecmtime = GetTickCount();
 	srv->busy = 1;
 	////srv->ecm.msgid = ecm->id;
-	return cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_ECM_REQUEST, 13+ecm->ecmlen, buf );
+	return cc_msg_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_ECM_REQUEST, 13+ecm->ecmlen, buf );
 	//}
 	//return 0;
 }
@@ -797,7 +797,7 @@ int cc_send_cw_share(struct server_data *srv, uint16_t caid, uint16_t sid, uint3
 {
 	unsigned char buf[32];
 	
-	if (!srv || srv->handle <= 0 || !cw) return 0;
+	if (!srv || __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) <= 0 || !cw) return 0;
 	
 	// Build CW share message
 	buf[0] = caid >> 8;
@@ -814,7 +814,7 @@ int cc_send_cw_share(struct server_data *srv, uint16_t caid, uint16_t sid, uint3
 	debugf(0, "BISS SHARE: Sending CW to server (%s:%d) for %04X:%06X:%04X\n",
 		srv->host->name, srv->port, caid, provid, sid);
 	
-	return cc_msg_send(srv->handle, &srv->sendblock, CC_MSG_CW_SHARE, 25, buf);
+	return cc_msg_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_CW_SHARE, 25, buf);
 }
 
 

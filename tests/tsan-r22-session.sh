@@ -20,7 +20,7 @@ mkdir -p "$DEST" "$WORK"
 export TSAN_OPTIONS="halt_on_error=0 log_path=$WORK/report"
 
 echo "== building TSan+R22 server =="
-base=$(make -s -C "$ROOT/make-x64" print-cflags | sed 's/-O2/-O1 -g -fno-omit-frame-pointer/' | sed 's/-std=gnu89/-fgnu89-inline/')
+base=$(MAKEFLAGS= make -s --no-print-directory -C "$ROOT/make-x64" print-cflags | sed 's/-O2/-O1 -g -fno-omit-frame-pointer/' | sed 's/-std=gnu89/-fgnu89-inline/')
 # port_gnu89.h (named by -include in the cflags) lives in make-x64/;
 # compile from there so every TU finds it.
 cd "$ROOT/make-x64"

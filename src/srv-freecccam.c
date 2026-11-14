@@ -285,7 +285,7 @@ void freecccam_srv_accept(struct cccam_server_data *srv)
 {
 	struct sockaddr_in newaddr;
 	socklen_t socklen = sizeof(struct sockaddr);
-	int newfd = accept( srv->handle, (struct sockaddr*)&newaddr, /*(socklen_t*)*/&socklen);
+	int newfd = accept( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), (struct sockaddr*)&newaddr, /*(socklen_t*)*/&socklen);
 	if ( newfd<=0 ) {
 		if ( (errno!=EAGAIN) && (errno!=EINTR) ) debugf( getdbgflag(DBG_CCCAM,0,0)," FreeCCcam%d: Accept failed (errno=%d)\n", errno);
 	}

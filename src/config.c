@@ -9000,7 +9000,7 @@ int done_config(struct config_data *cfg)
 	// Close Servers Connections
 	struct server_data *srv = cfg->server;
 	while (srv) {
-		if (srv->handle>0) close(srv->handle);
+		if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) close(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED));
 		srv = srv->next;
 	}
 
