@@ -431,7 +431,7 @@ void init_config(struct config_data *cfg)
 
 #ifdef HTTP_SRV
 	cfg->http.port = 5500;
-	cfg->http.handle = -1;
+	__atomic_store_n(&cfg->http.handle, -1, __ATOMIC_RELAXED);
 	cfg->http.autorefresh = 0;
 	strcpy(cfg->http.title, "Multi CardServer");
 	cfg->http.logindelay = 0;              /* TASK R3 (D57): off = stock */
@@ -8100,8 +8100,8 @@ void reread_config( struct config_data *cfg )
 	if (cfg->http.port!=newcfg.http.port) {
 		//cfg->http.flags |= FLAG_DISCONNECT;
 		cfg->http.port = newcfg.http.port;
-		newcfg.http.handle = cfg->http.handle;
-		cfg->http.handle = -1;
+		newcfg.http.handle = __atomic_load_n(&cfg->http.handle, __ATOMIC_RELAXED);
+		__atomic_store_n(&cfg->http.handle, -1, __ATOMIC_RELAXED);
 	}
 	// update http file data
 	pointer = cfg->http.files;
@@ -8114,8 +8114,8 @@ void reread_config( struct config_data *cfg )
 	if (cfg->telnet.port!=newcfg.telnet.port) {
 		//cfg->http.flags |= FLAG_DISCONNECT;
 		cfg->telnet.port = newcfg.telnet.port;
-		newcfg.telnet.handle = cfg->telnet.handle;
-		cfg->telnet.handle = -1;
+		newcfg.telnet.handle = __atomic_load_n(&cfg->telnet.handle, __ATOMIC_RELAXED);
+		__atomic_store_n(&cfg->telnet.handle, -1, __ATOMIC_RELAXED);
 	}
 #endif
 
@@ -8414,36 +8414,42 @@ int check_config(struct config_data *cfg)
 
 	// HTTP Port
 #ifdef HTTP_SRV
-	if (cfg->http.handle<=0) {
+	if (__atomic_load_n(&cfg->http.handle, __ATOMIC_RELAXED)<=0) {
 		if ( (cfg->http.port<1024)||(cfg->http.port>0xffff) ) {
 			debugf(getdbgflag(DBG_CONFIG,0,0)," HTTP Server: invalid port value (%d)\n", cfg->http.port);
-			cfg->http.handle = -1;
-		}
-		else if ( (cfg->http.handle=CreateServerSockTcp(cfg->http.port, IP_ADRESS)) == -1) {
-			debugf(getdbgflag(DBG_CONFIG,0,0)," HTTP Server: bind port failed (%d)\n", cfg->http.port);
-			cfg->http.handle = -1;
+			__atomic_store_n(&cfg->http.handle, -1, __ATOMIC_RELAXED);
 		}
 		else {
-			debugf(getdbgflag(DBG_CONFIG,0,0)," HTTP server started on port %d\n",cfg->http.port);
-			CHECK_IP_ADRESS(cfg->http.handle);
+			/* atomic store: the HTTP accept thread snapshots this fd */
+			int http_sock = CreateServerSockTcp(cfg->http.port, IP_ADRESS);
+			__atomic_store_n(&cfg->http.handle, http_sock, __ATOMIC_RELAXED);
+			if (http_sock == -1) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," HTTP Server: bind port failed (%d)\n", cfg->http.port);
+			} else {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," HTTP server started on port %d\n",cfg->http.port);
+				CHECK_IP_ADRESS(http_sock);
+			}
 		}
 	}
 #endif
 
 #ifdef TELNET
 	// telnet Port
-	if (cfg->telnet.handle<=0) {
+	if (__atomic_load_n(&cfg->telnet.handle, __ATOMIC_RELAXED)<=0) {
 		if ( (cfg->telnet.port<1024)||(cfg->telnet.port>0xffff) ) {
 			debugf(getdbgflag(DBG_CONFIG,0,0)," Telnet Server: invalid port value (%d)\n", cfg->telnet.port);
-			cfg->telnet.handle = -1;
-		}
-		else if ( (cfg->telnet.handle=CreateServerSockTcp(cfg->telnet.port, IP_ADRESS)) == -1) {
-			debugf(getdbgflag(DBG_CONFIG,0,0)," Telnet Server: bind port failed (%d)\n", cfg->telnet.port);
-			cfg->telnet.handle = -1;
+			__atomic_store_n(&cfg->telnet.handle, -1, __ATOMIC_RELAXED);
 		}
 		else {
-			debugf(getdbgflag(DBG_CONFIG,0,0)," Telnet server started on port %d\n",cfg->telnet.port);
-			CHECK_IP_ADRESS(cfg->telnet.handle);
+			/* atomic store: the Telnet accept thread snapshots this fd */
+			int telnet_sock = CreateServerSockTcp(cfg->telnet.port, IP_ADRESS);
+			__atomic_store_n(&cfg->telnet.handle, telnet_sock, __ATOMIC_RELAXED);
+			if (telnet_sock == -1) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," Telnet Server: bind port failed (%d)\n", cfg->telnet.port);
+			} else {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," Telnet server started on port %d\n",cfg->telnet.port);
+				CHECK_IP_ADRESS(telnet_sock);
+			}
 		}
 	}
 #endif
@@ -8842,11 +8848,11 @@ int done_config(struct config_data *cfg)
 
 #ifdef HTTP_SRV
 	// HTTP Port
-	if (cfg->http.handle>0) close(cfg->http.handle);
+	if (__atomic_load_n(&cfg->http.handle, __ATOMIC_RELAXED)>0) close(__atomic_load_n(&cfg->http.handle, __ATOMIC_RELAXED));
 #endif
 
 #ifdef TELNET
-	if (cfg->telnet.handle>0) close(cfg->telnet.handle);
+	if (__atomic_load_n(&cfg->telnet.handle, __ATOMIC_RELAXED)>0) close(__atomic_load_n(&cfg->telnet.handle, __ATOMIC_RELAXED));
 #endif
 
 #ifdef CCCAM_SRV

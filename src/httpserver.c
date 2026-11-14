@@ -9828,16 +9828,22 @@ void *http_thread(void *param)
 	prctl(PR_SET_NAME,"HTTP Server",0,0,0);
 
 	while (!prg.restart) {
-		if (cfg.http.handle>0) {
+		/* D49 follow-up (loaded TSan session): the config thread rewrites
+		 * cfg.http.handle on a port-changing reload while this loop polls
+		 * it. Snapshot it atomically once per iteration; all writers in
+		 * config.c store it atomically too, so the pair is race-free and
+		 * this loop never polls a half-updated descriptor. */
+		int http_handle = __atomic_load_n(&cfg.http.handle, __ATOMIC_RELAXED);
+		if (http_handle>0) {
 			//pthread_mutex_lock(&prg.lockhttp);
 
 			struct pollfd pfd;
-			pfd.fd = cfg.http.handle;
+			pfd.fd = http_handle;
 			pfd.events = POLLIN | POLLPRI;
 			int retval = poll(&pfd, 1, 3002);
 			if ( retval>0 ) {
 				if ( pfd.revents & (POLLIN|POLLPRI) ) {
-					clientsock = accept(cfg.http.handle, (struct sockaddr*)&client_addr, /*(socklen_t*)*/&socklen);
+					clientsock = accept(http_handle, (struct sockaddr*)&client_addr, /*(socklen_t*)*/&socklen);
 					if ( clientsock<0 ) {
 						debugf(getdbgflag(DBG_HTTP,0,0)," HTTP Server: Accept Error\n");
 						break;

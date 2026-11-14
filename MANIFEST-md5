@@ -53,13 +53,13 @@ dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 5392840310182c115bf07767de740867  bin/multics-r82a-queue-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
 2a5423d0428f83f35ece6536043fd4a8  bin/multics-r82a-stats-x64
-05eccdea281484bb686e97bae94d6e7e  bin/multics-r82a-stock-x64
+18ca4ec4726f73ea98a37fb9303f47c4  bin/multics-r82a-stock-x64
 fbfef2a162b03fed8d56aca7babd3ef3  bin/multics-r82a-x64
 2a5423d0428f83f35ece6536043fd4a8  bin/multics.x64
-8e7521c856bf7b956bd4b27903e51b7f  dist/multics-r82a-queue-stats-x64
-5392840310182c115bf07767de740867  dist/multics-r82a-queue-x64
-2a5423d0428f83f35ece6536043fd4a8  dist/multics-r82a-stats-x64
-05eccdea281484bb686e97bae94d6e7e  dist/multics-r82a-stock-x64
+9d212081c5d435e4166a24fd6a48d666  dist/multics-r82a-queue-stats-x64
+4a574b9f126f88809cbbe56f4ceaa633  dist/multics-r82a-queue-x64
+b7d233a412a3be8a55a277cbb1a0e6f1  dist/multics-r82a-stats-x64
+18ca4ec4726f73ea98a37fb9303f47c4  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
 fca6bb5931ff91b9593f86bf16734ebc  docs/BLACKSCREEN.md
@@ -148,7 +148,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-52b46e55633b8a3cac4905d8effe1c6a  docs/REPORT-R48-ar.md
+994656da4f15444983ee752be527e837  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -480,7 +480,7 @@ a3e3072f8f89a66cccdf4c32a0c6c607  src/cli-radegast.c
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
 f13414ae57234f031db26c4f2613a66e  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-08b663e1d895e1e7770d4d57c2099e91  src/config.c
+30726804603fd21c192f8eb6427a8013  src/config.c
 5ebe257a60de4cbda7f2bdc3d33f6720  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
@@ -575,7 +575,7 @@ ae9211ebb2753df0ff4e33d75b39c1cd  src/ecm-provider-config.h
 fcefcdfa1775d443482ebfec42fa6b98  src/fastretx.h
 8798be7a3334dd52a05bfb5c12e3b4c5  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-c4a3a981bd42eb00ffd292c24fa9c97e  src/httpserver.c
+0b80e7e5b8973d86ca70919fb460f5c9  src/httpserver.c
 ba3dbab45abea98efcb6961173889ec0  src/httpserver.h
 c116c9ee2340ebc5129780416943219a  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
@@ -659,7 +659,7 @@ d1cc984615a9df70247c13463d448e55  src/srv-newcamd.c
 00909d2209122c413dc06fd8b8835563  src/srv-radegast.c
 5cf4fd45ab8a814068fa38434d0089ac  src/statsline.h
 7937e7be4aae281e5f47e1c164626881  src/supersmartfilter.h
-e19458e552e6c5d60bf4aaa9ce92101c  src/telnet.c
+2143ee681c1babc3fc5c5142d71aa9ef  src/telnet.c
 e79043a4563b3f9a8cf0acacc292f691  src/telnet.h
 942e6d4e63e9c584df950aaffd7af21d  src/th-cfg.c
 cdd1cd044e020c884f356873a73b6383  src/th-date.c
