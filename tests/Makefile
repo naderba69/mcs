@@ -182,6 +182,9 @@ ecm-radegast-identity:
 cacheex-provider-collision:
 	@python3 cacheex-provider-collision.py $(BIN)
 
+tsan-r22:
+	@sh ./tsan-r22-session.sh
+
 doublecheck-live:
 	@MODE=agree python3 doublecheck-live.py $(BIN)
 	@MODE=mismatch python3 doublecheck-live.py $(BIN)
