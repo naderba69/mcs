@@ -7092,6 +7092,26 @@ void update_freecccam_server(struct config_data *cfg, struct config_data *newcfg
 		memcpy(cfg->freecccam.nodeid ,newcfg->freecccam.nodeid, 8);
 		memcpy(cfg->freecccam.csport ,newcfg->freecccam.csport, sizeof(cfg->freecccam.csport));
 
+		/* The incoming slots were numbered from the new config's own
+		 * counter (starting at 1), but live CCcam clients keep their
+		 * old ids across the reload (update_cccam_clients reuses the
+		 * objects) -- a kept client whose id falls inside the new
+		 * slot range would collide with a slot, and the id-matched
+		 * user trace could bind to the wrong client. Renumber the
+		 * incoming slots from the live generation's counter, which
+		 * is past every live id. */
+		{
+			struct cc_client_data *newslot = newcfg->freecccam.server.client;
+			while (newslot) {
+#ifdef CCCAM_SRV
+				newslot->id = cfg->cccam.clientid++;
+#else
+				newslot->id = cfg->freecccam.clientid++;
+#endif
+				newslot = newslot->next;
+			}
+		}
+
 		void *temp = cfg->freecccam.server.client;
 		cfg->freecccam.server.client = newcfg->freecccam.server.client;
 		newcfg->freecccam.server.client = temp;
@@ -8243,6 +8263,13 @@ void reread_config( struct config_data *cfg )
 	dcw_filter_globals_publish(&newcfg);
 
 	cfg->newcamd.clientid = newcfg.newcamd.clientid;
+#ifdef CCCAM_SRV
+	/* New clients that moved in carry new-generation ids; never let
+	 * the live counter fall behind them (a later FreeCCcam slot
+	 * renumber draws from it). */
+	if (newcfg.cccam.clientid > cfg->cccam.clientid)
+		cfg->cccam.clientid = newcfg.cccam.clientid;
+#endif
 	cfg->newcamd.dcwcheck = newcfg.newcamd.dcwcheck;
 	cfg->newcamd.keepalive = newcfg.newcamd.keepalive;
 

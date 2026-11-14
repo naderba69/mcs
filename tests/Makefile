@@ -191,6 +191,9 @@ freecccam-live:
 ci-validate-live:
 	@python3 ci-validate-live.py $(BIN)
 
+client-id-reload:
+	@python3 client-id-reload.py $(BIN)
+
 doublecheck-live:
 	@MODE=agree python3 doublecheck-live.py $(BIN)
 	@MODE=mismatch python3 doublecheck-live.py $(BIN)
