@@ -1,3 +1,0 @@
-../src/peerrep.c:37:20: warning: 'stage_name' defined but not used [-Wunused-function]
-   37 | static const char *stage_name(int st)
-      |                    ^~~~~~~~~~

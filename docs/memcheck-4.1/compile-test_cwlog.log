@@ -1,0 +1,7 @@
+In file included from ../src/cwlog.c:15:
+../src/cwlog.h:74:20: warning: 'cwlog_reason_name' defined but not used [-Wunused-function]
+   74 | static const char *cwlog_reason_name(int reason)
+      |                    ^~~~~~~~~~~~~~~~~
+../src/cwlog.h:59:20: warning: 'cwlog_verdict_name' defined but not used [-Wunused-function]
+   59 | static const char *cwlog_verdict_name(int verdict)
+      |                    ^~~~~~~~~~~~~~~~~~

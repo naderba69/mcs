@@ -1,4 +1,8 @@
 In file included from test_cwcm.c:26:
+../src/cwcm.h: In function 'cwcm_pairs':
+../src/cwcm.h:136:30: warning: comparison of promoted bitwise complement of an unsigned value with unsigned [-Wsign-compare]
+  136 |                 if (cw[B[i]] == (uint8_t)~cw[A[i]]) n++;
+      |                              ^~
 ../src/cwcm.h: In function 'main':
 ../src/cwcm.h:282:50: warning: '%06x' directive output truncated writing between 6 and 8 bytes into a region of size between 0 and 2 [-Wformat-truncation=]
   282 |                 "CW MIRROR: source %d/%d ch %04x:%06x:%04x -- %u of %u key%s this "

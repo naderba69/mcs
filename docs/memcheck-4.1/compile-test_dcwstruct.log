@@ -1,0 +1,60 @@
+In file included from test_dcwstruct.c:23:
+../src/dcwstruct.h: In function 'dcwstruct_scan':
+../src/dcwstruct.h:356:39: warning: comparison of promoted bitwise complement of an unsigned value with unsigned [-Wsign-compare]
+  356 |                         if (cw[8 + i] != (uint8_t)~cw[i]) inv = 0;
+      |                                       ^~
+../src/dcw.c: In function 'dcw_pattern_fake':
+../src/dcw.c:206:33: warning: comparison of promoted bitwise complement of an unsigned value with unsigned [-Wsign-compare]
+  206 |                 if (data[FB[i]] == (uint8_t)~data[FA[i]]) pairs++;
+      |                                 ^~
+In file included from ../src/dcw.c:16:
+../src/blackscreen-detector.h: At top level:
+../src/blackscreen-detector.h:405:13: warning: 'bs_init' defined but not used [-Wunused-function]
+  405 | static void bs_init(void)
+      |             ^~~~~~~
+../src/blackscreen-detector.h:378:13: warning: 'bs_reset_channel' defined but not used [-Wunused-function]
+  378 | static void bs_reset_channel(uint16_t caid, uint32_t provid, uint16_t sid)
+      |             ^~~~~~~~~~~~~~~~
+../src/blackscreen-detector.h:367:13: warning: 'bs_get_global_stats' defined but not used [-Wunused-function]
+  367 | static void bs_get_global_stats(struct bs_global_stats *out)
+      |             ^~~~~~~~~~~~~~~~~~~
+../src/blackscreen-detector.h:347:12: warning: 'bs_get_channel_stats' defined but not used [-Wunused-function]
+  347 | static int bs_get_channel_stats(uint16_t caid, uint32_t provid, uint16_t sid,
+      |            ^~~~~~~~~~~~~~~~~~~~
+../src/blackscreen-detector.h:311:12: warning: 'bs_is_blackscreen' defined but not used [-Wunused-function]
+  311 | static int bs_is_blackscreen(uint16_t caid, uint32_t provid, uint16_t sid, uint32_t now_ms)
+      |            ^~~~~~~~~~~~~~~~~
+../src/blackscreen-detector.h:231:12: warning: 'bs_record_cw_failure' defined but not used [-Wunused-function]
+  231 | static int bs_record_cw_failure(uint16_t caid, uint32_t provid, uint16_t sid, uint32_t now_ms)
+      |            ^~~~~~~~~~~~~~~~~~~~
+../src/blackscreen-detector.h:189:13: warning: 'bs_record_cw_success' defined but not used [-Wunused-function]
+  189 | static void bs_record_cw_success(uint16_t caid, uint32_t provid, uint16_t sid,
+      |             ^~~~~~~~~~~~~~~~~~~~
+../src/blackscreen-detector.h:171:13: warning: 'bs_record_ecm_request' defined but not used [-Wunused-function]
+  171 | static void bs_record_ecm_request(uint16_t caid, uint32_t provid, uint16_t sid, uint32_t now_ms)
+      |             ^~~~~~~~~~~~~~~~~~~~~
+In file included from ../src/dcw.c:13:
+../src/casystem.h:261:20: warning: 'ca_cwformat_name' defined but not used [-Wunused-function]
+  261 | static const char *ca_cwformat_name(int format)
+      |                    ^~~~~~~~~~~~~~~~
+../src/casystem.h:252:17: warning: 'ca_ecm_chid' defined but not used [-Wunused-function]
+  252 | static uint16_t ca_ecm_chid(const uint8_t *ecm, int ecmlen, uint16_t caid)
+      |                 ^~~~~~~~~~~
+../src/casystem.h:195:12: warning: 'ca_ecm_provid' defined but not used [-Wunused-function]
+  195 | static int ca_ecm_provid(const uint8_t *ecm, int ecmlen, uint16_t caid,
+      |            ^~~~~~~~~~~~~
+../src/casystem.h:179:12: warning: 'ca_ecm_hash_offset' defined but not used [-Wunused-function]
+  179 | static int ca_ecm_hash_offset(uint16_t caid)
+      |            ^~~~~~~~~~~~~~~~~~
+../src/casystem.h:169:12: warning: 'ca_is_biss2' defined but not used [-Wunused-function]
+  169 | static int ca_is_biss2(uint16_t caid)
+      |            ^~~~~~~~~~~
+../src/casystem.h:164:12: warning: 'ca_is_biss' defined but not used [-Wunused-function]
+  164 | static int ca_is_biss(uint16_t caid)
+      |            ^~~~~~~~~~
+../src/casystem.h:158:12: warning: 'ca_is_icam' defined but not used [-Wunused-function]
+  158 | static int ca_is_icam(uint16_t caid)
+      |            ^~~~~~~~~~
+../src/casystem.h:138:20: warning: 'ca_name' defined but not used [-Wunused-function]
+  138 | static const char *ca_name(uint16_t caid)
+      |                    ^~~~~~~
