@@ -3265,7 +3265,7 @@ void mainprocess()
 	{ int n_dbl = ecm_doublecheck_apply_config(); /* ECM DOUBLECHECK config line; 0 = inert */
 	  if (n_dbl) debugf(0, "   [ECM-DOUBLECHECK] observe-mode double check on for %d configured CAIDs\n", n_dbl); }
 	debugf(0, " [CACHE-SPEED] Cache Speed Optimization Suite initialized (8 systems)\n");
-	debugf(0, "   [EMM-CACHE] EMM cache system active (rewrite=3, TTL=3600s)\n");
+	debugf(0, "   [EMM-CACHE] inert: no EMM ingress path in this flavour (no protocol handler receives EMM; cache_speed_on_emm has no caller)\n");
 	debugf(0, "   [CW-CACHE-SETTINGS] Per-CAID cache settings loaded\n");
 	debugf(0, "   [CACHEX-WAITTIME] Per-CAID wait times loaded\n");
 	debugf(0, "   [CACHEX-ADVANCED] DropDiffs + NoPushAfter + DoubleCheck active\n");
@@ -3282,7 +3282,7 @@ void mainprocess()
 	/* ECM Pattern Analysis - Detect coordinated attacks */
 	ecmpat_init();
 	debugf(0, " [ECM-PATTERN] ECM Pattern Analysis system initialized\n");
-	debugf(0, "   [EMM-SHARED] EMM injection detection active (5s window)\n");
+	debugf(0, "   [EMM-SHARED] inert: the EMM pattern input is never fed (no EMM ingress in this flavour)\n");
 	debugf(0, "   [BURST] Burst fake CW detection active (3+ in 10s)\n");
 	debugf(0, "   [POISON] Cache poisoning storm detection active\n");
 	debugf(0, "   [PROVIDER] Provider punishment detection active\n");
