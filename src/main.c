@@ -3268,7 +3268,7 @@ void mainprocess()
 	debugf(0, "   [EMM-CACHE] inert: no EMM ingress path in this flavour (no protocol handler receives EMM; cache_speed_on_emm has no caller)\n");
 	debugf(0, "   [CW-CACHE-SETTINGS] Per-CAID cache settings loaded\n");
 	debugf(0, "   [CACHEX-WAITTIME] Per-CAID wait times loaded\n");
-	debugf(0, "   [CACHEX-ADVANCED] DropDiffs + NoPushAfter + DoubleCheck active\n");
+	debugf(0, "   [CACHEX-ADVANCED] inert on the live path: DropDiffs/NoPushAfter run only in dead code; ECM DoubleCheck is the separate observe-only engine\n");
 
 	/* CW Post-Validation - Detect fake CWs after acceptance */
 	cwpostval_init();
