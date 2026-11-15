@@ -528,6 +528,7 @@ bef2e86c50922352138870bf67059fdf  src/cwmemlimit.h
 8e62776f7c93d22fbfd5fbe209399bd0  src/cwml.h
 86688ab22439e43d3141522829c1694c  src/cwmultibuf.h
 2ae035b49ce200f7a3dae0524c572982  src/cwneg.h
+c5ba5d359833445100a70ef2d4332770  src/cwpair.h
 cc776af51d5fe07958961bad536d79bd  src/cwpattern.h
 7335d9cea6067778651db058ce82924f  src/cwpersist.h
 3f91deb6f6e08ea1e1b381649a9d3e68  src/cwplaus.h
@@ -784,6 +785,7 @@ f82225de33969f5d737ceb9afc4c5cc4  tests/ci-validate-live.py
 23cc74be3f43edc4814aeb88e6859a32  tests/crypto-alignment.c
 abffc972c0f923130b52d0695fd5ea2c  tests/cwconsensus-1884-research.c
 91a36a2c4e35a2e6e4814d12328c45d9  tests/cwconsensus-load.c
+41c7c9a41e12143c147a5c6f6d1e7ed8  tests/cwpair-live.py
 46fb2350d640c99e1dc73ba8f34f9495  tests/cxpeer.c
 2c41e383899b98ddcae3afb18cdf8feb  tests/dcw-compare.c
 afb0c92d055b6060e8835d45ef72b143  tests/dcw-validation-reasons.c
