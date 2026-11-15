@@ -1248,9 +1248,11 @@ Commits على `arena/59c38810-mcs`: ‏`033efd7`، ‏`172e455`، ‏`f9d5fe2`�
       ‏MULTICHECK ⇐ ‏`ssf_check_multicheck` + DoubleCheck الحي؛
       ‏DUPSEEN ⇐ ‏`ssf_check_crosschannel`؛ SF_CW_REUSE/SMART
       RETRY/SERVER SELECT ⇐ ‏`cw_reuse.h`/`smart-retry.h`/
-      ‏`smart-server-select.h`؛ ‏CW1CYCLE ⇐ فحوص الدورة في SSF؛
-      حظر IP ⇐ صفحات/حظر قائم؛ ‏`/loginlog` جزئيًا ⇐ تتبع دخول
-      الويب قائم. **NDS half seed وSF_CW_CHAIN/HALFREUSE**:
+      ‏`smart-server-select.h`. **لم يُتحقق من مقابل مباشر**
+      عندنا لـCW1CYCLE ولا لحظر-IP-لكل-بروتوكول ولا لصفحة
+      ‏`/loginlog` (عندنا عدّادات دخول لكل عميل في صفحات
+      العملاء فقط) — سُجّلت فجواتٍ موثّقة لا «موجودات»،
+      ولا تُبنى إلا بدليل تريس/حاجة تشغيلية (بند 50).
       رُفضا — إعادة استعمال نصف CW أو توليده تخمينًا يناقض
       قاعدة «الشفرة الصحيحة تصل العميل» وبواباتنا المثبتة حيًا،
       ولا دليل تريس يطلبهما. **صفحتا /iptables و/loginlog
