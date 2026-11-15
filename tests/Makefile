@@ -248,6 +248,11 @@ camd35-guard:
 marchcheck:
 	sh ./marchcheck.sh
 
+# Band 56: CW_DUP constant-CW-across-cycles detector (competitor-gated,
+# overrides, fail-open without ecm_hash) against production code.
+cwdup:
+	sh ./cwdup.sh
+
 # Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
 # be delivered from cache, the mismatched scope must not.
 c1884:

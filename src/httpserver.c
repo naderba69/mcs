@@ -8446,21 +8446,24 @@ static void http_send_smartfilter(int sock, struct http_request *req)
 		tcp_writestr(&tcpbuf, sock, http_buf);
 	}
 	tcp_writestr(&tcpbuf, sock, "</div>\n<table class=module style='font-size:0.85em;'><tr>");
-	sprintf( http_buf, "<th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th>",
+	sprintf( http_buf, "<th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th>",
 		mlabel("Empty", "فارغ"), mlabel("Fake", "فايك"), mlabel("Entropy", "إنتروبيا"),
 		mlabel("Pattern", "نمط"), mlabel("Format", "تنسيق"), mlabel("Blacklist", "قائمة سوداء"),
-		mlabel("Duplicate", "مكرر"), mlabel("Multicheck", "فحص متعدد"), mlabel("Marchcheck", "فحص المسير"));
+		mlabel("Duplicate", "مكرر"), mlabel("Multicheck", "فحص متعدد"), mlabel("Marchcheck", "فحص المسير"),
+		mlabel("CW-Dup", "تكرار ثابت"));
 	tcp_writestr(&tcpbuf, sock, http_buf);
-	sprintf( http_buf, "</tr><tr><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td></tr></table>\n",
+	sprintf( http_buf, "</tr><tr><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td></tr></table>\n",
 		(unsigned long long)st.rejected_empty, (unsigned long long)st.rejected_fake,
 		(unsigned long long)st.rejected_entropy, (unsigned long long)st.rejected_pattern,
 		(unsigned long long)st.rejected_format, (unsigned long long)st.rejected_blacklist,
 		(unsigned long long)st.rejected_duplicate, (unsigned long long)st.rejected_multicheck,
-		(unsigned long long)st.rejected_marchcheck);
+		(unsigned long long)st.rejected_marchcheck, (unsigned long long)st.rejected_cwdup);
 	tcp_writestr(&tcpbuf, sock, http_buf);
-	sprintf( http_buf, "<p style='font-size:0.85em;'>%s: %llu</p>\n",
+	sprintf( http_buf, "<p style='font-size:0.85em;'>%s: %llu &middot; %s: %llu</p>\n",
 		mlabel("Marchcheck flagged (log-only sightings included)", "رُصد مسير (يشمل وضع التسجيل)"),
-		(unsigned long long)st.marchcheck_flagged);
+		(unsigned long long)st.marchcheck_flagged,
+		mlabel("CW-Dup flagged", "رُصد تكرار ثابت"),
+		(unsigned long long)st.cwdup_flagged);
 	tcp_writestr(&tcpbuf, sock, http_buf);
 	sprintf( http_buf, "<p style='font-size:0.85em;'>%s %d &middot; %s %dms &middot; %s %d%%/%d &middot; %s %d &middot; %s %ds</p>\n",
 		mlabel("Level", "المستوى"), sc.filter_level,

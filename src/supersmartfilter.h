@@ -70,6 +70,8 @@ struct ssf_config {
     // Multi-check
     int sf_multicheck;          // Enable multi-check
     int sf_marchcheck;          // Band 55 MARCHCHECK: 0=off, 1=log-only, 2=reject
+    int sf_cwdup;               // Band 56 CW_DUP: 0=off, 1=log-only, 2=reject
+    int sf_cwdup_rep;           // Band 56: cross-cycle repeats before flag (2..10)
     uint16_t sf_mc_caids[32];   // CAIDs for multi-check
     int sf_mc_caids_count;
     int sf_mc_match;            // Required peer count
@@ -124,6 +126,8 @@ struct ssf_stats {
     uint64_t rejected_multicheck;
     uint64_t marchcheck_flagged;
     uint64_t rejected_marchcheck;
+    uint64_t cwdup_flagged;
+    uint64_t rejected_cwdup;
     uint64_t peers_blocked;
     uint64_t peers_unblocked;
 };
@@ -153,6 +157,25 @@ struct ssf_march_entry {
 };
 static struct ssf_march_entry ssf_march_table[SSF_MAX_MARCH_ENTRIES];
 static int ssf_march_index = 0;
+/* Band 56 CW_DUP: per-channel repeat tracker. `rep` counts how many
+ * NEW ECM cycles (different ecm_hash) re-delivered the same CW;
+ * `other_ms` is when a different CW was last accepted for the channel.
+ * A constant key on a channel with no competitor never flags, and a
+ * normal two-key roll resets the run on every switch. Under ssf_lock. */
+#define SSF_MAX_DUP_ENTRIES 512
+#define SSF_CWDUP_COMPETITOR_WINDOW_MS 120000
+struct ssf_dup_entry {
+    uint16_t caid;
+    uint32_t provid;
+    uint16_t sid;
+    uint8_t rep_cw[16];
+    uint8_t last_hash[16];
+    int rep;
+    uint32_t other_ms;
+    uint8_t used;
+};
+static struct ssf_dup_entry ssf_dup_table[SSF_MAX_DUP_ENTRIES];
+static int ssf_dup_index = 0;
 static struct ssf_stats ssf_stats;
 static pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -588,10 +611,58 @@ static int ssf_check_marchcheck(const uint8_t cw[16], uint16_t caid,
     return parked;
 }
 
+/* Band 56: returns 1 when the same CW has now been delivered for at
+ * least `rep_needed` new ECM cycles while a competing different CW was
+ * accepted for this channel within the competitor window. Without an
+ * ecm_hash the cycle boundary cannot be proven, so nothing is counted
+ * (fail-open). Observation state is updated on every sighting --
+ * including a mode-2 rejection -- so a stuck fake keeps being counted
+ * (and rejected) instead of silently becoming the new reference. */
+static int ssf_check_cwdup(const uint8_t cw[16], const uint8_t ecm_hash[16],
+                           uint16_t caid, uint32_t provid, uint16_t sid,
+                           uint32_t now_ms, int rep_needed)
+{
+    if (!ecm_hash) return 0;
+    struct ssf_dup_entry *entry = NULL;
+    int i;
+    for (i = 0; i < SSF_MAX_DUP_ENTRIES; i++) {
+        if (ssf_dup_table[i].used && ssf_dup_table[i].caid == caid &&
+            ssf_dup_table[i].provid == provid && ssf_dup_table[i].sid == sid) {
+            entry = &ssf_dup_table[i];
+            break;
+        }
+    }
+    if (!entry) {
+        entry = &ssf_dup_table[ssf_dup_index];
+        ssf_dup_index = (ssf_dup_index + 1) % SSF_MAX_DUP_ENTRIES;
+        entry->caid = caid; entry->provid = provid; entry->sid = sid;
+        memcpy(entry->rep_cw, cw, 16);
+        memcpy(entry->last_hash, ecm_hash, 16);
+        entry->rep = 0;
+        entry->other_ms = 0;
+        entry->used = 1;
+        return 0;
+    }
+    if (!memcmp(cw, entry->rep_cw, 16)) {
+        if (memcmp(ecm_hash, entry->last_hash, 16)) {
+            entry->rep++;               /* same key, new ECM cycle */
+            memcpy(entry->last_hash, ecm_hash, 16);
+        }                               /* same cycle resend: no count */
+    } else {
+        entry->other_ms = now_ms;       /* a competitor exists */
+        memcpy(entry->rep_cw, cw, 16);
+        memcpy(entry->last_hash, ecm_hash, 16);
+        entry->rep = 0;
+    }
+    return entry->rep >= rep_needed && entry->other_ms &&
+           (uint32_t)(now_ms - entry->other_ms) <= SSF_CWDUP_COMPETITOR_WINDOW_MS;
+}
+
 static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[16],
                                    uint16_t caid, uint32_t provid, uint16_t sid,
                                    uint32_t peer_id, uint32_t now_ms, int *reject_reason,
-                                   int profile_level, int profile_marchcheck)
+                                   int profile_level, int profile_marchcheck,
+                                   int profile_cwdup)
 {
     /* R48: profile_level 0 = inherit global. Passed as a parameter
      * (not a global) so concurrent ECM workers on different profiles
@@ -726,6 +797,27 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
         }
     }
 
+    // Check 11 (band 56): CW_DUP -- constant CW across ECM cycles
+    // while a competitor exists. Profile override (1=off, 2=log-only,
+    // 3=reject) wins over the global CACHE SF CWDUP.
+    {
+        int dup_mode = ssf_cfg.sf_cwdup;
+        if (profile_cwdup == 1) dup_mode = 0;
+        else if (profile_cwdup == 2) dup_mode = 1;
+        else if (profile_cwdup == 3) dup_mode = 2;
+        if (dup_mode > 0 &&
+            ssf_check_cwdup(cw, ecm_hash, caid, provid, sid, now_ms,
+                            ssf_cfg.sf_cwdup_rep)) {
+            ssf_stats.cwdup_flagged++;
+            if (dup_mode == 2) {
+                ssf_stats.rejected_cwdup++;
+                rejected = 1;
+                reason = 11;
+                goto done;
+            }
+        }
+    }
+
 done:
     // Record result
     if (peer_id > 0) {
@@ -767,6 +859,8 @@ static void supersmartfilter_init(void)
     memset(ssf_mc_table, 0, sizeof(ssf_mc_table));
     memset(ssf_march_table, 0, sizeof(ssf_march_table));
     ssf_march_index = 0;
+    memset(ssf_dup_table, 0, sizeof(ssf_dup_table));
+    ssf_dup_index = 0;
     memset(&ssf_stats, 0, sizeof(ssf_stats));
     ssf_history_index = 0;
     ssf_peer_count = 0;
@@ -789,6 +883,8 @@ static void supersmartfilter_init(void)
     ssf_cfg.sf_cwfmt_enforce = 1;
     ssf_cfg.sf_multicheck = 0;
     ssf_cfg.sf_marchcheck = 0;
+    ssf_cfg.sf_cwdup = 0;
+    ssf_cfg.sf_cwdup_rep = 4;
     ssf_cfg.sf_mc_match = 2;
     ssf_cfg.sf_mc_mode = 2;
     ssf_cfg.sf_mc_wait_ms = 500;

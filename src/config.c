@@ -4328,6 +4328,28 @@ link_mgcamd_user:
 						}
 						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MARCHCHECK: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_marchcheck);
 					}
+					else if (!strcmp(str,"CWDUP")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 2) v = 2;
+							ssf_cfg.sf_cwdup = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWDUP: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwdup);
+					}
+					else if (!strcmp(str,"CWDUPREP")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 2) v = 2; if (v > 10) v = 10;
+							ssf_cfg.sf_cwdup_rep = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWDUPREP: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwdup_rep);
+					}
 					else if (!strcmp(str,"MC")) {
 						parse_spaces();
 						parse_name(str);
@@ -5300,6 +5322,21 @@ link_mgcamd_user:
 					cardserver->option.sf_marchcheck = (uint8_t)(v + 1);
 				}
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW MARCHCHECK: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_marchcheck - 1, cardserver->name);
+			}
+			else if (!strcmp(str,"CWDUP") && cardserver) {
+				/* Band 56: per-profile CW_DUP 0|1|2 (stored +1, 0=inherit). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 2) v = 2;
+					cardserver->option.sf_cwdup = (uint8_t)(v + 1);
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW CWDUP: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_cwdup - 1, cardserver->name);
 			}
 			else if (!cardserver) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip DCW, undefined profile\n",file->nbline,iparser-currentline);
