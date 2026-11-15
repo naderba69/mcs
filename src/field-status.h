@@ -20,6 +20,14 @@ struct mcs_dc_event {
     int sources;
 };
 
+struct mcs_cwpair_pair { uint16_t caid_a; uint32_t provid_a; uint16_t sid_a;
+                         uint16_t caid_b; uint32_t provid_b; uint16_t sid_b;
+                         unsigned matches; };
+int cwpair_snapshot(unsigned long *observed, unsigned long *pair_matches,
+                    unsigned long *served, unsigned long *stale,
+                    unsigned long *strict_rejected, unsigned long *no_twin,
+                    int *discover, struct mcs_cwpair_pair *pairs, int maxpairs);
+
 struct mcs_field_status {
     int r22_compiled;           /* built with -DR22_LAYERS */
     int r22_enabled;            /* R22 LAYERS config switch */
@@ -38,6 +46,16 @@ struct mcs_field_status {
     uint64_t dc_timeouts;
     int dc_event_count;
     struct mcs_dc_event dc_events[MCS_DC_EVENT_MAX]; /* newest first */
+    /* CWPAIR (band 38) */
+    int cwpair_discover;
+    unsigned long cwpair_observed;
+    unsigned long cwpair_matches;
+    unsigned long cwpair_served;
+    unsigned long cwpair_stale;
+    unsigned long cwpair_strict_rejected;
+    unsigned long cwpair_no_twin;
+    int cwpair_pair_count;
+    struct mcs_cwpair_pair cwpair_pairs[32];
 };
 
 void mcs_field_status_fill(struct mcs_field_status *st);

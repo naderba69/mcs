@@ -799,6 +799,17 @@ struct cardserver_data
 		 * profile so one CAID can be armed or spared alone. */
 		uint8_t ci_validate;
 		uint8_t dropdiffs;
+		/* CWPAIR (band 38): simulcrypt twin serving for this
+		 * profile. cwpair_caid 0 = no twin configured. SID map is
+		 * operator-pasted from discovery, never auto-filled. */
+		uint16_t cwpair_caid;
+		uint8_t  cwpair_active;
+		uint8_t  cwpair_skipcycle;
+		uint8_t  cwpair_strictcycle;
+		int      cwpair_maxage;
+		uint16_t cwpair_sid_local[16];
+		uint16_t cwpair_sid_peer[16];
+		int      cwpair_sid_n;
 		/* Explicit exact provider/SID exception; disabled unless parsed. */
 		uint8_t cw_checksum_exempt_active;
 		uint32_t cw_checksum_exempt_provider;
@@ -1526,6 +1537,11 @@ struct config_data
 		 * from the known-good CW stored for the same ecmd5.
 		 * 0/absent = OFF (stock). */
 		int dropdiffs;
+		/* CWPAIR discovery (band 38): CWDEDUP_CHECK + the CAIDs to
+		 * watch for simulcrypt pairs. 0/absent = OFF (stock). */
+		int cwpair_discover;
+		uint16_t cwpair_discover_caids[32];
+		int cwpair_discover_n;
 		/* TASK R29 (D80): distinct voters required for the early
 		 * delivery (0/unset = the engine default 2; 2..8 armed). */
 		int consensus_sources;

@@ -3919,6 +3919,18 @@ link_mgcamd_user:
 		}
 #endif
 
+		else if (!strcmp(str,"CWDEDUP")) {
+			/* CWPAIR discovery (band 38): CWDEDUP CHECK: YES|NO */
+			parse_name(str);
+			uppercase(str);
+			if (!strcmp(str,"CHECK")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				cfg->cache.cwpair_discover = parse_boolean();
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CWDEDUP CHECK: %s\n",file->nbline,iparser-currentline, cfg->cache.cwpair_discover?"YES":"NO");
+			}
+		}
+
 		else if (!strcmp(str,"CACHE")) {
 			parse_name(str);
 			uppercase(str);
@@ -4944,6 +4956,97 @@ link_mgcamd_user:
 				} else iparser++;
 				cardserver->option.ci_validate = parse_boolean() ? 1 : 2;
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CI VALIDATE: %s (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.ci_validate==1?"ON":"OFF", cardserver->name);
+			}
+		}
+
+		else if (!strcmp(str,"CWPAIR")) {
+			/* Per-profile CWPAIR (band 38): CAID/ACTIVE/SID/MAXAGE/
+			 * SKIPCYCLE/STRICTCYCLE inside a profile section. */
+			parse_name(str);
+			uppercase(str);
+			if (!cardserver) {
+				/* Global scope: CWPAIR DISCOVER CAID: <list> */
+				if (!strcmp(str,"DISCOVER")) {
+					parse_name(str);
+					uppercase(str);
+					if (!strcmp(str,"CAID")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						cfg->cache.cwpair_discover_n = 0;
+						while (parse_hex(str) > 0) {
+							if (cfg->cache.cwpair_discover_n < 32)
+								cfg->cache.cwpair_discover_caids[cfg->cache.cwpair_discover_n++] = (uint16_t)hex2int(str);
+							parse_spaces();
+							if (*iparser == ',') iparser++; else break;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CWPAIR DISCOVER CAID: %d caids\n",file->nbline,iparser-currentline, cfg->cache.cwpair_discover_n);
+					}
+				}
+			} else if (!strcmp(str,"CAID")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				if (parse_hex(str) > 0) cardserver->option.cwpair_caid = (uint16_t)hex2int(str);
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CWPAIR CAID: %04X (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.cwpair_caid, cardserver->name);
+			} else if (!strcmp(str,"ACTIVE")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.cwpair_active = (uint8_t)parse_boolean();
+			} else if (!strcmp(str,"MAXAGE")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				if (parse_int(str)) cardserver->option.cwpair_maxage = atoi(str);
+			} else if (!strcmp(str,"SKIPCYCLE")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.cwpair_skipcycle = (uint8_t)parse_boolean();
+			} else if (!strcmp(str,"STRICTCYCLE")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.cwpair_strictcycle = (uint8_t)parse_boolean();
+			} else if (!strcmp(str,"SID")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.cwpair_sid_n = 0;
+				for (;;) {
+					uint16_t l, r;
+					parse_spaces();
+					if (parse_hex(str) <= 0) break;
+					l = (uint16_t)hex2int(str);
+					parse_spaces();
+					if (*iparser != '-') break;
+					iparser++;
+					if (*iparser == '>') iparser++;
+					parse_spaces();
+					if (parse_hex(str) <= 0) break;
+					r = (uint16_t)hex2int(str);
+					if (cardserver->option.cwpair_sid_n < 16) {
+						int k = cardserver->option.cwpair_sid_n++;
+						cardserver->option.cwpair_sid_local[k] = l;
+						cardserver->option.cwpair_sid_peer[k] = r;
+					}
+					parse_spaces();
+					if (*iparser == ',') { iparser++; continue; }
+					break;
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CWPAIR SID: %d maps (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.cwpair_sid_n, cardserver->name);
 			}
 		}
 

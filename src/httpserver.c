@@ -9179,6 +9179,23 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         } else {
             tcp_writestr(tcpbuf, sock, "<p>لا قرارات DoubleCheck بعد في هذه الجلسة (تظهر هنا فور حدوثها، بدل سجلات [ECM-DBLCHK]).</p>");
         }
+        /* CWPAIR (band 38): discovery counters + ready-to-paste pairs */
+        snprintf(out, sizeof(out), "<p><b>اقتران الشفرات (CWPAIR — SimulCrypt):</b> %s | شفرات ملاحظة: %lu | تطابقات توأم: %lu | قُدّمت من التوأم: %lu | رُفضت للقدم: %lu | رفض STRICTCYCLE: %lu | لا توأم معروف: %lu</p>",
+                 st.cwpair_discover ? "اكتشاف مفعّل" : "اكتشاف مطفأ (CWDEDUP_CHECK: YES لتفعيله)",
+                 st.cwpair_observed, st.cwpair_matches, st.cwpair_served,
+                 st.cwpair_stale, st.cwpair_strict_rejected, st.cwpair_no_twin);
+        tcp_writestr(tcpbuf, sock, out);
+        if (st.cwpair_pair_count > 0) {
+            int i;
+            tcp_writestr(tcpbuf, sock, "<p>أزواج مكتشفة (انسخ المناسب إلى بروفايله، ابدأ بـACTIVE: NO):</p>");
+            for (i = 0; i < st.cwpair_pair_count; i++) {
+                snprintf(out, sizeof(out), "<pre>## in the profile whose CAID is %04X:\nCWPAIR CAID: %04X\nCWPAIR ACTIVE: NO\nCWPAIR SID: %04X-&gt;%04X  (matches: %u)</pre>",
+                         st.cwpair_pairs[i].caid_a, st.cwpair_pairs[i].caid_b,
+                         st.cwpair_pairs[i].sid_a, st.cwpair_pairs[i].sid_b,
+                         st.cwpair_pairs[i].matches);
+                tcp_writestr(tcpbuf, sock, out);
+            }
+        }
     }
 }
 static void http_send_user_trace(int sock, http_request *req)

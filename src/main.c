@@ -2191,6 +2191,23 @@ void mcs_field_status_fill(struct mcs_field_status *st) {
 			st->dc_events[i].sources = ev[i].sources;
 		}
 	}
+	{
+		struct mcs_cwpair_pair pv[32];
+		int i, n = cwpair_snapshot(&st->cwpair_observed, &st->cwpair_matches,
+		                           &st->cwpair_served, &st->cwpair_stale,
+		                           &st->cwpair_strict_rejected, &st->cwpair_no_twin,
+		                           &st->cwpair_discover, pv, 32);
+		st->cwpair_pair_count = n;
+		for (i = 0; i < n; i++) {
+			st->cwpair_pairs[i].caid_a = pv[i].caid_a;
+			st->cwpair_pairs[i].provid_a = pv[i].provid_a;
+			st->cwpair_pairs[i].sid_a = pv[i].sid_a;
+			st->cwpair_pairs[i].caid_b = pv[i].caid_b;
+			st->cwpair_pairs[i].provid_b = pv[i].provid_b;
+			st->cwpair_pairs[i].sid_b = pv[i].sid_b;
+			st->cwpair_pairs[i].matches = pv[i].matches;
+		}
+	}
 }
 
 static void doublecheck_autofill_from_profiles(void) {
@@ -3274,6 +3291,9 @@ void mainprocess()
 	cwpostval_init();
 	debugf(0, " [CW-POSTVAL] peer-trust state initialized (telemetry only on the live path)\n");
 	debugf(0, "   [TS-VALIDATE] inert: a proxy server never sees TS data; no confirm hook exists\n");
+	cwpair_set_discovery(cfg.cache.cwpair_discover, cfg.cache.cwpair_discover_caids, cfg.cache.cwpair_discover_n);
+	if (cfg.cache.cwpair_discover) debugf(0, "   [CWPAIR] discovery ON for %d CAIDs (learns simulcrypt pairs; serving is per-profile CWPAIR ACTIVE)\n", cfg.cache.cwpair_discover_n);
+	else debugf(0, "   [CWPAIR] OFF (CWDEDUP_CHECK: YES + CWPAIR DISCOVER CAID arms pair learning; per-profile CWPAIR ACTIVE serves)\n");
 	debugf(0, "   [CW-ENTROPY] live only via CACHE CI VALIDATE: ON (Cache Intelligence gate)\n");
 	debugf(0, "   [FAKE-DB] known-fake DB consulted only by the CI VALIDATE gate\n");
 	debugf(0, "   [PEER-TRUST] scoring recorded; no live consumer rejects on it\n");

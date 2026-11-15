@@ -630,6 +630,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 	ecm->waitserver = 0;
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
+	cwpair_observe(ecm->caid, ecm->provid, ecm->sid, dcw, GetTickCount()); /* band 38 */
 	cache_reply_len = pipe_cache_reply(ecm, cs, cache_reply_buf,
 	                                   sizeof(cache_reply_buf), source_origin_mask);
 	/* Keep the non-THREAD_DCW path's cache waiter lifetime bounded too. */

@@ -192,6 +192,7 @@ int peer_doublecheck(struct cacheserver_data *cache, struct cachepeer_data *xpee
 #include "peerrep.h"		/* TASK R4 (D58): the persistent peer-reputation ladder */
 #include "cwconsensus.h"/* TASK R8 (D62): the per-request cw arbitrer */
 #include "cache-intelligence.h" /* CACHE-AI: 7-level smart cache optimization */
+#include "cwpair.h" /* band 38: observe cache-stored CWs for pairing */
 #ifdef MCS_DCWSTATS
 #include "cwlog.h"		/* TASK R11 (D65): the per-CW verdict ring */
 #endif
@@ -3038,6 +3039,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
         }
 		memset( cwdata, 0, sizeof(struct cw_cache_data) );
 		memcpy(cwdata->cw, cw, 16);
+		cwpair_observe(req->caid, req->provid, req->sid, cw, GetTickCount()); /* band 38 */
 		cwdata->status = 0;
 		cwdata->cwcycle = NO_CYCLE;
 		cwdata->peerid = peerid;

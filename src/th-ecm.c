@@ -159,6 +159,7 @@ int clients_check_sendcw_from_locked(ECM_DATA *ecm,
 #include "ecm-pattern-analysis.h"
 #include "implicit-bs-detect.h"
 #include "cache-intelligence.h"
+#include "cwpair.h" /* band 38: simulcrypt CW pairing */
 #include "smart-server-select.h"
 #include "setdcw.c"
 
@@ -443,6 +444,46 @@ send_ecm:
 		else if ( (ticks-ecm->recvtime) >= ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period ) {
 			if (cache_verify_dispatch) return;
 			ecm->statusmsg = "Decode failed, dcw timeout";
+			/* CWPAIR (band 38): total miss -- try the simulcrypt
+			 * twin's fresh CW before failing the client. */
+			if (cs->option.cwpair_active && cs->option.cwpair_caid) {
+				int k, peer_sid = 0;
+				uint8_t paired_cw[16];
+				for (k = 0; k < cs->option.cwpair_sid_n; k++)
+					if (cs->option.cwpair_sid_local[k] == ecm->sid) { peer_sid = cs->option.cwpair_sid_peer[k]; break; }
+				if (peer_sid && cwpair_lookup(cs->option.cwpair_caid, (uint16_t)peer_sid,
+				        ecm->caid, ecm->provid, ecm->sid,
+				        cs->option.cwpair_maxage > 0 ? (uint32_t)cs->option.cwpair_maxage : 21000u,
+				        cs->option.cwpair_strictcycle, paired_cw, ticks)) {
+					/* Judge the twin bytes as a CW for THIS profile,
+					 * then commit synchronously: queueing to the
+					 * setdcw thread races the already-expired ECM
+					 * timeout and loses the client. */
+					if (acceptDCW_profile_ecm_reason(paired_cw, cs, ecm->caid, ecm->provid, ecm->sid, NULL)) {
+						struct ledger_delivery_snapshot pair_delivery;
+						int dispatched;
+						if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+						    0, 0, ticks - ecm->recvtime, "CWPAIR: served simulcrypt twin CW");
+						debugf(0, "    [CWPAIR] %04X:%06X:%04X <- twin %04X:%04X served\n",
+						       ecm->caid, ecm->provid, ecm->sid, cs->option.cwpair_caid, peer_sid);
+						ecm->statusmsg = "Decode Success (CWPAIR)";
+						ecm->dcwsrctype = DCW_SOURCE_CACHE;
+						ecm->dcwsrcid = 0;
+						ecm_request_set_dcwstatus(ecm, STAT_DCW_SUCCESS);
+						ecm->checktime = 0;
+						ecm->waitserver = 0;
+						sid_newecm(ecm);
+						memcpy(ecm->cw, paired_cw, 16);
+						cwpair_observe(ecm->caid, ecm->provid, ecm->sid, paired_cw, ticks);
+						cache_clear_sendpipe(ecm);
+						dispatched = clients_check_sendcw_from_locked(ecm, &pair_delivery);
+						if (dispatched > 0) {
+							__atomic_fetch_add(&cs->ecmok, 1, __ATOMIC_RELAXED);
+							return;
+						}
+					}
+				}
+			}
 			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, ticks - ecm->recvtime, "DCW timeout");
 			if (!ecm_faileddcw(ecm)) return;
 			// Send DCW to Cache if not sent
