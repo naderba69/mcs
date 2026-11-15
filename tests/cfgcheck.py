@@ -181,7 +181,7 @@ def main(path):
 
     # ---- profiles ----
     import os
-    expected_profiles = 91 if "full-30w-52e" in os.path.basename(path) else 72
+    expected_profiles = 91
     if len(profs) != expected_profiles:
         bad("expected %d profiles, found %d" % (expected_profiles, len(profs)))
     ports = collections.Counter()

@@ -74,7 +74,7 @@ c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 ce9abc6aa510e68693ae7ec947ef77c2  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
-0296d8e128b512316a8b8e495afa9f3b  docs/FIELD-GUIDE-ar.md
+7e11f440f698f28ea0d88560dd8bb4a8  docs/FIELD-GUIDE-ar.md
 6a549c88dcfd53e331e2ff2bcf0e0180  docs/FINAL-SUMMARY-REPORT-ar.md
 93d04a1492bcff14819bc26483ac5525  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
@@ -151,7 +151,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-d7aa085e280725c39c5998f4eea0d399  docs/REPORT-R48-ar.md
+55429a5b8f07526527db052156156f99  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -419,9 +419,9 @@ e2f3767f58a61eb59c4fe9bc5eb30107  make-x64/test_supersmartfilter_ticks.c
 ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
-8534a1cb2dc8e6263281700bd0e9884c  multics-full-30w-52e.cfg
-ec8f097cbc76086499086f13a2653684  multics-r24-expert-reviewed.cfg
-3f05be94ace89da3fadb0ec71d60b7ef  multics-r24-optimized.cfg
+608115ff7be6a343ed95827c6454f4f8  multics-full-30w-52e.cfg
+23691b7c738bd99820a782e6aa98b44c  multics-r24-expert-reviewed.cfg
+89cf6354c341cc5dfcffa745dcfd28bd  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
 d5d6004a1e8838901183ec498de341ca  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
@@ -778,7 +778,7 @@ e198eff69959679f80509fe2d99a1f86  tests/cccam-trace-success.py
 77c9cbc91a3c4511021448e5ec1b1b50  tests/cccam-upstream-trace.py
 7a0fcaee202f49aa4fd04a3b7e4907d3  tests/ccdcw.c
 0ff0ccc77e0e2d3673a64f0a4945cc86  tests/cedcw.py
-908494af1b210ca48913098931f4c339  tests/cfgcheck.py
+bff339575cae858c45efffe13fd170f2  tests/cfgcheck.py
 f82225de33969f5d737ceb9afc4c5cc4  tests/ci-validate-live.py
 2af59e7fd9d55d06e734176d176568a7  tests/client-id-reload.py
 23cc74be3f43edc4814aeb88e6859a32  tests/crypto-alignment.c
@@ -796,7 +796,7 @@ b6379a08119c84be4dde275a46bab425  tests/ecm-radegast-identity.c
 6ac94c5466db573021b8807e48dec58f  tests/ecm-radegast-identity.sh
 e25c7c7c2f729f01636556594a890ebb  tests/ecmdata-allocation.c
 c5904454e1596815cbd4713519ab7a2f  tests/ecmdata-allocation.sh
-1641e4dbe846e822b6becf20919388bd  tests/expert-config.py
+85762271416cc8fd82e0e621a721f35d  tests/expert-config.py
 0cd1a6f8b2b243e4e8c5bacf431de50d  tests/freecccam-live.py
 d1f2daf529a78e58ace3fede4ed50f76  tests/log-viewer-regression.c
 be36a40834f6b8b4be29de871b8843a5  tests/multics-filter.cfg
@@ -829,6 +829,6 @@ d4e117e8a0eaf59dc09c0c920a102e47  tests/time-native-oracle.c
 837dc54876da78d4748b65d28ce79b55  tests/tsan-r22-session.sh
 d5e0d58059bf77ae5ec57b5fe726c0c8  tests/u-probe.c
 dedb62153a5f386129d68373a5be6124  tests/user-trace.c
-40ac70ed40cc628bcb2a85c769b9ff43  tools/generate-expert-config.py
+9e9683c5f47a897e2dd2f6067c77cf7c  tools/generate-expert-config.py
 d5b0a014aafbaaa3c52fa64353f3f469  التقرير-النهائي-للإصلاح.md
 2a87852efef8f14588ce5c0199b47cdc  الجرد-الشامل-والصادق.md
