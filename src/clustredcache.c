@@ -4215,7 +4215,8 @@ void service_doubt_snapshot(unsigned long *checked, unsigned long *doubt, unsign
 static struct cw_cache_data *cache_find_select_r48(struct cache_data *entry,
                                                     int *verify_line,
                                                     int *find_hold_noted,
-                                                    int *find_policy_noted)
+                                                    int *find_policy_noted,
+                                                    int service_doubt_armed)
 {
     struct cw_cache_data *candidate, *best = NULL;
     uint32_t now_ms = GetTickCount();
@@ -4247,7 +4248,7 @@ static struct cw_cache_data *cache_find_select_r48(struct cache_data *entry,
      * a strict peer majority, serving any of them is a coin flip --
      * refuse the cache serve and let the ECM fall through to the
      * card servers. A strict majority serves the winner as usual. */
-    if (best && cfg.cache.service_doubt) {
+    if (best && service_doubt_armed) {
         struct cw_cache_data *c2;
         uint8_t seen[8][16];
         int peers[8];
@@ -4398,8 +4399,13 @@ void cache_pipe_recvmsg()
 				 * OFF, retain the historical send path below byte-for-byte. */
 				find_profile = cache_entry_cardserver_current(pcache);
 				if (find_profile && find_profile->option.cache_evidence) {
+					/* Band 43: per-profile SERVICE DOUBT tri-state
+					 * (1=on, 2=off) overrides the global switch. */
+					int svc_armed = find_profile->option.service_doubt ?
+					    find_profile->option.service_doubt == 1 :
+					    cfg.cache.service_doubt;
 					selected_candidate = cache_find_select_r48(pcache, &verify_line,
-					    &find_hold_noted, &find_policy_noted);
+					    &find_hold_noted, &find_policy_noted, svc_armed);
 					if (selected_candidate) {
 						selected_candidate->status |= DCW_SENT;
 						pipe_cache2ecm_find_success_with_origin(

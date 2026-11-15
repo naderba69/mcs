@@ -2201,6 +2201,11 @@ void mcs_field_status_fill(struct mcs_field_status *st) {
 		nopushafter_snapshot(&st->nopush_checked, &st->nopush_blocked, &st->nopush_entries);
 		service_doubt_snapshot(&st->svc_checked, &st->svc_doubt, &st->svc_majority);
 		st->svc_armed = cfg.cache.service_doubt;
+		{ struct cardserver_data *cs2;
+		  for (cs2 = cfg.cardserver; cs2; cs2 = cs2->next) {
+		      if (cs2->option.service_doubt == 1) st->svc_profiles_on++;
+		      else if (cs2->option.service_doubt == 2) st->svc_profiles_off++;
+		  } }
 		for (i = 0; i < n; i++) {
 			st->cwpair_pairs[i].caid_a = pv[i].caid_a;
 			st->cwpair_pairs[i].provid_a = pv[i].provid_a;

@@ -5000,6 +5000,20 @@ link_mgcamd_user:
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CI VALIDATE: %s (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.ci_validate==1?"ON":"OFF", cardserver->name);
 			}
 		}
+		else if (!strcmp(str,"SERVICE")) {
+			/* Per-profile SERVICE DOUBT: ON|OFF (band 43) */
+			parse_name(str);
+			uppercase(str);
+			if (!strcmp(str,"DOUBT") && cardserver) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.service_doubt = parse_boolean() ? 1 : 2;
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): SERVICE DOUBT: %s (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.service_doubt==1?"ON":"OFF", cardserver->name);
+			}
+		}
 
 		else if (!strcmp(str,"CWPAIR")) {
 			/* Per-profile CWPAIR (band 38): CAID/ACTIVE/SID/MAXAGE/

@@ -260,3 +260,5 @@ svcdoubt:
 	@python3 service-doubt-live.py $(BIN)
 	@SVC_MODE=majority python3 service-doubt-live.py $(BIN)
 	@SVC_MODE=control python3 service-doubt-live.py $(BIN)
+	@SVC_MODE=prof-on python3 service-doubt-live.py $(BIN)
+	@SVC_MODE=prof-off python3 service-doubt-live.py $(BIN)

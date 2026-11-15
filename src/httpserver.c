@@ -9192,6 +9192,11 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         snprintf(out, sizeof(out), "<p><b>حسم الخدمة عند الشك (CACHE SERVICE DOUBT):</b> %s | انتقادات ذات مرشحين مختلفين: %lu | رُفضت الخدمة للشك: %lu | خُدمت بأغلبية صارمة: %lu</p>",
                  st.svc_armed ? "مفعّل" : "مطفأ (CACHE SERVICE DOUBT: ON لتفعيله)", st.svc_checked, st.svc_doubt, st.svc_majority);
         tcp_writestr(tcpbuf, sock, out);
+        if (st.svc_profiles_on || st.svc_profiles_off) {
+            snprintf(out, sizeof(out), "<p>تجاوزات SERVICE DOUBT البروفايلية: %d بروفايل يفرض ON و%d يفرض OFF (تتقدّم على العام)</p>",
+                     st.svc_profiles_on, st.svc_profiles_off);
+            tcp_writestr(tcpbuf, sock, out);
+        }
         if (st.cwpair_pair_count > 0) {
             int i;
             tcp_writestr(tcpbuf, sock, "<p>أزواج مكتشفة (انسخ المناسب إلى بروفايله، ابدأ بـACTIVE: NO):</p>");

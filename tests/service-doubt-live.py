@@ -11,6 +11,10 @@ ECM must then be decided by the stored-cache FIND selection
     the client IS served (svc_majority counter).
   - control       (gate OFF, A x5, B x5): the client IS served and
     the doubt counters stay at zero.
+  - prof-on       (global OFF, profile SERVICE DOUBT: ON, band 43):
+    the tied client must NOT be served.
+  - prof-off      (global ON, profile SERVICE DOUBT: OFF, band 43):
+    the tied client IS served and the counters stay at zero.
 No card servers exist, so any delivery is a cache serve. The peer
 counters are the candidate arrival counts (nbpeers), which is the
 unit the selector itself tallies.
@@ -64,8 +68,9 @@ def main():
         nc_port = free_port(socket.SOCK_STREAM)
         cc_port = free_port(socket.SOCK_STREAM)
         cache_port = free_port(socket.SOCK_DGRAM)
-        counts = {'doubt': (5, 5), 'majority': (6, 5), 'control': (5, 5)}[MODE]
-        gate = 'CACHE SERVICE DOUBT: OFF\n' if MODE == 'control' else 'CACHE SERVICE DOUBT: ON\n'
+        counts = {'doubt': (5, 5), 'majority': (6, 5), 'control': (5, 5), 'prof-on': (5, 5), 'prof-off': (5, 5)}[MODE]
+        gate = 'CACHE SERVICE DOUBT: ON\n' if MODE in ('doubt', 'majority', 'prof-off') else 'CACHE SERVICE DOUBT: OFF\n'
+        profile_gate = {'prof-on': 'SERVICE DOUBT: ON\n', 'prof-off': 'SERVICE DOUBT: OFF\n'}.get(MODE, '')
         config = tmp / 'config'
         config.write_text(
             f'HTTP PORT: {http_port}\nHTTP USER: test\nHTTP PASS: test\n'
@@ -81,6 +86,7 @@ def main():
             'DCWFILTER PATTERN: OFF\nENABLE CACHE: YES\nCACHE TIMEOUT: 600\n'
             'CACHE STATIC: NO\nSERVER TIMEOUT: 3000\nDCW TIMEOUT: 4000\n'
             'CACHE EVIDENCE: YES\n'
+            f'{profile_gate}'
             'USER: u1 p1\n'
         )
         server_log = tmp / 'server.log'
@@ -132,6 +138,14 @@ def main():
                     assert delivered >= 1, ('strict-majority CW was not served', server_out[-1500:])
                     assert 'خُدمت بأغلبية صارمة: 1' in counters, counters
                     print('PASS service-doubt-live majority (strict majority served)')
+                elif MODE == 'prof-on':
+                    assert delivered == 0, ('profile SERVICE DOUBT: ON did not refuse the tie', server_out[-1500:])
+                    assert 'رُفضت الخدمة للشك: 1' in counters, counters
+                    print('PASS service-doubt-live prof-on (profile ON overrides global OFF)')
+                elif MODE == 'prof-off':
+                    assert delivered >= 1, ('profile SERVICE DOUBT: OFF did not serve the tie', server_out[-1500:])
+                    assert 'انتقادات ذات مرشحين مختلفين: 0' in counters, counters
+                    print('PASS service-doubt-live prof-off (profile OFF overrides global ON)')
                 else:
                     assert delivered >= 1, ('control: cache serve missing with gate OFF', server_out[-1500:])
                     assert 'انتقادات ذات مرشحين مختلفين: 0' in counters, counters

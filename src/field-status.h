@@ -64,6 +64,8 @@ struct mcs_field_status {
     unsigned long nopush_blocked;
     /* SERVICE DOUBT (band 42) */
     int svc_armed;
+    int svc_profiles_on;
+    int svc_profiles_off;
     unsigned long svc_checked;
     unsigned long svc_doubt;
     unsigned long svc_majority;

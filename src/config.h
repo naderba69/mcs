@@ -799,6 +799,11 @@ struct cardserver_data
 		 * profile so one CAID can be armed or spared alone. */
 		uint8_t ci_validate;
 		uint8_t dropdiffs;
+		/* SERVICE DOUBT per profile (band 43): same tri-state
+		 * convention (0=inherit the global CACHE SERVICE DOUBT,
+		 * 1=force on, 2=force off), set with SERVICE DOUBT:
+		 * inside a profile section. */
+		uint8_t service_doubt;
 		/* CWPAIR (band 38): simulcrypt twin serving for this
 		 * profile. cwpair_caid 0 = no twin configured. SID map is
 		 * operator-pasted from discovery, never auto-filled. */
