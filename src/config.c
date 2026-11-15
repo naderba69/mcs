@@ -8079,6 +8079,22 @@ int acceptDCW_profile_ca_sid_reason(uint8_t *data, struct cardserver_data *cs, u
 }
 
 
+/* Whether the exact CW_CHECKSUM_EXEMPT scope (profile CAID + provider
+ * + SID, no wildcard) applies -- used by gates that re-check the
+ * structural checksum after profile validation has already honoured
+ * the exemption (the Nagravision FAKE-CW backstop in setdcw.c). */
+int dcw_checksum_exemption_applies(struct cardserver_data *cs,
+                                   uint16_t caid, uint32_t provid, uint16_t sid)
+{
+    int scoped;
+    pthread_mutex_lock(&profile_validation_lock);
+    scoped = cs && cs->option.cw_checksum_exempt_active &&
+        cs->card.caid == caid && cs->option.cw_checksum_exempt_provider == provid &&
+        cs->option.cw_checksum_exempt_sid == sid;
+    pthread_mutex_unlock(&profile_validation_lock);
+    return scoped;
+}
+
 int acceptDCW_profile_ecm_trace_reason(uint8_t *data, struct cardserver_data *cs,
                                        uint16_t caid, uint32_t provid, uint16_t sid,
                                        int *reason, int *checksum_exemption_used)

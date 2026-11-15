@@ -1385,6 +1385,8 @@ int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs,
 int acceptDCW_profile_ca_sid_reason(uint8_t *data, struct cardserver_data *cs,
                                     uint16_t caid, uint16_t sid, int *reason);
 /* Scoped exception is only evaluated when an actual ECM supplies provider. */
+int dcw_checksum_exemption_applies(struct cardserver_data *cs,
+                                   uint16_t caid, uint32_t provid, uint16_t sid);
 int acceptDCW_profile_ecm_reason(uint8_t *data, struct cardserver_data *cs,
                                   uint16_t caid, uint32_t provid, uint16_t sid, int *reason);
 int acceptDCW_profile_ecm(uint8_t *data, struct cardserver_data *cs,

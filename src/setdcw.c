@@ -1222,7 +1222,8 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
         dcw_filter_globals_snapshot(&global_checksum, NULL, NULL, NULL);
         checksum_armed = (checksum_mode == DCWFILTER_ON) ||
                          (checksum_mode == DCWFILTER_INHERIT && global_checksum);
-        if (checksum_armed && ecm->caid >= 0x1800 && ecm->caid <= 0x1884) {
+        if (checksum_armed && ecm->caid >= 0x1800 && ecm->caid <= 0x1884 &&
+            !dcw_checksum_exemption_applies(cs, ecm->caid, ecm->provid, ecm->sid)) {
             if (!checksumDCW(dcw)) {
                 trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid,
                                        "CW rejected by ECM worker: fake CW (Nagravision checksum)");
