@@ -55,7 +55,7 @@ def main():
         while len(ports) < 6: ports.add(free_port())
         http, freeport, newcamd, card, card2, ccport = ports
         cfg = tmp / "mcs.cfg"
-        gate = "CACHE DROPDIFFS: ON\n" if os.environ.get("DD_MODE") == "on" else "CACHE DROPDIFFS: OFF\n"
+        gate = "CACHE DROPDIFFS: ON\n"  # band 33: global ON in BOTH runs; the per-profile line below must win (OFF run proves the override)
         cfg.write_text(
             gate +            f"HTTP PORT: {http}\nHTTP USER: test\nHTTP PASS: isolated\n"
             f"TELNET PORT: 0\n"
@@ -64,7 +64,9 @@ def main():
             f"FREECCCAM PASSWORD: freepass\nFREECCCAM MAXUSERS: 5\nFREECCCAM PROFILES: {newcamd}\n"
             f"N: 127.0.0.1 {card} srv1 pass1 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n"
             f"N: 127.0.0.1 {card2} srv2 pass2 01 02 03 04 05 06 07 08 09 10 11 12 13 14\n"
-            f"\n[ isolated ]\nCAID: 1884\nPROVIDERS: 0\nPORT: {newcamd}\n"
+            f"\n[ isolated ]\nCAID: 1884\n"
+            + ("DROPDIFFS: ON\n" if os.environ.get("DD_MODE") == "on" else "DROPDIFFS: OFF\n")
+            + f"PROVIDERS: 0\nPORT: {newcamd}\n"
             f"DCW TIMEOUT: 3000\nSERVER INTERVAL: 200\nSERVER MAX: 2\n"
             f"DCW HALFNULLED: YES\nDCW SWAP: YES\n"
             f"USER: u1 p1\n", encoding="utf-8")

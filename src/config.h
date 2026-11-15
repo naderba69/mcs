@@ -793,6 +793,12 @@ struct cardserver_data
 		uint8_t dcwfilter_pattern; /* TASK R28 (D79): structural fake gate */
 		/* R48 SuperSmartFilter per-profile level (0=inherit global). */
 		uint8_t sf_filter_level;
+		/* Per-CAID arming for the band 26/32 gates (0=inherit the
+		 * global CACHE CI VALIDATE / CACHE DROPDIFFS, 1=force on,
+		 * 2=force off) -- set with CI VALIDATE: / DROPDIFFS: in a
+		 * profile so one CAID can be armed or spared alone. */
+		uint8_t ci_validate;
+		uint8_t dropdiffs;
 		/* Explicit exact provider/SID exception; disabled unless parsed. */
 		uint8_t cw_checksum_exempt_active;
 		uint32_t cw_checksum_exempt_provider;

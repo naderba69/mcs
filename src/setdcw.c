@@ -1388,7 +1388,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 	 * the new evidence. The rest of that stack stays dead on purpose:
 	 * its predictive fetch replaces candidate CWs and must not be
 	 * revived as-is. */
-	if (cfg.cache.ci_validate) {
+	if (cs->option.ci_validate ? cs->option.ci_validate == 1 : cfg.cache.ci_validate) {
 		ci_cw_status_t ci_status = ci_validate_cw(dcw, ecm->caid, ecm->provid, ecm->sid);
 		if (ci_status != CI_CW_VALID) {
 			char detail[96];
@@ -1407,7 +1407,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 	 * refused; the first arrival for an ECM is never judged here --
 	 * it cannot tell a first fake from a first truth, which is the
 	 * consensus/profile gates' job. */
-	if (cfg.cache.dropdiffs &&
+	if ((cs->option.dropdiffs ? cs->option.dropdiffs == 1 : cfg.cache.dropdiffs) &&
 	    !cacheex_dropdiffs_check(ecm->caid, ecm->provid, ecm->sid, dcw, ecm->ecmd5)) {
 		char detail[96];
 		snprintf(detail, sizeof(detail), "CW rejected by ECM worker: DropDiffs (differs from known-good for this ECM)");
@@ -1575,7 +1575,7 @@ trusted_deliver:
 	memcpy( ecm->cw, dcw, 16 );
 	/* DROPDIFFS: this committed CW becomes the known-good reference
 	 * for any later differing candidate for the same ECM. */
-	if (cfg.cache.dropdiffs)
+	if (cs->option.dropdiffs ? cs->option.dropdiffs == 1 : cfg.cache.dropdiffs)
 		cacheex_dropdiffs_store_good(ecm->caid, ecm->provid, ecm->sid, dcw, ecm->ecmd5,
 		                             srctype == DCW_SOURCE_SERVER ? 10 : 5);
 	cache_reply_len = pipe_cache_reply(ecm, cs, cache_reply_buf,

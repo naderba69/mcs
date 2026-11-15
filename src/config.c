@@ -4932,6 +4932,34 @@ link_mgcamd_user:
 			} else iparser++;
 			cardserver->option.skipcwc_excl_total = parse_packed_sidlist(cardserver->option.skipcwc_excl);
 		}
+		else if (!strcmp(str,"CI")) {
+			/* Per-profile CI VALIDATE: ON|OFF (band 33) */
+			parse_name(str);
+			uppercase(str);
+			if (!strcmp(str,"VALIDATE") && cardserver) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.ci_validate = parse_boolean() ? 1 : 2;
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CI VALIDATE: %s (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.ci_validate==1?"ON":"OFF", cardserver->name);
+			}
+		}
+
+		else if (!strcmp(str,"DROPDIFFS")) {
+			/* Per-profile DROPDIFFS: ON|OFF (band 33) */
+			parse_spaces();
+			if ((*iparser!=':')&&(*iparser!='=')) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+				continue;
+			} else iparser++;
+			if (cardserver) {
+				cardserver->option.dropdiffs = parse_boolean() ? 1 : 2;
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DROPDIFFS: %s (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.dropdiffs==1?"ON":"OFF", cardserver->name);
+			}
+		}
+
 		else if (!strcmp(str,"ECM")) {
 			if (!cardserver) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip ECM, undefined profile\n",file->nbline,iparser-currentline);

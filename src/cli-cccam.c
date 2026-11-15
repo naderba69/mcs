@@ -371,7 +371,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 			predictive_warming_record(ecm->caid, ecm->provid, ecm->sid);
 			ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
 			}
-			else if (ecm->dcwsrctype == DCW_SOURCE_CACHE || cfg.cache.dropdiffs) { /* DROPDIFFS (band 32): queue the late reply for validation so it can be refused against the known-good; OFF = stock drop */
+			else if (ecm->dcwsrctype == DCW_SOURCE_CACHE || (cfg.cache.dropdiffs || (ecm->cs && ecm->cs->option.dropdiffs==1))) { /* DROPDIFFS (band 32/33): queue the late reply for validation so it can be refused against the known-good; OFF = stock drop */
 				/* D111 D-1: queue a late line reply as a reference candidate only. */
 				ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
 			}
