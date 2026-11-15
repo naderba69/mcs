@@ -1547,6 +1547,10 @@ struct config_data
 		uint16_t nopushafter_caids[32];
 		uint32_t nopushafter_ms[32];
 		int nopushafter_n;
+		/* SERVICE DOUBT (band 42): at FIND service time, distinct
+		 * CWs without a strict peer majority are not served.
+		 * 0/absent = OFF (stock selection). */
+		int service_doubt;
 		/* TASK R29 (D80): distinct voters required for the early
 		 * delivery (0/unset = the engine default 2; 2..8 armed). */
 		int consensus_sources;

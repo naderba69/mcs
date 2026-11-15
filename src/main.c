@@ -2199,6 +2199,8 @@ void mcs_field_status_fill(struct mcs_field_status *st) {
 		                           &st->cwpair_discover, pv, 32);
 		st->cwpair_pair_count = n;
 		nopushafter_snapshot(&st->nopush_checked, &st->nopush_blocked, &st->nopush_entries);
+		service_doubt_snapshot(&st->svc_checked, &st->svc_doubt, &st->svc_majority);
+		st->svc_armed = cfg.cache.service_doubt;
 		for (i = 0; i < n; i++) {
 			st->cwpair_pairs[i].caid_a = pv[i].caid_a;
 			st->cwpair_pairs[i].provid_a = pv[i].provid_a;

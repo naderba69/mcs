@@ -4120,6 +4120,17 @@ link_mgcamd_user:
 			 * CACHE CONSENSUS WINDOW: <ms> sizes the corroboration
 			 * hold (100..2000 clamped, 0/absent = 400). Both default
 			 * to OFF/0 = stock behaviour byte for byte. */
+			else if (!strcmp(str,"SERVICE")) {
+				/* CACHE SERVICE DOUBT: ON|OFF (band 42) */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"DOUBT")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.service_doubt = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SERVICE DOUBT: %s\n",file->nbline,iparser-currentline, cfg->cache.service_doubt?"ON":"OFF");
+				}
+			}
 			else if (!strcmp(str,"CI")) {
 				parse_name(str);
 				uppercase(str);

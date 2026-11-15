@@ -24,6 +24,7 @@ struct mcs_cwpair_pair { uint16_t caid_a; uint32_t provid_a; uint16_t sid_a;
                          uint16_t caid_b; uint32_t provid_b; uint16_t sid_b;
                          unsigned matches; };
 void nopushafter_snapshot(unsigned long *checked, unsigned long *blocked, int *entries);
+void service_doubt_snapshot(unsigned long *checked, unsigned long *doubt, unsigned long *majority);
 int cwpair_snapshot(unsigned long *observed, unsigned long *pair_matches,
                     unsigned long *served, unsigned long *stale,
                     unsigned long *strict_rejected, unsigned long *no_twin,
@@ -61,6 +62,11 @@ struct mcs_field_status {
     int nopush_entries;
     unsigned long nopush_checked;
     unsigned long nopush_blocked;
+    /* SERVICE DOUBT (band 42) */
+    int svc_armed;
+    unsigned long svc_checked;
+    unsigned long svc_doubt;
+    unsigned long svc_majority;
 };
 
 void mcs_field_status_fill(struct mcs_field_status *st);

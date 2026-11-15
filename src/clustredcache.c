@@ -4201,6 +4201,17 @@ static int cache_find_candidate_r48_precedes(const struct cw_cache_data *candida
     return memcmp(candidate->cw, best->cw, sizeof(candidate->cw)) < 0;
 }
 
+/* SERVICE DOUBT (band 42) counters: checked FIND selections with
+ * 2+ distinct eligible CWs, refusals for lack of a strict majority,
+ * and majority serves. */
+static unsigned long g_svc_checked, g_svc_doubt, g_svc_majority;
+void service_doubt_snapshot(unsigned long *checked, unsigned long *doubt, unsigned long *majority)
+{
+	if (checked) *checked = g_svc_checked;
+	if (doubt) *doubt = g_svc_doubt;
+	if (majority) *majority = g_svc_majority;
+}
+
 static struct cw_cache_data *cache_find_select_r48(struct cache_data *entry,
                                                     int *verify_line,
                                                     int *find_hold_noted,
@@ -4231,6 +4242,48 @@ static struct cw_cache_data *cache_find_select_r48(struct cache_data *entry,
         }
     }
     if (verify_line) *verify_line = tied_at_best;
+    /* SERVICE DOUBT (band 42, OSCam cw_check mode-2 idea): when 2+
+     * distinct CWs are eligible for this exact entry and no CW holds
+     * a strict peer majority, serving any of them is a coin flip --
+     * refuse the cache serve and let the ECM fall through to the
+     * card servers. A strict majority serves the winner as usual. */
+    if (best && cfg.cache.service_doubt) {
+        struct cw_cache_data *c2;
+        uint8_t seen[8][16];
+        int peers[8];
+        int nd = 0, top = -1, second = -1, i2;
+        for (c2 = entry->cwdata; c2; c2 = c2->next) {
+            int found = -1;
+            if (!cache_find_candidate_eligible_r48(entry, c2, has_prevcw,
+                                                   find_hold_noted,
+                                                   find_policy_noted))
+                continue;
+            for (i2 = 0; i2 < nd; i2++)
+                if (!memcmp(seen[i2], c2->cw, 16)) { found = i2; break; }
+            if (found < 0 && nd < 8) {
+                memcpy(seen[nd], c2->cw, 16);
+                peers[nd] = (int)c2->nbpeers;
+                nd++;
+            } else if (found >= 0 && (int)c2->nbpeers > peers[found]) {
+                peers[found] = (int)c2->nbpeers;
+            }
+        }
+        if (nd >= 2) {
+            for (i2 = 0; i2 < nd; i2++) {
+                if (peers[i2] > top) { second = top; top = peers[i2]; }
+                else if (peers[i2] > second) { second = peers[i2]; }
+            }
+            g_svc_checked++;
+            if (top <= second) {
+                g_svc_doubt++;
+                user_trace_cache_observation(entry->caid, entry->provid, entry->sid,
+                    entry->hash, best->peerid,
+                    "cache service doubt: distinct CWs without strict majority; not served", best->cw);
+                return NULL;
+            }
+            g_svc_majority++;
+        }
+    }
     return best;
 }
 
