@@ -48,7 +48,7 @@ run() {
     fi
 }
 
-scenarios=${*:-"dc cc cache up pi reload free"}
+scenarios=${*:-"dc cc cache up pi reload free gates"}
 for sc in $scenarios; do
     case $sc in
         dc)     run dc     python3 "$ROOT/tests/doublecheck-live.py" "$DEST/multics" ;;
@@ -58,6 +58,7 @@ for sc in $scenarios; do
         pi)     MODE=same run pi python3 "$ROOT/tests/ecm-provider-identity.py" "$DEST/multics" ;;
         reload) (cd "$ROOT/tests" && BIN="$DEST/multics" run reload sh newcamd-config-reload.sh) ;;
         free)   run free   python3 "$ROOT/tests/freecccam-live.py" "$DEST/multics" ;;
+        gates)  run gates  python3 "$ROOT/tests/tsan-gates-reload.py" "$DEST/multics" ;;
         *) echo "unknown scenario: $sc"; FAIL=1 ;;
     esac
 done
