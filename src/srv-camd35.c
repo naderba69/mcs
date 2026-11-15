@@ -691,9 +691,11 @@ void *camd35_recvmsg_thread(void *param)
 		struct camd35_server_data *camd35 = cfg.camd35.server;
 		while (camd35) {
 			if (camd35->handle>0) {
-				camd35->ipoll = pfdcount;
-				pfd[pfdcount].fd = camd35->handle;
-				pfd[pfdcount++].events = POLLIN | POLLPRI;
+				if (pfdcount < MAX_CSPORTS) {
+					camd35->ipoll = pfdcount;
+					pfd[pfdcount].fd = camd35->handle;
+					pfd[pfdcount++].events = POLLIN | POLLPRI;
+				} else camd35->ipoll = -1; /* poll table full */
 			} else camd35->ipoll = -1;
 			camd35 = camd35->next;
 		}

@@ -238,6 +238,11 @@ cache-cross-provider:
 cache-cross-gates:
 	sh ./cache-cross-gates.sh
 
+# Band 54: camd35/cs378x send length guard (oversized frame must not
+# overflow the 1024-byte stack buffer in msg-camd35.c).
+camd35-guard:
+	sh ./camd35-send-guard.sh
+
 # Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
 # be delivered from cache, the mismatched scope must not.
 c1884:

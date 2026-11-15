@@ -52,6 +52,9 @@ inline int camd35_padding( int len )
 // for connected udp sockets
 void camd35_send( int handle, AES_KEY *encryptkey, uint32_t ucrc, unsigned char *buf, int len)
 {
+	/* Length guard: sbuf is 1024 bytes and crc32 reads buf[20..len);
+	 * an oversized/undersized frame would overflow the stack buffer. */
+	if (!buf || len < 20 || len > 1000) return;
 	uint8_t sbuf[1024];
 	sbuf[0] = ucrc>>24;
 	sbuf[1] = ucrc>>16;
@@ -79,6 +82,7 @@ void camd35_send( int handle, AES_KEY *encryptkey, uint32_t ucrc, unsigned char 
 
 int camd35_sendto( int handle, uint32_t ip, int port, AES_KEY *encryptkey, uint32_t ucrc, unsigned char *buf, int len)
 {
+	if (!buf || len < 20 || len > 1000) return 0;
 	uint8_t sbuf[1024];
 	sbuf[0] = ucrc>>24;
 	sbuf[1] = ucrc>>16;
@@ -113,6 +117,7 @@ int camd35_sendto( int handle, uint32_t ip, int port, AES_KEY *encryptkey, uint3
 
 int cs378x_send( int handle, AES_KEY *encryptkey, uint32_t ucrc, unsigned char *buf, int len)
 {
+	if (!buf || len < 20 || len > 1000) return 0;
 	uint8_t sbuf[1024];
 	sbuf[0] = ucrc>>24;
 	sbuf[1] = ucrc>>16;

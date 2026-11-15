@@ -859,9 +859,11 @@ void *cs378x_recvmsg_thread(void *param)
 				struct camd35_client_data *cli = cs378x->client;
 				while (cli) {
 					if (cli->connection.status>0) {
-						cli->ipoll = pfdcount;
-						pfd[pfdcount].fd = cli->handle;
-						pfd[pfdcount++].events = POLLIN | POLLPRI;
+						if (pfdcount < MAX_CSPORTS) {
+							cli->ipoll = pfdcount;
+							pfd[pfdcount].fd = cli->handle;
+							pfd[pfdcount++].events = POLLIN | POLLPRI;
+						} else cli->ipoll = -1; /* poll table full: never index past pfd[MAX_CSPORTS] */
 					} else cli->ipoll = -1;
 					cli = cli->next;
 				}
@@ -943,9 +945,11 @@ void *cs378x_cacheex_recvmsg_thread(void *param)
 				struct camd35_client_data *cli = cs378x->cacheexclient;
 				while (cli) {
 					if (cli->connection.status>0) {
-						cli->ipoll = pfdcount;
-						pfd[pfdcount].fd = cli->handle;
-						pfd[pfdcount++].events = POLLIN | POLLPRI;
+						if (pfdcount < MAX_CSPORTS) {
+							cli->ipoll = pfdcount;
+							pfd[pfdcount].fd = cli->handle;
+							pfd[pfdcount++].events = POLLIN | POLLPRI;
+						} else cli->ipoll = -1; /* poll table full: never index past pfd[MAX_CSPORTS] */
 					} else cli->ipoll = -1;
 					cli = cli->next;
 				}

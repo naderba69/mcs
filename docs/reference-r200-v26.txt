@@ -1,0 +1,458 @@
+# MultiCS R200 v2.6 — Feature & Enhancement Guide
+
+**Version:** v2.6 (REVISION 200)
+**Build line:** SuperSmartFilter R200 V6.7 → V6.17 + v2.6 hotfixes
+**Scope:** everything added to the R200 line after v2.5, including the new
+anti-fake CW detectors, IP auto-ban rework, console improvements, and the
+v2.6 security hardening.
+
+---
+
+## 1. Highlights
+
+| Area | What is new in v2.6 |
+|---|---|
+| New detector | **DCW MARCHCHECK** — catches a recycled CW delivered in the same slot instead of marching forward |
+| Detection | Exact **Shannon entropy**, mirror/duplicate fake detection, multicheck CW normalization |
+| Multicheck | Per-profile enable/disable and per-profile `CWMATCH`, `CWMIN`, `WAITTIME`, `ENTROPY` |
+| New filters | IP whitelist, suspicious-key ratio, late-CW, CW integrity check, iCAM burst guard |
+| Clone detection | Cross-channel half-CW reuse (`SF_CW_REUSE`), intra-channel pool recycling (`HALFREUSE`), independent CHAIN/REUSE |
+| NDS | Half-CW family seed (`SF_HALF_N_CW_CAIDS` / `SF_HALF_NDS_FAMILY`), with 09C7 / 09EF handled correctly |
+| Constant CW | `SF_CW_DUP` — constant or conflicting CW (black-screen fake) |
+| IP control | Per-protocol auto-ban, expired clients banned under their own protocol, per-protocol Unban buttons, **Unban ALL** |
+| Web | `/iptables` rebuilt as a standalone console page, `/loginlog` audit page, session timeout/idle expiry, web brute-force ban |
+| Cache | Cache-peer `profiles=` allow-list; the full SmartFilter chain now also applies to **server-sourced** CWs |
+| Handshake | Cache handshake advertises **`r200 v2.6`** (visible in the Cache page prog column) |
+| Stability | Bounded debug formatting (`mlogf`), cs378x pollfd capacity guards, camd35 packet-length validation |
+
+All new detectors are **off by default** (or log-only where noted). Existing
+configurations keep working unchanged.
+
+---
+
+## 2. SmartFilter: the new detection engine
+
+### 2.1 DCW MARCHCHECK — same-slot recycled CW
+
+On a legitimate full-CW "marching" channel, two consecutive CWs share one
+half:
+
+```
+(CW0, CW1) → (CW1, CW2) → (CW2, CW3) ...
+```
+
+The shared half alternates slots every cycle. A fake produced by recycling a
+CW keeps a half parked in the **same slot** for two or more consecutive
+accepts. MARCHCHECK detects that pattern.
+
+```ini
+# inside a profile (CAID block)
+DCW MARCHCHECK : 0    # off (default)
+DCW MARCHCHECK : 1    # log-only (writes to the antifake log)
+DCW MARCHCHECK : 2    # hard-reject the CW
+```
+
+Channels configured as tag-cycled (`cw1cycle` 0x80/0x81) are exempt because
+they legitimately reuse a half in the same slot. A *learned* cycle does not
+disable the detector — a learned wrong-cycle comes from already-poisoned CWs
+and is exactly what is being hunted.
+
+### 2.2 Exact Shannon entropy, mirror and duplicate fakes (V6.7)
+
+Ported from the OSCam v9.4 proxy anti-fake logic:
+
+- Exact **Shannon entropy** per CW, with separate thresholds for full and
+  half CWs:
+  - `SF_ENTROPY_FULL` (default **2.5**, scale 0..4.0)
+  - `SF_ENTROPY_HALF` (default **1.5**, scale 0..3.0)
+  - `SF_ENTROPY` is the master switch (default **0**).
+- **Mirror** fake: every byte is the logical complement of a legitimate half.
+- **Duplicate** fake: all-zero or all-FF valid half.
+- Multicheck now **normalizes** half CWs to a canonical 8-byte form before
+  comparison, so equivalent representations compare equal.
+
+### 2.3 Multicheck per profile (V6.8 → V6.8d)
+
+Multicheck can be enabled for one CAID without touching the global switch:
+
+```ini
+# inside a profile
+DCW MULTICHECK : YES          # or NO / 1 / 0
+DCW MULTICHECK CWMATCH : 2    # peers that must agree (1..10)
+DCW MULTICHECK CWMIN : 3      # if > 0, replaces CWMATCH
+DCW MULTICHECK WAITTIME : 500 # consensus window in ms (0 = global)
+DCW MULTICHECK ENTROPY : 3.5  # minimum CW entropy for this CAID
+```
+
+Global defaults:
+
+```ini
+SF_MULTICHECK : 0             # off by default
+SF_MC_CAIDS :                 # empty = all channels
+SF_MC_MATCH : 2               # 1..10
+SF_MC_MODE : 1                # 1 = log-only, 2 = reject
+SF_MC_MODE_LOG_ONLY : 1       # self-documenting alias for log-only
+SF_MC_WAIT : 200              # ms, 50..5000
+```
+
+> **Strictness warning:** `SF_MC_MATCH = 2` with `SF_MC_MODE = 2` is very
+> strict. A channel served by a single peer will be rejected. When in doubt,
+> start with mode 1 (log-only) and raise MATCH or lower the scope.
+
+`SF_MC_CAIDS` remains the master gate: an empty list means every CAID.
+
+### 2.4 New filters (V6.9)
+
+All default **off**; enable after a smoke test.
+
+| Keyword | Default | Purpose |
+|---|---|---|
+| `SF_WHITELIST_IPS` | empty | Trusted peer IPs exempt from all fake checks |
+| `SF_SUSPICIOUS` | 0 | Flag suspicious CW reuse on different SIDs |
+| `SF_SUSPICIOUS_RATIO` | 30 | Bad-key ratio (%) applied while suspicious |
+| `SF_LATECW_MS` | 0 | Reject CWs arriving later than this (ms) |
+| `SF_CW_CHECK` | 0 | CW integrity / first-half re-check (0=off, 1=NDS, 2=all but E0) |
+| `SF_ICAM` | 0 | iCAM burst guard |
+| `SF_ICAM_COOLDOWN` | 10 | Per-peer cooldown seconds (1..3600) |
+
+### 2.5 Constant / conflicting CW — `SF_CW_DUP` (V6.12)
+
+Catches a fault where the same CW is repeated many times while other distinct
+CWs exist for the same channel (the classic black-screen fake).
+
+```ini
+SF_CW_DUP : 1        # default 0 (off)
+SF_CW_DUP_REP : 4    # repetitions before flag, 2..10 (default 3)
+```
+
+A genuine constant CW (one key, no competitor) and a normal key roll (two
+distinct keys) are never flagged.
+
+### 2.6 Half-CW clone detection (V6.14 → V6.16)
+
+Fake generators in the wild recycle a small pool of 8-byte halves across
+channels. Three complementary checks:
+
+**Cross-channel reuse — `SF_CW_REUSE` (V6.14)**
+
+```ini
+SF_CW_REUSE : 1                 # default 0
+SF_CW_REUSE_WINDOW : 120000     # ms, 1000..600000
+SF_REUSE_CAIDS : 1814,1802      # empty = all CAIDs
+```
+
+A half already seen on a **different** `(caid, sid)` inside the window is
+rejected (`REUSE`). Same-channel re-sighting refreshes and never flags; a
+stale cross-channel sighting adopts the new channel.
+
+**Chain validation — `SF_CW_CHAIN` (V6.15)**
+
+```ini
+SF_CW_CHAIN : 1                 # default 0
+SF_CHAIN_WINDOW : 4000          # ms, 500..60000
+SF_HALFCW_CAIDS : 1814,1802     # full-CW CAIDs that must march
+```
+
+A new CW on a listed channel must share exactly one half with the previous
+accepted CW; otherwise it is rejected (`HALFCHAIN`). Only list **full-CW**
+CAIDs here — NDS half-nulled CWs have no predictable next half.
+
+**Intra-channel pool recycling — HALFREUSE (V6.16)**
+
+A half seen **3 or more times** with a different peer half on the same
+`(caid, sid)` inside the chain window is rejected (`HALFREUSE`). A legitimate
+Nagra channel carries each half exactly twice.
+
+**CHAIN and REUSE now run independently.** Previously REUSE was silently
+skipped while CHAIN pre-empted on the same CAID.
+
+> **Naming note — do not confuse the two lists:**
+> - `SF_HALF_N_CW_CAIDS` = NDS half-CW expectation list.
+> - `SF_HALFCW_CAIDS` = full-CW chain-validator list.
+>
+> They were renamed in V6.15; the old single name was ambiguous.
+
+### 2.7 NDS-family half-CW seed (V6.17)
+
+NDS/Videoguard sends only the current 8-byte half; the receiver must expect a
+48-bit CW. The family seed makes that expectation explicit:
+
+```ini
+SF_HALF_N_CW_CAIDS : 098D,0960,0961,0963,09BD,098E,092F,091F
+SF_HALF_NDS_FAMILY : 1    # optional: treat every NDS CAID as half
+```
+
+- 09C7 and 09EF are **excluded** from the family because they send
+  current + previous CW (16 bytes, full format).
+- A seeded expectation is **log-only** and can never drop a CW by itself.
+- The learner still wins: a decided 48/64-bit format overrides the seed.
+- A wrong family seed cannot black-screen a channel (fail-open).
+
+---
+
+## 3. IP management and auto-ban
+
+### 3.1 Per-protocol bans (V6.8c)
+
+The IP list now keeps one flag per protocol instead of a single "all"
+flag. An expired client is banned under **its own** protocol, not the whole
+box.
+
+- CCcam, Newcamd, Mgcamd, CS378x, Camd35, Cache, CacheEX and FreeCCcam can be
+  blocked independently.
+- A block with no protocol still means **ALL**.
+- An existing "ALL" entry can be narrowed to individual protocols.
+
+### 3.2 Unban controls
+
+- **Per-protocol Unban buttons** on `/iptables` (V6.8c): CCcam, Newcamd,
+  Mgcamd, CS378x, Camd35.
+- **Unban ALL** (V6.10): flushes every blocked IP and removes all MultiCS
+  iptables rules in one click.
+- Unbanning a protocol converts an `ALL` entry into explicit flags and only
+  removes the requested one; the entry disappears when no flag remains.
+
+### 3.3 Web brute-force protection (V6.13)
+
+- Failed web logins are counted; after `HTTP LOGIN FAILS` the source IP is
+  banned for `HTTP LOGIN BAN` seconds.
+- Login attempts are recorded in the audit log and shown on `/loginlog`.
+- `HTTP SESSION TIMEOUT` and `HTTP SESSION IDLE` control absolute session
+  lifetime and idle expiry.
+
+---
+
+## 4. Web console and monitoring
+
+### 4.1 `/iptables` standalone console (V6.11)
+
+The page now uses the same shared light theme as the rest of the interface
+(`http_write_style`), with:
+
+- real console menu bar and Home button;
+- `sbutton`-style Block / Unban / Unban ALL buttons;
+- status cards for Auto-Ban, fail threshold, ban duration and targets;
+- live blocked-IP table with per-protocol unban links.
+
+### 4.2 `/loginlog` audit page (V6.13)
+
+Shows the web login history: user, source IP, result, timestamp. Useful for
+detecting brute-force attempts and for support.
+
+### 4.3 SmartFilter console
+
+- New counters and pills for `REUSE`, `HALFREUSE`, `CHAIN`, `DUP-CW`,
+  `ENTROPY`, `MIRROR`, `FMT`, `STRBL`, `MULTICHECK`, `LATE`, `CW-CHECK`,
+  `iCAM`.
+- **Log filter buttons** (All / REUSE / DUP-CW / MC / FMT / LATE / CHECKSUM /
+  MIRROR / BLOCK) on the Logs tab.
+- Per-profile multicheck overrides are visible in the console (`mc_prof`).
+- The full SmartFilter chain now also applies to **server-sourced** CWs
+  (V6.13), not only cache peers.
+
+### 4.4 Cache page
+
+- Strongest / Bad filters use the share of total cache hits (>1% = Strongest,
+  <1% = Bad), with no unfair blocking of high-volume peers.
+- Cache-peer `profiles=` allow-list: a peer can only deliver to the profiles
+  listed in its config block (empty = all).
+- The handshake advertises `r200 v2.6`; the remote peer's advertised version
+  is shown in the prog column.
+
+---
+
+## 5. Security and stability (v2.6 hotfixes)
+
+- **Bounded debug formatting (`debug.c`)** — `mlogf` uses `vsnprintf`, the
+  format copy is clamped with `strncpy(..., sizeof(fstr)-1)`, the log level is
+  bounded to 0..5, and the debug ring index uses an atomic, cast-safe
+  increment. This removes the debug logger stack overflow described in the
+  v2.5 feedback.
+- **cs378x pollfd capacity guards (`srv-cs378x.c`)** — both receive threads
+  now use a 1024-entry pollfd array (`MAX_CS378X_POLLFD`) instead of the
+  200-entry `MAX_CSPORTS`, with a strict capacity check before every append.
+  This prevents stack smashing under high client loads.
+- **camd35 packet-length validation (`msg-camd35.c`)** — `cs378x_recv` and
+  `cs378x_msg_peek` reject `newlen > 2048` or `<= 0`; `cs378x_send` rejects
+  `len < 0` or `len > 1000` before touching its 1024-byte send buffer.
+
+> **Scope note:** these are defensive bounds. They are not a substitute for a
+> full protocol fuzz audit; keep the server behind your usual firewall and do
+> not expose CS378x to untrusted networks.
+
+---
+
+## 6. Configuration reference
+
+Syntax rules:
+
+- Keywords can be written with or without the `CACHE ` / `DEFAULT ` prefix.
+- The separator can be `:` or a space.
+- Per-profile fields go inside a `CAID:` block.
+- Restart (or config reload) after changes.
+
+```ini
+# all of these are valid
+SF_FILTER: 2
+CACHE SF_MULTICHECK : 1
+DCW MARCHCHECK : 2
+```
+
+### 6.1 Detection level
+
+| Keyword | Default | Range | Meaning |
+|---|---|---|---|
+| `SF_FILTER` | 2 | 0..20 | Global detection level; 0 disables SuperSmartFilter |
+| `SF_FILTER_TIME` | 500 ms | 0..60000 | Base window for "too fast" key repeats |
+| `FILTER` (profile) | inherit | 0..20 | Per-profile level |
+| `FILTER TIME` (profile) | inherit | 0..60000 | Per-profile window |
+| `DCW HALFNULLED` | NO | YES/NO | Accept only half (48-bit) keys |
+| `ENABLE SKIPCWC` | NO | YES/NO | Skip history checks for FILTER < 6 |
+
+### 6.2 Peer blocking
+
+| Keyword | Default | Range | Meaning |
+|---|---|---|---|
+| `BADCWRATIO` | 85 % | 0..100 | Bad-key ratio above which a peer is blocked; 0 = never |
+| `BADCWRATIOMIN` | 5000 | — | Minimum keys analyzed before judging |
+| `MINREPLIES` | 10 | — | Minimum keys before a new peer can be blocked |
+| `UNBLOCK_TIME` | 600 s | 0..604800 | Automatic unblock delay |
+| `DROPBADCWS` | 1 | 0..1 | 1 = drop rejected keys; 0 = count/log only |
+| `BADCWLIMIT` | 2000 | — | Compatibility no-op (ratio is the real gate) |
+
+### 6.3 Basic checks
+
+| Keyword | Default | Range | Meaning |
+|---|---|---|---|
+| `BLOCKFAKECWS` | 1 | 0..1 | Reject identical-byte / `FD FF FF FB` pattern fakes |
+| `SF_ENTROPY` | 0 | 0..1 | Master switch for weak-key rejection |
+| `SF_ENTROPY_FULL` | 2.5 | 0..4.0 | Shannon threshold, full 16-byte CW |
+| `SF_ENTROPY_HALF` | 1.5 | 0..3.0 | Shannon threshold, half 8-byte CW |
+| `SF_PATTERN` | 0 | 0..1 | Reject repeating patterns / many 00 or FF bytes |
+| `SF_DUPSEEN` | 0 | 0..1 | Reject the same key sent for another channel |
+| `SF_HISTORY` | 4 | 1..16 | Keys remembered per ECM for cycle detection |
+
+### 6.4 Key format
+
+| Keyword | Default | Range | Meaning |
+|---|---|---|---|
+| `SF_CWFMT_AUTO` | 1 | 0..1 | Auto-detect 48/64-bit format per channel |
+| `SF_CWFMT_ENFORCE` | 1 | 0..2 | 1 = log, 2 = reject on mismatch |
+| `SF_HALF_N_CW_CAIDS` | empty | hex list | NDS half-CW CAIDs (09C7/09EF excluded) |
+| `SF_HALF_NDS_FAMILY` | 0 | 0..1 | Treat every NDS CAID as half-CW seed |
+| `SF_STRINGBLACKLIST` | empty | hex list | Forbidden byte sequences (e.g. `01010101,DEADBEEF`) |
+
+### 6.5 Multicheck
+
+| Keyword | Default | Range | Meaning |
+|---|---|---|---|
+| `SF_MULTICHECK` | 0 | 0..1 | Require peer consensus |
+| `SF_MC_CAIDS` | empty | hex list | Scope; empty = all |
+| `SF_MC_MATCH` | 2 | 1..10 | Distinct peers that must agree |
+| `SF_MC_MODE` | 1 | 1..2 | 1 = log, 2 = reject |
+| `SF_MC_MODE_LOG_ONLY` | — | 0..1 | Alias for mode 1 |
+| `SF_MC_WAIT` | 200 ms | 50..5000 | Consensus window |
+
+Per profile:
+
+| Keyword | Range | Meaning |
+|---|---|---|
+| `DCW MULTICHECK` | YES/NO/1/0 | Enable/disable for this CAID |
+| `DCW MULTICHECK CWMATCH` | 1..10 | Peers required |
+| `DCW MULTICHECK CWMIN` | 0..5000 | If >0, replaces CWMATCH |
+| `DCW MULTICHECK WAITTIME` | 0..5000 ms | 0 = global window |
+| `DCW MULTICHECK ENTROPY` | 0..4.0 | Minimum CW entropy for this CAID |
+
+### 6.6 Half-CW clone detection
+
+| Keyword | Default | Range | Meaning |
+|---|---|---|---|
+| `SF_CW_REUSE` | 0 | 0..1 | Cross-channel half reuse |
+| `SF_CW_REUSE_WINDOW` | 120000 ms | 1000..600000 | Reuse table window |
+| `SF_REUSE_CAIDS` | empty | hex list | Enforce reuse only for these CAIDs |
+| `SF_CW_CHAIN` | 0 | 0..1 | Half-CW chain validator |
+| `SF_CHAIN_WINDOW` | 4000 ms | 500..60000 | Chain re-sync window |
+| `SF_HALFCW_CAIDS` | empty | hex list | Full-CW CAIDs for chain validation |
+| `SF_CW_DUP` | 0 | 0..1 | Constant/conflicting CW detector |
+| `SF_CW_DUP_REP` | 3 | 2..10 | Repetitions before flagging |
+
+### 6.7 IP auto-ban and iptables
+
+| Keyword | Default | Meaning |
+|---|---|---|
+| `AUTOBAN ENABLE` | NO | Master switch |
+| `FAILED ATTEMPT` | 5 | Failures before an IP is banned |
+| `BAN TIME` | 3600 s | Ban duration (also expired-client bans) |
+| `HTTP LOGIN FAILS` | — | Web login failures before ban |
+| `HTTP LOGIN BAN` | — | Web brute-force ban duration |
+| `HTTP SESSION TIMEOUT` | — | Absolute web session lifetime |
+| `HTTP SESSION IDLE` | — | Web session idle expiry |
+
+### 6.8 Web and logs
+
+| Keyword | Default | Range | Meaning |
+|---|---|---|---|
+| `SF_WEB_PORT` | 5501 | 0..65535 | Standalone console port; 0 = menu only |
+| `SF_WEB_BIND` | empty | — | Listen address of the standalone console |
+| `SF_WEB_AUTH` | empty | user:pass | Credentials for the standalone console |
+| `LOG_LEVEL` | 1 | 0..5 | Detail level for `/var/log/supersmartfilter.log` |
+
+---
+
+## 7. Upgrade notes
+
+1. **Existing configs remain valid.** All new detectors default to off or
+   log-only, except the marchcheck value you explicitly set per profile.
+2. **Test on one server first.** Enable one detector at a time and watch the
+   SmartFilter console and `/var/log/supersmartfilter.log`.
+3. **Recommended rollout:**
+   - Start with `SF_CWFMT_AUTO: 1`, `SF_CWFMT_ENFORCE: 1` (log only).
+   - For Nagra marching channels: `SF_CW_CHAIN: 1` + `SF_HALFCW_CAIDS` list,
+     then `DCW MARCHCHECK: 1` (log) before `2` (reject).
+   - For NDS channels: `SF_HALF_N_CW_CAIDS` with the NDS CAIDs.
+   - Multicheck: `SF_MC_MODE: 1` first; raise `SF_MC_MATCH` only where enough
+     independent peers exist.
+4. **Do not put NDS half-CW CAIDs in `SF_HALFCW_CAIDS`.** That list is the
+   chain validator and expects full CWs. Use `SF_HALF_N_CW_CAIDS` for NDS.
+5. After a config edit, restart the daemon (or let the reload path apply it)
+   and verify the startup `config final:` line reports the expected values.
+
+---
+
+## 8. Binaries and verification
+
+| File | Notes |
+|---|---|
+| `multics.x64` | x64, UPX-packed, MD5 `7145b10ac58ce5a4456a85d54dafe079` (369,828 bytes) — v2.6 hotfix build deployed on the fleet |
+| `multics.x32` | 32-bit x86; build from the same source with `bash build.sh x32`; verify the MD5 printed by the build |
+| `changes-2.6.txt` | Detailed v2.6 changelog |
+| `changes-2.6-short.txt` | One-page summary |
+| `README-LICENSE.md` | Licence installation, machine/address binding, online lease |
+
+Verify a binary before installing:
+
+```sh
+md5sum multics.x64
+file multics.x64
+```
+
+> The x32 file in this folder may predate the v2.6 hotfix. Rebuild it from the
+> matching source tree if you deploy 32-bit hosts, and always compare the MD5
+> of the file you install with the MD5 in `/proc/<pid>/exe`.
+
+---
+
+## 9. Support
+
+**KingCS — Telegram @kingcs2099 — kingcs4099@gmail.com**
+
+When reporting a filtering problem, include:
+
+- the CAID, SID and the CW (hex) that was wrongly accepted or rejected;
+- the `config final:` line from the startup log;
+- the relevant `[supersmartfilter]` lines (especially `MARCHCHECK`, `REUSE`,
+  `HALFREUSE`, `CHAIN`, `DUP-CW`, `ENTROPY`, `MC`).
+
+---
+
+*MultiCS R200 v2.6 — KingCS=PROF-ABDO*
