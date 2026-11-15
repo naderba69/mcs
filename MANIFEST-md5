@@ -617,6 +617,7 @@ e32880499dbeb42ed8a1df03381b4e7b  src/newcamd-keepalive.h
 76b342d9f8bf87ce1e175f5daa68679c  src/newcamd-lifetime.c
 e843eabd5132ca97ddf0d1063991b90e  src/newcamd-lifetime.h
 92fb096a4cd57c3e32b9f9bfc574cb6c  src/newcamd-request.h
+2e3a108e54b15f46365c7483976d6180  src/nopushafter.h
 9a7ed2a62fa1a30bb7ecb71eb2e0df1e  src/packed-time.c
 2cd4b1705d3ff2b4b918919672c63e3e  src/parquery.h
 c28e17f42aac86e19ec6503bb404be90  src/parser.c
@@ -808,6 +809,7 @@ b2caeeac7e48b211710f9236a020fdb7  tests/multics-live.cfg
 65e394560febcf175663f5689f370ca9  tests/newcamd-ack-race.sh
 324667f0c3a45ae291493c9fd8fce4ab  tests/newcamd-config-reload.sh
 15f1d35306a0b6eff09bb228768f9072  tests/newcamd-sendfault.c
+b27a0626a2846f852fd4440fa0b7d9ad  tests/nopushafter-live.py
 cfbdd90f1df51e8737e52631c5d85a07  tests/packed-camd35.c
 dd59917b633d8021673ccdb30f686e95  tests/packed-sid-gate.c
 a168e99a87ae0f663022747cd22ee70a  tests/packed-time.c
