@@ -57,7 +57,7 @@ void frcc_disconnect_cli(struct cc_client_data *cli)
 		cli->connection.uptime += ticks - cli->connection.time;
 		cli->connection.lastseen = ticks; // Last Seen
 		close(cli->handle);
-		cli->handle = -1;
+		__atomic_store_n(&cli->handle, -1, __ATOMIC_RELAXED);
 		debugf(0," FreeCCcam: client '%s' disconnected \n", cli->user);
 		//////cli->parent->clipfd.update = 1;
 	}
@@ -755,9 +755,13 @@ void *frcc_recvmsg_thread(void *param)
 		if ( !IS_DISABLED(freecccam->flags)&&(freecccam->handle>0) ) {
 			struct cc_client_data *cli = freecccam->client;
 			while (cli && (pfdcount<MAX_PFD)) {
-				if ( !IS_DISABLED(cli->flags)&&(cli->handle>0) ) {
+				/* handle is published atomically by the connect worker
+				 * and by frcc_disconnect_cli (band 44): load it once,
+				 * exactly as the dispatch loop below does. */
+				int build_handle = __atomic_load_n(&cli->handle, __ATOMIC_RELAXED);
+				if ( !IS_DISABLED(cli->flags)&&(build_handle>0) ) {
 					cli->ipoll = pfdcount;
-					pfd[pfdcount].fd = cli->handle;
+					pfd[pfdcount].fd = build_handle;
 					pfd[pfdcount++].events = POLLIN | POLLPRI;
 				} else cli->ipoll = -1;
 				cli = cli->next;

@@ -6,7 +6,7 @@ Filename kept for compatibility; the contents are the current builds.
 
 ```
 File: bin/multics.x64    <- run this one; the name never changes
-MD5: 4e2d526b7366954bee8befe409deeb79
+MD5: add7dad79afbab0fb65228eae950d379
 Size: 1045 KB
 Flavour: full build (stock logic + /cwlog verdict ring)
 Build/refresh: make -C make-x64 release-stats   (rewrites bin/multics.x64)
@@ -18,13 +18,13 @@ Run: ./bin/multics.x64 -C multics-r24-optimized.cfg -b
 
 ### multics-r82a-stock-x64 — the production binary
 ```
-MD5: 554fd8d2a125e1b8394f9e80546d92a7
+MD5: 5ff9f74fbf8913e9de17243fe67a56e6
 Size: 1029 KB
 Build: make -C make-x64 release
 ```
 ### multics-r82a-stats-x64 — same, plus the /cwlog verdict ring
 ```
-MD5: 4e2d526b7366954bee8befe409deeb79
+MD5: add7dad79afbab0fb65228eae950d379
 Size: 1037 KB
 Build: make -C make-x64 release-stats
 ```

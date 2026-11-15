@@ -388,7 +388,7 @@ void *telnetprocess(int *param )
 				if (!parse_name(str)) continue;
 				struct mg_client_data *cli = getmgcamdclientbyname( srv, str );
 				if (!cli) continue;
-				if (cli->handle>0) {
+				if (__atomic_load_n(&cli->handle, __ATOMIC_RELAXED)>0) {
 					char *p = getcountrycodebyip(cli->ip);
 					if (p) 
 						sprintf(wbuf, "<tr><td>%s</td><td>%s</td><td class=online>Connected</td><td>[%s] %s</td>", cfg.http.title, cli->user, p, ip2string(cli->ip) );

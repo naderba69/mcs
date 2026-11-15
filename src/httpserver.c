@@ -3705,7 +3705,7 @@ int connected_radegast_clients(struct cardserver_data *cs)
 	struct rdgd_client_data *rdgdcli=cs->radegast.client;
 	if (cs->radegast.handle)
 	while (rdgdcli) {
-		if (rdgdcli->handle>0) nb++;
+		if (__atomic_load_n(&rdgdcli->handle, __ATOMIC_RELAXED)>0) nb++;
 		rdgdcli=rdgdcli->next;
 	}
 	return nb;
@@ -4600,7 +4600,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 		rdgdcli = cs->radegast.client;
 		int alt=0;
 		while (rdgdcli) {
-			if (rdgdcli->handle>0) {
+			if (__atomic_load_n(&rdgdcli->handle, __ATOMIC_RELAXED)>0) {
 				if (alt==1) alt=2; else alt=1;
 				d = (GetTickCount()-rdgdcli->connected)/1000;
 				if (rdgdcli->ecm.busy)
@@ -6840,7 +6840,7 @@ sprintf( http_buf,"<tr><td class=left>User name</td><td class=right>%s</td></tr>
 		sprintf( http_buf,"<tr><td class=left>IP Address</td><td class=right>%s</td></tr>\n",(char*)ip2string(cli->ip) );
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		// fd
-		sprintf( http_buf,"<tr><td class=left>File Descriptor</td><td class=right>%d</td></tr>\n", cli->handle );
+		sprintf( http_buf,"<tr><td class=left>File Descriptor</td><td class=right>%d</td></tr>\n", __atomic_load_n(&cli->handle, __ATOMIC_RELAXED) );
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		// CCcam Version
 		sprintf( http_buf,"<tr><td class=left>CCcam Version</td><td class=right>%s</td></tr>",cli->version );

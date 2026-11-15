@@ -265,7 +265,7 @@ void cacheex_push(struct cache_data *pcache, uint8_t cw[16], uint8_t *nodeid )
 			if ( (cli->cacheex_mode==2) && (cli->connection.status>0) )
 			if ( !nodeid || memcmp(nodeid, cli->nodeid, 8) )
 			if ( acceptshare(cli->sharelimits, pcache->caid, pcache->provid) ) {
-				if ( !cs378x_send( cli->handle, &cli->encryptkey, cli->ucrc, camd35buf, camd35len) ) cs378x_disconnect_cli(cli);
+				if ( !cs378x_send( __atomic_load_n(&cli->handle, __ATOMIC_RELAXED), &cli->encryptkey, cli->ucrc, camd35buf, camd35len) ) cs378x_disconnect_cli(cli);
 				pthread_mutex_lock(&prg.lockcacheex);
 				cli->cacheex.push[0]++;
 				if (nodeid) cli->cacheex.push[2]++; else cli->cacheex.push[1]++;
