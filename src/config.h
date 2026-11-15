@@ -793,6 +793,8 @@ struct cardserver_data
 		uint8_t dcwfilter_pattern; /* TASK R28 (D79): structural fake gate */
 		/* R48 SuperSmartFilter per-profile level (0=inherit global). */
 		uint8_t sf_filter_level;
+		/* Band 55 MARCHCHECK override: 0=inherit global, 1=off, 2=log-only, 3=reject. */
+		uint8_t sf_marchcheck;
 		/* Per-CAID arming for the band 26/32 gates (0=inherit the
 		 * global CACHE CI VALIDATE / CACHE DROPDIFFS, 1=force on,
 		 * 2=force off) -- set with CI VALIDATE: / DROPDIFFS: in a

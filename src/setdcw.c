@@ -243,7 +243,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 #else
 			NULL,
 #endif
-			ecm->caid, ecm->provid, ecm->sid, (uint32_t)srcid, now_ms, &ssf_reason);
+			ecm->caid, ecm->provid, ecm->sid, (uint32_t)srcid, now_ms, &ssf_reason, 0, 0);
 		if (ssf_rejected) {
 			char detail[96];
 			snprintf(detail, sizeof(detail),
@@ -1368,7 +1368,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 			NULL,
 #endif
 			ecm->caid, ecm->provid, ecm->sid, srcid, now_ms, &ssf_reason,
-			cs->option.sf_filter_level);
+			cs->option.sf_filter_level, cs->option.sf_marchcheck);
 		
 		if (ssf_rejected) {
             char detail[96];

@@ -69,6 +69,7 @@ struct ssf_config {
     
     // Multi-check
     int sf_multicheck;          // Enable multi-check
+    int sf_marchcheck;          // Band 55 MARCHCHECK: 0=off, 1=log-only, 2=reject
     uint16_t sf_mc_caids[32];   // CAIDs for multi-check
     int sf_mc_caids_count;
     int sf_mc_match;            // Required peer count
@@ -121,6 +122,8 @@ struct ssf_stats {
     uint64_t rejected_duplicate;
     uint64_t rejected_crosschannel;
     uint64_t rejected_multicheck;
+    uint64_t marchcheck_flagged;
+    uint64_t rejected_marchcheck;
     uint64_t peers_blocked;
     uint64_t peers_unblocked;
 };
@@ -136,6 +139,20 @@ static struct ssf_peer_stats ssf_peers[SSF_MAX_PEERS];
 static int ssf_peer_count = 0;
 static struct ssf_multicheck_entry ssf_mc_table[SSF_MAX_MC_ENTRIES];
 static int ssf_mc_count = 0;
+/* Band 55 MARCHCHECK: last full CW accepted per (caid, provid, sid).
+ * A legitimate marching channel moves the shared half to the OTHER slot
+ * every cycle: (A,B) -> (B,C). A recycled fake parks one half in the SAME
+ * slot while the other half changes. Accessed only under ssf_lock. */
+#define SSF_MAX_MARCH_ENTRIES 512
+struct ssf_march_entry {
+    uint16_t caid;
+    uint32_t provid;
+    uint16_t sid;
+    uint8_t prev[16];
+    uint8_t used;
+};
+static struct ssf_march_entry ssf_march_table[SSF_MAX_MARCH_ENTRIES];
+static int ssf_march_index = 0;
 static struct ssf_stats ssf_stats;
 static pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -532,10 +549,49 @@ static inline int ssf_backdepth(int level)
     return 3;
 }
 
+/* Band 55: returns 1 when `cw` parks a half in the same slot as the
+ * previous full CW for this channel while the other half changed.
+ * Half-nulled CWs (either half all zero) are exempt: their zero half is
+ * parked by design. An identical CW is a duplicate, not a march fault,
+ * and is left to the duplicate checks. Updates the remembered CW unless
+ * `update` is 0 (mode-2 reject: a rejected CW was never accepted, so it
+ * must not become the reference for the next comparison). */
+static int ssf_check_marchcheck(const uint8_t cw[16], uint16_t caid,
+                                uint32_t provid, uint16_t sid, int update)
+{
+    static const uint8_t zero8[8] = {0};
+    if (!memcmp(cw, zero8, 8) || !memcmp(cw + 8, zero8, 8)) return 0;
+    struct ssf_march_entry *entry = NULL;
+    int i;
+    for (i = 0; i < SSF_MAX_MARCH_ENTRIES; i++) {
+        if (ssf_march_table[i].used && ssf_march_table[i].caid == caid &&
+            ssf_march_table[i].provid == provid && ssf_march_table[i].sid == sid) {
+            entry = &ssf_march_table[i];
+            break;
+        }
+    }
+    if (!entry) {
+        entry = &ssf_march_table[ssf_march_index];
+        ssf_march_index = (ssf_march_index + 1) % SSF_MAX_MARCH_ENTRIES;
+        entry->caid = caid; entry->provid = provid; entry->sid = sid;
+        memcpy(entry->prev, cw, 16);
+        entry->used = 1;
+        return 0;
+    }
+    int parked = 0;
+    if (memcmp(cw, entry->prev, 16) &&
+        (!memcmp(cw, entry->prev, 8) || !memcmp(cw + 8, entry->prev + 8, 8)))
+        parked = 1;
+    /* A clean CW always becomes the new reference; a parked CW only
+     * replaces it when the caller accepts it anyway (log-only mode). */
+    if (!parked || update) memcpy(entry->prev, cw, 16);
+    return parked;
+}
+
 static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[16],
                                    uint16_t caid, uint32_t provid, uint16_t sid,
                                    uint32_t peer_id, uint32_t now_ms, int *reject_reason,
-                                   int profile_level)
+                                   int profile_level, int profile_marchcheck)
 {
     /* R48: profile_level 0 = inherit global. Passed as a parameter
      * (not a global) so concurrent ECM workers on different profiles
@@ -648,6 +704,28 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
         }
     }
     
+    // Check 10 (band 55): MARCHCHECK -- same-slot parked half.
+    // Effective mode: profile override (1=off, 2=log-only, 3=reject)
+    // wins over the global CACHE SF MARCHCHECK (0=off, 1=log, 2=reject).
+    {
+        int mc_mode = ssf_cfg.sf_marchcheck;
+        if (profile_marchcheck == 1) mc_mode = 0;
+        else if (profile_marchcheck == 2) mc_mode = 1;
+        else if (profile_marchcheck == 3) mc_mode = 2;
+        if (mc_mode > 0) {
+            int parked = ssf_check_marchcheck(cw, caid, provid, sid, mc_mode == 1);
+            if (parked) {
+                ssf_stats.marchcheck_flagged++;
+                if (mc_mode == 2) {
+                    ssf_stats.rejected_marchcheck++;
+                    rejected = 1;
+                    reason = 10;
+                    goto done;
+                }
+            }
+        }
+    }
+
 done:
     // Record result
     if (peer_id > 0) {
@@ -687,6 +765,8 @@ static void supersmartfilter_init(void)
     memset(ssf_history, 0, sizeof(ssf_history));
     memset(ssf_peers, 0, sizeof(ssf_peers));
     memset(ssf_mc_table, 0, sizeof(ssf_mc_table));
+    memset(ssf_march_table, 0, sizeof(ssf_march_table));
+    ssf_march_index = 0;
     memset(&ssf_stats, 0, sizeof(ssf_stats));
     ssf_history_index = 0;
     ssf_peer_count = 0;
@@ -708,6 +788,7 @@ static void supersmartfilter_init(void)
     ssf_cfg.sf_cwfmt_auto = 1;
     ssf_cfg.sf_cwfmt_enforce = 1;
     ssf_cfg.sf_multicheck = 0;
+    ssf_cfg.sf_marchcheck = 0;
     ssf_cfg.sf_mc_match = 2;
     ssf_cfg.sf_mc_mode = 2;
     ssf_cfg.sf_mc_wait_ms = 500;

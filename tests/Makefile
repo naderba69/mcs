@@ -243,6 +243,11 @@ cache-cross-gates:
 camd35-guard:
 	sh ./camd35-send-guard.sh
 
+# Band 55: MARCHCHECK same-slot parked-half detector (modes, exemptions,
+# per-profile override) against the production supersmartfilter.h.
+marchcheck:
+	sh ./marchcheck.sh
+
 # Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
 # be delivered from cache, the mismatched scope must not.
 c1884:

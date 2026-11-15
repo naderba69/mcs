@@ -4317,6 +4317,17 @@ link_mgcamd_user:
 						ssf_cfg.sf_multicheck = parse_boolean();
 						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MULTICHECK: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_multicheck);
 					}
+					else if (!strcmp(str,"MARCHCHECK")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 2) v = 2;
+							ssf_cfg.sf_marchcheck = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MARCHCHECK: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_marchcheck);
+					}
 					else if (!strcmp(str,"MC")) {
 						parse_spaces();
 						parse_name(str);
@@ -5273,6 +5284,22 @@ link_mgcamd_user:
 				parse_boolean();
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW STATS ignored - this build has no dcwstats counters\n",file->nbline,iparser-currentline);
 #endif
+			}
+			else if (!strcmp(str,"MARCHCHECK") && cardserver) {
+				/* Band 55: per-profile MARCHCHECK 0|1|2 (stored +1 so
+				 * 0 keeps meaning "inherit the global setting"). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 2) v = 2;
+					cardserver->option.sf_marchcheck = (uint8_t)(v + 1);
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW MARCHCHECK: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_marchcheck - 1, cardserver->name);
 			}
 			else if (!cardserver) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip DCW, undefined profile\n",file->nbline,iparser-currentline);
