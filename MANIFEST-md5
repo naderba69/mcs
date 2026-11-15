@@ -74,7 +74,7 @@ c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
 ce9abc6aa510e68693ae7ec947ef77c2  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
-2d2900122669218159d666b77dba8cde  docs/FIELD-GUIDE-ar.md
+6fb3a5abeb6b26e6106315650b5332f0  docs/FIELD-GUIDE-ar.md
 6a549c88dcfd53e331e2ff2bcf0e0180  docs/FINAL-SUMMARY-REPORT-ar.md
 93d04a1492bcff14819bc26483ac5525  docs/INDEX-ar.md
 ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
@@ -151,7 +151,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-c5a1180265519022c2d9db2d9ee29a3e  docs/REPORT-R48-ar.md
+fdb5be30b0095c0da211af359e427172  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -419,9 +419,9 @@ e2f3767f58a61eb59c4fe9bc5eb30107  make-x64/test_supersmartfilter_ticks.c
 ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
-e7bfb69b8f9a43481af16e24c0c67d60  multics-full-30w-52e.cfg
-ea334106a2717190d215343414e18b69  multics-r24-expert-reviewed.cfg
-e908067189f0f6224953f76469ad7b5a  multics-r24-optimized.cfg
+6db3aaffe1441784f493ab9df1740603  multics-full-30w-52e.cfg
+4978991b8fca03dc67436adc6621d41b  multics-r24-expert-reviewed.cfg
+aeb020100e16bdfd35de9781dff0fa78  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
 d5d6004a1e8838901183ec498de341ca  src/Makefile
 d9c02b5adfda1363fe03ed851fd57f80  src/adapfield.h
