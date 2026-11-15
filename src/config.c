@@ -79,6 +79,7 @@
  * Writers hold no other lock while publishing policy. Readers copy a snapshot
  * and release the lock before validation or trace work. */
 extern int cfg_r22_layers_enabled;
+extern int cfg_auto_recover_enabled;
 extern int cfg_doublecheck_caids[64];
 extern int cfg_doublecheck_caid_count;
 
@@ -2572,6 +2573,26 @@ sid accept:
 				continue;
 			} else iparser++;
 			cfg_r22_layers_enabled = parse_boolean();
+		}
+
+		else if (!strcmp(str,"AUTO")) {
+			/* AUTO RECOVER: ON|OFF -- arms the autorecov bookkeeping
+			 * (band 47). Monitor only: it records black-screen
+			 * triggers/successes for /user-trace; no code acts on
+			 * its stages. Default OFF. */
+			parse_name(str);
+			uppercase(str);
+			if (strcmp(str,"RECOVER")) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown AUTO option '%s'\n",file->nbline,iparser-currentline,str);
+				continue;
+			}
+			parse_spaces();
+			if ((*iparser!=':')&&(*iparser!='=')) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+				continue;
+			} else iparser++;
+			cfg_auto_recover_enabled = parse_boolean();
+			debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): AUTO RECOVER: %s\n",file->nbline,iparser-currentline, cfg_auto_recover_enabled?"ON":"OFF");
 		}
 
 		else if (!strcmp(str,"BAD-DCW")) {

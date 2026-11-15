@@ -77,7 +77,7 @@ def main():
             'TELNET PORT: 0\n'
             f'CCCAM PORT: {cc_port}\nF: cxu cxp {{ cacheex_mode=3; }}\n'
             f'CACHE PORT: {cache_port}\n'
-            'CACHE FILTER: OFF\nCACHE THRESHOLD: 1\n'
+            'CACHE FILTER: OFF\nCACHE THRESHOLD: 1\nAUTO RECOVER: ON\n'
             f'{gate}'
             '\n[doubt1884]\nCAID: 1884\nPROVIDERS: 000000\n'
             f'PORT: {nc_port}\n'
@@ -127,6 +127,10 @@ def main():
                 auth = base64.b64encode(b'test:test').decode()
                 conn.request('GET', '/user-trace', headers={'Authorization': 'Basic ' + auth})
                 page = conn.getresponse().read().decode('utf-8', 'replace')
+                assert 'الاسترداد التلقائي (مراقبة فقط' in page, 'autorecov monitor line missing from /user-trace'
+                assert 'بدء استرداد: 0' in page, 'autorecov counters wrong'
+                assert 'البوابات المسلّحة' in page, 'armed-gates summary missing from /user-trace'
+                assert 'CACHE EVIDENCE في 1 بروفايل' in page, 'armed-gates summary wrong: ' + page[page.find('البوابات'):page.find('البوابات')+300]
                 i = page.find('CACHE SERVICE DOUBT')
                 counters = page[max(0, i - 60):i + 220] if i >= 0 else 'PAGE SECTION MISSING'
                 server_out = server_log.read_text(errors='replace')

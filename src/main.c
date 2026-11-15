@@ -1011,6 +1011,13 @@ static void cwn_note(int srctype, int srcid, const uint8_t *cw,
 		keyhex, srctype, (unsigned)srcid);
 	if (n > 0)
 		debugf(DBG_ERROR," !!! %s\n", line);
+
+	/* Band 45: the R22 cw_failed hook is wired here, and only here --
+	 * a fresh negative-memory mark is a definitive GR3 proof (ledger
+	 * dispute plus client failure, or a reuse proof), never a guess
+	 * at delivery time. In stock builds this compiles to nothing;
+	 * cwneg above already refuses the key in every flavour. */
+	r22_hook_cw_failed(caid, provid, sid, cw, srcid, ticks_now);
 }
 
 /*
@@ -2147,6 +2154,7 @@ int cfg_doublecheck_caid_count = 0;
  * immediately. Set by the config line "R22 LAYERS: YES/NO" and applied
  * live on config reload -- no rebuild needed to back out in the field. */
 int cfg_r22_layers_enabled = 1;
+int cfg_auto_recover_enabled = 0; /* AUTO RECOVER: ON|OFF, default OFF (band 47) */
 
 /* Field activation (2026-11-14): with no explicit "ECM DOUBLECHECK:"
  * line, arm the observe-mode double check for the CAIDs the operator
@@ -2201,10 +2209,21 @@ void mcs_field_status_fill(struct mcs_field_status *st) {
 		nopushafter_snapshot(&st->nopush_checked, &st->nopush_blocked, &st->nopush_entries);
 		service_doubt_snapshot(&st->svc_checked, &st->svc_doubt, &st->svc_majority);
 		st->svc_armed = cfg.cache.service_doubt;
+		{ uint32_t ar_r = 0, ar_s = 0;
+		  autorecov_snapshot(&g_autorecov_table, &st->ar_enabled, &ar_r, &ar_s, &st->ar_active);
+		  st->ar_recoveries = ar_r; st->ar_successes = ar_s; }
+		st->gate_ci_global = cfg.cache.ci_validate;
+		st->gate_dd_global = cfg.cache.dropdiffs;
 		{ struct cardserver_data *cs2;
 		  for (cs2 = cfg.cardserver; cs2; cs2 = cs2->next) {
 		      if (cs2->option.service_doubt == 1) st->svc_profiles_on++;
 		      else if (cs2->option.service_doubt == 2) st->svc_profiles_off++;
+		      if (cs2->option.ci_validate == 1) st->gate_ci_on++;
+		      else if (cs2->option.ci_validate == 2) st->gate_ci_off++;
+		      if (cs2->option.dropdiffs == 1) st->gate_dd_on++;
+		      else if (cs2->option.dropdiffs == 2) st->gate_dd_off++;
+		      if (cs2->option.cache_evidence) st->gate_ev_profiles++;
+		      if (cs2->option.cw_checksum_exempt_active) st->gate_checksum_exempt_profiles++;
 		  } }
 		for (i = 0; i < n; i++) {
 			st->cwpair_pairs[i].caid_a = pv[i].caid_a;
@@ -3257,7 +3276,7 @@ void mainprocess()
 	/* TASK BS (2026-10-26) -- Initialize Black Screen Prevention Systems */
 	bs_init();
 	blackanalytics_init();
-	autorecov_init(&g_autorecov_table, 1);  /* Auto-recovery enabled by default */
+	autorecov_init(&g_autorecov_table, 0);  /* band 47: enable is read live from AUTO RECOVER (default OFF); init only prepares the table+lock */
 	debugf(0, " [BLACKSCREEN] Detection, Analytics, and Auto-Recovery systems initialized\n");
 
 	/* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT */

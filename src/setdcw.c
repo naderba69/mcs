@@ -976,8 +976,15 @@ void mcs_doublecheck_feed(uint32_t ecm_hash, int reader_id, const uint8_t *cw, u
 	doublecheck_pending_t *dcp = ecm_doublecheck_find(ecm_hash);
 	if (dcp) {
 		int v = ecm_doublecheck_add_result(dcp, reader_id, cw, response_ms);
-		if (v==1)
+		if (v==1) {
 			debugf(0, " [ECM-DBLCHK] verified: two sources agree ch %04x:%06x:%04x\n", dcp->caid, dcp->provid, dcp->sid);
+			/* Band 45: the R22 cw_verified hook is wired at this
+			 * corroboration verdict -- two independent sources
+			 * produced identical bytes. It is not, and must never
+			 * be read as, proof that a client decrypted: no
+			 * protocol message carries that fact. No-op in stock. */
+			r22_hook_cw_verified(dcp->caid, dcp->provid, dcp->sid, cw, reader_id, GetTickCount());
+		}
 		else if (dcp->result_count>=2)
 			debugf(DBG_ERROR, " !!! [ECM-DBLCHK] MISMATCH: sources disagree ch %04x:%06x:%04x (delivered key kept; observe mode)\n", dcp->caid, dcp->provid, dcp->sid);
 	}
@@ -1696,9 +1703,12 @@ trusted_deliver:
 	/* R22 layers (opt-in build -DR22_LAYERS, no-op in stock): a committed
 	 * card-server CW is the ground truth the candidate layers learn from.
 	 * Recorded after delivery, like every observer here: it cannot reject,
-	 * delay or alter the CW. Hooks cw_failed/cw_verified stay unwired --
-	 * no protocol message tells this server a client actually decrypted,
-	 * and calling them at delivery would fabricate that evidence. */
+	 * delay or alter the CW. Hooks cw_failed/cw_verified are NOT called
+	 * here -- no protocol message tells this server a client actually
+	 * decrypted, and calling them at delivery would fabricate that
+	 * evidence. Band 45 wires them at the two honest evidence points
+	 * instead: cw_failed at a definitive negative-memory proof
+	 * (cwn_note in main.c), cw_verified at a DoubleCheck agreement. */
 	if (srctype==DCW_SOURCE_SERVER)
 		r22_hook_ecm_setsrvflagdcw(committed_caid, committed_provid, committed_sid, committed_cw, (unsigned int)srcid, GetTickCount());
 

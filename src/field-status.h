@@ -66,6 +66,21 @@ struct mcs_field_status {
     int svc_armed;
     int svc_profiles_on;
     int svc_profiles_off;
+    /* Armed-gates summary (band 46): so the trace page alone shows
+     * which rejecting gates are live, globally and per profile. */
+    int gate_ci_global;
+    int gate_ci_on;
+    int gate_ci_off;
+    int gate_dd_global;
+    int gate_dd_on;
+    int gate_dd_off;
+    int gate_ev_profiles;
+    int gate_checksum_exempt_profiles;
+    /* Auto-recovery bookkeeping (band 47, monitor only) */
+    int ar_enabled;
+    unsigned long ar_recoveries;
+    unsigned long ar_successes;
+    int ar_active;
     unsigned long svc_checked;
     unsigned long svc_doubt;
     unsigned long svc_majority;

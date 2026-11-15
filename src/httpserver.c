@@ -9197,6 +9197,14 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                      st.svc_profiles_on, st.svc_profiles_off);
             tcp_writestr(tcpbuf, sock, out);
         }
+        snprintf(out, sizeof(out), "<p><b>الاسترداد التلقائي (مراقبة فقط — لا قرار يُبنى عليه):</b> %s | بدء استرداد: %lu | نجاحات: %lu | قنوات في مرحلة استرداد الآن: %d</p>",
+                 st.ar_enabled ? "مفعّل (AUTO RECOVER: ON)" : "مطفأ (AUTO RECOVER: ON لتفعيله)", st.ar_recoveries, st.ar_successes, st.ar_active);
+        tcp_writestr(tcpbuf, sock, out);
+        snprintf(out, sizeof(out), "<p><b>البوابات المسلّحة:</b> CI VALIDATE عام: %s (بروفايلات تفرض ON: %d، تفرض OFF: %d) | DROPDIFFS عام: %s (تفرض ON: %d، تفرض OFF: %d) | CACHE EVIDENCE في %d بروفايل | استثناء checksum (بند 37) في %d بروفايل</p>",
+                 st.gate_ci_global ? "ON" : "OFF", st.gate_ci_on, st.gate_ci_off,
+                 st.gate_dd_global ? "ON" : "OFF", st.gate_dd_on, st.gate_dd_off,
+                 st.gate_ev_profiles, st.gate_checksum_exempt_profiles);
+        tcp_writestr(tcpbuf, sock, out);
         if (st.cwpair_pair_count > 0) {
             int i;
             tcp_writestr(tcpbuf, sock, "<p>أزواج مكتشفة (انسخ المناسب إلى بروفايله، ابدأ بـACTIVE: NO):</p>");
