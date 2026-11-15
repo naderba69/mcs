@@ -3838,7 +3838,38 @@ link_mgcamd_user:
 		else if ( !strcmp(str,"CACHEEX") ) {
 			parse_name(str);
 			uppercase(str);
-			if (!strcmp(str,"VALIDECMTIME")) {
+			if (!strcmp(str,"NOPUSH")) {
+				/* CACHEEX NOPUSH AFTER: 1884:1200, 09CD:500 (band 41) */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"AFTER")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.nopushafter_n = 0;
+					for (;;) {
+						uint16_t caid; uint32_t ms;
+						parse_spaces();
+						if (parse_hex(str) <= 0) break;
+						caid = (uint16_t)hex2int(str);
+						parse_spaces();
+						if (*iparser != ':') break;
+						iparser++;
+						parse_spaces();
+						if (!parse_int(str)) break;
+						ms = (uint32_t)atoi(str);
+						if (cfg->cache.nopushafter_n < 32) {
+							int k = cfg->cache.nopushafter_n++;
+							cfg->cache.nopushafter_caids[k] = caid;
+							cfg->cache.nopushafter_ms[k] = ms;
+						}
+						parse_spaces();
+						if (*iparser == ',') { iparser++; continue; }
+						break;
+					}
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHEEX NOPUSH AFTER: %d entries\n",file->nbline,iparser-currentline, cfg->cache.nopushafter_n);
+				}
+			}
+			else if (!strcmp(str,"VALIDECMTIME")) {
 				parse_spaces();
 				if ((*iparser!=':')&&(*iparser!='=')) {
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);

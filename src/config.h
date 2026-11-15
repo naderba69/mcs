@@ -1542,6 +1542,11 @@ struct config_data
 		int cwpair_discover;
 		uint16_t cwpair_discover_caids[32];
 		int cwpair_discover_n;
+		/* CACHEEX NOPUSH AFTER (band 41): exact-CAID stale-push
+		 * brake. Empty (n=0) = OFF, stock pushes. */
+		uint16_t nopushafter_caids[32];
+		uint32_t nopushafter_ms[32];
+		int nopushafter_n;
 		/* TASK R29 (D80): distinct voters required for the early
 		 * delivery (0/unset = the engine default 2; 2..8 armed). */
 		int consensus_sources;

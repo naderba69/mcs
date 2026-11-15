@@ -9185,6 +9185,10 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                  st.cwpair_observed, st.cwpair_matches, st.cwpair_served,
                  st.cwpair_stale, st.cwpair_strict_rejected, st.cwpair_no_twin);
         tcp_writestr(tcpbuf, sock, out);
+        snprintf(out, sizeof(out), "<p><b>كبح الدفع المتأخر (CACHEEX NOPUSH AFTER):</b> %s | فُحص: %lu | كُبح دفعها (سُلّمت للعميل ولم تُدفع): %lu</p>",
+                 st.nopush_entries ? "مفعّل" : "مطفأ (لا أسطر CACHEEX NOPUSH AFTER)",
+                 st.nopush_checked, st.nopush_blocked);
+        tcp_writestr(tcpbuf, sock, out);
         if (st.cwpair_pair_count > 0) {
             int i;
             tcp_writestr(tcpbuf, sock, "<p>أزواج مكتشفة (انسخ المناسب إلى بروفايله، ابدأ بـACTIVE: NO):</p>");

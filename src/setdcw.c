@@ -1856,16 +1856,25 @@ trusted_deliver:
 	}
 #endif
 
+{
+	/* CACHEEX NOPUSH AFTER (band 41): a CW committed too late for
+	 * its CAID still serves the waiting client above, but is not
+	 * pushed onward to CacheEX servers or CSP peers. */
+	int nopush_blocked = nopushafter_blocked(ecm->caid, ecmtime);
+	if (nopush_blocked && ecm->trace_instance)
+		user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+		    0, 0, ecmtime, "CACHEEX NOPUSH AFTER: late CW delivered to client, not pushed");
 #ifdef CACHEEX
 	// Send DCW to CACHE-EX servers from the frozen successful snapshot.
 	if (delivery_valid && cs->option.fallowcacheex &&
-	    ecmtime<cs->option.cacheexvalidtime) {
+	    ecmtime<cs->option.cacheexvalidtime && !nopush_blocked) {
 		pipe_send_cacheex_push_out_snapshot(&delivery);
 	}
 #endif
 
 	// Send the cache reply serialized at the successful commit.
-	pipe_cache_reply_send(cache_reply_buf, cache_reply_len);
+	if (!nopush_blocked) pipe_cache_reply_send(cache_reply_buf, cache_reply_len);
+}
 
 #ifdef CLI_CSCACHE
 	// Send only to servers still waiting for this exact ECM generation. lockecm

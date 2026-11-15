@@ -160,6 +160,7 @@ int clients_check_sendcw_from_locked(ECM_DATA *ecm,
 #include "implicit-bs-detect.h"
 #include "cache-intelligence.h"
 #include "cwpair.h" /* band 38: simulcrypt CW pairing */
+#include "nopushafter.h" /* band 41: per-CAID stale-push brake */
 #include "smart-server-select.h"
 #include "setdcw.c"
 
