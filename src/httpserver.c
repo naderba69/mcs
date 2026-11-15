@@ -9197,6 +9197,21 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                  st.nopush_entries ? "مفعّل" : "مطفأ (لا أسطر CACHEEX NOPUSH AFTER)",
                  st.nopush_checked, st.nopush_blocked);
         tcp_writestr(tcpbuf, sock, out);
+        /* Band 57: web-door brute-force guard, on the one diagnostic page */
+        {
+            uint64_t lb_total = 0;
+            int lb_active = 0, lf_cfg = 0, lb_cfg = 0;
+            login_ban_status(&lb_total, &lb_active);
+            newcamd_config_read_lock();
+            lf_cfg = cfg.http.loginfails;
+            lb_cfg = cfg.http.loginbansec;
+            newcamd_config_read_unlock();
+            snprintf(out, sizeof(out), "<p><b>حارس تخمين الويب (HTTP LOGIN FAILS/BAN):</b> %s | عتبة الفشل: %d | مدة الحظر: %ds | حظر إجمالي هذه الجلسة: %llu | محظور الآن: %d</p>",
+                     lf_cfg > 0 ? "مسلّح" : "مطفأ (HTTP LOGIN FAILS: 0)",
+                     lf_cfg, lb_cfg,
+                     (unsigned long long)lb_total, lb_active);
+            tcp_writestr(tcpbuf, sock, out);
+        }
         snprintf(out, sizeof(out), "<p><b>حسم الخدمة عند الشك (CACHE SERVICE DOUBT):</b> %s | انتقادات ذات مرشحين مختلفين: %lu | رُفضت الخدمة للشك: %lu | خُدمت بأغلبية صارمة: %lu</p>",
                  st.svc_armed ? "مفعّل" : "مطفأ (CACHE SERVICE DOUBT: ON لتفعيله)", st.svc_checked, st.svc_doubt, st.svc_majority);
         tcp_writestr(tcpbuf, sock, out);
@@ -9418,9 +9433,18 @@ void *gererClient(struct connect_data *param)
 	 * request is even parsed -- one line, said once, with the address. */
 					newcamd_config_read_lock();
 	int ip_allowed = login_allowed(&cfg.http.allow, ip);
+	int ban_armed = cfg.http.loginfails;
 	newcamd_config_read_unlock();
 	if ( !ip_allowed ) {
 		debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN ALLOW] http: %s is not on the allow list, connection closed pre-auth\n", ip2string(ip));
+		close(sock);
+		return NULL;
+	}
+	/* Band 57: a banned source is closed pre-auth, exactly like the
+	 * allowlist door. Gated on the live config: HTTP LOGIN FAILS: 0
+	 * disarms instantly, including bans already in force. */
+	if ( ban_armed>0 && login_banned(ip) ) {
+		debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN BAN] http: %s is banned after repeated failures, connection closed pre-auth\n", ip2string(ip));
 		close(sock);
 		return NULL;
 	}
@@ -9730,15 +9754,25 @@ void *gererClient(struct connect_data *param)
 				 * thread, before the stock 401 goes out. Off = instant 401
 				 * exactly as stock. */
 					{
-						uint32_t lt_fails = login_note_failure(ip);
 						uint32_t login_delay;
 						uint32_t lt_wait;
+						uint32_t lt_fails;
+						int lt_banned_now = 0;
 						char title[sizeof(cfg.http.title)];
+						int lf, lb;
 						newcamd_config_read_lock();
 						login_delay = (uint32_t)cfg.http.logindelay;
+						lf = cfg.http.loginfails;
+						lb = cfg.http.loginbansec;
 						memcpy(title, cfg.http.title, sizeof(title));
 						title[sizeof(title) - 1] = 0;
 						newcamd_config_read_unlock();
+						/* Band 57: count and ban decision are atomic;
+						 * threshold 0 keeps the stock R3 behaviour. */
+						lt_fails = login_note_failure_ex(ip, (uint32_t)(lf>0?lf:0),
+						                                 (uint32_t)(lb>0?lb:0), &lt_banned_now);
+						if (lt_banned_now)
+							debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN BAN] http: %s reached the failure threshold, IP banned\n", ip2string(ip));
 						lt_wait = login_delay_ms(login_delay, lt_fails);
 						if (lt_wait) debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN THROTTLE] http: failure #%u from %s, delaying %ums\n", lt_fails, ip2string(ip), lt_wait);
 						if (lt_wait) usleep(lt_wait*1000);

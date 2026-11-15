@@ -441,6 +441,8 @@ void init_config(struct config_data *cfg)
 	strcpy(cfg->http.title, "Multi CardServer");
 	cfg->http.logindelay = 0;              /* TASK R3 (D57): off = stock */
 	login_allow_reset(&cfg->http.allow);
+	cfg->http.loginfails = 0;              /* Band 57: off = stock */
+	cfg->http.loginbansec = 3600;          /* Band 57: 1h once armed */
 #endif
 
 	// CACHE
@@ -2341,6 +2343,30 @@ sid accept:
 					parse_int(str);
 					cfg->http.logindelay = atoi(str);
 					if (cfg->http.logindelay<0) cfg->http.logindelay = 0;
+				}
+				else if (!strcmp(str,"FAILS")) { /* Band 57 */
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->http.loginfails = atoi(str);
+					if (cfg->http.loginfails<0) cfg->http.loginfails = 0;
+					if (cfg->http.loginfails>1000) cfg->http.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): HTTP LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->http.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) { /* Band 57 */
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->http.loginbansec = atoi(str);
+					if (cfg->http.loginbansec<0) cfg->http.loginbansec = 0;
+					if (cfg->http.loginbansec>604800) cfg->http.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): HTTP LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->http.loginbansec);
 				}
 				else if (!strcmp(str,"ALLOW")) {
 					parse_spaces();

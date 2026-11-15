@@ -1743,6 +1743,8 @@ struct config_data
 		struct http_file_data *files;
 		int logindelay;               /* TASK R3 (D57): ms base, 0 = off */
 		struct login_allow allow;     /* TASK R3 (D57): optional allowlist */
+		int loginfails;               /* Band 57: failures before an IP ban, 0 = off */
+		int loginbansec;              /* Band 57: ban duration in seconds */
 		pid_t pid;
 		pthread_t tid;
 	} http;

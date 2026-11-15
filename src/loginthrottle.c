@@ -29,8 +29,11 @@ uint32_t lt_now(void)
 struct login_slot {
 	uint32_t ip;
 	uint32_t fails;
-	uint32_t last;      /* lt_now() of the last failure */
+	uint32_t last;          /* lt_now() of the last failure */
+	uint32_t banned_until;  /* band 57: lt_now() deadline, 0 = not banned */
 };
+
+static uint64_t lt_bans_total = 0;  /* band 57: bans ever triggered */
 
 static struct login_slot lt_tab[LOGIN_SLOTS];
 static pthread_mutex_t lt_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -76,32 +79,80 @@ uint32_t login_delay_ms(uint32_t base, uint32_t fails)
 	return d;
 }
 
-uint32_t login_note_failure(uint32_t ip)
+static uint32_t lt_note_failure(uint32_t ip, uint32_t threshold,
+                                uint32_t ban_seconds, int *banned_now)
 {
 	int i, slot=-1, oldest=-1;
 	uint32_t now = lt_now(), fails;
 
+	if (banned_now) *banned_now = 0;
+	pthread_mutex_lock(&lt_lock);
+	for (i=0; i<LOGIN_SLOTS; i++) {
+		if (lt_tab[i].ip==ip) { slot = i; break; }
+		if (lt_tab[i].ip==0) { if (slot<0) slot = i; }       /* free slot */
+		else if ( (oldest<0) || ((now - lt_tab[i].last) > (now - lt_tab[oldest].last)) ) oldest = i;
+	}
+	if (slot<0) slot = (oldest>=0) ? oldest : 0;             /* recycle the quietest */
+	if (lt_tab[slot].ip!=ip) {
+		lt_tab[slot].ip = ip;
+		lt_tab[slot].fails = 0;
+		lt_tab[slot].banned_until = 0;
+	} else if ( (now - lt_tab[slot].last) > LOGIN_SLOT_EXPIRE ) {
+		/* a quiet slot forgets: the attack is not one long story */
+		lt_tab[slot].fails = 0;
+		lt_tab[slot].banned_until = 0;
+	}
+	lt_tab[slot].fails++;
+	lt_tab[slot].last = now;
+	fails = lt_tab[slot].fails;
+	if ( threshold && ban_seconds && fails>=threshold ) {
+		lt_tab[slot].banned_until = now + ban_seconds*1000u;
+		lt_bans_total++;
+		if (banned_now) *banned_now = 1;
+	}
+	pthread_mutex_unlock(&lt_lock);
+	return fails;
+}
+
+uint32_t login_note_failure(uint32_t ip)
+{
+	return lt_note_failure(ip, 0, 0, NULL);
+}
+
+uint32_t login_note_failure_ex(uint32_t ip, uint32_t threshold,
+                               uint32_t ban_seconds, int *banned_now)
+{
+	return lt_note_failure(ip, threshold, ban_seconds, banned_now);
+}
+
+int login_banned(uint32_t ip)
+{
+	int i, banned = 0;
+	uint32_t now = lt_now();
 	pthread_mutex_lock(&lt_lock);
 	for (i=0; i<LOGIN_SLOTS; i++) {
 		if (lt_tab[i].ip==ip) {
-			/* a quiet slot forgets: the attack is not one long story */
-			if ( (now - lt_tab[i].last) > LOGIN_SLOT_EXPIRE ) lt_tab[i].fails = 0;
-			lt_tab[i].fails++;
-			lt_tab[i].last = now;
-			fails = lt_tab[i].fails;
-			pthread_mutex_unlock(&lt_lock);
-			return fails;
+			banned = lt_tab[i].banned_until &&
+			         ((int32_t)(lt_tab[i].banned_until - now) > 0);
+			break;
 		}
-		if (lt_tab[i].ip==0) { slot = i; break; }             /* free slot */
-		if ( (oldest<0) || ((now - lt_tab[i].last) > (now - lt_tab[oldest].last)) ) oldest = i;
 	}
-	if (slot<0) slot = (oldest>=0) ? oldest : 0;                 /* recycle the quietest */
-	lt_tab[slot].ip = ip;
-	lt_tab[slot].fails = 1;
-	lt_tab[slot].last = now;
-	fails = 1;
 	pthread_mutex_unlock(&lt_lock);
-	return fails;
+	return banned;
+}
+
+void login_ban_status(uint64_t *total_bans, int *active_bans)
+{
+	int i, active = 0;
+	uint32_t now = lt_now();
+	pthread_mutex_lock(&lt_lock);
+	for (i=0; i<LOGIN_SLOTS; i++) {
+		if (lt_tab[i].banned_until &&
+		    ((int32_t)(lt_tab[i].banned_until - now) > 0)) active++;
+	}
+	if (total_bans) *total_bans = lt_bans_total;
+	if (active_bans) *active_bans = active;
+	pthread_mutex_unlock(&lt_lock);
 }
 
 void login_note_success(uint32_t ip)
@@ -111,6 +162,7 @@ void login_note_success(uint32_t ip)
 	for (i=0; i<LOGIN_SLOTS; i++) {
 		if (lt_tab[i].ip==ip) {
 			lt_tab[i].fails = 0;
+			lt_tab[i].banned_until = 0;   /* band 57: a good login also lifts a ban */
 			break;                       /* keep last, so the slot stays warm */
 		}
 	}

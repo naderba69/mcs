@@ -63,6 +63,21 @@ int  login_allowed(const struct login_allow *lst, uint32_t ip); /* empty list = 
 uint32_t login_note_failure(uint32_t ip);  /* returns the consecutive-failure count incl. this one */
 void     login_note_success(uint32_t ip);  /* forgets the IP's counter (a good login) */
 
+/* --- hard ban (band 57) -----------------------------------------------------
+ * Opt-in per door via config (HTTP LOGIN FAILS / HTTP LOGIN BAN). When the
+ * consecutive-failure count reaches `threshold` (>0), the slot is banned
+ * until now + ban_seconds. login_note_failure_ex is the atomic form: the
+ * count and the ban decision happen under the same lock, so two doors
+ * cannot race past the threshold. `*banned_now` (may be NULL) reports
+ * whether THIS failure triggered (or extended) the ban. A successful
+ * login clears both the count and any ban. Enforcement (closing the
+ * door pre-auth) is the caller's job, gated on its own config, so
+ * setting the threshold back to 0 disarms instantly. */
+uint32_t login_note_failure_ex(uint32_t ip, uint32_t threshold,
+                               uint32_t ban_seconds, int *banned_now);
+int      login_banned(uint32_t ip);        /* 1 while a ban is in force */
+void     login_ban_status(uint64_t *total_bans, int *active_bans);
+
 /* pure schedule, exposed for the unit test: fails<=0 or base<=0 -> 0 */
 uint32_t login_delay_ms(uint32_t base, uint32_t fails);
 

@@ -253,6 +253,11 @@ marchcheck:
 cwdup:
 	sh ./cwdup.sh
 
+# Band 57: HTTP login hard ban (threshold/lapse/stock-off) against the
+# production loginthrottle.c with an injected clock.
+loginban:
+	sh ./loginban.sh
+
 # Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
 # be delivered from cache, the mismatched scope must not.
 c1884:
