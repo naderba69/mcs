@@ -72,6 +72,10 @@ struct ssf_config {
     int sf_marchcheck;          // Band 55 MARCHCHECK: 0=off, 1=log-only, 2=reject
     int sf_cwdup;               // Band 56 CW_DUP: 0=off, 1=log-only, 2=reject
     int sf_cwdup_rep;           // Band 56: cross-cycle repeats before flag (2..10)
+    int sf_cwreuse;             // Band 58 half-CW cross-channel reuse: 0=off, 1=log, 2=reject
+    int sf_cwreuse_window_ms;   // Band 58: sighting window (1000..600000)
+    uint16_t sf_reuse_caids[32];// Band 58: scope; empty = all CAIDs
+    int sf_reuse_caids_count;
     uint16_t sf_mc_caids[32];   // CAIDs for multi-check
     int sf_mc_caids_count;
     int sf_mc_match;            // Required peer count
@@ -128,6 +132,8 @@ struct ssf_stats {
     uint64_t rejected_marchcheck;
     uint64_t cwdup_flagged;
     uint64_t rejected_cwdup;
+    uint64_t cwreuse_flagged;
+    uint64_t rejected_cwreuse;
     uint64_t peers_blocked;
     uint64_t peers_unblocked;
 };
@@ -176,6 +182,23 @@ struct ssf_dup_entry {
 };
 static struct ssf_dup_entry ssf_dup_table[SSF_MAX_DUP_ENTRIES];
 static int ssf_dup_index = 0;
+/* Band 58 CW_REUSE: ring of recent full-CW sightings. A half that
+ * reappears on a DIFFERENT (caid, provid, sid) inside the window while
+ * the full CW differs is the recycled-half-pool signature. A full-CW
+ * match on another channel is the simulcrypt-twin case (band 38 /
+ * TASK 1.3 territory) and is deliberately NOT flagged here. Zero
+ * halves are never tracked. Under ssf_lock. */
+#define SSF_MAX_REUSE_ENTRIES 512
+struct ssf_reuse_entry {
+    uint16_t caid;
+    uint32_t provid;
+    uint16_t sid;
+    uint8_t cw[16];
+    uint32_t last_ms;
+    uint8_t used;
+};
+static struct ssf_reuse_entry ssf_reuse_table[SSF_MAX_REUSE_ENTRIES];
+static int ssf_reuse_index = 0;
 static struct ssf_stats ssf_stats;
 static pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -658,11 +681,60 @@ static int ssf_check_cwdup(const uint8_t cw[16], const uint8_t ecm_hash[16],
            (uint32_t)(now_ms - entry->other_ms) <= SSF_CWDUP_COMPETITOR_WINDOW_MS;
 }
 
+/* Band 58: returns 1 when either non-zero half of `cw` was seen inside
+ * the window on a different channel as part of a DIFFERENT full CW.
+ * The sighting is always recorded (same-channel re-sightings refresh
+ * their entry); a stale cross-channel sighting simply ages out of the
+ * window and the new channel's entry takes over the ring slot. */
+static int ssf_check_cwreuse(const uint8_t cw[16], uint16_t caid,
+                             uint32_t provid, uint16_t sid, uint32_t now_ms)
+{
+    static const uint8_t zero8[8] = {0};
+    int i, flagged = 0;
+    if (ssf_cfg.sf_reuse_caids_count > 0) {
+        int in_scope = 0;
+        for (i = 0; i < ssf_cfg.sf_reuse_caids_count; i++)
+            if (ssf_cfg.sf_reuse_caids[i] == caid) { in_scope = 1; break; }
+        if (!in_scope) return 0;
+    }
+    for (i = 0; i < SSF_MAX_REUSE_ENTRIES; i++) {
+        struct ssf_reuse_entry *e = &ssf_reuse_table[i];
+        if (!e->used) continue;
+        if ((uint32_t)(now_ms - e->last_ms) > (uint32_t)ssf_cfg.sf_cwreuse_window_ms) continue;
+        if (e->caid == caid && e->provid == provid && e->sid == sid) continue;
+        if (!memcmp(e->cw, cw, 16)) continue;  /* full-CW twin: not this detector */
+        if ((!memcmp(cw, zero8, 8) && !memcmp(cw + 8, zero8, 8))) continue;
+        if ((!memcmp(cw, e->cw, 8) && memcmp(cw, zero8, 8)) ||
+            (!memcmp(cw, e->cw + 8, 8) && memcmp(cw, zero8, 8)) ||
+            (!memcmp(cw + 8, e->cw, 8) && memcmp(cw + 8, zero8, 8)) ||
+            (!memcmp(cw + 8, e->cw + 8, 8) && memcmp(cw + 8, zero8, 8)))
+            flagged = 1;
+    }
+    /* record / refresh this channel's sighting */
+    for (i = 0; i < SSF_MAX_REUSE_ENTRIES; i++) {
+        struct ssf_reuse_entry *e = &ssf_reuse_table[i];
+        if (e->used && e->caid == caid && e->provid == provid && e->sid == sid &&
+            !memcmp(e->cw, cw, 16)) {
+            e->last_ms = now_ms;
+            return flagged;
+        }
+    }
+    {
+        struct ssf_reuse_entry *e = &ssf_reuse_table[ssf_reuse_index];
+        ssf_reuse_index = (ssf_reuse_index + 1) % SSF_MAX_REUSE_ENTRIES;
+        e->caid = caid; e->provid = provid; e->sid = sid;
+        memcpy(e->cw, cw, 16);
+        e->last_ms = now_ms;
+        e->used = 1;
+    }
+    return flagged;
+}
+
 static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[16],
                                    uint16_t caid, uint32_t provid, uint16_t sid,
                                    uint32_t peer_id, uint32_t now_ms, int *reject_reason,
                                    int profile_level, int profile_marchcheck,
-                                   int profile_cwdup)
+                                   int profile_cwdup, int profile_cwreuse)
 {
     /* R48: profile_level 0 = inherit global. Passed as a parameter
      * (not a global) so concurrent ECM workers on different profiles
@@ -818,6 +890,26 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
         }
     }
 
+    // Check 12 (band 58): CW_REUSE -- a half recycled on another
+    // channel. Profile override (1=off, 2=log-only, 3=reject) wins
+    // over the global CACHE SF CWREUSE.
+    {
+        int reuse_mode = ssf_cfg.sf_cwreuse;
+        if (profile_cwreuse == 1) reuse_mode = 0;
+        else if (profile_cwreuse == 2) reuse_mode = 1;
+        else if (profile_cwreuse == 3) reuse_mode = 2;
+        if (reuse_mode > 0 &&
+            ssf_check_cwreuse(cw, caid, provid, sid, now_ms)) {
+            ssf_stats.cwreuse_flagged++;
+            if (reuse_mode == 2) {
+                ssf_stats.rejected_cwreuse++;
+                rejected = 1;
+                reason = 12;
+                goto done;
+            }
+        }
+    }
+
 done:
     // Record result
     if (peer_id > 0) {
@@ -861,6 +953,8 @@ static void supersmartfilter_init(void)
     ssf_march_index = 0;
     memset(ssf_dup_table, 0, sizeof(ssf_dup_table));
     ssf_dup_index = 0;
+    memset(ssf_reuse_table, 0, sizeof(ssf_reuse_table));
+    ssf_reuse_index = 0;
     memset(&ssf_stats, 0, sizeof(ssf_stats));
     ssf_history_index = 0;
     ssf_peer_count = 0;
@@ -885,6 +979,8 @@ static void supersmartfilter_init(void)
     ssf_cfg.sf_marchcheck = 0;
     ssf_cfg.sf_cwdup = 0;
     ssf_cfg.sf_cwdup_rep = 4;
+    ssf_cfg.sf_cwreuse = 0;
+    ssf_cfg.sf_cwreuse_window_ms = 120000;
     ssf_cfg.sf_mc_match = 2;
     ssf_cfg.sf_mc_mode = 2;
     ssf_cfg.sf_mc_wait_ms = 500;

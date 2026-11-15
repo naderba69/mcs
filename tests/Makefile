@@ -258,6 +258,11 @@ cwdup:
 loginban:
 	sh ./loginban.sh
 
+# Band 58: half-CW cross-channel reuse (twin/stale/zero/scope safe,
+# profile override) against the production supersmartfilter.h.
+cwreuse:
+	sh ./cwreuse.sh
+
 # Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
 # be delivered from cache, the mismatched scope must not.
 c1884:

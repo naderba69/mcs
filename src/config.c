@@ -4376,6 +4376,48 @@ link_mgcamd_user:
 						}
 						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWDUPREP: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwdup_rep);
 					}
+					else if (!strcmp(str,"CWREUSE")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 2) v = 2;
+							ssf_cfg.sf_cwreuse = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWREUSE: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwreuse);
+					}
+					else if (!strcmp(str,"CWREUSEWINDOW")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 1000) v = 1000; if (v > 600000) v = 600000;
+							ssf_cfg.sf_cwreuse_window_ms = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWREUSEWINDOW: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwreuse_window_ms);
+					}
+					else if (!strcmp(str,"REUSECAIDS")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						{
+							char *p2 = iparser;
+							ssf_cfg.sf_reuse_caids_count = 0;
+							while (*p2 && *p2 != '\n' && *p2 != '#') {
+								if ((*p2 >= '0' && *p2 <= '9') || (*p2 >= 'A' && *p2 <= 'F') || (*p2 >= 'a' && *p2 <= 'f')) {
+									char hex[5]; int hi = 0;
+									while (*p2 && hi < 4 && ((*p2 >= '0' && *p2 <= '9') || (*p2 >= 'A' && *p2 <= 'F') || (*p2 >= 'a' && *p2 <= 'f'))) hex[hi++] = *p2++;
+									hex[hi] = 0;
+									if (hi == 4 && ssf_cfg.sf_reuse_caids_count < 32) {
+										ssf_cfg.sf_reuse_caids[ssf_cfg.sf_reuse_caids_count++] = (uint16_t)strtoul(hex, NULL, 16);
+									}
+								}
+								else p2++;
+							}
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF REUSECAIDS: %d entries\n",file->nbline,iparser-currentline, ssf_cfg.sf_reuse_caids_count);
+					}
 					else if (!strcmp(str,"MC")) {
 						parse_spaces();
 						parse_name(str);
@@ -5363,6 +5405,21 @@ link_mgcamd_user:
 					cardserver->option.sf_cwdup = (uint8_t)(v + 1);
 				}
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW CWDUP: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_cwdup - 1, cardserver->name);
+			}
+			else if (!strcmp(str,"CWREUSE") && cardserver) {
+				/* Band 58: per-profile half-CW reuse 0|1|2 (stored +1, 0=inherit). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 2) v = 2;
+					cardserver->option.sf_cwreuse = (uint8_t)(v + 1);
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW CWREUSE: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_cwreuse - 1, cardserver->name);
 			}
 			else if (!cardserver) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip DCW, undefined profile\n",file->nbline,iparser-currentline);
