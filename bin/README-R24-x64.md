@@ -1,4 +1,4 @@
-# MultiCS r82a — x64 binaries (updated band 36, 2026-11-14)
+# MultiCS r82a — x64 binaries (updated band 40, 2026-11-14)
 
 Filename kept for compatibility; the contents are the current builds.
 
@@ -6,8 +6,8 @@ Filename kept for compatibility; the contents are the current builds.
 
 ```
 File: bin/multics.x64    <- run this one; the name never changes
-MD5: 61919b76d6c0ecf16f34b3c030d342ef
-Size: 1037 KB
+MD5: 2a356736bd8b328954406c5a69423902
+Size: 1045 KB
 Flavour: full build (stock logic + /cwlog verdict ring)
 Build/refresh: make -C make-x64 release-stats   (rewrites bin/multics.x64)
 Run: ./bin/multics.x64 -C multics-r24-optimized.cfg -b
