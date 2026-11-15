@@ -1,4 +1,4 @@
-# MultiCS r82a — x64 binaries (updated R32, 2026-10-16)
+# MultiCS r82a — x64 binaries (updated band 36, 2026-11-14)
 
 Filename kept for compatibility; the contents are the current builds.
 
@@ -6,8 +6,8 @@ Filename kept for compatibility; the contents are the current builds.
 
 ```
 File: bin/multics.x64    <- run this one; the name never changes
-MD5: f006bfbbb381c3e071079dd311fb4676
-Size: 779 KB
+MD5: 61919b76d6c0ecf16f34b3c030d342ef
+Size: 1037 KB
 Flavour: full build (stock logic + /cwlog verdict ring)
 Build/refresh: make -C make-x64 release-stats   (rewrites bin/multics.x64)
 Run: ./bin/multics.x64 -C multics-r24-optimized.cfg -b
@@ -18,17 +18,19 @@ Run: ./bin/multics.x64 -C multics-r24-optimized.cfg -b
 
 ### multics-r82a-stock-x64 — the production binary
 ```
-MD5: af9a5c1e85c1405c6326031efdcc0f37
-Size: 767 KB
+MD5: 8ecdb09c1505dfee54762e21f9e3cdb7
+Size: 1029 KB
 Build: make -C make-x64 release
 ```
 ### multics-r82a-stats-x64 — same, plus the /cwlog verdict ring
 ```
-MD5: f006bfbbb381c3e071079dd311fb4676
-Size: 779 KB
+MD5: 61919b76d6c0ecf16f34b3c030d342ef
+Size: 1037 KB
 Build: make -C make-x64 release-stats
 ```
-Both carry the full R26-R32 stack; every feature is opt-in and OFF by
+`bin/multics.x64` is THE main working binary (operator-confirmed
+2026-11-14): all live verification from band 36 runs against it.
+Both carry the full R26-R35 stack; every feature is opt-in and OFF by
 default (stock r82a behaviour until armed). Arm the stack in one line:
 `CACHE PROTECTION: STANDARD` (see `multics-r24-optimized.cfg`).
 
