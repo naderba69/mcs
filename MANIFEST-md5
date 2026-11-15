@@ -180,7 +180,6 @@
 2de523def642f2b8905dee097e2eb537  src/cwprevalid.h
 2e000e6634987a18d5de8559fd456fcc  src/th-date.c
 2e3a108e54b15f46365c7483976d6180  src/nopushafter.h
-2e4f815aab762869153ca8167429a4c2  MANIFEST-md5
 2ec059c66c253cf4aa2f0f0c8f7619a6  src/srv-freecccam.c
 2f1f2d8017d2eeb740dbecb1884a6d58  docs/memcheck-4.1/compile-test_cwcm.log
 2f7317ce7fadd7349e1fc8118f21de88  docs/soak-4.2/soak.cfg
@@ -287,7 +286,6 @@
 53ae8bfafba95484e8e78ca411323617  tests/test_cfgcheck_blind.py
 53f8885a80d80c901975fad3382382fb  src/chanhealth.h
 54373e8292d92f415ebccef5266a09a3  src/fallback.h
-5460ce477ab699bde189ab5da8037c23  docs/REPORT-R48-ar.md
 54aad7857f4f8b732d9b26967dad9db4  docs/REPORT-R4-ar.md
 550040f3cc08f2d97789982ce116b846  make-x64/test_cw_timing.c
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
@@ -306,6 +304,7 @@
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
 599b4e686cb35416567ad041a24e6d7e  docs/REPORT-R3-ar.md
 59b64ae69f280f53b3526d1e67171cd1  make-x64/test_sha256.c
+59ef60e7afad2d05ff311d4f335af502  docs/reference-r200-v26.txt
 5a054e919f5bc0ed3f0d24120ef0c2ac  src/config.c
 5a508bbb3105db184dcf14bb395804ca  src/ledger.h
 5a5fbbd21e3b8df3867bc105eeea5041  docs/soak-4.2/server.log
@@ -542,6 +541,7 @@ ac1e3a9f45d1c34202c1832b49315f04  EXPERIMENTAL-RELEASE-v82a.md
 ac82d83396c79c1ecb2c3e9dc402620b  docs/soak-4.2/client-last.log
 acd39b3b1ebb8b10195ea032ee65a62e  make-x64/test_cexvis.c
 acf661bbd1f1e5ce213733351cec6836  docs/PROJECT-ANALYSIS-REPORT-ar.md
+acf802db745a1374e864d4bf0ebde562  docs/REPORT-R48-ar.md
 ad1d328fcd339824b7541ce843fc377d  src/x64/main.o
 ad28083a6c143507aa6ca2f85487ad50  src/cache-speed-suite.h
 addad57e2865ca125b0a0e344a04d5b2  src/zerohandoff.h
@@ -620,6 +620,7 @@ c2bb299ab0cc347600566372b4c0322d  src/chanpred.h
 c2d996fde09ea4f48c58a3ddd65723c2  make-x64/test_loginthrottle.c
 c2de2dea646a9b520a434e18f5ee2243  docs/REPORT-R11-ar.md
 c338fe17666dd5d93a596c21d18ff299  docs/REPORT-3.7-ar.md
+c37dc96b50c857ae72e30f01b96f56fd  tests/camd35-send-guard.sh
 c38f8e032a2cd651dcd0ee89cecbfdf1  docs/memcheck-4.1/asan.cfg
 c38f8e032a2cd651dcd0ee89cecbfdf1  docs/memcheck-4.1/tsan.cfg
 c38f8e032a2cd651dcd0ee89cecbfdf1  docs/memcheck-4.1/valgrind.cfg
@@ -632,6 +633,7 @@ c6435be14ff5ddf781634598123a2ae2  docs/REPORT-2.5-ar.md
 c672179a633ad119a259226f11813da8  src/twin.c
 c71506027ee47807470aa5a24f9eb917  make-x64/test_phase1cfg.c
 c7e6fdad95760a74355a4dfc10f32c38  src/log-viewer.h
+c8295c9aec4379eb672531c1977e40b6  MANIFEST-md5
 c899c4e81667d989f1b0671f90019c9a  README-R48.md
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 c9773b5ee2d1265f0d4a6da226acaaea  src/x64/advanced-optimizations.o
@@ -643,6 +645,7 @@ cb878c2da9859a7c78b0bb816ba83355  docs/REPORT-3.16-ar.md
 cba4e83850e6c596d4e90394c96e8fd7  src/cacheex-advanced.h
 cc0f9f1ddf4f423a3bbdf994ef856e2a  tests/radegast-server-smoke.py
 cc1646196a97a4d7cd4f176e9b2d9475  src/ptguard.h
+cc5f26d9ad24b28dbfd846ba9e11b4da  tests/camd35-send-guard.c
 cc776af51d5fe07958961bad536d79bd  src/cwpattern.h
 cdaf691f93c8125068fcb28782d01ab0  src/x64/ecm-provider-config.o
 cdda2d6b3f836adc49e2e23a17825f9d  docs/memcheck-4.1/tsan-empty.log
