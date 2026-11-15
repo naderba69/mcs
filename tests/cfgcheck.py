@@ -180,8 +180,10 @@ def main(path):
         ok("R48 CACHE EVIDENCE: explicit values are valid parser tokens")
 
     # ---- profiles ----
-    if len(profs) != 72:
-        bad("expected 72 profiles, found %d" % len(profs))
+    import os
+    expected_profiles = 91 if "full-30w-52e" in os.path.basename(path) else 72
+    if len(profs) != expected_profiles:
+        bad("expected %d profiles, found %d" % (expected_profiles, len(profs)))
     ports = collections.Counter()
     for p in profs:
         name = p["name"]
@@ -279,7 +281,7 @@ def main(path):
         if n > 1:
             bad("duplicate PORT %s in %d profiles" % (port, n))
     if len(ports) == len(profs):
-        ok("72 profiles: unique ports, one family block each")
+        ok("%d profiles: unique ports, one family block each" % len(profs))
 
     # ---- summary ----
     for message in warnings:

@@ -462,3 +462,26 @@ SWAP؛ بقية الأنظمة صارمة؛ ومفاتيح BISS1/Tandberg الث
   لافتراضي stock.
 - ثنائي الميدان الحالي `bin/multics-r82a-r22-x64` يحمل خطافي R22
   الرافضين؛ ثنائي stock لا يحملهما بنيويًا (stubs). اختر وعيك.
+
+## الملف المتكامل 30W–52E (بند 34)
+
+الملف `multics-full-30w-52e.cfg` في جذر المشروع هو ملف
+البروفايلات الأساسي (72) + 19 بروفايل موثّقًا جديدًا = **91
+بروفايل**، ويغطي: 30W ‏(MEO/NOS)، 0.8W ‏(Canal Digital
+Nordic/Focus Sat)، 4.8E/5W ‏(Viasat/Fransat/Bis)، 13E ‏(Sky
+Italia 09CD، Polsat 1861، Canal+ PL 0B01، Kabelio 4AFC)،
+16E ‏(Antik)، 19.2E ‏(Sky DE 09C4/098C، HD+ 186A، ORF
+0648/0650)، 23.5E ‏(Skylink 0624، CS Link 0666)، 26E ‏(OSN)،
+28.2E ‏(Sky UK 0961/0963/0960)، 36E ‏(Tricolor 4AE1، NTV+
+0500)، 39E ‏(Bulsatcom)، 42E ‏(Digiturk 0604، D-Smart، TRT
+BISS)، 45E ‏(Vivacom)، 52E ‏(TurkmenAlem — FTA/BISS يغطيه
+بروفايل 2600). بوابات CI/DropDiffs لكل CAID (بند 33) مسلّحة
+في بروفايلات Nagra الجديدة كما في القديمة.
+
+**حدود صادقة**: 7E/9E (AFN PowerVu وقنوات FTA) لا بروفايل
+بطاقة لها — PowerVu محاكاة مفاتيح لا بطاقة ECM قياسية في هذا
+الملف؛ و52E لا باقة بطاقات موثّقة. كل CAID/PROVID جديد من
+جداول OSCam srvid/CAID العامة، و`PROVIDERS: 000000` حيث لا
+قائمة موثّقة — راجع PROVID/SID LIST مع بطاقتك قبل الإنتاج.
+التحقق: `make -C tests cfgcheck prof-full` (91/91 منفذًا
+يستمع).
