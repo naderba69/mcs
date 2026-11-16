@@ -301,7 +301,8 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		{ char uname[80]; int ul = (int)strlen((char*)&buf[3]);
 		  if (ul > 63) ul = 63;
 		  memcpy(uname, &buf[3], ul); uname[ul] = 0;
-		  debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," %s: unknown user '%s' (%s)\n", cs->name, uname, ip2string(ip)); }
+		  debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," %s: unknown user '%s' (%s)\n", cs->name, uname, ip2string(ip));
+		  loginaudit_note(PB_NEWCAMD, ip, uname, 0); /* Band 63: uname is in scope only inside this block */ }
 		{
 			int pb_banned = 0;
 			protoban_note_failure(ip, PB_NEWCAMD, (uint32_t)(cfg.newcamd.loginfails>0?cfg.newcamd.loginfails:0),
@@ -411,6 +412,7 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		cli->chkrecvtime = 0;
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: client '%s' connected (%s)\n", cs->name, cli->user, ip2string(ip));
 		protoban_note_success(ip, PB_NEWCAMD); /* Band 61 */
+		loginaudit_note(PB_NEWCAMD, ip, cli->user, 1); /* Band 63 */
 		connected_client_id = cli->id;
 		cs_mark_client_poll_update(cli);
 		newcamd_client_state_unlock(cli);
@@ -429,6 +431,7 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		buf[2] = 0;
 		//cs_message_send(sock, NULL, buf, 3, sessionkey);
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: client '%s' wrong password (%s)\n", cs->name, cli->user, ip2string(ip));
+		loginaudit_note(PB_NEWCAMD, ip, cli->user, 0); /* Band 63 */
 		cli->nbloginerror++;
 		{
 			int pb_banned = 0;

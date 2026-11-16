@@ -495,6 +495,8 @@ void init_config(struct config_data *cfg)
 	cfg->mgcamd.serverid = 1;
 	cfg->mgcamd.server = NULL;
 	cfg->mgcamd.dcwcheck = 1;
+	cfg->mgcamd.loginfails = 0;            /* Band 63: off = stock */
+	cfg->mgcamd.loginbansec = 3600;        /* Band 63: 1h once armed */
 #endif
 
 #ifdef TESTCHANNEL
@@ -3955,6 +3957,35 @@ link_mgcamd_user:
 					} else iparser++;
 					cfg->mgcamd.dcwcheck = parse_boolean();
 				}
+			}
+			else if (!strcmp(str,"LOGIN")) { /* Band 63 */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FAILS")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->mgcamd.loginfails = atoi(str);
+					if (cfg->mgcamd.loginfails<0) cfg->mgcamd.loginfails = 0;
+					if (cfg->mgcamd.loginfails>1000) cfg->mgcamd.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): MGCAMD LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->mgcamd.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->mgcamd.loginbansec = atoi(str);
+					if (cfg->mgcamd.loginbansec<0) cfg->mgcamd.loginbansec = 0;
+					if (cfg->mgcamd.loginbansec>604800) cfg->mgcamd.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): MGCAMD LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->mgcamd.loginbansec);
+				}
+				else debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown mgcamd LOGIN option '%s'\n",file->nbline,iparser-currentline,str);
 			}
 			else if (!strcmp(str,"PROFILES")) {
 				if (!mgcamd) {
@@ -8810,6 +8841,8 @@ void reread_config( struct config_data *cfg )
 	cfg->newcamd.loginbansec = newcfg.newcamd.loginbansec;
 
 	cfg->mgcamd.dcwcheck = newcfg.mgcamd.dcwcheck;
+	cfg->mgcamd.loginfails = newcfg.mgcamd.loginfails;
+	cfg->mgcamd.loginbansec = newcfg.mgcamd.loginbansec;
 	cfg->mgcamd.keepalive = newcfg.mgcamd.keepalive;
 	cfg->cccam.dcwcheck = newcfg.cccam.dcwcheck;
 	cfg->cccam.keepalive = newcfg.cccam.keepalive;

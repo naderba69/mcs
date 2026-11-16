@@ -96,6 +96,11 @@ void *cs378x_connect_cli(struct connect_cli_data *param)
 			protoban_note_failure(ip, PB_CS378X, (uint32_t)(pb_lf>0?pb_lf:0),
 			                      (uint32_t)(pb_lb>0?pb_lb:0), &pb_banned);
 			if (pb_banned) debugf(getdbgflag(DBG_CS378X,cs378x->id,0)," cs378x%d: %s reached the failure threshold, banned for cs378x\n", cs378x->id, ip2string(ip));
+			{
+				char ucrcname[24];
+				snprintf(ucrcname, sizeof(ucrcname), "ucrc:%08x", ucrc);
+				loginaudit_note(PB_CS378X, ip, ucrcname, 0); /* Band 63 */
+			}
 		}
 		close(sock);
 		return NULL;
@@ -134,6 +139,7 @@ void *cs378x_connect_cli(struct connect_cli_data *param)
 		}
 		debugf(getdbgflag(DBG_CS378X,0,cli->id)," cs378x: client '%s' connected\n", cli->user);
 		protoban_note_success(ip, PB_CS378X); /* Band 61 */
+		loginaudit_note(PB_CS378X, ip, cli->user, 1); /* Band 63 */
 		cli->connection.status = 1;
 		cli->connection.time = GetTickCount();
 		cli->handle = sock;

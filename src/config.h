@@ -1692,6 +1692,8 @@ struct config_data
 		uint16_t csport[MAX_CSPORTS]; // default cards
 		int dcwcheck;
 		int keepalive;
+		int loginfails;               /* Band 63: protoban threshold, 0 = off */
+		int loginbansec;              /* Band 63: protoban duration (s) */
 		pid_t pid_recvmsg;
 		pthread_t tid_recvmsg;
 		pid_t pid_connect;

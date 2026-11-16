@@ -725,6 +725,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 	if (ipdata) iplist_goodlogin(ipdata);
 #endif
 	protoban_note_success(ip, PB_CCCAM); /* Band 60 */
+	loginaudit_note(PB_CCCAM, ip, usr, 1); /* Band 63: usr is parsed by here */
 
 	// send cli data ack without holding client state across the TCP write
 	if (client_io_lock(cli) == 0) {

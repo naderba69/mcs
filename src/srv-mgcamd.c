@@ -208,6 +208,17 @@ void *mg_connect_cli(struct connect_cli_data *param)
 		buf[2] = 0;
 		//cs_message_send(sock, NULL, buf, 3, sessionkey);
 		debugf(getdbgflag(DBG_MGCAMD,0,0)," mgcamd: unknown user '%s' (%s)\n", &buf[3], ip2string(ip));
+		{
+			int pb_lf, pb_lb, pb_banned = 0;
+			char uname[32];
+			memcpy(uname, &buf[3], 31); uname[31] = 0;
+			newcamd_config_read_lock();
+			pb_lf = cfg.mgcamd.loginfails; pb_lb = cfg.mgcamd.loginbansec;
+			newcamd_config_read_unlock();
+			protoban_note_failure(ip, PB_MGCAMD, (uint32_t)(pb_lf>0?pb_lf:0), (uint32_t)(pb_lb>0?pb_lb:0), &pb_banned);
+			loginaudit_note(PB_MGCAMD, ip, uname, 0); /* Band 63 */
+			if (pb_banned) debugf(getdbgflag(DBG_MGCAMD,0,0)," mgcamd: %s reached the failure threshold, banned for mgcamd\n", ip2string(ip));
+		}
 		pthread_mutex_unlock(&prg.lockclimg);
 		close(sock);
 		return NULL;
@@ -283,6 +294,8 @@ void *mg_connect_cli(struct connect_cli_data *param)
 		cli->lastecmtime = 0;
 		cli->chkrecvtime = 0;
 			debugf(getdbgflag(DBG_MGCAMD,0,cli->id)," mgcamd: client '%s' connected (%s)\n", cli->user, ip2string(ip));
+			protoban_note_success(ip, PB_MGCAMD); /* Band 63 */
+			loginaudit_note(PB_MGCAMD, ip, cli->user, 1); /* Band 63 */
 			connected_client_id = cli->id;
 			pthread_mutex_unlock(&prg.lockclimg);
 #ifdef EPOLL_MGCAMD
@@ -300,6 +313,15 @@ void *mg_connect_cli(struct connect_cli_data *param)
 		buf[2] = 0;
 		//cs_message_send(sock, NULL, buf, 3, sessionkey);
 		debugf(getdbgflag(DBG_MGCAMD,0,cli->id)," mgcamd: client '%s' wrong password (%s)\n", cli->user, ip2string(ip));
+		{
+			int pb_lf, pb_lb, pb_banned = 0;
+			newcamd_config_read_lock();
+			pb_lf = cfg.mgcamd.loginfails; pb_lb = cfg.mgcamd.loginbansec;
+			newcamd_config_read_unlock();
+			protoban_note_failure(ip, PB_MGCAMD, (uint32_t)(pb_lf>0?pb_lf:0), (uint32_t)(pb_lb>0?pb_lb:0), &pb_banned);
+			loginaudit_note(PB_MGCAMD, ip, cli->user, 0); /* Band 63 */
+			if (pb_banned) debugf(getdbgflag(DBG_MGCAMD,0,cli->id)," mgcamd: %s reached the failure threshold, banned for mgcamd\n", ip2string(ip));
+		}
 		cli->nbloginerror++;
 		pthread_mutex_unlock(&prg.lockclimg);
 		close(sock);
@@ -308,6 +330,16 @@ void *mg_connect_cli(struct connect_cli_data *param)
 }
 
 
+
+/* Band 63: is the mgcamd protoban armed? Snapshot under the config gate. */
+static int mgcamd_protoban_armed(void)
+{
+	int armed;
+	newcamd_config_read_lock();
+	armed = cfg.mgcamd.loginfails;
+	newcamd_config_read_unlock();
+	return armed > 0;
+}
 
 void mgcamd_srv_accept(struct mgcamdserver_data *srv)
 {
@@ -328,7 +360,11 @@ void mgcamd_srv_accept(struct mgcamdserver_data *srv)
 			srv->iplist = ipdata;
 		}
 #endif
-		if ( isblockedip(newip) ) {
+		if ( mgcamd_protoban_armed() && protoban_banned(newip, PB_MGCAMD) ) {
+			debugf(getdbgflag(DBG_MGCAMD,0,0)," Mgcamd%d: New Connection (%s) closed, ip banned for mgcamd (band 63)\n", srv->id, ip2string(newip) );
+			close(newfd);
+		}
+		else if ( isblockedip(newip) ) {
 			debugf(getdbgflag(DBG_MGCAMD,0,0)," Mgcamd%d: New Connection (%s) closed, ip blocked\n", srv->id, ip2string(newip) );
 			close(newfd);
 		}
