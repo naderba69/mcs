@@ -357,6 +357,8 @@ void init_config(struct config_data *cfg)
 
 	cfg->newcamd.clientid = 0;
 	cfg->newcamd.dcwcheck = 1;
+	cfg->newcamd.loginfails = 0;           /* Band 61: off = stock */
+	cfg->newcamd.loginbansec = 3600;       /* Band 61: 1h once armed */
 
 	/*
 	 * TASK 1.10b — stage global DCW-filter defaults with this config. The
@@ -506,6 +508,8 @@ void init_config(struct config_data *cfg)
 
 	cfg->cs378x.clientid = 1;
 	cfg->cs378x.serverid = 1;
+	cfg->cs378x.loginfails = 0;            /* Band 61: off = stock */
+	cfg->cs378x.loginbansec = 3600;        /* Band 61: 1h once armed */
 
 }
 
@@ -1343,6 +1347,35 @@ link_radegast_server:
 				} else iparser++;
 				cfg->newcamd.keepalive = parse_boolean();
 			}
+			else if (!strcmp(str,"LOGIN")) { /* Band 61 */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FAILS")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->newcamd.loginfails = atoi(str);
+					if (cfg->newcamd.loginfails<0) cfg->newcamd.loginfails = 0;
+					if (cfg->newcamd.loginfails>1000) cfg->newcamd.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): NEWCAMD LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->newcamd.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->newcamd.loginbansec = atoi(str);
+					if (cfg->newcamd.loginbansec<0) cfg->newcamd.loginbansec = 0;
+					if (cfg->newcamd.loginbansec>604800) cfg->newcamd.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): NEWCAMD LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->newcamd.loginbansec);
+				}
+				else debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown newcamd LOGIN option '%s'\n",file->nbline,iparser-currentline,str);
+			}
 		}
 
 		/*
@@ -2143,6 +2176,35 @@ link_radegast_server:
 					continue;
 				} else iparser++;
 				cfg->cs378x.keepalive = parse_boolean();
+			}
+			else if (!strcmp(str,"LOGIN")) { /* Band 61 */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FAILS")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cs378x.loginfails = atoi(str);
+					if (cfg->cs378x.loginfails<0) cfg->cs378x.loginfails = 0;
+					if (cfg->cs378x.loginfails>1000) cfg->cs378x.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CS378X LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->cs378x.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cs378x.loginbansec = atoi(str);
+					if (cfg->cs378x.loginbansec<0) cfg->cs378x.loginbansec = 0;
+					if (cfg->cs378x.loginbansec>604800) cfg->cs378x.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CS378X LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->cs378x.loginbansec);
+				}
+				else debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown cs378x LOGIN option '%s'\n",file->nbline,iparser-currentline,str);
 			}
 		}
 #endif
@@ -8744,6 +8806,8 @@ void reread_config( struct config_data *cfg )
 #endif
 	cfg->newcamd.dcwcheck = newcfg.newcamd.dcwcheck;
 	cfg->newcamd.keepalive = newcfg.newcamd.keepalive;
+	cfg->newcamd.loginfails = newcfg.newcamd.loginfails;
+	cfg->newcamd.loginbansec = newcfg.newcamd.loginbansec;
 
 	cfg->mgcamd.dcwcheck = newcfg.mgcamd.dcwcheck;
 	cfg->mgcamd.keepalive = newcfg.mgcamd.keepalive;
@@ -8752,6 +8816,8 @@ void reread_config( struct config_data *cfg )
 	cfg->cccam.loginfails = newcfg.cccam.loginfails;
 	cfg->cccam.loginbansec = newcfg.cccam.loginbansec;
 	cfg->cs378x.keepalive = newcfg.cs378x.keepalive;
+	cfg->cs378x.loginfails = newcfg.cs378x.loginfails;
+	cfg->cs378x.loginbansec = newcfg.cs378x.loginbansec;
 
 	update_servers( cfg, &newcfg );
 	update_cacheexservers( cfg, &newcfg );

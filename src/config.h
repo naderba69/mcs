@@ -1628,6 +1628,8 @@ struct config_data
 		int clientid;
 		int dcwcheck;
 		int keepalive;
+		int loginfails;               /* Band 61: protoban threshold, 0 = off */
+		int loginbansec;              /* Band 61: protoban duration (s) */
 	} newcamd;
 	struct server_data *server;
 	struct server_data *cacheexserver;
@@ -1717,6 +1719,8 @@ struct config_data
 		int clientid;
 		int serverid;
 		int keepalive;
+		int loginfails;               /* Band 61: protoban threshold, 0 = off */
+		int loginbansec;              /* Band 61: protoban duration (s) */
 		pid_t pid_recvmsg;
 		pthread_t tid_recvmsg;
 		pid_t pid_connect;

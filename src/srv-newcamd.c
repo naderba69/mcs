@@ -177,6 +177,13 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		close(sock);
 		return NULL;
 	}
+	/* Band 61: newcamd's own protoban door (inner runs under the
+	 * config read gate, so the knob read is safe here). */
+	if ( cfg.newcamd.loginfails>0 && protoban_banned(ip, PB_NEWCAMD) ) {
+		debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," newcamd: connection from %s closed, ip banned for newcamd (band 61)\n", ip2string(ip));
+		close(sock);
+		return NULL;
+	}
 	memcpy(login_key, cs->newcamd.key, sizeof(login_key));
 	// Create random deskey
 	for (i=0; i<14; i++) keymod[i] = 0xff & rand();
@@ -295,6 +302,12 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		  if (ul > 63) ul = 63;
 		  memcpy(uname, &buf[3], ul); uname[ul] = 0;
 		  debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," %s: unknown user '%s' (%s)\n", cs->name, uname, ip2string(ip)); }
+		{
+			int pb_banned = 0;
+			protoban_note_failure(ip, PB_NEWCAMD, (uint32_t)(cfg.newcamd.loginfails>0?cfg.newcamd.loginfails:0),
+			                      (uint32_t)(cfg.newcamd.loginbansec>0?cfg.newcamd.loginbansec:0), &pb_banned);
+			if (pb_banned) debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," newcamd: %s reached the failure threshold, banned for newcamd\n", ip2string(ip));
+		}
 		close(sock);
 		return NULL;
 	}
@@ -397,6 +410,7 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		cli->lastecmtime = 0;
 		cli->chkrecvtime = 0;
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: client '%s' connected (%s)\n", cs->name, cli->user, ip2string(ip));
+		protoban_note_success(ip, PB_NEWCAMD); /* Band 61 */
 		connected_client_id = cli->id;
 		cs_mark_client_poll_update(cli);
 		newcamd_client_state_unlock(cli);
@@ -416,6 +430,12 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		//cs_message_send(sock, NULL, buf, 3, sessionkey);
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: client '%s' wrong password (%s)\n", cs->name, cli->user, ip2string(ip));
 		cli->nbloginerror++;
+		{
+			int pb_banned = 0;
+			protoban_note_failure(ip, PB_NEWCAMD, (uint32_t)(cfg.newcamd.loginfails>0?cfg.newcamd.loginfails:0),
+			                      (uint32_t)(cfg.newcamd.loginbansec>0?cfg.newcamd.loginbansec:0), &pb_banned);
+			if (pb_banned) debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," newcamd: %s reached the failure threshold, banned for newcamd\n", ip2string(ip));
+		}
 		newcamd_client_state_unlock(cli);
 		pthread_mutex_unlock(&prg.lockcli);
 		close(sock);

@@ -260,7 +260,9 @@ loginban:
 
 # Band 58: half-CW cross-channel reuse (twin/stale/zero/scope safe,
 # profile override) against the production supersmartfilter.h.
-cwreuse:
+# NOTE: named cwreuse-half -- plain `cwreuse` is stability.mk's older
+# TASK 1.3 live test and must not be shadowed.
+cwreuse-half:
 	sh ./cwreuse.sh
 
 # Band 59: LATECW age-at-arrival detector (unknown age fail-open,

@@ -52,6 +52,19 @@ void *cs378x_connect_cli(struct connect_cli_data *param)
 	uint32_t ip = param->ip;
 	free(param);
 
+	/* Band 61: cs378x's own protoban door, before any frame is read. */
+	{
+		int pb_lf;
+		newcamd_config_read_lock();
+		pb_lf = cfg.cs378x.loginfails;
+		newcamd_config_read_unlock();
+		if ( pb_lf>0 && protoban_banned(ip, PB_CS378X) ) {
+			debugf(getdbgflag(DBG_CS378X,cs378x->id,0)," cs378x%d: connection from %s closed, ip banned for cs378x (band 61)\n", cs378x->id, ip2string(ip));
+			close(sock);
+			return NULL;
+		}
+	}
+
 	int received = recv_nonb( sock, buf, 32+4, 5000);
 	if (received<=0 || received < 36 || received > (int)sizeof(buf)) {
 		debugf(getdbgflag(DBG_CS378X,0,0), " cs378x: new connection aborted, rto\n");
@@ -74,6 +87,16 @@ void *cs378x_connect_cli(struct connect_cli_data *param)
 	}
 	if (!cli) {
 		debugf(getdbgflag(DBG_CS378X,cs378x->id,0)," cs378x%d: Unknown Client UCRC=%08x (%s)\n", cs378x->id, ucrc, ip2string(ip));
+		{
+			int pb_lf, pb_lb, pb_banned = 0;
+			newcamd_config_read_lock();
+			pb_lf = cfg.cs378x.loginfails;
+			pb_lb = cfg.cs378x.loginbansec;
+			newcamd_config_read_unlock();
+			protoban_note_failure(ip, PB_CS378X, (uint32_t)(pb_lf>0?pb_lf:0),
+			                      (uint32_t)(pb_lb>0?pb_lb:0), &pb_banned);
+			if (pb_banned) debugf(getdbgflag(DBG_CS378X,cs378x->id,0)," cs378x%d: %s reached the failure threshold, banned for cs378x\n", cs378x->id, ip2string(ip));
+		}
 		close(sock);
 		return NULL;
 	}
@@ -110,6 +133,7 @@ void *cs378x_connect_cli(struct connect_cli_data *param)
 			return NULL;
 		}
 		debugf(getdbgflag(DBG_CS378X,0,cli->id)," cs378x: client '%s' connected\n", cli->user);
+		protoban_note_success(ip, PB_CS378X); /* Band 61 */
 		cli->connection.status = 1;
 		cli->connection.time = GetTickCount();
 		cli->handle = sock;
