@@ -71,11 +71,11 @@
 119cff09dcd86d09547aeed0eee5ce71  src/peerrep.h
 11d14936e4d1c59b0964db764234330d  AUDIT-FIX-REPORT.md
 11d8c5a38d28538cbf66df46db161acb  src/msg-newcamd.h
-1212a1222dbf34749641c5d4c0413db9  multics-r24-optimized.cfg
 123ba4becc14292ffea0c216e6e859c5  docs/REPORT-R13-ar.md
 124b024ede975e6b5e0ed80f1ffe7d1d  src/x64/cwconsensus.o
 128b58ebde8c7a3826ad539dc8f91d78  docs/TESTING-ar.md
 1299557cb22fc6e4fbc6e861cedbaa1a  src/th-ecm.c
+12d10a6744d76646696f32a35835111e  multics-full-30w-52e.cfg
 131aa928899beb8b32343bdf78a5ca6c  README-PRODUCTION.md
 13b4b0f2414d5436f0ab112a587be978  src/base64.c
 14915c7ccf4955d811bd3b35d9e56bd6  make-x64/test_cs378x_frame.c
@@ -223,6 +223,7 @@
 40863224046ccab4dbc0b957c87ebe99  src/country.c
 409c728bf2cd5fad6c700ccf4f8c6656  src/diagnostics.h
 40e70b3c7fd6078aae44ddfb71d01750  src/cwentropy.h
+40f1cecc425b1906197ea3294892c025  multics-r24-expert-reviewed.cfg
 41618515bfd4afa39a425623d31f26ee  docs/REPORT-2.7-ar.md
 418902105ee72813be42c560b92ba7b6  src/dcw.h
 41c7c9a41e12143c147a5c6f6d1e7ed8  tests/cwpair-live.py
@@ -248,6 +249,7 @@
 47e8d2f8acc2e9c108d954525533fd2c  docs/soak-4.2/RESULT.txt
 48188daa295df33298ed53f1326d1e9d  docs/all38-run.log
 48215436613e05f450664ced32128a99  docs/CONFIG-REFERENCE-ar.md
+48a760c414af18c457b8b14ff1779bca  MANIFEST-md5
 48dd96353430733f572c92ccef38b79f  src/x64/dcw.o
 48e71924ae06abb36615f5b00889edcc  src/x64/httpserver.o
 49269c52654f1f54f72350c9a56b3617  src/x64/sockets.o
@@ -368,7 +370,6 @@
 6ab5c70ab7cba2e74e418bebbd559387  tests/cccam-late-dispatch.py
 6ac94c5466db573021b8807e48dec58f  tests/ecm-radegast-identity.sh
 6c095e0e312ec8328b69bb6acc015007  docs/REPORT-4.3-ar.md
-6d3b7f741b6d631b79d4c84c2489d21d  multics-full-30w-52e.cfg
 6d651abe0ae4a783de2f9251594adf42  src/ecm-pattern-analysis.h
 6ea987e9f71b344b3b70ba6a75a720f8  tests/cache-check-characterization.c
 6ebf6471a75f8841ddb28c9e1c968ffa  src/multipath.h
@@ -499,7 +500,6 @@
 99ff0827c5a22fc593069b73b31efead  src/peer_cards.h
 9a182126cded77f7345f719f38b2bb22  src/cli-radegast.c
 9a7ed2a62fa1a30bb7ecb71eb2e0df1e  src/packed-time.c
-9b4f24dfa828a9f4b074c2857789aab4  MANIFEST-md5
 9b863230043abfb1c35dd66e50382bd2  make-x64/test_adv.c
 9cce8dfe47cfcfae179265a2a7f720a8  make-x64/test_cache_intelligence_ticks.c
 9cfac59079c84ef260a41e5c20a1ac15  docs/STATUS.md
@@ -508,6 +508,7 @@
 9d0d019d2210e2986f8d7c75e42a160a  src/x64/parser.o
 9d212081c5d435e4166a24fd6a48d666  dist/multics-r82a-queue-stats-x64
 9d666eff5d11685236fe7d7293edb37a  make-x64/test_emm_cache.c
+9d982ccc64c19fe2bec0064976727866  multics-r24-optimized.cfg
 9de73fc9ee8df485eca528293a97868d  make-x64/test_cache_purge.c
 9e2464200ac1e5caeace1e56c0719690  make-x64/test_provider_config.c
 9e3786581c2805e6100b6d8c389859c2  src/cli-common.c
@@ -598,8 +599,8 @@ b96b6e418347dbd5ae5b51b317bfd3f1  src/x64/server-stats.o
 b9adef5035fca75f335c75c33a3e00a6  docs/REPORT-R15-ar.md
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
 ba3dbab45abea98efcb6961173889ec0  src/httpserver.h
-bb2c4cdfd6f4a22ac7a336a6b9e08d00  docs/REPORT-R48-ar.md
 bb42a53e55698772ba3b4e6dd8fb80f6  src/scramchk.h
+bb8da1b79ebcffc344fe876abc6c6c2a  docs/REPORT-R48-ar.md
 bbb8636e6b121a90c2a8c70ba6e5e0f8  src/cexwire.h
 bc8f3f995e6b4c85a333ea7ee10d30fe  CAID-PROBLEMS-DETAILED.md
 bcdd8bcc51d575e317d50e63a01813b5  make-x64/test_dcwstrict_ticks.c
@@ -725,7 +726,6 @@ d479e437af88ef42f2948bbed16f1209  src/cwconsensus.c
 d4870bee84d34130fd836eaf7b3ec8a3  src/cwretry.h
 d4a8dca75026366010b44e9014190291  make-x64/test_pipeline_parquery_ticks.c
 d4e117e8a0eaf59dc09c0c920a102e47  tests/time-native-oracle.c
-d56716d5a892097a083dc3fb9ffb94ca  multics-r24-expert-reviewed.cfg
 d5856d1f21e8bc0739d571acc7552670  docs/soak-4.2/page.html
 d5b0a014aafbaaa3c52fa64353f3f469  التقرير-النهائي-للإصلاح.md
 d5d6004a1e8838901183ec498de341ca  src/Makefile
