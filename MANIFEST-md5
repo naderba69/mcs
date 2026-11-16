@@ -450,6 +450,7 @@
 8b1f5f876dd05f333136970fe2182796  make-x64/test_peercard.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
 8c6afa80ee72ec75bc632c8ec5e49423  make-x64/probe_parsequotes.c
+8d4026a486962ed5133c84c35fa5ef91  MANIFEST-md5
 8d8fe45f01c5261d4b7440cc28a2d83e  src/debug-ecm.h
 8da43692b70e43d698ea12d52a1184d2  src/x64/newcamd-lifetime.o
 8e62776f7c93d22fbfd5fbe209399bd0  src/cwml.h
@@ -510,7 +511,6 @@
 9e3786581c2805e6100b6d8c389859c2  src/cli-common.c
 9e4b8eb92bb71d2b9a4d2dc0f5075af1  src/cachewarm.h
 9e9683c5f47a897e2dd2f6067c77cf7c  tools/generate-expert-config.py
-9ef79fb3c2a076960dbb2746cc1801bb  MANIFEST-md5
 a0b01eefd61eb6ba69c631f05f4e7aa0  bin/README-R24-x64.md
 a0b0374f430a676da8ddd2ac7401d3e9  docs/expert-profile-research-ar.md
 a0f37c725a1265fa1c0e8f680287f7a2  src/cwcm.h
@@ -799,6 +799,8 @@ e8089b31f4093d955d650a3f93c2287e  make-x64/test_cache_pipe_queue.c
 e843eabd5132ca97ddf0d1063991b90e  src/newcamd-lifetime.h
 e8559395f1ec707de919eb21cb25f9f5  make-x64/test_peer_origin.c
 e8da713e1b67f0d61e76b594004b1349  src/dcwstrict.h
+e900849e7c873db7b7cd920ed39d669e  tests/mgban
+e900849e7c873db7b7cd920ed39d669e  tests/mgban.sh
 e93a0866896169c8fbdbd58bfb8d462b  src/th-srv.c
 ea4f972eb12fa218c94a960b6aa61480  docs/memcheck-4.1/compile-test_chanhealth.log
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
