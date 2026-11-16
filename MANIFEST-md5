@@ -190,12 +190,12 @@
 314797d4dd8978666ba93a2a1652164b  src/biss.c
 324667f0c3a45ae291493c9fd8fce4ab  tests/newcamd-config-reload.sh
 325a23d3cc6b1dd38567d6ab21e7123c  src/x64/biss.o
+33154342f3803f882df91b750e4491b0  tools/profile-timeout-audit.py
 333301865f35485299c3ea8c259ccd18  src/dyn_buffer.c
 34571bac3612b1e10201dbf18ef600ba  docs/memcheck-4.1/make-n-test.txt
 3515c08c42be75b1bfa9337c034203f8  tests/cwreuse.sh
 354bb755bb374c6e4e0360369d09c1ab  docs/REPORT-R24-ar.md
 360b0bfaac8c7a12524e0dd6f5beb7a4  field-activation-example.cfg
-362862946cab5002b011aa51b0000c4a  multics-r24-optimized.cfg
 36de7c2344981f4c4afc86ccc22cdb28  make-x64/test_cfgfield.c
 37342732e71e64292d8a1f2d4cd02b07  tests/dropdiffs-live.py
 375100b089b57b3a762ce397246394fd  src/blackanalytics.h
@@ -291,7 +291,6 @@
 53ae8bfafba95484e8e78ca411323617  tests/test_cfgcheck_blind.py
 53f8885a80d80c901975fad3382382fb  src/chanhealth.h
 54373e8292d92f415ebccef5266a09a3  src/fallback.h
-5441ace0b4b12dd4fd447f324e330a97  MANIFEST-md5
 54aad7857f4f8b732d9b26967dad9db4  docs/REPORT-R4-ar.md
 550040f3cc08f2d97789982ce116b846  make-x64/test_cw_timing.c
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
@@ -368,7 +367,6 @@
 6aa9b68d92080c091741e0a5d032fa5e  SYNC-STATUS-REPORT.md
 6ab5c70ab7cba2e74e418bebbd559387  tests/cccam-late-dispatch.py
 6ac94c5466db573021b8807e48dec58f  tests/ecm-radegast-identity.sh
-6aceefa5f82aff60ed38cc5f181b15f7  docs/REPORT-R48-ar.md
 6c095e0e312ec8328b69bb6acc015007  docs/REPORT-4.3-ar.md
 6d651abe0ae4a783de2f9251594adf42  src/ecm-pattern-analysis.h
 6ea987e9f71b344b3b70ba6a75a720f8  tests/cache-check-characterization.c
@@ -480,6 +478,7 @@
 956c35d7131fe42abd9ffb69b8110294  src/msg-newcamd.c
 962029dfe7dd9f69627bda5d8dea6377  src/blackscreen-detector.h
 963a2dbe7c784328b102d3c8bb67488a  docs/AUDIT-BLACKSCREEN-CACHE-ar.md
+9640f4f6f2cb82293ebe7ad40aeaba67  docs/REPORT-R48-ar.md
 964bd0c112b0e35facf94ddf3c88b2a8  docs/REPORT-3.19-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
 96a82c4540dce04760fd4c7221f51ef9  docs/SCOPE.md
@@ -498,6 +497,7 @@
 99f5041fea622bd00c7bf944203521c7  make-x64/test_cwconsensus.c
 99fc08532a6cf0afc9360597c2a848be  src/md5.h
 99ff0827c5a22fc593069b73b31efead  src/peer_cards.h
+9a09947214804cf58d709f5cf8b6c592  multics-full-30w-52e.cfg
 9a182126cded77f7345f719f38b2bb22  src/cli-radegast.c
 9a7ed2a62fa1a30bb7ecb71eb2e0df1e  src/packed-time.c
 9b863230043abfb1c35dd66e50382bd2  make-x64/test_adv.c
@@ -525,7 +525,9 @@ a1a4c6908cb92319e0d923ebf04febbe  make-cross/Makefile
 a1a57173f17bbd70903ef6c51cc647b1  src/x64/cache-analytics.o
 a324c8b19b434f84b0c3f4cd1c43eef8  src/x64/telnet.o
 a4481c5a7155891553be2742e665b145  docs/UI-PHASE1-REPORT-ar.md
+a4a3c2ed8393ffe50ac840292e4efab2  multics-r24-optimized.cfg
 a4fb4fbbfbe6cfde2129a5b1ed44bfb0  src/sha256.h
+a5b11c6f737bf87648f2ddf22824d81e  multics-r24-expert-reviewed.cfg
 a5e1b8fa4c3febb70f511d3e09777837  tests/cache-peer-broadcast.py
 a5fa6ed31e82f2b82e1f2a58bea02ad2  src/dcwstats.h
 a6452aa7a4ce444a4bfa931b29d51b64  src/cwcrosschannel.h
@@ -663,7 +665,6 @@ cdaf691f93c8125068fcb28782d01ab0  src/x64/ecm-provider-config.o
 cdda2d6b3f836adc49e2e23a17825f9d  docs/memcheck-4.1/tsan-empty.log
 ce20affca3300fe8fe136c6bbce01e9d  PRODUCTION-RELEASE-v82a.md
 ce291fab152b37e7d66216fcf94c88af  make-x64/test_cwcm.c
-ce4dba9f3723f63ae2b11b12f2957a21  multics-full-30w-52e.cfg
 ce6c4dcdaa81e14611d8f03cb72476d2  src/cwpriority.h
 ce9abc6aa510e68693ae7ec947ef77c2  docs/DECISIONS.md
 cef5823248fc7fe423f83e117f38d90f  docs/REPORT-2.9-ar.md
@@ -769,6 +770,7 @@ e198eff69959679f80509fe2d99a1f86  tests/cccam-trace-success.py
 e1dd36053481d6f4abd4a1cd15030109  src/srv-radegast.c
 e1ddbbf8b0eb15a374b9c52b041a702e  tests/protoban.sh
 e25c7c7c2f729f01636556594a890ebb  tests/ecmdata-allocation.c
+e283a4f6eac0d838de5143e26d6500bd  MANIFEST-md5
 e2a622410ac408651f9688ff5d64d5c5  BLACKSCREEN-FAKECW-RESEARCH.md
 e2b4152bf7a3ec2a661e54ad10db26eb  docs/RUNBOOK-cold-restore-ar.md
 e2f3767f58a61eb59c4fe9bc5eb30107  make-x64/test_supersmartfilter_ticks.c
@@ -826,7 +828,6 @@ f0ec532845da6e63abfc4182a782e37b  src/ecm-provider-config.c
 f1d0ea91e018fb5043f134a4dfb05a02  tests/cccam-reconnect.py
 f215116e4d3ff75d81b4d99ec6346a89  src/autorecov.h
 f245f7e5032e0752df586d67ed24942a  src/sha1.h
-f24ed3fcbc51359c4fdf0d3ad111300a  multics-r24-expert-reviewed.cfg
 f26b5d266e8950b598649f178ce8987a  make-x64/test_rotation.c
 f2a54eb0e6c5923d6913bd2c2c935012  docs/soak-4.2/peer-repush-rotate.log
 f3707df35cc0c54e0c23be78d1a9048e  make-x64/test_casystem.c
