@@ -1080,11 +1080,14 @@ void mg_senddcw_cli(struct mg_client_data *cli, const struct ledger_delivery_sna
 			return;
 		}
 #ifdef CACHEEX
-		if (delivery->trace_instance)
+		if (delivery->trace_instance) {
+			char fail_detail[128];   /* band 80 */
+			snprintf(fail_detail, sizeof(fail_detail), "decode failed (%s)",
+			         delivery->statusmsg[0] ? delivery->statusmsg : "reason unavailable");
 			user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
 			                         USER_TRACE_FAILED, 0, 0,
-			                         GetTickCount()-response_recvtime,
-			                         "decode failed; detailed reason unavailable");
+			                         GetTickCount()-response_recvtime, fail_detail);
+		}
 #endif
 		debugf(getdbgflagpro(DBG_MGCAMD,0,cli->id,response_profile)," |> decode failed to mgcamd client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, response_caid,response_provid,response_sid, GetTickCount()-response_recvtime);
 	}

@@ -1473,11 +1473,14 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli,
 		cli->lastecm.status = 0;
 		cli->lastecm.dcwsrctype = DCW_SOURCE_NONE;
 		cli->lastecm.dcwsrcid = 0;
-		if (delivery->trace_instance)
+		if (delivery->trace_instance) {
+			char fail_detail[128];   /* band 80 */
+			snprintf(fail_detail, sizeof(fail_detail), "decode failed (%s)",
+			         delivery->statusmsg[0] ? delivery->statusmsg : "reason unavailable");
 			user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
 			                         USER_TRACE_FAILED, 0, 0,
-			                         sent_at - response_recvtime,
-			                         "decode failed; detailed reason unavailable");
+			                         sent_at - response_recvtime, fail_detail);
+		}
 		memset(cli->lastecm.dcw, 0, 16);
 #ifdef CACHEEX
 		memset(cli->lastecm.ecmd5, 0, sizeof(cli->lastecm.ecmd5));

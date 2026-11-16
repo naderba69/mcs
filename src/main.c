@@ -1877,6 +1877,7 @@ struct ledger_delivery_snapshot {
 	uint8_t tag;
 	uint8_t cw[16];
 	int status;
+	char statusmsg[96];   /* band 80: ECM failure reason, copied (slot recycles) */
 	int period;
 	int cw1cycle;
 	int srctype;
@@ -1928,6 +1929,7 @@ static int ledger_delivery_snapshot_capture_locked(struct ledger_delivery_snapsh
 		out->server_flag[i] = (uint8_t)ecm->server[i].flag;
 	}
 	out->status = ecm->dcwstatus;
+	snprintf(out->statusmsg, sizeof(out->statusmsg), "%s", ecm->statusmsg ? ecm->statusmsg : ""); /* band 80 */
 	out->hash = ecm->hash;
 	out->caid = ecm->caid;
 	out->provid = ecm->provid;

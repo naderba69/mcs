@@ -173,11 +173,20 @@ void wakeup_sendecm() // not needed in mono-thread
 	pipe_wakeup( prg.pipe.ecm[1] );
 }
 
-int ecm_faileddcw( ECM_DATA *ecm )
+/* Band 80: the shared engine's terminal failure used to trace one
+ * generic line ("ECM failed; reason may be unavailable") even though
+ * every caller knew exactly why it was failing -- and three callers
+ * additionally emitted their own specific FAILED first, so the trace
+ * showed a vague duplicate after the real reason. Now the caller
+ * passes its reason (and elapsed time), the FAILED event is emitted
+ * once, here, with that reason, and the same text reaches clients via
+ * the delivery snapshot's statusmsg (main.c). */
+int ecm_faileddcw( ECM_DATA *ecm, const char *trace_reason, uint32_t elapsed_ms )
 {
 	struct ledger_delivery_snapshot failed_delivery;
 	int dispatch_result;
-	if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, 0, "ECM failed; reason may be unavailable");
+	if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, elapsed_ms,
+		trace_reason ? trace_reason : "ECM failed; reason may be unavailable");
 	ecm_request_set_dcwstatus(ecm, STAT_DCW_FAILED);
 	ecm->checktime = 0;
 	ecm->waitserver = 0;
@@ -367,7 +376,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		struct cardserver_data *cs = ecm->cs;
 		if (!cs) {
 			ecm->statusmsg = "Invalid profile id";
-			if (!ecm_faileddcw(ecm)) return;
+			if (!ecm_faileddcw(ecm, "Invalid profile id", ticks - ecm->recvtime)) return;
 			return;
 		}
 		if (cs->option.fallowcache) {
@@ -422,7 +431,7 @@ send_ecm:
 		struct cardserver_data *cs = ecm->cs;
 		if (!cs) {
 			ecm->statusmsg = "Invalid profile id";
-			if (!ecm_faileddcw(ecm)) return;
+			if (!ecm_faileddcw(ecm, "Invalid profile id", ticks - ecm->recvtime)) return;
 			return;
 		}
 		//check for decode failed
@@ -431,8 +440,7 @@ send_ecm:
 			if (cache_verify_dispatch) return;
 			if (!ecm->server_totalwait) {
 				ecm->statusmsg = "Decode failed, max servers is reached and no more servers to wait";
-				if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, ticks - ecm->recvtime, "maximum servers reached");
-				if (!ecm_faileddcw(ecm)) return;
+				if (!ecm_faileddcw(ecm, "maximum servers reached", ticks - ecm->recvtime)) return;
 				// Send DCW to Cache if not sent
 				if ( cs->option.fallowcache && cs->option.cachesendrep && (ecm->cachestatus!=ECM_CACHE_REP) ) {
 					//pipe_send_cache_reply(ecm,cs); // Send failed Cache Reply
@@ -485,8 +493,7 @@ send_ecm:
 					}
 				}
 			}
-			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, ticks - ecm->recvtime, "DCW timeout");
-			if (!ecm_faileddcw(ecm)) return;
+			if (!ecm_faileddcw(ecm, "DCW timeout", ticks - ecm->recvtime)) return;
 			// Send DCW to Cache if not sent
 			if ( cs->option.fallowcache && cs->option.cachesendrep && (ecm->cachestatus!=ECM_CACHE_REP) ) {
 				//pipe_send_cache_reply(ecm,cs); // Send failed Cache Reply
@@ -653,7 +660,7 @@ send_ecm:
 					if (!ecm->server_totalwait && !ecm->server_totalsent &&
 					    !cache_verify_dispatch) {
 						ecm->statusmsg = "Decode failed, no free server";
-						if (!ecm_faileddcw(ecm)) return;
+						if (!ecm_faileddcw(ecm, "no free server available", ticks - ecm->recvtime)) return;
 						cs->ecmbusysrv++;
 					}
 #endif
@@ -667,10 +674,8 @@ send_ecm:
 		}
 		else if (!ecm->server_totalwait) {
 			if (cache_verify_dispatch) return;
-			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED,
-			    0, 0, ticks - ecm->recvtime, "server dispatch window expired; no pending server");
 			ecm->statusmsg = "Decode failed, no server open this channel";
-			if (!ecm_faileddcw(ecm)) return;
+			if (!ecm_faileddcw(ecm, "server dispatch window expired; no pending server", ticks - ecm->recvtime)) return;
 			// Send DCW to Cache if not sent
 			if ( cs->option.fallowcache && cs->option.cachesendrep && (ecm->cachestatus!=ECM_CACHE_REP) ) {
 				//pipe_send_cache_reply(ecm,cs); //Send Failed Cache Reply

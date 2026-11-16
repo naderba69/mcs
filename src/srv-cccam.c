@@ -1173,11 +1173,14 @@ static void cc_senddcw_cli_locked(struct cc_client_data *cli,
 		memset(cli->lastecm.ecmd5, 0, sizeof(cli->lastecm.ecmd5));
 		cli->lastecm.ecmlen = 0;
 #endif
-		if (delivery->trace_instance)
+		if (delivery->trace_instance) {
+			char fail_detail[128];   /* band 80 */
+			snprintf(fail_detail, sizeof(fail_detail), "decode failed (%s)",
+			         delivery->statusmsg[0] ? delivery->statusmsg : "reason unavailable");
 			user_trace_client_result(cli->id, delivery->trace_instance,
 			                        delivery->hash, USER_TRACE_FAILED, 0, 0,
-			                        ticks - response_recvtime,
-			                        "decode failed; detailed reason unavailable");
+			                        ticks - response_recvtime, fail_detail);
+		}
 		debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,response_profile),
 		       " |> decode failed to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n",
 		       cli->user, response_caid, response_provid, response_sid,

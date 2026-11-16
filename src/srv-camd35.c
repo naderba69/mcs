@@ -231,11 +231,14 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 		buf[1] = 0;
 		camd35_sendto( camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf, 20);
 #ifdef CACHEEX
-		if (delivery->trace_instance)
+		if (delivery->trace_instance) {
+			char fail_detail[128];   /* band 80 */
+			snprintf(fail_detail, sizeof(fail_detail), "decode failed (%s)",
+			         delivery->statusmsg[0] ? delivery->statusmsg : "reason unavailable");
 			user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
 			                         USER_TRACE_FAILED, 0, 0,
-			                         GetTickCount()-response_recvtime,
-			                         "decode failed; detailed reason unavailable");
+			                         GetTickCount()-response_recvtime, fail_detail);
+		}
 #endif
 		debugf(getdbgflagpro(DBG_CAMD35,0,cli->id,response_profile)," |> decode failed to camd35 client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, response_caid,response_provid,response_sid, GetTickCount()-response_recvtime);
 	}

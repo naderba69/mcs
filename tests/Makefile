@@ -357,3 +357,7 @@ cxban: .ncserver.bin
 # Band 79: HTTP ban unified into protoban (PB_HTTP) live.
 hban:
 	@python3 httpban-live.py $(BIN)
+
+# Band 80: shared-engine ECM failure reasons detailed in the trace.
+ecmfail: .ncclient.bin
+	@python3 ecmfail-trace-live.py $(BIN)

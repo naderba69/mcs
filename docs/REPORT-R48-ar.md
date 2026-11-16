@@ -2124,3 +2124,36 @@ Commits على `arena/59c38810-mcs`: ‏`033efd7`، ‏`172e455`، ‏`f9d5fe2`�
       الوحدويين وcxban وrelban).
     - الدَّين المسمّى الباقي وحده الآن: تفصيل أسباب فشل
       ECM المشترك العامة في التريس.
+
+80. **تفصيل أسباب فشل ECM المشترك في التريس (2026-11-16)**:
+    آخر دَين مسمّى. كان فشل محرك ECM المشترك النهائي
+    (`ecm_faileddcw` في th-ecm.c) يرسم سطرًا عامًا واحدًا
+    «ECM failed; reason may be unavailable» رغم أن كل
+    مستدعٍ يعرف سببه بدقة — بل ثلاثة مستدعين كانوا يصدرون
+    حدث FAILED الخاص بهم أولًا ثم يأتي العام مكررًا بعده.
+    وبعده كانت أبواب العملاء الخمسة كلها تقول للعميل في
+    التريس «decode failed; detailed reason unavailable».
+    - `ecm_faileddcw(ecm, reason, elapsed)` الآن: يستقبل
+      سبب المستدعي (Invalid profile id / maximum servers
+      reached / DCW timeout / no free server available /
+      server dispatch window expired) ويصدر FAILED مرة
+      واحدة به، وحُذفت الإصدارات المكررة الثلاثة.
+    - لقطة التسليم (`ledger_delivery_snapshot`) تحمل
+      الآن `statusmsg[96]` منسوخًا عند الالتقاط (الخانة
+      تُعاد تدويرها فلا يصح مؤشر)، ومواقع نتيجة العميل
+      الخمسة (cccam/newcamd/mgcamd/cs378x/camd35) تعرض
+      «decode failed (<السبب>)» بدل العام.
+    - الإثبات الحي (`tests/ecmfail-trace-live.py` + هدف
+      `make ecmfail`): بروفايل بلا أي خط خادم — ECM
+      newcamd يفشل في المحرك المشترك فقط؛ التريس يُظهر
+      السبب المفصّل ونتيجة العميل المفصّلة، ولا أثر
+      لأيٍّ من السلسلتين العامتين.
+    - البصمة الجديدة `81bf8cdef22ca36634ea9aedcc2ec5af`.
+      الرجوع أخضر كاملًا (+ cccam-reconnect).
+    - **بذلك تُستنفد الديون المسمّاة كلها** (protoban
+      بثمانية أبواب، توحيد حظر HTTP، أسباب فشل ECM).
+      المتبقي المعروف من الذاكرة التشغيلية: توصيات
+      ميدانية بلا قرار مشغّل (تسليح MGCAMD/CCCAM ضد
+      `e1qs8h` صار آمنًا بعد بند 77)، ومراقبة
+      DoubleCheck ‏(13/2928)، وCWPAIR ‏1830↔1843
+      بانتظار تأكيد ميداني.
