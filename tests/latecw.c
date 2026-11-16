@@ -42,12 +42,13 @@ static void setup(int global_mode, int threshold_ms)
 }
 
 static uint32_t test_now = 500000;
+static int prof_late_ms = 0; /* Band 65: per-profile threshold (0=inherit) */
 static int check(uint32_t age_ms, int prof_late, int *reason)
 {
     /* advance past the duplicate/speed history window between calls */
     test_now += 20000;
     return supersmartfilter_check(CW_A, NULL, 0x183D, 0, 0x4001, 0,
-                                  test_now, reason, 0, 0, 0, 0, prof_late, age_ms);
+                                  test_now, reason, 0, 0, 0, 0, prof_late, age_ms, prof_late_ms, 0, 0);
 }
 
 int main(void)
@@ -95,7 +96,22 @@ int main(void)
     supersmartfilter_get_stats(&st);
     EXPECT(st.latecw_flagged == 0, "prof-off: no flags when profile forces off");
 
+    /* Band 65: per-CAID threshold wins over the global one, both ways.
+     * Slow-source CAID (60-150s answers): global 8000 would nuke it,
+     * profile 200000 spares it. Fast CAID tightened to 1000. */
+    setup(2, 8000);
+    prof_late_ms = 200000;
+    EXPECT(check(60000, 0, &reason) == 0, "prof-ms: slow CAID spared by its own threshold");
+    supersmartfilter_get_stats(&st);
+    EXPECT(st.latecw_flagged == 0, "prof-ms: no flag under profile threshold");
+    prof_late_ms = 1000;
+    reason = 0;
+    EXPECT(check(5000, 0, &reason) == 1, "prof-ms: tightened CAID rejects at 5s");
+    EXPECT(reason == 13, "prof-ms: reason 13");
+    prof_late_ms = 0;
+    EXPECT(check(5000, 0, &reason) == 0, "prof-ms: 0 inherits global (5s < 8s ok)");
+
     if (fails) { printf("latecw: %d FAILURES\n", fails); return 1; }
-    printf("latecw: PASS (fresh ok, late flags/rejects 13, unknown fail-open, override)\n");
+    printf("latecw: PASS (fresh ok, late flags/rejects 13, unknown fail-open, override, per-CAID ms)\n");
     return 0;
 }

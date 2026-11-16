@@ -49,10 +49,11 @@ static void setup(int global_mode, int rep)
     ssf_cfg.sf_cwdup_rep = rep;
 }
 
+static int prof_rep = 0; /* Band 65: per-profile REP (0=inherit) */
 static int check(const uint8_t *cw, const uint8_t *hash, uint16_t sid,
                  uint32_t now_ms, int prof_dup, int *reason)
 {
-    return supersmartfilter_check(cw, hash, 0x183D, 0, sid, 0, now_ms, reason, 0, 0, prof_dup, 0, 0, 0xFFFFFFFFu);
+    return supersmartfilter_check(cw, hash, 0x183D, 0, sid, 0, now_ms, reason, 0, 0, prof_dup, 0, 0, 0xFFFFFFFFu, 0, 0, prof_rep);
 }
 
 int main(void)
@@ -147,7 +148,19 @@ int main(void)
     supersmartfilter_get_stats(&st);
     EXPECT(st.cwdup_flagged == 0, "nohash: unprovable cycle boundary never flags");
 
+    /* --- Band 65: per-CAID REP wins over the global REP --- */
+    setup(2, 10); /* global needs 10 repeats: would not flag below */
+    prof_rep = 2;
+    hash_of(h, 1); EXPECT(check(CW_A, h, 0x2007, 100000, 0, &reason) == 0, "prof-rep: A");
+    hash_of(h, 2); EXPECT(check(CW_B, h, 0x2007, 110000, 0, &reason) == 0, "prof-rep: B competitor");
+    hash_of(h, 3); EXPECT(check(CW_A, h, 0x2007, 120000, 0, &reason) == 0, "prof-rep: A back");
+    hash_of(h, 4); EXPECT(check(CW_A, h, 0x2007, 130000, 0, &reason) == 0, "prof-rep: A rep1");
+    hash_of(h, 5); reason = 0;
+    EXPECT(check(CW_A, h, 0x2007, 140000, 0, &reason) == 1, "prof-rep: rejected at profile REP=2");
+    EXPECT(reason == 11, "prof-rep: reason 11");
+    prof_rep = 0;
+
     if (fails) { printf("cwdup: %d FAILURES\n", fails); return 1; }
-    printf("cwdup: PASS (constant/roll/resend safe, stuck flags+rejects, override, fail-open)\n");
+    printf("cwdup (incl per-CAID REP): PASS (constant/roll/resend safe, stuck flags+rejects, override, fail-open)\n");
     return 0;
 }

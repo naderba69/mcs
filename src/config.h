@@ -801,6 +801,12 @@ struct cardserver_data
 		uint8_t sf_cwreuse;
 		/* Band 59 LATECW override: 0=inherit global, 1=off, 2=log-only, 3=reject. */
 		uint8_t sf_latecw;
+		/* Band 65: per-CAID numeric SSF thresholds (0 = inherit the
+		 * global CACHE SF value). Slow/fast sources differ per CAID,
+		 * so the ms thresholds must be specialisable per profile. */
+		int sf_latecw_ms;
+		int sf_cwreuse_window_ms;
+		int sf_cwdup_rep;
 		/* Per-CAID arming for the band 26/32 gates (0=inherit the
 		 * global CACHE CI VALIDATE / CACHE DROPDIFFS, 1=force on,
 		 * 2=force off) -- set with CI VALIDATE: / DROPDIFFS: in a

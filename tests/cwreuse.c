@@ -54,10 +54,11 @@ static void setup(int global_mode, int window_ms)
     ssf_cfg.sf_cwreuse_window_ms = window_ms;
 }
 
+static int prof_window = 0; /* Band 65: per-profile window ms (0=inherit) */
 static int check(const uint8_t *cw, uint16_t caid, uint16_t sid,
                  uint32_t now_ms, int prof_reuse, int *reason)
 {
-    return supersmartfilter_check(cw, NULL, caid, 0, sid, 0, now_ms, reason, 0, 0, 0, prof_reuse, 0, 0xFFFFFFFFu);
+    return supersmartfilter_check(cw, NULL, caid, 0, sid, 0, now_ms, reason, 0, 0, 0, prof_reuse, 0, 0xFFFFFFFFu, 0, prof_window, 0);
 }
 
 int main(void)
@@ -127,6 +128,22 @@ int main(void)
     EXPECT(check(y, 0x183D, 0x3002, 102000, 1, &reason) == 0, "prof-off: override 1 disables");
     supersmartfilter_get_stats(&st);
     EXPECT(st.cwreuse_flagged == 0, "prof-off: no flags when profile forces off");
+
+    /* --- Band 65: per-CAID window wins over the global window --- */
+    /* Fresh half pair (H3/H4 family) so no earlier sighting interferes:
+     * under the tiny global window the +5s second sighting is stale and
+     * silently adopted; under the profile window it is reuse. */
+    setup(2, 1000);
+    mk(x, H3, H1); mk(y, H3, H2);
+    EXPECT(check(x, 0x183D, 0x3011, 100000, 0, &reason) == 0, "prof-win: X on ch1");
+    EXPECT(check(y, 0x183D, 0x3012, 105000, 0, &reason) == 0, "prof-win: stale under global window");
+    setup(2, 1000);
+    prof_window = 120000;
+    EXPECT(check(x, 0x183D, 0x3011, 200000, 0, &reason) == 0, "prof-win: X on ch1 (profile window)");
+    reason = 0;
+    EXPECT(check(y, 0x183D, 0x3012, 205000, 0, &reason) == 1, "prof-win: flagged under profile window");
+    EXPECT(reason == 12, "prof-win: reason 12");
+    prof_window = 0;
 
     if (fails) { printf("cwreuse: %d FAILURES\n", fails); return 1; }
     printf("cwreuse: PASS (cross-channel half flags, twin/stale/zero/scope safe, override)\n");

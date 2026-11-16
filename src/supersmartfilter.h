@@ -691,7 +691,8 @@ static int ssf_check_cwdup(const uint8_t cw[16], const uint8_t ecm_hash[16],
  * their entry); a stale cross-channel sighting simply ages out of the
  * window and the new channel's entry takes over the ring slot. */
 static int ssf_check_cwreuse(const uint8_t cw[16], uint16_t caid,
-                             uint32_t provid, uint16_t sid, uint32_t now_ms)
+                             uint32_t provid, uint16_t sid, uint32_t now_ms,
+                             int window_ms)
 {
     static const uint8_t zero8[8] = {0};
     int i, flagged = 0;
@@ -704,7 +705,7 @@ static int ssf_check_cwreuse(const uint8_t cw[16], uint16_t caid,
     for (i = 0; i < SSF_MAX_REUSE_ENTRIES; i++) {
         struct ssf_reuse_entry *e = &ssf_reuse_table[i];
         if (!e->used) continue;
-        if ((uint32_t)(now_ms - e->last_ms) > (uint32_t)ssf_cfg.sf_cwreuse_window_ms) continue;
+        if ((uint32_t)(now_ms - e->last_ms) > (uint32_t)window_ms) continue;
         if (e->caid == caid && e->provid == provid && e->sid == sid) continue;
         if (!memcmp(e->cw, cw, 16)) continue;  /* full-CW twin: not this detector */
         if ((!memcmp(cw, zero8, 8) && !memcmp(cw + 8, zero8, 8))) continue;
@@ -739,7 +740,10 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
                                    uint32_t peer_id, uint32_t now_ms, int *reject_reason,
                                    int profile_level, int profile_marchcheck,
                                    int profile_cwdup, int profile_cwreuse,
-                                   int profile_latecw, uint32_t ecm_age_ms)
+                                   int profile_latecw, uint32_t ecm_age_ms,
+                                   int profile_latecw_ms,
+                                   int profile_cwreuse_window_ms,
+                                   int profile_cwdup_rep)
 {
     /* R48: profile_level 0 = inherit global. Passed as a parameter
      * (not a global) so concurrent ECM workers on different profiles
@@ -884,7 +888,8 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
         else if (profile_cwdup == 3) dup_mode = 2;
         if (dup_mode > 0 &&
             ssf_check_cwdup(cw, ecm_hash, caid, provid, sid, now_ms,
-                            ssf_cfg.sf_cwdup_rep)) {
+                            profile_cwdup_rep > 0 ? profile_cwdup_rep
+                                                  : ssf_cfg.sf_cwdup_rep)) {
             ssf_stats.cwdup_flagged++;
             if (dup_mode == 2) {
                 ssf_stats.rejected_cwdup++;
@@ -904,7 +909,10 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
         else if (profile_cwreuse == 2) reuse_mode = 1;
         else if (profile_cwreuse == 3) reuse_mode = 2;
         if (reuse_mode > 0 &&
-            ssf_check_cwreuse(cw, caid, provid, sid, now_ms)) {
+            ssf_check_cwreuse(cw, caid, provid, sid, now_ms,
+                              profile_cwreuse_window_ms > 0
+                                  ? profile_cwreuse_window_ms
+                                  : ssf_cfg.sf_cwreuse_window_ms)) {
             ssf_stats.cwreuse_flagged++;
             if (reuse_mode == 2) {
                 ssf_stats.rejected_cwreuse++;
@@ -927,15 +935,19 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
         if (profile_latecw == 1) late_mode = 0;
         else if (profile_latecw == 2) late_mode = 1;
         else if (profile_latecw == 3) late_mode = 2;
-        if (late_mode > 0 && ssf_cfg.sf_latecw_ms > 0 &&
-            ecm_age_ms != 0xFFFFFFFFu &&
-            ecm_age_ms > (uint32_t)ssf_cfg.sf_latecw_ms) {
+        {
+            int late_ms = profile_latecw_ms > 0 ? profile_latecw_ms
+                                                : ssf_cfg.sf_latecw_ms;
+            if (late_mode > 0 && late_ms > 0 &&
+                ecm_age_ms != 0xFFFFFFFFu &&
+                ecm_age_ms > (uint32_t)late_ms) {
             ssf_stats.latecw_flagged++;
             if (late_mode == 2) {
                 ssf_stats.rejected_latecw++;
                 rejected = 1;
                 reason = 13;
                 goto done;
+            }
             }
         }
     }

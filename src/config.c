@@ -5607,6 +5607,52 @@ link_mgcamd_user:
 				}
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW LATECW: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_latecw - 1, cardserver->name);
 			}
+			else if (!strcmp(str,"LATECWMS") && cardserver) {
+				/* Band 65: per-CAID late threshold, ms (0=inherit). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 600000) v = 600000;
+					cardserver->option.sf_latecw_ms = v;
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW LATECWMS: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_latecw_ms, cardserver->name);
+			}
+			else if (!strcmp(str,"CWREUSEWINDOW") && cardserver) {
+				/* Band 65: per-CAID reuse window, ms (0=inherit). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 600000) v = 600000;
+					cardserver->option.sf_cwreuse_window_ms = v;
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW CWREUSEWINDOW: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_cwreuse_window_ms, cardserver->name);
+			}
+			else if (!strcmp(str,"CWDUPREP") && cardserver) {
+				/* Band 65: per-CAID dup repeats (0=inherit, else 2..10). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0;
+					if (v > 0 && v < 2) v = 2; if (v > 10) v = 10;
+					cardserver->option.sf_cwdup_rep = v;
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW CWDUPREP: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_cwdup_rep, cardserver->name);
+			}
 			else if (!cardserver) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip DCW, undefined profile\n",file->nbline,iparser-currentline);
 				continue;
