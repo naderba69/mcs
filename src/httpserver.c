@@ -8460,13 +8460,15 @@ static void http_send_smartfilter(int sock, struct http_request *req)
 		(unsigned long long)st.rejected_marchcheck, (unsigned long long)st.rejected_cwdup,
 		(unsigned long long)st.rejected_cwreuse);
 	tcp_writestr(&tcpbuf, sock, http_buf);
-	sprintf( http_buf, "<p style='font-size:0.85em;'>%s: %llu &middot; %s: %llu &middot; %s: %llu</p>\n",
+	sprintf( http_buf, "<p style='font-size:0.85em;'>%s: %llu &middot; %s: %llu &middot; %s: %llu &middot; %s: %llu/%llu</p>\n",
 		mlabel("Marchcheck flagged (log-only sightings included)", "رُصد مسير (يشمل وضع التسجيل)"),
 		(unsigned long long)st.marchcheck_flagged,
 		mlabel("CW-Dup flagged", "رُصد تكرار ثابت"),
 		(unsigned long long)st.cwdup_flagged,
 		mlabel("CW-Reuse flagged", "رُصد نصف مُعاد"),
-		(unsigned long long)st.cwreuse_flagged);
+		(unsigned long long)st.cwreuse_flagged,
+		mlabel("Late-CW flagged / rejected", "متأخرة رُصدت / رُفضت"),
+		(unsigned long long)st.latecw_flagged, (unsigned long long)st.rejected_latecw);
 	tcp_writestr(&tcpbuf, sock, http_buf);
 	sprintf( http_buf, "<p style='font-size:0.85em;'>%s %d &middot; %s %dms &middot; %s %d%%/%d &middot; %s %d &middot; %s %ds</p>\n",
 		mlabel("Level", "المستوى"), sc.filter_level,

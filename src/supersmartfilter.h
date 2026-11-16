@@ -76,6 +76,8 @@ struct ssf_config {
     int sf_cwreuse_window_ms;   // Band 58: sighting window (1000..600000)
     uint16_t sf_reuse_caids[32];// Band 58: scope; empty = all CAIDs
     int sf_reuse_caids_count;
+    int sf_latecw;              // Band 59 late CW: 0=off, 1=log-only, 2=reject
+    int sf_latecw_ms;           // Band 59: max ECM age at CW arrival (ms)
     uint16_t sf_mc_caids[32];   // CAIDs for multi-check
     int sf_mc_caids_count;
     int sf_mc_match;            // Required peer count
@@ -134,6 +136,8 @@ struct ssf_stats {
     uint64_t rejected_cwdup;
     uint64_t cwreuse_flagged;
     uint64_t rejected_cwreuse;
+    uint64_t latecw_flagged;
+    uint64_t rejected_latecw;
     uint64_t peers_blocked;
     uint64_t peers_unblocked;
 };
@@ -734,7 +738,8 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
                                    uint16_t caid, uint32_t provid, uint16_t sid,
                                    uint32_t peer_id, uint32_t now_ms, int *reject_reason,
                                    int profile_level, int profile_marchcheck,
-                                   int profile_cwdup, int profile_cwreuse)
+                                   int profile_cwdup, int profile_cwreuse,
+                                   int profile_latecw, uint32_t ecm_age_ms)
 {
     /* R48: profile_level 0 = inherit global. Passed as a parameter
      * (not a global) so concurrent ECM workers on different profiles
@@ -910,6 +915,31 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
         }
     }
 
+    // Check 13 (band 59): LATECW -- the CW arrived after the ECM had
+    // already waited longer than the threshold. ecm_age_ms is the
+    // caller's tick32_elapsed(now, ecm->recvtime); UINT32_MAX means
+    // "unknown" and never flags (fail-open). Profile override
+    // (1=off, 2=log-only, 3=reject) wins over CACHE SF LATECW.
+    // WARNING: slow-source profiles (card answers in tens of seconds)
+    // must never arm this -- arm per CAID on trace evidence only.
+    {
+        int late_mode = ssf_cfg.sf_latecw;
+        if (profile_latecw == 1) late_mode = 0;
+        else if (profile_latecw == 2) late_mode = 1;
+        else if (profile_latecw == 3) late_mode = 2;
+        if (late_mode > 0 && ssf_cfg.sf_latecw_ms > 0 &&
+            ecm_age_ms != 0xFFFFFFFFu &&
+            ecm_age_ms > (uint32_t)ssf_cfg.sf_latecw_ms) {
+            ssf_stats.latecw_flagged++;
+            if (late_mode == 2) {
+                ssf_stats.rejected_latecw++;
+                rejected = 1;
+                reason = 13;
+                goto done;
+            }
+        }
+    }
+
 done:
     // Record result
     if (peer_id > 0) {
@@ -981,6 +1011,8 @@ static void supersmartfilter_init(void)
     ssf_cfg.sf_cwdup_rep = 4;
     ssf_cfg.sf_cwreuse = 0;
     ssf_cfg.sf_cwreuse_window_ms = 120000;
+    ssf_cfg.sf_latecw = 0;
+    ssf_cfg.sf_latecw_ms = 8000;
     ssf_cfg.sf_mc_match = 2;
     ssf_cfg.sf_mc_mode = 2;
     ssf_cfg.sf_mc_wait_ms = 500;

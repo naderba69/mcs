@@ -4418,6 +4418,28 @@ link_mgcamd_user:
 						}
 						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF REUSECAIDS: %d entries\n",file->nbline,iparser-currentline, ssf_cfg.sf_reuse_caids_count);
 					}
+					else if (!strcmp(str,"LATECW")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 2) v = 2;
+							ssf_cfg.sf_latecw = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF LATECW: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_latecw);
+					}
+					else if (!strcmp(str,"LATECWMS")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 100) v = 100; if (v > 60000) v = 60000;
+							ssf_cfg.sf_latecw_ms = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF LATECWMS: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_latecw_ms);
+					}
 					else if (!strcmp(str,"MC")) {
 						parse_spaces();
 						parse_name(str);
@@ -5420,6 +5442,21 @@ link_mgcamd_user:
 					cardserver->option.sf_cwreuse = (uint8_t)(v + 1);
 				}
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW CWREUSE: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_cwreuse - 1, cardserver->name);
+			}
+			else if (!strcmp(str,"LATECW") && cardserver) {
+				/* Band 59: per-profile late-CW 0|1|2 (stored +1, 0=inherit). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 2) v = 2;
+					cardserver->option.sf_latecw = (uint8_t)(v + 1);
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW LATECW: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_latecw - 1, cardserver->name);
 			}
 			else if (!cardserver) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip DCW, undefined profile\n",file->nbline,iparser-currentline);

@@ -263,6 +263,11 @@ loginban:
 cwreuse:
 	sh ./cwreuse.sh
 
+# Band 59: LATECW age-at-arrival detector (unknown age fail-open,
+# profile override) against the production supersmartfilter.h.
+latecw:
+	sh ./latecw.sh
+
 # Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
 # be delivered from cache, the mismatched scope must not.
 c1884:

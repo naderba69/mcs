@@ -52,7 +52,7 @@ static void setup(int global_mode, int rep)
 static int check(const uint8_t *cw, const uint8_t *hash, uint16_t sid,
                  uint32_t now_ms, int prof_dup, int *reason)
 {
-    return supersmartfilter_check(cw, hash, 0x183D, 0, sid, 0, now_ms, reason, 0, 0, prof_dup, 0);
+    return supersmartfilter_check(cw, hash, 0x183D, 0, sid, 0, now_ms, reason, 0, 0, prof_dup, 0, 0, 0xFFFFFFFFu);
 }
 
 int main(void)
