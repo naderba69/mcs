@@ -1714,6 +1714,8 @@ struct config_data
 		int totalservers;
 		int clientid;
 		int serverid;
+		int loginfails;               /* Band 76: protoban threshold, 0 = off */
+		int loginbansec;              /* Band 76: protoban duration (s) */
 		pid_t pid_recvmsg;
 		pthread_t tid_recvmsg;
 		pid_t pid_connect;

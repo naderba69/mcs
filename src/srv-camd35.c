@@ -316,6 +316,12 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 	memcpy( &recv_ip, &si_other.sin_addr, 4);
 	recv_port = ntohs(si_other.sin_port);
 
+	/* Band 76: camd35's protoban door (PB_CAMD35 existed since band 60
+	 * but no door fed it). UDP has no connection to close: a banned
+	 * source's datagrams are simply dropped before any client lookup.
+	 * Threshold 0 (default) = stock. */
+	if ( cfg.camd35.loginfails>0 && protoban_banned(recv_ip, PB_CAMD35) ) return;
+
 #ifdef DEBUG_NETWORK
 	if (flag_debugnet) {
 		debugf(0," camd35: Recv data (%d) from address (%s:%d)\n", received, ip2string(recv_ip), recv_port );
@@ -339,8 +345,24 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 	}
 	if (!cli) {
 		debugf(getdbgflag(DBG_CAMD35,camd35->id,0)," camd35%d: Unknown Client UCRC=%08x (%s)\n", camd35->id, ucrc, ip2string(recv_ip));
+		{
+			int pb_banned = 0;
+			protoban_note_failure(recv_ip, PB_CAMD35,
+			                      (uint32_t)(cfg.camd35.loginfails>0?cfg.camd35.loginfails:0),
+			                      (uint32_t)(cfg.camd35.loginbansec>0?cfg.camd35.loginbansec:0), &pb_banned);
+			if (pb_banned) debugf(getdbgflag(DBG_CAMD35,camd35->id,0)," camd35%d: %s reached the failure threshold, banned for camd35\n", camd35->id, ip2string(recv_ip));
+			{
+				char ucrcname[24];
+				snprintf(ucrcname, sizeof(ucrcname), "ucrc:%08x", ucrc);
+				loginaudit_note(PB_CAMD35, recv_ip, ucrcname, 0); /* Band 76 */
+			}
+		}
 		return;
 	}
+	/* A frame from a known client is this door's success: it clears the
+	 * IP's camd35 failure count (same semantics as a cs378x login). No
+	 * audit entry: UDP has no credential event to ring-log per packet. */
+	protoban_note_success(recv_ip, PB_CAMD35);
 	//
 	cli->ip = recv_ip;
 	cli->port = recv_port;

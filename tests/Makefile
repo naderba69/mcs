@@ -338,3 +338,8 @@ mgtrace: .ncclient.bin .ncserver.bin
 
 cxtrace: .cs378xclient.bin .ncserver.bin
 	@python3 cs378xtrace-live.py $(BIN)
+
+# Band 76: camd35 protoban door live (unknown-UCRC counting, ban
+# enforcement over UDP, /user-trace visibility; unarmed = stock).
+c35ban: .cs378xclient.bin .ncserver.bin
+	@python3 camd35ban-live.py $(BIN)
