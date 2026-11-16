@@ -211,6 +211,7 @@ struct protoban_slot {
 static struct protoban_slot pb_tab[PB_SLOTS];
 static pthread_mutex_t pb_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t pb_bans_total = 0;
+static uint64_t pb_bans_by_proto[PB_COUNT];   /* band 79 */
 
 static const char *pb_names[PB_COUNT] = {
 	"http", "telnet", "cccam", "newcamd", "mgcamd", "cs378x", "camd35", "cacheex"
@@ -258,6 +259,7 @@ uint32_t protoban_note_failure(uint32_t ip, int proto, uint32_t threshold,
 	if ( threshold && ban_seconds && fails >= threshold ) {
 		pb_tab[slot].banned_until[proto] = now + ban_seconds*1000u;
 		pb_bans_total++;
+		pb_bans_by_proto[proto]++;   /* band 79 */
 		if (banned_now) *banned_now = 1;
 	}
 	pthread_mutex_unlock(&pb_lock);
@@ -341,6 +343,30 @@ uint64_t protoban_total(void)
 	t = pb_bans_total;
 	pthread_mutex_unlock(&pb_lock);
 	return t;
+}
+
+/* Band 79: per-protocol views, so a door's status line (the web guard
+ * line on /user-trace) reads the unified table instead of a private one. */
+uint64_t protoban_total_proto(int proto)
+{
+	uint64_t n = 0;
+	if (proto < 0 || proto >= PB_COUNT) return 0;
+	pthread_mutex_lock(&pb_lock);
+	n = pb_bans_by_proto[proto];
+	pthread_mutex_unlock(&pb_lock);
+	return n;
+}
+
+int protoban_active(int proto)
+{
+	int i, active = 0;
+	uint32_t now = lt_now();
+	if (proto < 0 || proto >= PB_COUNT) return 0;
+	pthread_mutex_lock(&pb_lock);
+	for (i = 0; i < PB_SLOTS; i++)
+		if (pb_tab[i].ip && pb_banned_locked(&pb_tab[i], proto, now)) active++;
+	pthread_mutex_unlock(&pb_lock);
+	return active;
 }
 
 /* --- login attempt audit (band 62) ---------------------------------------- */

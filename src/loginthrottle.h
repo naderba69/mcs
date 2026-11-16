@@ -138,6 +138,8 @@ struct login_audit_entry {
 };
 void loginaudit_note(int proto, uint32_t ip, const char *user, int success);
 int  loginaudit_snapshot(struct login_audit_entry *out, int max); /* newest first */
+uint64_t protoban_total_proto(int proto);  /* band 79: bans ever, one protocol */
+int      protoban_active(int proto);       /* band 79: bans in force, one protocol */
 int      protoban_snapshot(struct protoban_view *out, int max); /* active bans */
 uint64_t protoban_total(void);
 

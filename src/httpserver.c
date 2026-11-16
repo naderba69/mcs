@@ -9228,11 +9228,13 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                  st.nopush_entries ? "مفعّل" : "مطفأ (لا أسطر CACHEEX NOPUSH AFTER)",
                  st.nopush_checked, st.nopush_blocked);
         tcp_writestr(tcpbuf, sock, out);
-        /* Band 57: web-door brute-force guard, on the one diagnostic page */
+        /* Band 57, unified table since band 79: web-door brute-force
+         * guard, on the one diagnostic page */
         {
             uint64_t lb_total = 0;
             int lb_active = 0, lf_cfg = 0, lb_cfg = 0;
-            login_ban_status(&lb_total, &lb_active);
+            lb_total = protoban_total_proto(PB_HTTP);
+            lb_active = protoban_active(PB_HTTP);
             newcamd_config_read_lock();
             lf_cfg = cfg.http.loginfails;
             lb_cfg = cfg.http.loginbansec;
@@ -9624,10 +9626,13 @@ void *gererClient(struct connect_data *param)
 		close(sock);
 		return NULL;
 	}
-	/* Band 57: a banned source is closed pre-auth, exactly like the
-	 * allowlist door. Gated on the live config: HTTP LOGIN FAILS: 0
-	 * disarms instantly, including bans already in force. */
-	if ( ban_armed>0 && login_banned(ip) ) {
+	/* Band 57, unified in band 79: a banned source is closed pre-auth,
+	 * exactly like the allowlist door. The ban lives in the shared
+	 * protoban table (PB_HTTP) like every other door since band 60 --
+	 * one table, one snapshot on /user-trace, one unban path. Gated on
+	 * the live config: HTTP LOGIN FAILS: 0 disarms instantly, including
+	 * bans already in force. */
+	if ( ban_armed>0 && protoban_banned(ip, PB_HTTP) ) {
 		debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN BAN] http: %s is banned after repeated failures, connection closed pre-auth\n", ip2string(ip));
 		close(sock);
 		return NULL;
@@ -9753,6 +9758,7 @@ void *gererClient(struct connect_data *param)
 					newcamd_config_read_lock();
 					int config_read_pinned = 1;
 					login_note_success(ip); /* TASK R3 (D57): a good login resets the failure count */
+					protoban_note_success(ip, PB_HTTP); /* Band 79: unified table */
 					req.sock = sock;
 				req.ip = ip;
 				if (strcmp(req.path,"/")==0) http_send_index(sock,&req);
@@ -9967,10 +9973,12 @@ void *gererClient(struct connect_data *param)
 						memcpy(title, cfg.http.title, sizeof(title));
 						title[sizeof(title) - 1] = 0;
 						newcamd_config_read_unlock();
-						/* Band 57: count and ban decision are atomic;
-						 * threshold 0 keeps the stock R3 behaviour. */
-						lt_fails = login_note_failure_ex(ip, (uint32_t)(lf>0?lf:0),
-						                                 (uint32_t)(lb>0?lb:0), &lt_banned_now);
+						/* Band 79 (was 57, telnet shape): the lt table
+						 * counts only for the progressive delay; the ban
+						 * decision lives in the unified protoban table. */
+						lt_fails = login_note_failure(ip);
+						protoban_note_failure(ip, PB_HTTP, (uint32_t)(lf>0?lf:0),
+						                      (uint32_t)(lb>0?lb:0), &lt_banned_now);
 						if (lt_banned_now)
 							debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN BAN] http: %s reached the failure threshold, IP banned\n", ip2string(ip));
 							/* Band 62: audit only real credential attempts; a bare

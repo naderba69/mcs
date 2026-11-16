@@ -2,7 +2,7 @@
 
 ## ما يُنشر
 
-- الثنائي: `bin/multics.x64` — البصمة `67ffa76447dd8ff5cfa640ba1604c938`
+- الثنائي: `bin/multics.x64` — البصمة `14d69c95667c8d579022ba668c2e9589`
   (تحقق بـ`md5sum bin/multics.x64` قبل التشغيل).
 - الكونفيغ: `multics-r24-optimized.cfg` (أو `multics-full-30w-52e.cfg`
   للنطاق الكامل 30W–52E). ملف `expert-reviewed` مولّد منهما ولا

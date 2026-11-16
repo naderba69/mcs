@@ -353,3 +353,7 @@ relban: .ncserver.bin
 # the CCcam door; per-identity separation; unarmed = stock).
 cxban: .ncserver.bin
 	@python3 cacheexban-live.py $(BIN)
+
+# Band 79: HTTP ban unified into protoban (PB_HTTP) live.
+hban:
+	@python3 httpban-live.py $(BIN)
