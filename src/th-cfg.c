@@ -149,6 +149,14 @@ void *reread_config_thread(void *param)
 					if (!fs->nowatch)
 					if (event->wd==fs->wd) {
 						if (event->mask & IN_CLOSE_WRITE) changed = 1;
+						/* Band 77: an atomic save (temp file + rename over
+						 * the config, as the web editor now does) never
+						 * raises IN_CLOSE_WRITE on the watched inode; it
+						 * surfaces as IN_IGNORED/IN_DELETE_SELF. That is a
+						 * change too. Stale IN_IGNORED events produced by
+						 * our own inotify_rm_watch below are drained after
+						 * the reload, so this cannot self-trigger. */
+						if (event->mask & (IN_IGNORED|IN_DELETE_SELF)) changed = 1;
 			            if (event->mask & IN_IGNORED) {
 							inotify_rm_watch(fd, fs->wd);
 							fs->wd = inotify_add_watch(fd,fs->name, IN_CLOSE_WRITE|IN_IGNORED);
@@ -164,6 +172,11 @@ void *reread_config_thread(void *param)
 
 		if (changed) {
 			debugf(getdbgflag(DBG_CONFIG,0,0)," Config file Changed...\n");
+			/* Band 77: shield every login door's failure counters for
+			 * the reload and a short grace after it (see
+			 * loginthrottle.h): reconnect churn caused by the reload
+			 * itself must never ban the operator's own IP. */
+			login_reload_shield_begin();
 			struct filename_data *fs = cfg.files;
 			while (fs) {
 				if (!fs->nowatch) inotify_rm_watch(fd, fs->wd);
@@ -183,6 +196,18 @@ void *reread_config_thread(void *param)
 				if ( !cfg.cardserver )
 					debugf( DBG_ERROR, " !!! CONFIG: reloaded config has no profile section -- the server is serving nothing until it is fixed\n" );
 			user_trace_config_unlock();
+			login_reload_shield_end();
+			/* Band 77: drop events queued by our own rm_watch/re-add
+			 * dance above so they are not read as a fresh change. */
+			{
+				struct pollfd pfd;
+				pfd.fd = fd; pfd.events = POLLIN; pfd.revents = 0;
+				while (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
+					char drainbuf[1024];
+					if (read(fd, drainbuf, sizeof(drainbuf)) <= 0) break;
+					pfd.revents = 0;
+				}
+			}
 		}
 	}
 	return NULL;

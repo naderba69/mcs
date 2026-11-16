@@ -343,3 +343,8 @@ cxtrace: .cs378xclient.bin .ncserver.bin
 # enforcement over UDP, /user-trace visibility; unarmed = stock).
 c35ban: .cs378xclient.bin .ncserver.bin
 	@python3 camd35ban-live.py $(BIN)
+
+# Band 77: editor save + same-IP CCcam device must not kick/ban the IP
+# (credential-only CCcam counting, reload shield, atomic editor save).
+relban: .ncserver.bin
+	@python3 reloadban-live.py $(BIN)

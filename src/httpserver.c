@@ -8186,14 +8186,37 @@ void http_send_editor(int sock, http_request *req, int index)
 						*content = 0;
 						//printf(" the file is:\n-------------\n%s\n-------------\n", pdata); 
 						// save
-						FILE *cfgfd = fopen( fname, "w");
-						if (!cfgfd) {
-							sprintf( http_buf, "<h2>Error opening file '%s'</h2>", fname);
-						}
-						else {
-							fwrite( pdata, 1, content-pdata, cfgfd);
-							fclose(cfgfd);
-							sprintf( http_buf, "<script type=\"text/JavaScript\"><!--\nsetTimeout(\"location.href = '/editor%d';\",5000);\n--></script>\n<h3><center>file '%s' is Successfully Saved</center></h3>", index, fname);
+						/* Band 77: atomic save. Stock wrote fopen(fname,"w"):
+						 * the live config sat truncated/partial on disk for
+						 * the whole write, so any reader (or a crash, or a
+						 * dropped POST) could leave the server with a
+						 * gutted file. Write a temp file in the same
+						 * directory, keep the original mode (the file holds
+						 * passwords), then rename() over the original: the
+						 * config on disk is always whole. The config watcher
+						 * treats the rename (IN_IGNORED) as a change and
+						 * reloads exactly once. */
+						{
+							char tmpname[1100];
+							int atomic_ok = snprintf(tmpname, sizeof(tmpname), "%s.tmp", fname) < (int)sizeof(tmpname);
+							FILE *cfgfd = fopen( atomic_ok ? tmpname : fname, "w");
+							if (!cfgfd) {
+								sprintf( http_buf, "<h2>Error opening file '%s'</h2>", fname);
+							}
+							else {
+								int save_ok = fwrite( pdata, 1, content-pdata, cfgfd) == (size_t)(content-pdata);
+								if (fclose(cfgfd)!=0) save_ok = 0;
+								if (save_ok && atomic_ok) {
+									struct stat st;
+									if (stat(fname, &st)==0) chmod(tmpname, st.st_mode);
+									if (rename(tmpname, fname)!=0) save_ok = 0;
+								}
+								if (save_ok) sprintf( http_buf, "<script type=\"text/JavaScript\"><!--\nsetTimeout(\"location.href = '/editor%d';\",5000);\n--></script>\n<h3><center>file '%s' is Successfully Saved</center></h3>", index, fname);
+								else {
+									if (atomic_ok) unlink(tmpname);
+									sprintf( http_buf, "<h2>Error saving file '%s'</h2>", fname);
+								}
+							}
 						}
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}

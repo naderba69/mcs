@@ -39,6 +39,32 @@ static uint64_t lt_bans_total = 0;  /* band 57: bans ever triggered */
 static struct login_slot lt_tab[LOGIN_SLOTS];
 static pthread_mutex_t lt_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* --- reload shield (band 77) ---------------------------------------------
+ * Written only by the config thread, read by every door thread. Plain
+ * relaxed atomics: the worst interleaving is a failure counted a few
+ * milliseconds into (or out of) the window, never a torn value. */
+static volatile int      lt_shield_active = 0;
+static volatile uint32_t lt_shield_until  = 0;
+
+void login_reload_shield_begin(void)
+{
+	__atomic_store_n(&lt_shield_active, 1, __ATOMIC_RELAXED);
+}
+
+void login_reload_shield_end(void)
+{
+	__atomic_store_n(&lt_shield_until, lt_now() + LOGIN_RELOAD_GRACE_MS, __ATOMIC_RELAXED);
+	__atomic_store_n(&lt_shield_active, 0, __ATOMIC_RELAXED);
+}
+
+int login_reload_shielded(void)
+{
+	uint32_t until;
+	if (__atomic_load_n(&lt_shield_active, __ATOMIC_RELAXED)) return 1;
+	until = __atomic_load_n(&lt_shield_until, __ATOMIC_RELAXED);
+	return until && ((int32_t)(until - lt_now()) > 0);
+}
+
 /* --- allowlist ------------------------------------------------------------ */
 
 void login_allow_reset(struct login_allow *lst)
@@ -87,6 +113,7 @@ static uint32_t lt_note_failure(uint32_t ip, uint32_t threshold,
 	uint32_t now = lt_now(), fails;
 
 	if (banned_now) *banned_now = 0;
+	if (login_reload_shielded()) return 0;   /* band 77: reload noise is not brute force */
 	pthread_mutex_lock(&lt_lock);
 	for (i=0; i<LOGIN_SLOTS; i++) {
 		if (lt_tab[i].ip==ip) { slot = i; break; }
@@ -209,6 +236,7 @@ uint32_t protoban_note_failure(uint32_t ip, int proto, uint32_t threshold,
 
 	if (banned_now) *banned_now = 0;
 	if (proto < 0 || proto >= PB_COUNT) return 0;
+	if (login_reload_shielded()) return 0;   /* band 77: reload noise is not brute force */
 	pthread_mutex_lock(&pb_lock);
 	for (i = 0; i < PB_SLOTS; i++) {
 		if (pb_tab[i].ip == ip) { slot = i; break; }

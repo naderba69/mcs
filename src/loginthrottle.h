@@ -61,6 +61,25 @@ int  login_allowed(const struct login_allow *lst, uint32_t ip); /* empty list = 
 /* --- failure table --------------------------------------------------------- */
 
 uint32_t login_note_failure(uint32_t ip);  /* returns the consecutive-failure count incl. this one */
+
+/* --- reload shield (band 77) ------------------------------------------------
+ * Field report: the operator saves the config in the web editor; the
+ * inotify reload churns every door for a few seconds (listeners and
+ * client tables rebuilt, established clients dropped and reconnecting,
+ * duplicate-login rejects while the old session is cleaned up). Those
+ * transients are indistinguishable from brute force to a per-IP failure
+ * counter, so the operator's own IP -- shared by his browser and his
+ * receiver -- tripped the CCcam and web bans at the very moment of the
+ * save. While a reload runs, and for LOGIN_RELOAD_GRACE_MS after it,
+ * failure/attempt counting is suspended on EVERY door (both tables in
+ * loginthrottle.c). Enforcement of bans already in force is unchanged,
+ * and successes still clear counters. Only the config thread raises
+ * the shield; a reload is an operator action, so the grace window is
+ * not attacker-reachable. */
+#define LOGIN_RELOAD_GRACE_MS 10000
+void login_reload_shield_begin(void);
+void login_reload_shield_end(void);
+int  login_reload_shielded(void);
 void     login_note_success(uint32_t ip);  /* forgets the IP's counter (a good login) */
 
 /* --- hard ban (band 57) -----------------------------------------------------

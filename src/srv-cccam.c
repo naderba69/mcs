@@ -379,6 +379,26 @@ struct cc_cli_recv_session_args {
 void *cacheex_cc_cli_recvmsg(void *param);
 #endif
 
+/* Band 77: count one REAL CCcam credential failure (unknown user, wrong
+ * password, wrong nodeid). Band 60 counted every connection ATTEMPT at
+ * accept time -- IPLIST semantics -- which made ordinary client churn
+ * indistinguishable from brute force: a receiver dropped by a config
+ * reload reconnected into the duplicate-login guard, every reject was
+ * counted, none could succeed to clear the count, and the shared IP
+ * was banned. Attempts that never present credentials, policy refusals
+ * (disabled client, host list) and duplicate-session rejects (valid
+ * credentials, old session still being cleaned up) are NOT counted;
+ * a duplicate reject clears the count instead, like any verified
+ * credential presentation. Brute force still presents credentials and
+ * still fails here, so the gate keeps its teeth. */
+static void cccam_protoban_fail(struct cccam_server_data *cccam, uint32_t ip, int lf, int lb)
+{
+	int banned = 0;
+	protoban_note_failure(ip, PB_CCCAM, (uint32_t)(lf>0?lf:0),
+	                      (uint32_t)(lb>0?lb:0), &banned);
+	if (banned) debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: %s reached the login failure threshold, banned for cccam\n", cccam->id, ip2string(ip));
+}
+
 /* Band 60: is the CCcam protoban armed? Snapshot under the config gate. */
 static int protoban_cccam_armed(void)
 {
@@ -404,6 +424,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 	uint32_t connected_session_generation = 0;
 	char usr[64];
 	char pwd[255];
+	int pb_lf = 0, pb_lb = 0;   /* Band 77: protoban snapshot, counted only on real failure */
 	// Store data from param
 	struct cccam_server_data *cccam = param->server;
 	int sock = param->sock;
@@ -415,18 +436,14 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 	if (ipdata) iplist_newlogin( ipdata );
 #endif
 
-	/* Band 60: per-protocol attempt counting for CCcam (the IPLIST
-	 * semantics, box-wide): consecutive login attempts without a
-	 * success; a success below clears the count. Threshold 0 = off. */
+	/* Band 60/77: snapshot the CCcam protoban thresholds now; the count
+	 * itself is noted only at the real credential-failure exits below
+	 * (cccam_protoban_fail). Threshold 0 = off. */
 	{
-		int pb_lf, pb_lb, pb_banned = 0;
 		newcamd_config_read_lock();
 		pb_lf = cfg.cccam.loginfails;
 		pb_lb = cfg.cccam.loginbansec;
 		newcamd_config_read_unlock();
-		protoban_note_failure(ip, PB_CCCAM, (uint32_t)(pb_lf>0?pb_lf:0),
-		                      (uint32_t)(pb_lb>0?pb_lb:0), &pb_banned);
-		if (pb_banned) debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: %s reached the login-attempt threshold, banned for cccam\n", cccam->id, ip2string(ip));
 	}
 
 	//
@@ -579,6 +596,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 
 	if (!found) {
 		debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: Unknown Client '%s' (%s)\n", cccam->id, usr, ip2string(ip));
+		cccam_protoban_fail(cccam, ip, pb_lf, pb_lb); /* Band 77 */
 		close(sock);
 		return NULL;
 	}
@@ -604,6 +622,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 		cc_decrypt(&recvblock, buf, 6);
 		if ( memcmp(buf,"CCcam\0",6) ) {
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: login failed from client '%s'\n", cccam->id, usr);
+			cccam_protoban_fail(cccam, ip, pb_lf, pb_lb); /* Band 77 */
 			cli->nbloginerror++;
 			close(sock);
 			return NULL;
@@ -611,6 +630,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 	}
 	else {
 		debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: login failed from client '%s', error receiving crypted password\n", cccam->id, usr);
+		cccam_protoban_fail(cccam, ip, pb_lf, pb_lb); /* Band 77 */
 		cli->nbloginerror++;
 		close(sock);
 		return NULL;
@@ -651,6 +671,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 	if (cli->option.nodeid[0] && cli->option.nodeid[7]) {
 		if (memcmp(cli->option.nodeid, tmpcli.nodeid, 8)) { // diff nodeid
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: login failed from client '%s' (%s), wrong nodeid\n", cccam->id, usr, ip2string(ip));
+			cccam_protoban_fail(cccam, ip, pb_lf, pb_lb); /* Band 77 */
 			cli->nbloginerror++;
 			close(sock);
 			return NULL;
@@ -712,6 +733,11 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 	client_state_unlock(cli);
 	client_io_unlock(cli);
 	if (reject_login) {
+		/* Band 77: credentials were verified above; this is a duplicate
+		 * session (or the same user from another IP), not a failure.
+		 * Clear the door count instead of letting reload/reconnect
+		 * churn accumulate toward a ban of a legitimate IP. */
+		protoban_note_success(ip, PB_CCCAM);
 		if (reject_different_ip)
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: Client '%s' (%s) already connected with different ip, Connection closed.\n", cccam->id, usr, ip2string(ip));
 		else
