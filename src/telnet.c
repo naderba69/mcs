@@ -89,9 +89,17 @@ void *telnetprocess(int *param )
 	 * credential is read -- one line, said once, with the address. */
 	/* snapshot the allowlist under the config gate too (reload rewrites it) */
 	struct login_allow telnet_allow;
+	int telnet_ban_armed;
 	user_trace_config_lock();
 	telnet_allow = cfg.telnet.allow;
+	telnet_ban_armed = cfg.telnet.loginfails;
 	user_trace_config_unlock();
+	/* Band 60: this protocol's own ban closes the door pre-auth too. */
+	if ( telnet_ban_armed>0 && protoban_banned(myip, PB_TELNET) ) {
+		debugf(getdbgflag(DBG_HTTP,0,0)," [PROTO BAN] telnet: %s is banned for telnet after repeated failures, connection closed pre-auth\n", ip2string(myip));
+		close(fd);
+		return NULL;
+	}
 	if ( !login_allowed(&telnet_allow, myip) ) {
 		debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN ALLOW] telnet: %s is not on the allow list, connection closed pre-auth\n", ip2string(myip));
 		close(fd);
@@ -111,16 +119,26 @@ void *telnetprocess(int *param )
 	 * compare against the copies. */
 	char telnet_user[64], telnet_pass[64];
 	int telnet_logindelay;
+	int telnet_loginfails = 0;
+	int telnet_loginbansec = 0;
 	user_trace_config_lock();
 	strncpy(telnet_user, cfg.telnet.user, sizeof(telnet_user)-1); telnet_user[sizeof(telnet_user)-1] = 0;
 	strncpy(telnet_pass, cfg.telnet.pass, sizeof(telnet_pass)-1); telnet_pass[sizeof(telnet_pass)-1] = 0;
 	telnet_logindelay = cfg.telnet.logindelay;
+	telnet_loginfails = cfg.telnet.loginfails;
+	telnet_loginbansec = cfg.telnet.loginbansec;
 	user_trace_config_unlock();
 	if ( strcmp(buf, telnet_user) ) {
 		/* TASK R3 (D57): the progressive delay. The n-th consecutive
 		 * failure from this address waits base<<(n-1), capped; a good
 		 * login resets the count. The answer itself is stock. */
 		uint32_t lt_fails = login_note_failure(myip);
+		{
+			int pb_banned = 0;
+			protoban_note_failure(myip, PB_TELNET, (uint32_t)(telnet_loginfails>0?telnet_loginfails:0),
+			                      (uint32_t)(telnet_loginbansec>0?telnet_loginbansec:0), &pb_banned);
+			if (pb_banned) debugf(getdbgflag(DBG_HTTP,0,0)," [PROTO BAN] telnet: %s reached the failure threshold, banned for telnet\n", ip2string(myip));
+		}
 		uint32_t lt_wait = login_delay_ms(telnet_logindelay, lt_fails);
 		if (lt_wait) debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN THROTTLE] telnet: failure #%u from %s, delaying %ums\n", lt_fails, ip2string(myip), lt_wait);
 		if (lt_wait) usleep(lt_wait*1000);
@@ -137,6 +155,12 @@ void *telnetprocess(int *param )
 	buf[len-2] = 0;
 	if ( strcmp(buf, telnet_pass) ) {
 		uint32_t lt_fails = login_note_failure(myip); /* TASK R3 (D57) */
+		{
+			int pb_banned = 0;
+			protoban_note_failure(myip, PB_TELNET, (uint32_t)(telnet_loginfails>0?telnet_loginfails:0),
+			                      (uint32_t)(telnet_loginbansec>0?telnet_loginbansec:0), &pb_banned);
+			if (pb_banned) debugf(getdbgflag(DBG_HTTP,0,0)," [PROTO BAN] telnet: %s reached the failure threshold, banned for telnet\n", ip2string(myip));
+		}
 		uint32_t lt_wait = login_delay_ms(telnet_logindelay, lt_fails);
 		if (lt_wait) debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN THROTTLE] telnet: failure #%u from %s, delaying %ums\n", lt_fails, ip2string(myip), lt_wait);
 		if (lt_wait) usleep(lt_wait*1000);
@@ -145,6 +169,7 @@ void *telnetprocess(int *param )
 		return NULL;
 	}
 	login_note_success(myip); /* TASK R3 (D57): a good login forgives the typos */
+	protoban_note_success(myip, PB_TELNET); /* Band 60 */
 	strcpy(buf, "\r\n\r\ntype 'help' for command list\r\n");write(fd, buf, strlen(buf) );
 
 	while ( 1 ) {

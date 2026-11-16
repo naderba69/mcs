@@ -168,3 +168,148 @@ void login_note_success(uint32_t ip)
 	}
 	pthread_mutex_unlock(&lt_lock);
 }
+
+/* --- per-protocol bans (band 60) ------------------------------------------ */
+
+#define PB_SLOTS 128
+
+struct protoban_slot {
+	uint32_t ip;
+	uint32_t fails[PB_COUNT];
+	uint32_t banned_until[PB_COUNT];
+	uint32_t last;
+};
+
+static struct protoban_slot pb_tab[PB_SLOTS];
+static pthread_mutex_t pb_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t pb_bans_total = 0;
+
+static const char *pb_names[PB_COUNT] = {
+	"http", "telnet", "cccam", "newcamd", "mgcamd", "cs378x", "camd35", "cacheex"
+};
+
+const char *protoban_name(int proto)
+{
+	if (proto < 0 || proto >= PB_COUNT) return "?";
+	return pb_names[proto];
+}
+
+static int pb_banned_locked(struct protoban_slot *slot, int proto, uint32_t now)
+{
+	return slot->banned_until[proto] &&
+	       ((int32_t)(slot->banned_until[proto] - now) > 0);
+}
+
+uint32_t protoban_note_failure(uint32_t ip, int proto, uint32_t threshold,
+                               uint32_t ban_seconds, int *banned_now)
+{
+	int i, slot = -1, oldest = -1;
+	uint32_t now = lt_now(), fails;
+
+	if (banned_now) *banned_now = 0;
+	if (proto < 0 || proto >= PB_COUNT) return 0;
+	pthread_mutex_lock(&pb_lock);
+	for (i = 0; i < PB_SLOTS; i++) {
+		if (pb_tab[i].ip == ip) { slot = i; break; }
+		if (pb_tab[i].ip == 0) { if (slot < 0) slot = i; }
+		else if (!pb_banned_locked(&pb_tab[i], proto, now) &&
+		         (oldest < 0 || (now - pb_tab[i].last) > (now - pb_tab[oldest].last))) oldest = i;
+	}
+	if (slot < 0) slot = (oldest >= 0) ? oldest : 0;
+	if (pb_tab[slot].ip != ip) {
+		memset(&pb_tab[slot], 0, sizeof(pb_tab[slot]));
+		pb_tab[slot].ip = ip;
+	} else if ( (now - pb_tab[slot].last) > LOGIN_SLOT_EXPIRE &&
+	            !pb_banned_locked(&pb_tab[slot], proto, now) ) {
+		pb_tab[slot].fails[proto] = 0;   /* a quiet protocol forgets */
+	}
+	pb_tab[slot].fails[proto]++;
+	pb_tab[slot].last = now;
+	fails = pb_tab[slot].fails[proto];
+	if ( threshold && ban_seconds && fails >= threshold ) {
+		pb_tab[slot].banned_until[proto] = now + ban_seconds*1000u;
+		pb_bans_total++;
+		if (banned_now) *banned_now = 1;
+	}
+	pthread_mutex_unlock(&pb_lock);
+	return fails;
+}
+
+void protoban_note_success(uint32_t ip, int proto)
+{
+	int i;
+	if (proto < 0 || proto >= PB_COUNT) return;
+	pthread_mutex_lock(&pb_lock);
+	for (i = 0; i < PB_SLOTS; i++) {
+		if (pb_tab[i].ip == ip) {
+			pb_tab[i].fails[proto] = 0;
+			pb_tab[i].banned_until[proto] = 0;
+			break;
+		}
+	}
+	pthread_mutex_unlock(&pb_lock);
+}
+
+int protoban_banned(uint32_t ip, int proto)
+{
+	int i, banned = 0;
+	uint32_t now = lt_now();
+	if (proto < 0 || proto >= PB_COUNT) return 0;
+	pthread_mutex_lock(&pb_lock);
+	for (i = 0; i < PB_SLOTS; i++) {
+		if (pb_tab[i].ip == ip) { banned = pb_banned_locked(&pb_tab[i], proto, now); break; }
+	}
+	pthread_mutex_unlock(&pb_lock);
+	return banned;
+}
+
+int protoban_unban(uint32_t ip, int proto)
+{
+	int i, cleared = 0;
+	pthread_mutex_lock(&pb_lock);
+	for (i = 0; i < PB_SLOTS; i++) {
+		if (pb_tab[i].ip == ip) {
+			int a = (proto < 0) ? 0 : proto;
+			int b = (proto < 0) ? PB_COUNT - 1 : proto;
+			int pr;
+			for (pr = a; pr <= b; pr++) {
+				if (pb_banned_locked(&pb_tab[i], pr, lt_now())) cleared++;
+				pb_tab[i].banned_until[pr] = 0;
+				pb_tab[i].fails[pr] = 0;
+			}
+			break;
+		}
+	}
+	pthread_mutex_unlock(&pb_lock);
+	return cleared;
+}
+
+int protoban_snapshot(struct protoban_view *out, int max)
+{
+	int i, pr, n = 0;
+	uint32_t now = lt_now();
+	pthread_mutex_lock(&pb_lock);
+	for (i = 0; i < PB_SLOTS && n < max; i++) {
+		if (!pb_tab[i].ip) continue;
+		for (pr = 0; pr < PB_COUNT && n < max; pr++) {
+			if (pb_banned_locked(&pb_tab[i], pr, now)) {
+				out[n].ip = pb_tab[i].ip;
+				out[n].proto = (uint8_t)pr;
+				out[n].seconds_left = (pb_tab[i].banned_until[pr] - now) / 1000u;
+				out[n].fails = pb_tab[i].fails[pr];
+				n++;
+			}
+		}
+	}
+	pthread_mutex_unlock(&pb_lock);
+	return n;
+}
+
+uint64_t protoban_total(void)
+{
+	uint64_t t;
+	pthread_mutex_lock(&pb_lock);
+	t = pb_bans_total;
+	pthread_mutex_unlock(&pb_lock);
+	return t;
+}

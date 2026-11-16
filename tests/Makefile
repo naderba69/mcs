@@ -268,6 +268,11 @@ cwreuse:
 latecw:
 	sh ./latecw.sh
 
+# Band 60: per-protocol IP bans (isolation/threshold/lapse/unban/
+# snapshot) against the production loginthrottle.c, injected clock.
+protoban:
+	sh ./protoban.sh
+
 # Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
 # be delivered from cache, the mismatched scope must not.
 c1884:

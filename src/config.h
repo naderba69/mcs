@@ -1652,6 +1652,8 @@ struct config_data
 		uint16_t csport[MAX_CSPORTS]; // default cards
 		int dcwcheck;
 		int keepalive;
+		int loginfails;               /* Band 60: protoban threshold (attempts), 0 = off */
+		int loginbansec;              /* Band 60: protoban duration (s) */
 		pid_t pid_recvmsg;
 		pthread_t tid_recvmsg;
 		pid_t pid_connect;
@@ -1762,6 +1764,8 @@ struct config_data
 		char pass[64];
 		int logindelay;               /* TASK R3 (D57): ms base, 0 = off */
 		struct login_allow allow;     /* TASK R3 (D57): optional allowlist */
+		int loginfails;               /* Band 60: protoban threshold, 0 = off */
+		int loginbansec;              /* Band 60: protoban duration (s) */
 		pid_t pid;
 		pthread_t tid;
 	} telnet;

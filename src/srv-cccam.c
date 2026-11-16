@@ -379,7 +379,17 @@ struct cc_cli_recv_session_args {
 void *cacheex_cc_cli_recvmsg(void *param);
 #endif
 
-static void *cc_connect_cli_inner(struct connect_cli_data *param)
+/* Band 60: is the CCcam protoban armed? Snapshot under the config gate. */
+static int protoban_cccam_armed(void)
+{
+	int armed;
+	newcamd_config_read_lock();
+	armed = cfg.cccam.loginfails;
+	newcamd_config_read_unlock();
+	return armed > 0;
+}
+
+void *cc_connect_cli_inner(struct connect_cli_data *param)
 {
 	uint8_t buf[CC_MAXMSGSIZE];
 	uint8_t data[64];
@@ -404,6 +414,20 @@ static void *cc_connect_cli_inner(struct connect_cli_data *param)
 	struct ip_hacker_data *ipdata = iplist_find( cccam->iplist, ip );
 	if (ipdata) iplist_newlogin( ipdata );
 #endif
+
+	/* Band 60: per-protocol attempt counting for CCcam (the IPLIST
+	 * semantics, box-wide): consecutive login attempts without a
+	 * success; a success below clears the count. Threshold 0 = off. */
+	{
+		int pb_lf, pb_lb, pb_banned = 0;
+		newcamd_config_read_lock();
+		pb_lf = cfg.cccam.loginfails;
+		pb_lb = cfg.cccam.loginbansec;
+		newcamd_config_read_unlock();
+		protoban_note_failure(ip, PB_CCCAM, (uint32_t)(pb_lf>0?pb_lf:0),
+		                      (uint32_t)(pb_lb>0?pb_lb:0), &pb_banned);
+		if (pb_banned) debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: %s reached the login-attempt threshold, banned for cccam\n", cccam->id, ip2string(ip));
+	}
 
 	//
 	struct cc_client_data tmpcli;
@@ -700,6 +724,7 @@ static void *cc_connect_cli_inner(struct connect_cli_data *param)
 #ifdef IPLIST
 	if (ipdata) iplist_goodlogin(ipdata);
 #endif
+	protoban_note_success(ip, PB_CCCAM); /* Band 60 */
 
 	// send cli data ack without holding client state across the TCP write
 	if (client_io_lock(cli) == 0) {
@@ -831,7 +856,11 @@ void cccam_srv_accept(struct cccam_server_data *srv)
 			srv->iplist = ipdata;
 		}
 #endif
-		if ( isblockedip(newip) ) {
+		if ( protoban_cccam_armed() && protoban_banned(newip, PB_CCCAM) ) {
+			debugf(getdbgflag(DBG_CCCAM,srv->id,0)," CCcam%d: New Connection (%s) closed, ip banned for cccam (band 60)\n", srv->id, ip2string(newip) );
+			close(newfd);
+		}
+		else if ( isblockedip(newip) ) {
 			debugf(getdbgflag(DBG_CCCAM,srv->id,0)," CCcam%d: New Connection (%s) closed, ip blocked\n", srv->id, ip2string(newip) );
 			close(newfd);
 		}

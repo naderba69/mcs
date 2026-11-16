@@ -470,6 +470,8 @@ void init_config(struct config_data *cfg)
 	cfg->cccam.serverid = 1;
 	cfg->cccam.server = NULL;
 	cfg->cccam.dcwcheck = 1;
+	cfg->cccam.loginfails = 0;             /* Band 60: off = stock */
+	cfg->cccam.loginbansec = 3600;         /* Band 60: 1h once armed */
 	//init_cccamserver( &cfg->cccam ); cfg->cccam.id = cfg->cccamserverid; cfg->cccamserverid++;
 #endif
 
@@ -2243,6 +2245,30 @@ link_camd35_server:
 					cfg->telnet.logindelay = atoi(str);
 					if (cfg->telnet.logindelay<0) cfg->telnet.logindelay = 0;
 				}
+				else if (!strcmp(str,"FAILS")) { /* Band 60 */
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->telnet.loginfails = atoi(str);
+					if (cfg->telnet.loginfails<0) cfg->telnet.loginfails = 0;
+					if (cfg->telnet.loginfails>1000) cfg->telnet.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): TELNET LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->telnet.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) { /* Band 60 */
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->telnet.loginbansec = atoi(str);
+					if (cfg->telnet.loginbansec<0) cfg->telnet.loginbansec = 0;
+					if (cfg->telnet.loginbansec>604800) cfg->telnet.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): TELNET LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->telnet.loginbansec);
+				}
 				else if (!strcmp(str,"ALLOW")) {
 					parse_spaces();
 					if ((*iparser!=':')&&(*iparser!='=')) {
@@ -3526,7 +3552,37 @@ link_cccam_client:
 					}
 			}
 
-			else if (!strcmp(str,"DCW")) {
+						else if (!strcmp(str,"LOGIN")) { /* Band 60 */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FAILS")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cccam.loginfails = atoi(str);
+					if (cfg->cccam.loginfails<0) cfg->cccam.loginfails = 0;
+					if (cfg->cccam.loginfails>1000) cfg->cccam.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CCCAM LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->cccam.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cccam.loginbansec = atoi(str);
+					if (cfg->cccam.loginbansec<0) cfg->cccam.loginbansec = 0;
+					if (cfg->cccam.loginbansec>604800) cfg->cccam.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CCCAM LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->cccam.loginbansec);
+				}
+				else debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown cccam LOGIN option '%s'\n",file->nbline,iparser-currentline,str);
+			}
+
+else if (!strcmp(str,"DCW")) {
 				parse_name(str);
 				uppercase(str);
 				if (!strcmp(str,"CHECK")) {
@@ -8617,6 +8673,8 @@ void reread_config( struct config_data *cfg )
 	newcfg.http.files = pointer;
 #ifdef TELNET
 	// Telnet Server
+	cfg->telnet.loginfails = newcfg.telnet.loginfails;
+	cfg->telnet.loginbansec = newcfg.telnet.loginbansec;
 	strcpy(cfg->telnet.user, newcfg.telnet.user);
 	strcpy(cfg->telnet.pass, newcfg.telnet.pass);
 	if (cfg->telnet.port!=newcfg.telnet.port) {
@@ -8691,6 +8749,8 @@ void reread_config( struct config_data *cfg )
 	cfg->mgcamd.keepalive = newcfg.mgcamd.keepalive;
 	cfg->cccam.dcwcheck = newcfg.cccam.dcwcheck;
 	cfg->cccam.keepalive = newcfg.cccam.keepalive;
+	cfg->cccam.loginfails = newcfg.cccam.loginfails;
+	cfg->cccam.loginbansec = newcfg.cccam.loginbansec;
 	cfg->cs378x.keepalive = newcfg.cs378x.keepalive;
 
 	update_servers( cfg, &newcfg );

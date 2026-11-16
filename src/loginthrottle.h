@@ -81,4 +81,27 @@ void     login_ban_status(uint64_t *total_bans, int *active_bans);
 /* pure schedule, exposed for the unit test: fails<=0 or base<=0 -> 0 */
 uint32_t login_delay_ms(uint32_t base, uint32_t fails);
 
+/* --- per-protocol bans (band 60) --------------------------------------------
+ * The band-57 ban is deliberately HTTP-only. This table gives every door
+ * its OWN failure count and ban deadline for a source IP: an attacker
+ * banned from telnet can still be a legitimate CCcam client, and a
+ * CCcam brute-forcer does not lock the operator out of the web door.
+ * A protocol's counter counts consecutive failures (or, where the door
+ * cannot attribute failure precisely, consecutive attempts -- the door
+ * documents which) without an intervening success on THAT protocol.
+ * Threshold 0 at the door = the door never bans (stock). */
+enum {
+	PB_HTTP = 0, PB_TELNET, PB_CCCAM, PB_NEWCAMD,
+	PB_MGCAMD, PB_CS378X, PB_CAMD35, PB_CACHEEX, PB_COUNT
+};
+const char *protoban_name(int proto);
+uint32_t protoban_note_failure(uint32_t ip, int proto, uint32_t threshold,
+                               uint32_t ban_seconds, int *banned_now);
+void     protoban_note_success(uint32_t ip, int proto);
+int      protoban_banned(uint32_t ip, int proto);
+int      protoban_unban(uint32_t ip, int proto); /* proto -1 = all; returns cleared count */
+struct protoban_view { uint32_t ip; uint8_t proto; uint32_t seconds_left; uint32_t fails; };
+int      protoban_snapshot(struct protoban_view *out, int max); /* active bans */
+uint64_t protoban_total(void);
+
 #endif /* MCS_LOGINTHROTTLE_H */

@@ -9217,6 +9217,21 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                      (unsigned long long)lb_total, lb_active);
             tcp_writestr(tcpbuf, sock, out);
         }
+        /* Band 60: active per-protocol bans (telnet/cccam/...), if any */
+        {
+            struct protoban_view pv[16];
+            int pn = protoban_snapshot(pv, 16);
+            int pi2;
+            snprintf(out, sizeof(out), "<p><b>حظر حسب البروتوكول (Band 60):</b> إجمالي الجلسة: %llu | نشط الآن: %d</p>",
+                     (unsigned long long)protoban_total(), pn);
+            tcp_writestr(tcpbuf, sock, out);
+            for (pi2 = 0; pi2 < pn; pi2++) {
+                snprintf(out, sizeof(out), "<p style='margin-left:2em'>%s — %s — متبقٍّ %us (محاولات %lu)</p>",
+                         protoban_name(pv[pi2].proto), ip2string(pv[pi2].ip),
+                         pv[pi2].seconds_left, (unsigned long)pv[pi2].fails);
+                tcp_writestr(tcpbuf, sock, out);
+            }
+        }
         snprintf(out, sizeof(out), "<p><b>حسم الخدمة عند الشك (CACHE SERVICE DOUBT):</b> %s | انتقادات ذات مرشحين مختلفين: %lu | رُفضت الخدمة للشك: %lu | خُدمت بأغلبية صارمة: %lu</p>",
                  st.svc_armed ? "مفعّل" : "مطفأ (CACHE SERVICE DOUBT: ON لتفعيله)", st.svc_checked, st.svc_doubt, st.svc_majority);
         tcp_writestr(tcpbuf, sock, out);

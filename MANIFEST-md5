@@ -17,6 +17,7 @@
 0362752597f2cb25a0193a6cdc9b0b0f  src/tools.c
 038e3f01410c6adda1d2a533139b0e85  src/x64/aes.o
 03a2cbacd6df8bf79e16b57471883249  src/th-cfg.c
+03dbbef2bfe4b2f30639ee1e672d6487  src/config.c
 0401b7af9259dd9cd7b5cc3b79fb64df  tests/cachepeer.c
 0421215a285de9ede5fd3600fe0c0f9e  src/dcwfilter.c
 04b159947905652f6a73be2748ef7b5e  src/log-viewer.c
@@ -28,7 +29,6 @@
 06548d5ed24c65fca162f32d220150cb  BINARY-STATUS.md
 065a86e5092f6f1c8924dd5fde41468a  src/ecmcache.h
 066a660817a29e57b1faca730f5a6d3a  make-x64/test_htmlesc.c
-06829ecf7d56bbcb3102cee0afd9879d  bin/README-R24-x64.md
 06b7f3718dda37ca59a68aeafdd2ad34  src/debug-ecm.c
 06bae9fe000492dfa491d390c2bcb72b  docs/memcheck-4.1/compile-test_dcwstruct.log
 06e20b2aed733b9e963e8e4977b61661  src/x64/msg-radegast.o
@@ -39,7 +39,6 @@
 08313763fd3c361428f746a50b30f884  make-x64/test_cacheex_gates.c
 087d109fff6c7469611ae37a26ee6e40  make-x64/test_cache_window.c
 088d92251d68affde9c8b2fa437ed079  docs/CACHE-OPTIMIZATION-ar.md
-08f5375e204ac40116f59ddd67b617d9  multics-r24-optimized.cfg
 09333fb39024132aced37897272ab156  src/cfgfield.h
 09833967a8ceb9f3931fff4108053a61  make-x64/test_ecm_doublecheck.c
 09b3362d38fef12c98a3dde9a6636a9f  docs/REPORT-3.8b-ar.md
@@ -54,7 +53,6 @@
 0d5120721e4839167bbdb26e3eb0abb1  tests/cache-sms-escape.sh
 0daa7a69c2b0e08923354fb04a0aacd6  src/x64/ecmdata.o
 0e4771fc9164dd774d271245675c69e6  src/x64/auto-tuning.o
-0e5e17a5d937d16b424b73c3b47a3f87  src/srv-cccam.c
 0e6e947bc80bec168b04bc55922f69c7  docs/interference-R12/prefix-trap-peerB.log
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
 0f168c1f03ac01502a1e6e3cb613eab9  make-x64/test_cachequeue.c
@@ -88,7 +86,6 @@
 16c69e6b1bab07c3fd1af90038d12fa6  src/sha1.c
 1710e383152a7e892bbb091bb61d1505  src/cacheex_gates.h
 17b833d4e9a96bec380079bee73fcce0  tests/cache-sms-web-xss.py
-17bec3f1352544b8218e1f98a0cea4c2  src/config.h
 17d71762a3aafe6ae16f1b1bbf2c83d0  src/cw-timing.h
 1823df8b56a689a0cc436884a1506f3a  docs/memcheck-4.1/valgrind-test_cache_purge.log
 1823df8b56a689a0cc436884a1506f3a  docs/memcheck-4.1/valgrind-test_cache_relay.log
@@ -158,7 +155,6 @@
 23cc74be3f43edc4814aeb88e6859a32  tests/crypto-alignment.c
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 2554328afbd05dfd9905ac98ccfa7726  make-x64/test_cache_pipe_codec.c
-26e119881e83db8a6ef513297b0eb9bd  docs/PILOT-GOLIVE-ar.md
 26fef06bb40a4b0a6a550a64ac8b003f  docs/REPORT-R19-ar.md
 2705d00e492159046048ee63df94b1df  src/setdcw.c
 27e438ae921bb8718ad577d349a5ab0e  src/msg-cccam.c
@@ -167,7 +163,6 @@
 290afce53223ffe3ff3dd37caaa15496  src/auto-tuning.h
 298406f93ec7b25ccbe7914b203371ef  make-x64/test_trust.c
 29b414a90dfa651c1d4a3fe4e0253175  docs/MODERN-CA-GUIDE-ar.md
-29c92a91e660588a4082d1dffbb14c13  src/config.c
 2a87852efef8f14588ce5c0199b47cdc  الجرد-الشامل-والصادق.md
 2ae035b49ce200f7a3dae0524c572982  src/cwneg.h
 2af59e7fd9d55d06e734176d176568a7  tests/client-id-reload.py
@@ -179,7 +174,6 @@
 2c43fda1288260ac2e71aac9bccad88a  tests/profile-runtime-audit.py
 2cc2af885f48467ae25417cfd2ee2fb6  src/pipe.c
 2cd4b1705d3ff2b4b918919672c63e3e  src/parquery.h
-2ce47d6e114f0c07b6a76d2abad45b6a  src/loginthrottle.c
 2de523def642f2b8905dee097e2eb537  src/cwprevalid.h
 2e000e6634987a18d5de8559fd456fcc  src/th-date.c
 2e3a108e54b15f46365c7483976d6180  src/nopushafter.h
@@ -190,7 +184,9 @@
 301d8fe971db0a3fa76fe4a2e4cb299d  docs/REPORT-3.1-ar.md
 301f178d8096838a045e12dda7086331  src/r22layers.h
 305662f16dd173d68ee613ee0fed6f6c  docs/build-warning-audit.md
+312bf05aaa6ddc428d2cd9f387fb0c5c  MANIFEST-md5
 314797d4dd8978666ba93a2a1652164b  src/biss.c
+319f1634ac3178f8713eac4654417448  bin/README-R24-x64.md
 324667f0c3a45ae291493c9fd8fce4ab  tests/newcamd-config-reload.sh
 325a23d3cc6b1dd38567d6ab21e7123c  src/x64/biss.o
 333301865f35485299c3ea8c259ccd18  src/dyn_buffer.c
@@ -223,6 +219,7 @@
 40863224046ccab4dbc0b957c87ebe99  src/country.c
 409c728bf2cd5fad6c700ccf4f8c6656  src/diagnostics.h
 40e70b3c7fd6078aae44ddfb71d01750  src/cwentropy.h
+40f66b9e348fc8a5f1b05e41234bea2d  docs/REPORT-R48-ar.md
 41618515bfd4afa39a425623d31f26ee  docs/REPORT-2.7-ar.md
 418902105ee72813be42c560b92ba7b6  src/dcw.h
 41c7c9a41e12143c147a5c6f6d1e7ed8  tests/cwpair-live.py
@@ -242,7 +239,6 @@
 460a9469471a5e39669d4ea6f998f7f2  src/loadbalance.c
 464fa812fe1fbef1fb896936578e1cfc  make-x64/test_pipe_server_send.c
 46fb2350d640c99e1dc73ba8f34f9495  tests/cxpeer.c
-47a7bb3aa7af04edd6b8029067e3d515  src/httpserver.c
 47bf4dd4b618960a16fa969005d1cbce  make-x64/test_cwattest.c
 47d793503261afb2d815d43c1a0afa7e  make-x64/test_ptguard.c
 47e8d2f8acc2e9c108d954525533fd2c  docs/soak-4.2/RESULT.txt
@@ -269,6 +265,7 @@
 4c10b9b82a02ba96e217055c04f87c38  src/cachex-waittime.h
 4c952828ad67460fac301655a5c3677a  make-x64/test_skipcwc.c
 4cf36d3732be41d10716621124304e5a  docs/memcheck-4.1/compile-test_cacheguard.log
+4d268db1effb9affe3aa26644be1882f  src/loginthrottle.c
 4d5f466ff93c5a742593dbc50700ac72  make-x64/test_cccam_session.c
 4df0c75184de25ad42c1cdd6e256994a  make-x64/test_retry_detect.c
 4e43f7e25c104a23d3d9e7f41c022fbe  src/server-health.h
@@ -298,7 +295,6 @@
 56329dbdf96860a663916115bd18879f  src/monjson.c
 568bb8c3bd5aa6a51a0c1a7a23a2b76c  src/cwsrcscore.h
 569b017f5450a81984cda74421739134  src/caid-optimizations.c
-56c3eeb086cfd48287da40db039ba9a4  multics-r24-expert-reviewed.cfg
 56d347dce396a56092f8ab7a2aac9fe4  src/cli-camd35.c
 57274d6bbbb1a79e1146af139b25aad1  docs/cache-1884-comparison-ar.md
 573b26d285c78d956dc7d1fe8d6901a8  src/cwquarantine.h
@@ -316,6 +312,7 @@
 5ac70aeabbab7f3139464e4c10035b1d  src/debugcore.h
 5aca781251bd8d1cfefe116689ea3504  tests/cache-1884-compare.py
 5b922e6929b361d0232719af9702834c  src/cwlearn.h
+5bac707876a1c294a4a94a2a7486d179  src/srv-cccam.c
 5bfc6763c9d8a524dd9b70b597949e54  src/bmsearch.c
 5c1f07e52d172768e09647795130b054  tests/ncserver.c
 5c1fb28c6c813192a83f92933ce77f9b  ENCRYPTION-ANALYSIS-REPORT.md
@@ -336,6 +333,7 @@
 60584449465bb20ece8afe3f76abd73f  tests/safe-time.c
 60b9a1d4a74dfcb8b5ae41548043b090  docs/soak-4.2/peer-reply.log
 60e7ba6de9e6d79b916869342dddce86  RESOURCE-OPTIMIZATION-GUIDE.md
+610437d49ea8257ecea82bad8da91689  multics-r24-expert-reviewed.cfg
 614c96c16fce728cdf28c2a94b457c9e  src/server-stats.h
 622877ab08e2134bfbbf4f218a4a511e  make-x64/test_smart_retry_ticks.c
 6268cc63c8aad9b16bff4533f2fee62d  make-x64/test_cwcycle.c
@@ -397,6 +395,7 @@
 78dad2108c7a1bcd9a27b766eae6d8ff  make-x64/test_cwfake.c
 79411654bcaa3e4661229a7c51cb20ce  src/ecmcompress.h
 797808f318a17c3196b58fc035b7bbec  docs/memcheck-4.1/valgrind-live-before.txt
+79e0b7ce874903a5e3dd05a8e600c100  tests/Makefile
 7a0fcaee202f49aa4fd04a3b7e4907d3  tests/ccdcw.c
 7a461b5aa0da691cc60720919ec075b2  src/crc32.c
 7b949b5abf74a03f7e67a9e044614b1c  docs/REPORT-R8-ar.md
@@ -418,6 +417,7 @@
 81243abccbb6cdc6501a7803a421598d  src/monjson.h
 81f6a7a76750ae1902c27da72d62e6da  src/x64/config.o
 82111cff4fe5bfbc145488cb291b996f  src/rotation.h
+8258184c167727d4284a6c819da19c11  docs/PILOT-GOLIVE-ar.md
 82ace46adf406d1b3a37441f937a8338  docs/soak-4.2/peer-cycle.log
 82eafab8830930e4826d0af4d452d432  src/cwanomaly.h
 8348e7b9c44d5103a19c0dd5f0e218f2  make-x64/test_cachewarm_ticks.c
@@ -432,9 +432,6 @@
 859cf39ac6250ade6fa9332a640db0b0  src/cli-cccam.c
 86607b6e3ddb084793c0cc3a6bc503d6  src/emm-cache.h
 86688ab22439e43d3141522829c1694c  src/cwmultibuf.h
-868d9888c91bd04e7f991b24b221e6b1  bin/multics-r82a-stats-x64
-868d9888c91bd04e7f991b24b221e6b1  bin/multics.x64
-868d9888c91bd04e7f991b24b221e6b1  dist/multics-r82a-stats-x64
 86b54957a2753e84cf9d4dad04dd120f  src/r48-source-reputation.h
 878e95d3f6a9667a4b6a53d9914b6fb0  src/tick_math.h
 8798be7a3334dd52a05bfb5c12e3b4c5  src/htmlesc.h
@@ -454,16 +451,19 @@
 8da43692b70e43d698ea12d52a1184d2  src/x64/newcamd-lifetime.o
 8e62776f7c93d22fbfd5fbe209399bd0  src/cwml.h
 8e7521c856bf7b956bd4b27903e51b7f  bin/multics-r82a-queue-stats-x64
-8e7ad78c03eddd23887b2b279bff6279  docs/REPORT-R48-ar.md
 8e7b5da926bfda54f092ac29e5db437a  make-x64/test_cwneg.c
 8e7d8d046c515ffd227121fac0c62728  src/cache-intelligence.h
 8ee62fec31fd69602529e22056d73741  CUMULATIVE-DEVELOPMENT-FINAL.md
+8f402c4211fe06ef9b25584d9bd8a909  src/loginthrottle.h
 8f7bb2c2aa793a2a0c5adfced695a531  tests/cache-hash-invariants.sh
 8fc3aab232e1018c6e09e9fb939b6103  src/cwlock.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
 901f13a6b1bf23a166ac6c0de2d77d92  src/x64/md5.o
 9097579940e9eb6bcf21d723c3fb1df0  FINAL-MERGED-CONFIG.md
 90d40015e17913bb25211f581a744c7f  src/advanced-optimizations.h
+90e3edb5d6afcd01d3b9a98719252349  bin/multics-r82a-stats-x64
+90e3edb5d6afcd01d3b9a98719252349  bin/multics.x64
+90e3edb5d6afcd01d3b9a98719252349  dist/multics-r82a-stats-x64
 91a36a2c4e35a2e6e4814d12328c45d9  tests/cwconsensus-load.c
 921f8edadb8fe4c2764281cfadfbcd8b  docs/all314-run.log
 924377dc2fbd3d562f1e2d959d371ba7  docs/TROUBLESHOOTING-ar.md
@@ -475,6 +475,7 @@
 92fb096a4cd57c3e32b9f9bfc574cb6c  src/newcamd-request.h
 93d04a1492bcff14819bc26483ac5525  docs/INDEX-ar.md
 93e634a95d93edce5197017472aa896d  make-x64/test_cwentropy.c
+949d02b882f349e71d1412c548dacffd  src/telnet.c
 956c35d7131fe42abd9ffb69b8110294  src/msg-newcamd.c
 962029dfe7dd9f69627bda5d8dea6377  src/blackscreen-detector.h
 963a2dbe7c784328b102d3c8bb67488a  docs/AUDIT-BLACKSCREEN-CACHE-ar.md
@@ -501,6 +502,7 @@
 9cce8dfe47cfcfae179265a2a7f720a8  make-x64/test_cache_intelligence_ticks.c
 9cfac59079c84ef260a41e5c20a1ac15  docs/STATUS.md
 9cfcb141eba70989f1caf2ff070cc994  src/sha256.c
+9d0524208441187d929bfc07f07473a3  tests/latecw.sh
 9d0d019d2210e2986f8d7c75e42a160a  src/x64/parser.o
 9d212081c5d435e4166a24fd6a48d666  dist/multics-r82a-queue-stats-x64
 9d666eff5d11685236fe7d7293edb37a  make-x64/test_emm_cache.c
@@ -583,7 +585,6 @@ b668f23cfad77bd06c1caee5e96fd77c  src/udpfast.h
 b671caa9ccd409e7ab688351ae3db436  src/x64/web-dashboard.o
 b68cdcb8a2969f94e1e45d7df78ed685  CACHE-INTELLIGENCE-REPORT.md
 b70cee48c5ca615d3f9cf89f15438554  make-x64/test_radegast_frame.c
-b70e4b862a4f0e44b7ca9d93ae5980c2  multics-full-30w-52e.cfg
 b70eb42458b68c9a892435baefa94e36  make-x64/test_newcamd_lifetime.c
 b7c2703b1ceb20a754b47f46ad6faf89  tests/share-limits.c
 b8215736d36b2921e5da88f0b870ea7f  make-x64/test_fastretx_ticks.c
@@ -593,16 +594,15 @@ b96b6e418347dbd5ae5b51b317bfd3f1  src/x64/server-stats.o
 b9adef5035fca75f335c75c33a3e00a6  docs/REPORT-R15-ar.md
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
 ba3dbab45abea98efcb6961173889ec0  src/httpserver.h
+bab265b975250143e1ac978e492e535f  multics-r24-optimized.cfg
 bb42a53e55698772ba3b4e6dd8fb80f6  src/scramchk.h
 bbb8636e6b121a90c2a8c70ba6e5e0f8  src/cexwire.h
 bc8f3f995e6b4c85a333ea7ee10d30fe  CAID-PROBLEMS-DETAILED.md
 bcdd8bcc51d575e317d50e63a01813b5  make-x64/test_dcwstrict_ticks.c
-bd0e697315079e9098af9537201e5376  MANIFEST-md5
 bd1bb5f7c60532b239e9fff5d3d01f82  src/cachequeue.h
 bd6a22d1a2539187d83ea333172b6172  src/predictzap.h
 bd965358eb9db0ea6267ab84383e9f3b  docs/memcheck-4.1/compile-test_monjson.log
 bdc84b77d493a55ec7cc698142bf7765  src/x64/monjson.o
-be2aec1e5c3ed76999bfbc20bcd7a57a  tests/Makefile
 be36a40834f6b8b4be29de871b8843a5  tests/multics-filter.cfg
 be81bd2dd2244ffea225362ab7b816ab  src/ecm-fingerprint.h
 bead7d71e3e08fb87a6fe0c0befcc636  PRIORITY-2-IMPLEMENTATION.md
@@ -638,6 +638,7 @@ c59d79ecb6e65f34b31452b0604d39e1  src/cwexplain.h
 c5ba5d359833445100a70ef2d4332770  src/cwpair.h
 c6435be14ff5ddf781634598123a2ae2  docs/REPORT-2.5-ar.md
 c672179a633ad119a259226f11813da8  src/twin.c
+c68ac6e464564ae92b0083d7817d5bce  src/httpserver.c
 c71506027ee47807470aa5a24f9eb917  make-x64/test_phase1cfg.c
 c739af2e06cbf81a74521f73afb49e4c  src/supersmartfilter.h
 c7e6fdad95760a74355a4dfc10f32c38  src/log-viewer.h
@@ -649,12 +650,12 @@ cad8295c0e073cc695a0f79d689bea2f  src/main.h
 cae0b52d3ab7b922e5568d1389a612af  docs/memcheck-4.1/asan-live-before.txt
 cb5550c8574719d2bca15c719b9526b7  DEVELOPMENT-STATUS.md
 cb878c2da9859a7c78b0bb816ba83355  docs/REPORT-3.16-ar.md
-cba166a762a477f2c5d550dd56978a10  src/loginthrottle.h
 cba4e83850e6c596d4e90394c96e8fd7  src/cacheex-advanced.h
 cc0f9f1ddf4f423a3bbdf994ef856e2a  tests/radegast-server-smoke.py
 cc1646196a97a4d7cd4f176e9b2d9475  src/ptguard.h
 cc5f26d9ad24b28dbfd846ba9e11b4da  tests/camd35-send-guard.c
 cc776af51d5fe07958961bad536d79bd  src/cwpattern.h
+cd31a2344d16966f7064c18204f39824  tests/latecw.c
 cdaf691f93c8125068fcb28782d01ab0  src/x64/ecm-provider-config.o
 cdda2d6b3f836adc49e2e23a17825f9d  docs/memcheck-4.1/tsan-empty.log
 ce20affca3300fe8fe136c6bbce01e9d  PRODUCTION-RELEASE-v82a.md
@@ -742,6 +743,7 @@ dcb8a7e69bd800fb4fd55db62bc04277  src/dcwfilter.h
 dd48db6494eff7daab8bf5cd452a981f  docs/USER-GUIDE-R22-R23-ar.md
 dd59917b633d8021673ccdb30f686e95  tests/packed-sid-gate.c
 dd70e1f361729a919b007241f311c9b1  make-cross/cross-sh4/multics
+dd945f330a2aca1f11738e520ae53c3a  multics-full-30w-52e.cfg
 de92289f12acb9c03b917b3629198064  FINAL-PRODUCTION-SUMMARY.md
 dea07d147e62ff1203b2d9a17d8a486a  make-x64/test_debugcore.c
 dedb62153a5f386129d68373a5be6124  tests/user-trace.c
@@ -773,6 +775,7 @@ e4be45bc1bc0f68979c25e28ed1630e4  CONFIG-UPDATE-REPORT.md
 e4c46939959149865cda3d880a641291  docs/REPORT-R14-ar.md
 e55d2846862dccd3635109a127f5cb10  src/cache-window.h
 e5981400d8c2d29c9cae76577a40cfdd  make-x64/test_ledger.c
+e5a35db9d95a858696dd300235fd0871  src/config.h
 e5d7dcb828008e534e101364673f44ab  docs/memcheck-4.1/compile-test_cwlog.log
 e645f682c1ec5f58bc8f3557ab003d98  docs/soak-4.2/peer-forged.log
 e6aefe18917f9a50805490aa6a8ff2bf  CAID-INTEGRATION-GUIDE.md
@@ -811,7 +814,6 @@ ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
 f00ae2c6904ea3453f4ee57564dacb77  src/x64/debug-ecm.o
 f0d46c0de316c3c7cccb86a924bb6358  src/trust.h
 f0ec532845da6e63abfc4182a782e37b  src/ecm-provider-config.c
-f19bb983c9294369a0f11aa5103f0a8b  src/telnet.c
 f1a33d67f73149dcc7941d7e86457c5f  src/srv-newcamd.c
 f1d0ea91e018fb5043f134a4dfb05a02  tests/cccam-reconnect.py
 f215116e4d3ff75d81b4d99ec6346a89  src/autorecov.h
