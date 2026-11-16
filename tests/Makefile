@@ -330,3 +330,11 @@ nctrace: .ncclient.bin .ncserver.bin
 # and delivery recorded there live (mirrors band 72 newcamd).
 mgtrace: .ncclient.bin .ncserver.bin
 	@python3 mgtrace-live.py $(BIN)
+
+# Band 74: cs378x/camd35 test client (server's own msg-camd35.c) and
+# live /user-trace proof for both protocols.
+.cs378xclient.bin: cs378xclient.c ../src/msg-camd35.c ../src/aes.c ../src/md5.c ../src/crc32.c
+	$(CC) -O2 -std=gnu99 -w -I../src -o $@ cs378xclient.c ../src/aes.c ../src/md5.c ../src/crc32.c
+
+cxtrace: .cs378xclient.bin .ncserver.bin
+	@python3 cs378xtrace-live.py $(BIN)

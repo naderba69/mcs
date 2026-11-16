@@ -38,7 +38,6 @@
 08313763fd3c361428f746a50b30f884  make-x64/test_cacheex_gates.c
 087d109fff6c7469611ae37a26ee6e40  make-x64/test_cache_window.c
 088d92251d68affde9c8b2fa437ed079  docs/CACHE-OPTIMIZATION-ar.md
-08a8c32272d4706b85d884974c63337e  docs/REPORT-R48-ar.md
 09333fb39024132aced37897272ab156  src/cfgfield.h
 09833967a8ceb9f3931fff4108053a61  make-x64/test_ecm_doublecheck.c
 09b3362d38fef12c98a3dde9a6636a9f  docs/REPORT-3.8b-ar.md
@@ -254,6 +253,7 @@
 49269c52654f1f54f72350c9a56b3617  src/x64/sockets.o
 493415fae301fa40b90859905bd6056a  make-x64/test_implicit_bs_ticks.c
 49515f7215a6317b87a9354529fccd58  docs/REPORT-R25-ar.md
+497c8c302d3781a1dd120060051063af  tests/cs378xtrace-live.py
 498ef7d66dca93cac1598b1d4c3bc333  src/retry_detect.h
 4992574ddf0bf73b211a3b850af15f8d  FINAL-IMPLEMENTATION-REPORT.md
 49b46f0c904d8e80aae752ac4c98d406  src/twin.h
@@ -321,6 +321,7 @@
 5c1f07e52d172768e09647795130b054  tests/ncserver.c
 5c1fb28c6c813192a83f92933ce77f9b  ENCRYPTION-ANALYSIS-REPORT.md
 5cf4fd45ab8a814068fa38434d0089ac  src/statsline.h
+5cfd1f1cd3ded972ff2365e5510f719a  src/msg-camd35.c
 5d4c00a4cc3b55f3dcaa917c3aff1e1e  src/cache-window.c
 5dad8068f5991738e8ac93cdaa9529da  tests/run-peerrep-pr.sh
 5db434711f2a629d40513f785c3e7c2e  DISABLED-FUNCTIONS-ANALYSIS.md
@@ -359,6 +360,7 @@
 67c5d54146012741d8d6978addddd930  tests/cwdup.c
 6812194700d39d4fff5876f70301b4ff  src/cwreplace.h
 682c91abf5b5dd86783399b0faf72b1e  tests/ncclient.c
+68507b07a560f359a256c027b022d45b  tests/Makefile
 685527cd5e0a8ee21744bb83ada39510  src/blackscreen.h
 696358897edcbd7e4748fcfe8bae4f34  docs/all37-run.log
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
@@ -416,7 +418,6 @@
 7ee233f04898c7e6b380fb0c721821a2  src/cwpropblock.h
 7eeaf0b6869aadb4f64653cedc6bd5f4  src/msg-cccam.h
 800177a56d2f4e6f3a0a0ce5dac71c95  bin/multics-r82a-arm
-8005f06d977e250fb6b3261fa1465cd5  src/msg-camd35.c
 80976a9e9c190f1c7b13ee7bcfe3ea55  docs/UI-IMPROVEMENT-REPORT-ar.md
 80d12e456f1114b319c59d9c3c7d3aea  src/cwattest.h
 81243abccbb6cdc6501a7803a421598d  src/monjson.h
@@ -540,6 +541,7 @@ a83564558c989b9913e513db5521628f  make-x64/test_cache_evidence_config.c
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
 a8751c551e7c8a7a52f7d9fdf0fd21f9  src/ipdata.c
 a918582b1e583d7a1fc1611f2c559cb7  docs/soak-4.2/telnet-end.txt
+a947267f762c25891b8a2e1aa0178205  tests/cs378xclient.c
 a96145f6ccf320ff081fda3b446380ca  make-x64/test_cafamily.c
 a9a35d611c26e8233bdc158e0a9b5ac2  tools/profile-timeout-audit.py
 aa1bfc4d94e5f105e4df7ba84021b4ff  make-x64/test_dcwstruct.c
@@ -637,6 +639,7 @@ c37dc96b50c857ae72e30f01b96f56fd  tests/camd35-send-guard.sh
 c38f8e032a2cd651dcd0ee89cecbfdf1  docs/memcheck-4.1/asan.cfg
 c38f8e032a2cd651dcd0ee89cecbfdf1  docs/memcheck-4.1/tsan.cfg
 c38f8e032a2cd651dcd0ee89cecbfdf1  docs/memcheck-4.1/valgrind.cfg
+c4070e087ef2fb54b4abd97c95835fe6  docs/REPORT-R48-ar.md
 c4753a58d62747cb581addf833032ef3  tests/__pycache__/cccam-trace-success.cpython-311.pyc
 c572dfdcff42f26ff11f5f22bc45c45c  PROJECT-COMPLETION-REPORT.md
 c5904454e1596815cbd4713519ab7a2f  tests/ecmdata-allocation.sh
@@ -812,7 +815,6 @@ ea4f972eb12fa218c94a960b6aa61480  docs/memcheck-4.1/compile-test_chanhealth.log
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
 ea96c3318093b3ffa0f8a16eb18fe928  docs/REPORT-R36-ar.md
 eb063163f29b59e415aefe0c3c7521cc  README.md
-eb5cd450e8791dbc2d02a12d22d1f7e5  tests/Makefile
 eb65b452fadc1bf7176791d50b3e7ca8  tests/protoban.c
 ec5b0f81b3d501843c4f61f5e9074dc6  docs/COMPAT-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md

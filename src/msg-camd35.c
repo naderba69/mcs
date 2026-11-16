@@ -146,7 +146,10 @@ int cs378x_recv(int handle, uint32_t ucrc, AES_KEY *decryptkey,
 	received = recv_nonb( handle, buf, 32+4, 1000); // Get minimum packet size
 	if (received<=0) return received; // Disconnect
 	if (received < 36 || received > capacity) return -3;
-	uint32_t ucrc1 = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+	/* uint32_t casts: buf[0]<<24 on a promoted int is UB for values
+	 * >= 0x80 (left shift into/ past the sign bit); caught by UBSan
+	 * via tests/cs378xclient.c in band 74. */
+	uint32_t ucrc1 = ((uint32_t)buf[0]<<24)|((uint32_t)buf[1]<<16)|((uint32_t)buf[2]<<8)|buf[3];
 	if (ucrc!=ucrc1) return -2; // wrong ucrc
 	aes_decrypt( decryptkey, buf+4, received-4);
 	newlen = cs378x_frame_length(buf, received, capacity, 0);
