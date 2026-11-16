@@ -285,6 +285,11 @@ loginaudit:
 mgban:
 	sh ./mgban.sh
 
+# Band 66: 1884 slow-card A/B - provider-table 1000ms cap vs an
+# explicit per-profile DCW TIMEOUT: 5000, against a 2500ms card.
+slow1884:
+	sh ./slow1884.sh
+
 # Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
 # be delivered from cache, the mismatched scope must not.
 c1884:
