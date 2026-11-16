@@ -236,15 +236,32 @@ int cwpair_snapshot(unsigned long *observed, unsigned long *pair_matches,
 	if (no_twin) *no_twin = g_cwpair.no_twin;
 	if (discover) *discover = g_cwpair.discover;
 	if (pairs) {
-		for (i = 0; i < CWPAIR_MAX_PAIRS && n < maxpairs; i++) {
+		/* Band 82: export the most-confirmed pairs first (matches
+		 * desc, freshest first) so the operator confirms from the
+		 * top of the list; last_tick rides along for the age. */
+		for (i = 0; i < CWPAIR_MAX_PAIRS; i++) {
+			struct mcs_cwpair_pair cand;
+			int k;
 			if (!g_cwpair.pairs[i].matches) continue;
-			pairs[n].caid_a = g_cwpair.pairs[i].caid_a;
-			pairs[n].provid_a = g_cwpair.pairs[i].provid_a;
-			pairs[n].sid_a = g_cwpair.pairs[i].sid_a;
-			pairs[n].caid_b = g_cwpair.pairs[i].caid_b;
-			pairs[n].provid_b = g_cwpair.pairs[i].provid_b;
-			pairs[n].sid_b = g_cwpair.pairs[i].sid_b;
-			pairs[n].matches = g_cwpair.pairs[i].matches;
+			cand.caid_a = g_cwpair.pairs[i].caid_a;
+			cand.provid_a = g_cwpair.pairs[i].provid_a;
+			cand.sid_a = g_cwpair.pairs[i].sid_a;
+			cand.caid_b = g_cwpair.pairs[i].caid_b;
+			cand.provid_b = g_cwpair.pairs[i].provid_b;
+			cand.sid_b = g_cwpair.pairs[i].sid_b;
+			cand.matches = g_cwpair.pairs[i].matches;
+			cand.last_tick = g_cwpair.pairs[i].last_tick;
+			if (n == maxpairs) {
+				if (cand.matches < pairs[n-1].matches ||
+				    (cand.matches == pairs[n-1].matches && cand.last_tick <= pairs[n-1].last_tick)) continue;
+				n--;
+			}
+			k = n;
+			while (k > 0 && (pairs[k-1].matches < cand.matches ||
+			       (pairs[k-1].matches == cand.matches && pairs[k-1].last_tick < cand.last_tick))) {
+				pairs[k] = pairs[k-1]; k--;
+			}
+			pairs[k] = cand;
 			n++;
 		}
 	}

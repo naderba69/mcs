@@ -9199,10 +9199,12 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         } else {
             tcp_writestr(tcpbuf, sock, "<p><b>طبقات R22 المضادة للفايك:</b> ➖ غير مُجمّعة في نكهة stock هذه (ثنائي التجربة الميدانية release-r22 يفعّلها).</p>");
         }
-        snprintf(out, sizeof(out), "<p><b>التحقق المزدوج (DoubleCheck — مراقبة فقط، لا يحجب التسليم):</b> CAIDs مراقبة: %d | فحوص بدأت: %llu | تطابق مصدرين: %llu | قرارات عدم تطابق: %llu | مهلات: %llu</p>",
+        snprintf(out, sizeof(out), "<p><b>التحقق المزدوج (DoubleCheck — مراقبة فقط، لا يحجب التسليم):</b> CAIDs مراقبة: %d | فحوص بدأت: %llu | تطابق مصدرين: %llu | قرارات عدم تطابق: %llu | مهلات: %llu | نسبة عدم التطابق: %.2f%% (%llu من %llu)</p>",
                  st.dc_caids,
                  (unsigned long long)st.dc_total, (unsigned long long)st.dc_ok,
-                 (unsigned long long)st.dc_fail, (unsigned long long)st.dc_timeouts);
+                 (unsigned long long)st.dc_fail, (unsigned long long)st.dc_timeouts,
+                 st.dc_total ? (100.0 * (double)st.dc_fail / (double)st.dc_total) : 0.0,
+                 (unsigned long long)st.dc_fail, (unsigned long long)st.dc_total);
         tcp_writestr(tcpbuf, sock, out);
         if (st.dc_event_count) {
             tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>القناة</th><th>قرار DoubleCheck</th><th>مصادر</th></tr>");
@@ -9301,13 +9303,50 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         tcp_writestr(tcpbuf, sock, out);
         if (st.cwpair_pair_count > 0) {
             int i;
-            tcp_writestr(tcpbuf, sock, "<p>أزواج مكتشفة (انسخ المناسب إلى بروفايله، ابدأ بـACTIVE: NO):</p>");
+            /* Band 82: confirmation-grade pair list, most-confirmed
+             * first: both providers, match count, age of the last
+             * match, and whether a profile already carries the pair
+             * (so the operator confirms -- or sees it is armed --
+             * without leaving this page). */
+            tcp_writestr(tcpbuf, sock, "<p>أزواج مكتشفة (مرتّبة بالأكثر تأكيدًا — أكّد من الحداثة وعدد التطابقات، ثم انسخ المناسب إلى بروفايله وابدأ بـACTIVE: NO):</p>");
             for (i = 0; i < st.cwpair_pair_count; i++) {
-                snprintf(out, sizeof(out), "<pre>## in the profile whose CAID is %04X:\nCWPAIR CAID: %04X\nCWPAIR ACTIVE: NO\nCWPAIR SID: %04X-&gt;%04X  (matches: %u)</pre>",
-                         st.cwpair_pairs[i].caid_a, st.cwpair_pairs[i].caid_b,
-                         st.cwpair_pairs[i].sid_a, st.cwpair_pairs[i].sid_b,
-                         st.cwpair_pairs[i].matches);
+                struct mcs_cwpair_pair *pr = &st.cwpair_pairs[i];
+                uint32_t age_ms = GetTickCount() - pr->last_tick;
+                const char *armed_name = NULL;
+                int armed_active = 0, armed_found = 0;
+                struct cardserver_data *pcs = cfg.cardserver;
+                while (pcs && !armed_found) {
+                    int dir_ok = 0, k;
+                    if (pcs->card.caid == pr->caid_a && pcs->option.cwpair_caid == pr->caid_b) dir_ok = 1;
+                    if (pcs->card.caid == pr->caid_b && pcs->option.cwpair_caid == pr->caid_a) dir_ok = 2;
+                    if (dir_ok) {
+                        if (pcs->option.cwpair_sid_n == 0) armed_found = 1;
+                        else for (k = 0; k < pcs->option.cwpair_sid_n; k++) {
+                            uint16_t loc = (dir_ok == 1) ? pr->sid_a : pr->sid_b;
+                            uint16_t per = (dir_ok == 1) ? pr->sid_b : pr->sid_a;
+                            if (pcs->option.cwpair_sid_local[k] == loc && pcs->option.cwpair_sid_peer[k] == per) { armed_found = 1; break; }
+                        }
+                        if (armed_found) { armed_name = pcs->name; armed_active = pcs->option.cwpair_active; }
+                    }
+                    pcs = pcs->next;
+                }
+                snprintf(out, sizeof(out), "<p><code>%04X:%06X:%04X</code> ↔ <code>%04X:%06X:%04X</code> — تطابقات: %u — آخر تطابق قبل %us%s</p>",
+                         pr->caid_a, pr->provid_a, pr->sid_a,
+                         pr->caid_b, pr->provid_b, pr->sid_b,
+                         pr->matches, age_ms / 1000,
+                         armed_found ? " — ✅ مُهيّأ أصلًا" : "");
                 tcp_writestr(tcpbuf, sock, out);
+                if (armed_found) {
+                    snprintf(out, sizeof(out), "<p style='margin-left:2em'>مُهيّأ في بروفايل [%s] — CWPAIR ACTIVE: %s (لا حاجة للنسخ)</p>",
+                             armed_name, armed_active ? "YES" : "NO");
+                    tcp_writestr(tcpbuf, sock, out);
+                } else {
+                    snprintf(out, sizeof(out), "<pre>## in the profile whose CAID is %04X:\nCWPAIR CAID: %04X\nCWPAIR ACTIVE: NO\nCWPAIR SID: %04X-&gt;%04X  (matches: %u)</pre>",
+                             pr->caid_a, pr->caid_b,
+                             pr->sid_a, pr->sid_b,
+                             pr->matches);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
             }
         }
     }

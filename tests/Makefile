@@ -361,3 +361,7 @@ hban:
 # Band 80: shared-engine ECM failure reasons detailed in the trace.
 ecmfail: .ncclient.bin
 	@python3 ecmfail-trace-live.py $(BIN)
+
+# Band 82: CWPAIR confirmation + DoubleCheck rate complete on /user-trace.
+cwconfirm: .ncclient.bin .ncserver.bin
+	@python3 cwpair-confirm-live.py $(BIN)

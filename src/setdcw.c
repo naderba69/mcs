@@ -1586,6 +1586,12 @@ trusted_deliver:
 	ecm->waitserver = 0;
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
+	/* Band 82: this commit path (card/cacheex sources via the marked
+	 * queue) never fed pair learning -- only the older commit path
+	 * (above) and cache stores did, so CWPAIR discovery stayed blind
+	 * to card-produced CWs and pairs could not be confirmed from
+	 * /user-trace for card-fed profiles. Same observe call. */
+	cwpair_observe(ecm->caid, ecm->provid, ecm->sid, dcw, GetTickCount());
 	/* DROPDIFFS: this committed CW becomes the known-good reference
 	 * for any later differing candidate for the same ECM. */
 	if (cs->option.dropdiffs ? cs->option.dropdiffs == 1 : cfg.cache.dropdiffs)

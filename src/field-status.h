@@ -22,7 +22,7 @@ struct mcs_dc_event {
 
 struct mcs_cwpair_pair { uint16_t caid_a; uint32_t provid_a; uint16_t sid_a;
                          uint16_t caid_b; uint32_t provid_b; uint16_t sid_b;
-                         unsigned matches; };
+                         unsigned matches; uint32_t last_tick; }; /* band 82: freshness for confirmation */
 void nopushafter_snapshot(unsigned long *checked, unsigned long *blocked, int *entries);
 void service_doubt_snapshot(unsigned long *checked, unsigned long *doubt, unsigned long *majority);
 int cwpair_snapshot(unsigned long *observed, unsigned long *pair_matches,
