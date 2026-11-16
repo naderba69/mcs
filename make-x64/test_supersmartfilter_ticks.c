@@ -4,6 +4,21 @@
 
 struct ssf_config ssf_cfg;
 
+struct ssf_cw_history ssf_history[SSF_MAX_HISTORY];
+int ssf_history_index;
+struct ssf_peer_stats ssf_peers[SSF_MAX_PEERS];
+int ssf_peer_count;
+struct ssf_multicheck_entry ssf_mc_table[SSF_MAX_MC_ENTRIES];
+int ssf_mc_count;
+struct ssf_march_entry ssf_march_table[SSF_MAX_MARCH_ENTRIES];
+int ssf_march_index;
+struct ssf_dup_entry ssf_dup_table[SSF_MAX_DUP_ENTRIES];
+int ssf_dup_index;
+struct ssf_reuse_entry ssf_reuse_table[SSF_MAX_REUSE_ENTRIES];
+int ssf_reuse_index;
+struct ssf_stats ssf_stats;
+pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static int failures;
 
 #define CHECK(condition, description) do { \

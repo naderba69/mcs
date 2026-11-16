@@ -2310,6 +2310,26 @@ int ecm_setsrvflag_if_lifetime(ECM_DATA *request, unsigned int srvid, int flag,
 
 /* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT global configs */
 struct ssf_config ssf_cfg;
+/* Band 83: the one instance of all SuperSmartFilter state (declared
+ * extern in supersmartfilter.h; before band 83 each TU had a private
+ * static copy and the /smartfilter console read its own zeros). All
+ * of it is guarded by ssf_lock on every operative path. The header is
+ * included here so the table types are visible at the definitions. */
+#include "supersmartfilter.h"
+struct ssf_cw_history ssf_history[SSF_MAX_HISTORY];
+int ssf_history_index;
+struct ssf_peer_stats ssf_peers[SSF_MAX_PEERS];
+int ssf_peer_count;
+struct ssf_multicheck_entry ssf_mc_table[SSF_MAX_MC_ENTRIES];
+int ssf_mc_count;
+struct ssf_march_entry ssf_march_table[SSF_MAX_MARCH_ENTRIES];
+int ssf_march_index;
+struct ssf_dup_entry ssf_dup_table[SSF_MAX_DUP_ENTRIES];
+int ssf_dup_index;
+struct ssf_reuse_entry ssf_reuse_table[SSF_MAX_REUSE_ENTRIES];
+int ssf_reuse_index;
+struct ssf_stats ssf_stats;
+pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
 struct dcwstrict_config dcwstrict_cfg;
 
 uint32_t ecm_check_time = 0;

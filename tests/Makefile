@@ -365,3 +365,7 @@ ecmfail: .ncclient.bin
 # Band 82: CWPAIR confirmation + DoubleCheck rate complete on /user-trace.
 cwconfirm: .ncclient.bin .ncserver.bin
 	@python3 cwpair-confirm-live.py $(BIN)
+
+# Band 83: /smartfilter reads the single SSF state instance.
+ssfconsole: .ncclient.bin .ncserver.bin
+	@python3 ssfconsole-live.py $(BIN)

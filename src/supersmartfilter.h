@@ -147,12 +147,21 @@ struct ssf_stats {
 // ============================================================================
 
 extern struct ssf_config ssf_cfg;
-static struct ssf_cw_history ssf_history[SSF_MAX_HISTORY];
-static int ssf_history_index = 0;
-static struct ssf_peer_stats ssf_peers[SSF_MAX_PEERS];
-static int ssf_peer_count = 0;
-static struct ssf_multicheck_entry ssf_mc_table[SSF_MAX_MC_ENTRIES];
-static int ssf_mc_count = 0;
+/* Band 83: ALL filter state is ONE instance, defined in main.c next to
+ * ssf_cfg (the pattern ssf_cfg itself always used). Until now these
+ * were `static` in this header, so every translation unit that
+ * includes it (config.o, httpserver.o, main.o) silently owned a
+ * private copy: the checks ran on main.o's tables while the
+ * /smartfilter console faithfully rendered httpserver.o's zeros, and
+ * any counter could be "fixed" in one copy and stay wrong in the
+ * others. A TU that includes this header standalone (unit tests)
+ * must define these once, exactly like ssf_cfg (see tests/marchcheck.c). */
+extern struct ssf_cw_history ssf_history[SSF_MAX_HISTORY];
+extern int ssf_history_index;
+extern struct ssf_peer_stats ssf_peers[SSF_MAX_PEERS];
+extern int ssf_peer_count;
+extern struct ssf_multicheck_entry ssf_mc_table[SSF_MAX_MC_ENTRIES];
+extern int ssf_mc_count;
 /* Band 55 MARCHCHECK: last full CW accepted per (caid, provid, sid).
  * A legitimate marching channel moves the shared half to the OTHER slot
  * every cycle: (A,B) -> (B,C). A recycled fake parks one half in the SAME
@@ -165,8 +174,8 @@ struct ssf_march_entry {
     uint8_t prev[16];
     uint8_t used;
 };
-static struct ssf_march_entry ssf_march_table[SSF_MAX_MARCH_ENTRIES];
-static int ssf_march_index = 0;
+extern struct ssf_march_entry ssf_march_table[SSF_MAX_MARCH_ENTRIES];
+extern int ssf_march_index;   /* band 83: single instance */
 /* Band 56 CW_DUP: per-channel repeat tracker. `rep` counts how many
  * NEW ECM cycles (different ecm_hash) re-delivered the same CW;
  * `other_ms` is when a different CW was last accepted for the channel.
@@ -184,8 +193,8 @@ struct ssf_dup_entry {
     uint32_t other_ms;
     uint8_t used;
 };
-static struct ssf_dup_entry ssf_dup_table[SSF_MAX_DUP_ENTRIES];
-static int ssf_dup_index = 0;
+extern struct ssf_dup_entry ssf_dup_table[SSF_MAX_DUP_ENTRIES];
+extern int ssf_dup_index;   /* band 83: single instance */
 /* Band 58 CW_REUSE: ring of recent full-CW sightings. A half that
  * reappears on a DIFFERENT (caid, provid, sid) inside the window while
  * the full CW differs is the recycled-half-pool signature. A full-CW
@@ -201,10 +210,10 @@ struct ssf_reuse_entry {
     uint32_t last_ms;
     uint8_t used;
 };
-static struct ssf_reuse_entry ssf_reuse_table[SSF_MAX_REUSE_ENTRIES];
-static int ssf_reuse_index = 0;
-static struct ssf_stats ssf_stats;
-static pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
+extern struct ssf_reuse_entry ssf_reuse_table[SSF_MAX_REUSE_ENTRIES];
+extern int ssf_reuse_index;   /* band 83: single instance */
+extern struct ssf_stats ssf_stats;
+extern pthread_mutex_t ssf_lock;
 
 // ============================================================================
 // Check Functions

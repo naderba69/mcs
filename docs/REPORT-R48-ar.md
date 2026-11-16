@@ -2204,3 +2204,37 @@ Commits على `arena/59c38810-mcs`: ‏`033efd7`، ‏`172e455`، ‏`f9d5fe2`�
       ما زال أخضر.
     - البصمة الجديدة `bbc353d79d3bdd13603fec87cbf73fe6`.
       الرجوع أخضر كاملًا.
+
+83. **توحيد حالة SuperSmartFilter + توثيق أبواب الدخول (بند 83)**:
+    - **العيب الجذري**: كل حالة SSF (الجداول والمؤشرات
+      و`ssf_stats` و`ssf_lock`) كانت `static` داخل
+      `supersmartfilter.h`، فامتلكت كل وحدة ترجمة نسختها
+      الخاصة: الفحوص عملت على نسخة main.o بينما صفحة
+      `/smartfilter` قرأت نسخة httpserver.o الصفرية —
+      العدّادات «المقفلة» لم تكن تُقرأ أصلًا. حُوّلت الحالة
+      إلى `extern` (نمط `ssf_cfg` القائم) بتعريف وحيد في
+      main.c، وتعريفات اختبارية في وحدات الاختبار الخمس.
+    - **الإثبات الحي** (`tests/ssfconsole-live.py` + هدف
+      `make ssfconsole`): FILTER: 1 على بروفايل 1884 وبطاقة
+      تجيب → `/smartfilter` تُظهر `Total Checked=1` (كان
+      مستحيلًا بنيويًا قبل الإصلاح). اختبارات marchcheck/
+      cwdup/cwreuse/latecw وtest_supersmartfilter_ticks خضراء.
+    - **autorecov**: يبقى مراقبة فقط — موثّق الآن صراحة في
+      CONFIG-REFERENCE (`AUTO RECOVER` بلا مستهلِك قرار)؛
+      توصيل مستهلِك آلي غير مُثبت ميدانيًا رُفض محافظةً.
+    - **CONFIG-REFERENCE**: قسم 6.5 جديد يوثّق مفاتيح
+      `<PROTO> LOGIN FAILS/BAN` للأبواب الثمانية (HTTP/
+      TELNET/CCCAM/NEWCAMD/CS378X/MGCAMD/CAMD35/CACHEEX)
+      بمداها وافتراضياتها وسجل `/user-trace`.
+    - **ديون مسمّاة لا تُدّعى محلولة**: (أ) المفتاح العالمي
+      `CACHE SF LEVEL` مظلَّل بفرع مفسّر أقدم فلا يصل
+      filter_level (الفعّال هو `FILTER:` داخل البروفايل)؛
+      (ب) أهداف cache-check-characterization/cache-cross-*
+      تنكسر في بناء ASan الخاص بها عند srv-newcamd.c
+      (`cli` undeclared) — مُتحقق أنه عطل سابق على HEAD
+      النظيف وليس من هذا البند؛ (ج) هدف stability يحتاج
+      ثنائي stock غير المبني في هذه البيئة (فرع configured
+      أخضر).
+    - البصمة الجديدة `6f7c228880e7bb21fb28c3f7ba6782e7`.
+      الرجوع: الحزمة الكاملة (عدا الاستثناءات المسمّاة
+      أعلاه) خضراء.
