@@ -9232,6 +9232,29 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                 tcp_writestr(tcpbuf, sock, out);
             }
         }
+        /* Band 62: recent login attempts on the interactive doors */
+        {
+            struct login_audit_entry la[16];
+            int ln2 = loginaudit_snapshot(la, 16);
+            int li2;
+            tcp_writestr(tcpbuf, sock, "<h3>سجلّ محاولات الدخول (الويب/التلنت)</h3>");
+            if (ln2) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>الباب</th><th>من</th><th>المستخدم</th><th>النتيجة</th></tr>");
+                for (li2 = 0; li2 < ln2; li2++) {
+                    char timestr[32];
+                    char escuser[128];
+                    html_esc(escuser, sizeof(escuser), la[li2].user);
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)la[li2].when, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+                             timestr, protoban_name(la[li2].proto), ip2string(la[li2].ip),
+                             escuser, la[li2].success ? "✅ ناجحة" : "❌ فاشلة");
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else {
+                tcp_writestr(tcpbuf, sock, "<p>لا محاولات دخول موثّقة بعد في هذه الجلسة (تُسجَّل محاولات الويب والتلنت الحقيقية فقط، لا طلبات الجلسات).</p>");
+            }
+        }
         snprintf(out, sizeof(out), "<p><b>حسم الخدمة عند الشك (CACHE SERVICE DOUBT):</b> %s | انتقادات ذات مرشحين مختلفين: %lu | رُفضت الخدمة للشك: %lu | خُدمت بأغلبية صارمة: %lu</p>",
                  st.svc_armed ? "مفعّل" : "مطفأ (CACHE SERVICE DOUBT: ON لتفعيله)", st.svc_checked, st.svc_doubt, st.svc_majority);
         tcp_writestr(tcpbuf, sock, out);
@@ -9515,6 +9538,8 @@ void *gererClient(struct connect_data *param)
 		}
 		else {
 			int auth=0;
+			char attempt_user[64] = "";  /* Band 62: decoded Basic user, for the audit ring */
+			int attempt_seen = 0;
 			if ( (req.type==HTTP_GET)||(req.type==HTTP_POST) ) {
 				int auth_open;
 				/* TASK 3.1 -- the open door. Stock checked cfg.http.user[0] TWICE
@@ -9537,6 +9562,7 @@ void *gererClient(struct connect_data *param)
 						//printf("Authorization: %s\n", req.headers[i].value);
 						//get auth type
 						if (!memcmp(req.headers[i].value, "Basic ",6)) {
+							attempt_seen = 1;
 							// get encrypted login
 							char pass[256];
 							char realpass[256];
@@ -9546,6 +9572,14 @@ void *gererClient(struct connect_data *param)
 							 * 64+64 in config.h); refuse them without decoding. */
 							if (strlen(&req.headers[i].value[6]) > 340) break;
 							base64_pdecode( &req.headers[i].value[6], pass);
+							{
+								/* Band 62: keep only the user half for auditing */
+								const char *colon = strchr(pass, ':');
+								size_t ul = colon ? (size_t)(colon - pass) : strlen(pass);
+								if (ul >= sizeof(attempt_user)) ul = sizeof(attempt_user) - 1;
+								memcpy(attempt_user, pass, ul);
+								attempt_user[ul] = 0;
+							}
 							//printf("PASS: %s\n",pass);
 /*
 							time_t nowtime = time(NULL);
@@ -9560,7 +9594,12 @@ void *gererClient(struct connect_data *param)
 							/* TASK R7 (D61): one token per real login; a
 							 * request that already presented a valid token
 							 * keeps the one it has (no churn). */
-							if ( !http_session_check(&req, ip) ) http_session_mint(&req, ip);
+							if ( !http_session_check(&req, ip) ) {
+								http_session_mint(&req, ip);
+								/* Band 62: audit the real login (session
+								 * mint), not every Basic-carrying request. */
+								loginaudit_note(PB_HTTP, ip, attempt_user, 1);
+							}
 						}
 						}
 						break;
@@ -9793,6 +9832,9 @@ void *gererClient(struct connect_data *param)
 						                                 (uint32_t)(lb>0?lb:0), &lt_banned_now);
 						if (lt_banned_now)
 							debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN BAN] http: %s reached the failure threshold, IP banned\n", ip2string(ip));
+							/* Band 62: audit only real credential attempts; a bare
+							 * 401 probe (no Authorization header) is not an attempt. */
+							if (attempt_seen) loginaudit_note(PB_HTTP, ip, attempt_user, 0);
 						lt_wait = login_delay_ms(login_delay, lt_fails);
 						if (lt_wait) debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN THROTTLE] http: failure #%u from %s, delaying %ums\n", lt_fails, ip2string(ip), lt_wait);
 						if (lt_wait) usleep(lt_wait*1000);

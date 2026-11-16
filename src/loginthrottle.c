@@ -11,6 +11,7 @@
  */
 
 #include <string.h>
+#include <time.h>
 #include <pthread.h>
 
 #include "loginthrottle.h"
@@ -312,4 +313,42 @@ uint64_t protoban_total(void)
 	t = pb_bans_total;
 	pthread_mutex_unlock(&pb_lock);
 	return t;
+}
+
+/* --- login attempt audit (band 62) ---------------------------------------- */
+
+static struct login_audit_entry la_ring[LOGIN_AUDIT_MAX];
+static int la_head = 0;   /* next write slot */
+static int la_count = 0;
+static pthread_mutex_t la_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void loginaudit_note(int proto, uint32_t ip, const char *user, int success)
+{
+	struct login_audit_entry *e;
+	if (proto < 0 || proto >= PB_COUNT) return;
+	pthread_mutex_lock(&la_lock);
+	e = &la_ring[la_head];
+	la_head = (la_head + 1) % LOGIN_AUDIT_MAX;
+	if (la_count < LOGIN_AUDIT_MAX) la_count++;
+	e->when = (uint32_t)time(NULL);
+	e->ip = ip;
+	e->proto = (uint8_t)proto;
+	e->success = success ? 1 : 0;
+	if (user) {
+		strncpy(e->user, user, sizeof(e->user) - 1);
+		e->user[sizeof(e->user) - 1] = 0;
+	} else e->user[0] = 0;
+	pthread_mutex_unlock(&la_lock);
+}
+
+int loginaudit_snapshot(struct login_audit_entry *out, int max)
+{
+	int i, n = 0;
+	pthread_mutex_lock(&la_lock);
+	for (i = 0; i < la_count && n < max; i++) {
+		int idx = (la_head - 1 - i + LOGIN_AUDIT_MAX * 2) % LOGIN_AUDIT_MAX;
+		out[n++] = la_ring[idx];
+	}
+	pthread_mutex_unlock(&la_lock);
+	return n;
 }

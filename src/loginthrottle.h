@@ -101,6 +101,24 @@ void     protoban_note_success(uint32_t ip, int proto);
 int      protoban_banned(uint32_t ip, int proto);
 int      protoban_unban(uint32_t ip, int proto); /* proto -1 = all; returns cleared count */
 struct protoban_view { uint32_t ip; uint8_t proto; uint32_t seconds_left; uint32_t fails; };
+
+/* --- login attempt audit (band 62) ------------------------------------------
+ * A 32-entry ring of real credential attempts on the interactive doors
+ * (http, telnet): when, from where, which user name, success or failure.
+ * Session-token requests are NOT audited (they would flood the ring);
+ * only an actual Basic/password verification is. Shown as a section on
+ * /user-trace -- deliberately not a separate page (one diagnostic
+ * source). RAM only; a restart clears it, like the R7 sessions. */
+#define LOGIN_AUDIT_MAX 32
+struct login_audit_entry {
+	uint32_t when;      /* unix seconds */
+	uint32_t ip;
+	uint8_t proto;
+	uint8_t success;
+	char user[32];
+};
+void loginaudit_note(int proto, uint32_t ip, const char *user, int success);
+int  loginaudit_snapshot(struct login_audit_entry *out, int max); /* newest first */
 int      protoban_snapshot(struct protoban_view *out, int max); /* active bans */
 uint64_t protoban_total(void);
 

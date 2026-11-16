@@ -275,6 +275,11 @@ latecw:
 protoban:
 	sh ./protoban.sh
 
+# Band 62: login attempt audit ring (newest-first/wrap/truncation)
+# against the production loginthrottle.c.
+loginaudit:
+	sh ./loginaudit.sh
+
 # Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
 # be delivered from cache, the mismatched scope must not.
 c1884:

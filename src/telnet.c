@@ -128,6 +128,9 @@ void *telnetprocess(int *param )
 	telnet_loginfails = cfg.telnet.loginfails;
 	telnet_loginbansec = cfg.telnet.loginbansec;
 	user_trace_config_unlock();
+	char telnet_attempt_user[64];
+	strncpy(telnet_attempt_user, buf, sizeof(telnet_attempt_user)-1);
+	telnet_attempt_user[sizeof(telnet_attempt_user)-1] = 0;
 	if ( strcmp(buf, telnet_user) ) {
 		/* TASK R3 (D57): the progressive delay. The n-th consecutive
 		 * failure from this address waits base<<(n-1), capped; a good
@@ -142,6 +145,7 @@ void *telnetprocess(int *param )
 		uint32_t lt_wait = login_delay_ms(telnet_logindelay, lt_fails);
 		if (lt_wait) debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN THROTTLE] telnet: failure #%u from %s, delaying %ums\n", lt_fails, ip2string(myip), lt_wait);
 		if (lt_wait) usleep(lt_wait*1000);
+		loginaudit_note(PB_TELNET, myip, telnet_attempt_user, 0); /* Band 62 */
 		writes(fd, "wrong username, bye.\r\n");
 		close(fd);
 		return NULL;
@@ -164,12 +168,14 @@ void *telnetprocess(int *param )
 		uint32_t lt_wait = login_delay_ms(telnet_logindelay, lt_fails);
 		if (lt_wait) debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN THROTTLE] telnet: failure #%u from %s, delaying %ums\n", lt_fails, ip2string(myip), lt_wait);
 		if (lt_wait) usleep(lt_wait*1000);
+		loginaudit_note(PB_TELNET, myip, telnet_attempt_user, 0); /* Band 62 */
 		writes(fd, "wrong password, bye.\r\n");
 		close(fd);
 		return NULL;
 	}
 	login_note_success(myip); /* TASK R3 (D57): a good login forgives the typos */
 	protoban_note_success(myip, PB_TELNET); /* Band 60 */
+	loginaudit_note(PB_TELNET, myip, telnet_attempt_user, 1); /* Band 62 */
 	strcpy(buf, "\r\n\r\ntype 'help' for command list\r\n");write(fd, buf, strlen(buf) );
 
 	while ( 1 ) {
