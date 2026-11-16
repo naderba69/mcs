@@ -9429,8 +9429,12 @@ void cfg_set_id_counters(struct config_data *cfg)
 		while (cli) {
 			//cli->srvid = camd35->id;
 			if (!cli->id) {
+				#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->camd35.clientid;
 				cfg->camd35.clientid++;
+#endif
 			}
 			camd35->totalclients++;
 			cli = cli->next;
@@ -9440,8 +9444,12 @@ void cfg_set_id_counters(struct config_data *cfg)
 		while (cli) {
 			//cli->srvid = camd35->id;
 			if (!cli->id) {
+				#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->camd35.clientid;
 				cfg->camd35.clientid++;
+#endif
 			}
 			camd35->totalclients++;
 			cli = cli->next;
@@ -9467,8 +9475,12 @@ void cfg_set_id_counters(struct config_data *cfg)
 		while (cli) {
 			//cli->srvid = cs378x->id;
 			if (!cli->id) {
+				#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->cs378x.clientid;
 				cfg->cs378x.clientid++;
+#endif
 			}
 			cs378x->totalclients++;
 			cli = cli->next;
@@ -9478,8 +9490,12 @@ void cfg_set_id_counters(struct config_data *cfg)
 		while (cli) {
 			//cli->srvid = cs378x->id;
 			if (!cli->id) {
+				#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->cs378x.clientid;
 				cfg->cs378x.clientid++;
+#endif
 			}
 			cs378x->totalclients++;
 			cli = cli->next;
@@ -9504,8 +9520,12 @@ void cfg_set_id_counters(struct config_data *cfg)
 		while (cli) {
 			cli->parent = mgcamd;
 			if (!cli->id) {
+				#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->mgcamd.clientid;
 				cfg->mgcamd.clientid++;
+#endif
 			}
 			mgcamd->totalclients++;
 			cli = cli->next;

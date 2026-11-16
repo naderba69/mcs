@@ -185,10 +185,21 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 			cli->ecm.status = STAT_DCW_SENT;
 			debugf(getdbgflag(DBG_CAMD35,0,cli->id),
 			       " => cw send failed to camd35 client '%s'\n", cli->user);
+#ifdef CACHEEX
+			if (delivery->trace_instance)
+				user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
+				                         USER_TRACE_SEND_FAILED, 0, 0,
+				                         GetTickCount()-response_recvtime, "CW send failed");
+#endif
 			return;
 		}
 		sent_at = GetTickCount();
 #ifdef CACHEEX
+		if (delivery->trace_instance)
+			user_trace_client_cw(cli->id, delivery->trace_instance, delivery->hash,
+			                     delivery->srctype, delivery->srcid,
+			                     sent_at-response_recvtime,
+			                     "CW response sent; picture not verified", delivery->cw);
 		LEDGER_DELIVERY_TO_LASTECM(cli->lastecm, *delivery);
 #else
 		cli->lastecm.dcwsrctype = ecm->dcwsrctype;
@@ -219,6 +230,13 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 		buf[0] = 0x44;
 		buf[1] = 0;
 		camd35_sendto( camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf, 20);
+#ifdef CACHEEX
+		if (delivery->trace_instance)
+			user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
+			                         USER_TRACE_FAILED, 0, 0,
+			                         GetTickCount()-response_recvtime,
+			                         "decode failed; detailed reason unavailable");
+#endif
 		debugf(getdbgflagpro(DBG_CAMD35,0,cli->id,response_profile)," |> decode failed to camd35 client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, response_caid,response_provid,response_sid, GetTickCount()-response_recvtime);
 	}
 	cli->ecm.busy=0;
@@ -509,7 +527,18 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			uint16_t caid = buf[4+10]<<8 | buf[4+11];
 			uint32_t provid = ecm_getprovid( ecmdata, ecmlen, caid );
 			if (provid==0) provid = buf[4+12]<<24 | buf[4+13]<<16 | buf[4+14]<<8 | buf[4+15];
+
+			/* Band 73: mirror the CCcam ingress trace for camd35
+			 * clients - see srv-cs378x.c. Opt-in via /user-trace. */
+			uint64_t trace_session = 0, trace_attempt = 0;
+			uint32_t trace_hash = 0;
+			if (ecmlen > 3 && user_trace_matches(cli->id, caid, provid, sid)) {
+				trace_hash = hashCode(ecmdata + 3, ecmlen - 3);
+				trace_attempt = user_trace_begin(cli->id, caid, provid, sid,
+				                                 trace_hash, &trace_session);
+			}
 			if ( !caid ) {
+				if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "Invalid CAID");
 				cli->ecmdenied++;
 				buf[4] = 0x44;
 				buf[5] = 0;
@@ -528,6 +557,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 				cs = cs->next;
 			}
 			if (!cs) {
+				if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "Invalid CAID/PROVIDER");
 				cli->ecmdenied++;
 				buf[4] = 0x44;
 				buf[5] = 0;
@@ -538,6 +568,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			// Check for Accepted sids
 			uint8_t cw1cycle;
 			if ( !accept_sid(cs, provid, sid, ecm_getchid(ecmdata,ecmlen,caid), ecmlen, &cw1cycle) ) {
+				if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "SID not accepted");
 				cli->ecmdenied++;
 				__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 				buf[4] = 0x44;
@@ -576,9 +607,18 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			}
 			int isnew =  ( ecm==NULL );
 			if (ecm) {
+				if (trace_attempt) {
+					if (!ecm->trace_instance) ecm->trace_instance = user_trace_next_instance();
+					if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
+						user_trace_add(trace_session, trace_attempt, USER_TRACE_JOINED, trace_hash, 0, 0, 0, "joined existing ECM; earlier events unavailable");
+				}
 				ecm->lastrecvtime = ticks;
 				if (ecm->dcwstatus==STAT_DCW_FAILED) {
 					if (ecm->period > cs->option.dcw.retry) {
+						if (trace_attempt) {
+							user_trace_add(trace_session, trace_attempt, USER_TRACE_FAILED, trace_hash, 0, 0, 0, "existing ECM already failed");
+							user_trace_unbind_shared(trace_session, trace_attempt);
+						}
 						buf[4] = 0x44;
 						buf[5] = 0;
 						camd35_sendto( camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf+4, 20);
@@ -645,6 +685,10 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 					camd35_sendto(camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf+4, 20);
 					ecm_unlock();
 					break;
+				}
+				if (trace_attempt) {
+					ecm->trace_instance = user_trace_next_instance();
+					user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance);
 				}
 				__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 				camd35_store_ecmclient(ecm, cli);

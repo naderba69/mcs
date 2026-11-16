@@ -325,3 +325,8 @@ svcdoubt:
 # reason (cs_accept_ecm) and delivery recorded there live.
 nctrace: .ncclient.bin .ncserver.bin
 	@python3 newcamd-trace-live.py $(BIN)
+
+# Band 73: mgcamd client selectable on /user-trace; rejection reason
+# and delivery recorded there live (mirrors band 72 newcamd).
+mgtrace: .ncclient.bin .ncserver.bin
+	@python3 mgtrace-live.py $(BIN)

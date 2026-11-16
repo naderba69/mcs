@@ -102,6 +102,9 @@ void mg_disconnect_cli(struct mg_client_data *cli);
 #ifdef CS378X_SRV
 struct camd35_client_data *getcs378xclientbyid(uint32_t id);
 #endif
+#ifdef CAMD35_SRV
+struct camd35_client_data *getcamd35clientbyid(uint32_t id);
+#endif
 
 
 #define LIST_ACTIVE       0
@@ -9339,7 +9342,17 @@ static void http_send_user_trace(int sock, http_request *req)
                             /* Band 72: newcamd clients are traceable too;
                              * ids share one space (config.c sweep). */
                             if (getcccamclientbyid((uint32_t)client) ||
-                                getnewcamdclientbyid((uint32_t)client)) {
+                                getnewcamdclientbyid((uint32_t)client)
+#ifdef MGCAMD_SRV
+                                || getmgcamdclientbyid((uint32_t)client)
+#endif
+#ifdef CS378X_SRV
+                                || getcs378xclientbyid((uint32_t)client)
+#endif
+#ifdef CAMD35_SRV
+                                || getcamd35clientbyid((uint32_t)client)
+#endif
+                                ) {
                                 t.client_id = client; t.caid = caid; t.provider = prov; t.sid = sid;
                                 t.all_channels = all;
                                 ok = user_trace_start(&t) != 0;
@@ -9449,6 +9462,80 @@ static void http_send_user_trace(int sock, http_request *req)
                     csx = csx->next;
                 }
             }
+            /* Band 73: mgcamd/cs378x/camd35 clients, whose ECM paths
+             * now record trace attempts too. Their ids share the
+             * CCcam counter space (config.c setup sweeps). These
+             * structs have no per-client state lock; the reads follow
+             * the plain getter convention under the config lock. */
+#ifdef MGCAMD_SRV
+            {
+                struct mgcamdserver_data *mgs = cfg.mgcamd.server;
+                while (mgs && !truncated) {
+                    struct mg_client_data *mcli = mgs->client;
+                    while (mcli) {
+                        struct mg_client_data *mnext = mcli->next;
+                        if (!(mcli->flags & FLAG_DELETE)) {
+                            if (n == 4096) { truncated = 1; break; }
+                            options[n].id = mcli->id;
+                            options[n].connected = mcli->handle != INVALID_SOCKET && mcli->handle > 0;
+                            options[n].caid = mcli->lastecm.caid;
+                            options[n].provider = mcli->lastecm.prov;
+                            options[n].sid = mcli->lastecm.sid;
+                            snprintf(options[n].name, sizeof(options[n].name), "%s [mgcamd]", mcli->user);
+                            ++n;
+                        }
+                        mcli = mnext;
+                    }
+                    mgs = mgs->next;
+                }
+            }
+#endif
+#ifdef CS378X_SRV
+            {
+                struct camd35_server_data *css = cfg.cs378x.server;
+                while (css && !truncated) {
+                    struct camd35_client_data *ccli = css->client;
+                    while (ccli) {
+                        struct camd35_client_data *cnext = ccli->next;
+                        if (!(ccli->flags & FLAG_DELETE)) {
+                            if (n == 4096) { truncated = 1; break; }
+                            options[n].id = ccli->id;
+                            options[n].connected = ccli->connection.status > 0;
+                            options[n].caid = ccli->lastecm.caid;
+                            options[n].provider = ccli->lastecm.prov;
+                            options[n].sid = ccli->lastecm.sid;
+                            snprintf(options[n].name, sizeof(options[n].name), "%s [cs378x]", ccli->user);
+                            ++n;
+                        }
+                        ccli = cnext;
+                    }
+                    css = css->next;
+                }
+            }
+#endif
+#ifdef CAMD35_SRV
+            {
+                struct camd35_server_data *cds = cfg.camd35.server;
+                while (cds && !truncated) {
+                    struct camd35_client_data *ccli = cds->client;
+                    while (ccli) {
+                        struct camd35_client_data *cnext = ccli->next;
+                        if (!(ccli->flags & FLAG_DELETE)) {
+                            if (n == 4096) { truncated = 1; break; }
+                            options[n].id = ccli->id;
+                            options[n].connected = ccli->connection.status > 0;
+                            options[n].caid = ccli->lastecm.caid;
+                            options[n].provider = ccli->lastecm.prov;
+                            options[n].sid = ccli->lastecm.sid;
+                            snprintf(options[n].name, sizeof(options[n].name), "%s [camd35]", ccli->user);
+                            ++n;
+                        }
+                        ccli = cnext;
+                    }
+                    cds = cds->next;
+                }
+            }
+#endif
             user_trace_config_unlock();
             for (k = 0; k < n; ++k) {
                 char name[384]; html_esc(name, sizeof(name), options[k].name);
