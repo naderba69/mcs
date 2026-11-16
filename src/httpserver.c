@@ -9336,7 +9336,10 @@ static void http_send_user_trace(int sock, http_request *req)
                                      trace_parse_number(trace_post_value(req, "sid"), 16, 0xffff, &sid) && sid))) {
                             struct user_trace_target t = {0};
                             user_trace_config_lock();
-                            if (getcccamclientbyid((uint32_t)client)) {
+                            /* Band 72: newcamd clients are traceable too;
+                             * ids share one space (config.c sweep). */
+                            if (getcccamclientbyid((uint32_t)client) ||
+                                getnewcamdclientbyid((uint32_t)client)) {
                                 t.client_id = client; t.caid = caid; t.provider = prov; t.sid = sid;
                                 t.all_channels = all;
                                 ok = user_trace_start(&t) != 0;
@@ -9417,6 +9420,34 @@ static void http_send_user_trace(int sock, http_request *req)
                 }
                 if (truncated) break;
                 server = server->next;
+            }
+            /* Band 72: newcamd clients live on cardservers, not in the
+             * CCcam server list; without this they cannot be selected
+             * for a trace at all. Their ids share the CCcam counter
+             * space (config.c setup sweep), so an id names one client. */
+            {
+                struct cardserver_data *csx = cfg.cardserver;
+                while (csx && !truncated) {
+                    struct cs_client_data *ncli = csx->newcamd.client;
+                    while (ncli) {
+                        struct cs_client_data *nnext = ncli->next;
+                        if (!(ncli->flags & FLAG_DELETE)) {
+                            if (n == 4096) { truncated = 1; break; }
+                            if (newcamd_client_state_lock(ncli) == 0) {
+                                options[n].id = ncli->id;
+                                options[n].connected = ncli->connection.status > 0;
+                                options[n].caid = ncli->lastecm.caid;
+                                options[n].provider = ncli->lastecm.prov;
+                                options[n].sid = ncli->lastecm.sid;
+                                snprintf(options[n].name, sizeof(options[n].name), "%s [newcamd]", ncli->user);
+                                newcamd_client_state_unlock(ncli);
+                                ++n;
+                            }
+                        }
+                        ncli = nnext;
+                    }
+                    csx = csx->next;
+                }
             }
             user_trace_config_unlock();
             for (k = 0; k < n; ++k) {

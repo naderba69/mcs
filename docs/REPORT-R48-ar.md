@@ -1860,3 +1860,37 @@ Commits على `arena/59c38810-mcs`: ‏`033efd7`، ‏`172e455`، ‏`f9d5fe2`�
       البند؛ الثنائي يبقى `01399be7…`. التحقق:
       ‏cfgcheck ‏(5/5) + smoke + slow1884 خضراء، والجولة
       الكاملة 1177 ثانية على `bin/multics.x64`.
+
+72. **تريس `/user-trace` يغطي عملاء newcamd وسبب رفض ECM
+    (2026-11-16)**: دين بند 71 المسّمى يُغلق لعملاء
+    newcamd. كان مسار التريس كله (محاولة/ربط/نتيجة)
+    موجودًا في srv-cccam/freecccam فقط: عميل newcamd
+    لا يظهر أصلًا في قائمة اختيار التريس، وبوابة بدء
+    الجلسة ترفض أي ID ليس CCcam، ورفض `cs_accept_ecm`
+    ‏(«Wrong ecm length»…) لا يُسجّل إلا في سجل debug.
+    - الإصلاح (ثلاث نقاط، كلها opt-in بجلسة تريس نشطة
+      ولا أثر عند غيابها): (1) `srv-newcamd.c`: بدء
+      محاولة عند دخول ECM وتسجيل DENIED بسبب الرفض
+      ‏(cs_accept_ecm و«too many ecm requests»)، وربط
+      ‏trace_instance للـECM الجديد/المشترك كما في
+      CCcam، وتسجيل نتيجة العميل عند الإرسال
+      ‏(CW مُسلّمة/فشل/فشل إرسال) في cs_senddcw.
+      (2) `httpserver.c`: قائمة الاختيار تضم عملاء
+      ‏cs_client_data من كل البروفايلات بلاحقة
+      ‏[newcamd]، وبوابة البدء تقبل
+      ‏getnewcamdclientbyid. (3) `config.c`: عملاء
+      newcamd يسحبون IDs من عدّاد CCcam نفسه (نفس
+      إصلاح FreeCCcam السابق) حتى لا يتصادم ID عميلين
+      مختلفي البروتوكول في مطابقة التريس بالـID وحده.
+    - الإثبات الحي (`tests/newcamd-trace-live.py`، هدف
+      ‏`nctrace`): مرحلة رفض — بروفايل بـ`ECM LENGTH: 42`
+      والصفحة تُظهر «Wrong ecm length» لعميل newcamd
+      مختار من القائمة؛ مرحلة تسليم — CW تصل وتظهر
+      ‏«CW response sent» في التريس. ناجح أيضًا على
+      بناء ASan. الثنائي الجديد
+      ‏`057a9518ded266c5ce706b5652b916e0`.
+    - ديون باقية مسمّاة: mgcamd وcs378x وcamd35 ما
+      زالت بلا تسجيل ingress في التريس (عملاؤها بهياكل
+      منفصلة)، وقائمة الاختيار لا تضمهم بعد؛ وأسباب
+      فشل ECM المشترك العامة («ECM failed; reason may
+      be unavailable») لم تتغيّر.

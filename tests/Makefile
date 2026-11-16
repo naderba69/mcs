@@ -320,3 +320,8 @@ svcdoubt:
 	@SVC_MODE=control python3 service-doubt-live.py $(BIN)
 	@SVC_MODE=prof-on python3 service-doubt-live.py $(BIN)
 	@SVC_MODE=prof-off python3 service-doubt-live.py $(BIN)
+
+# Band 72: newcamd client selectable on /user-trace; ECM rejection
+# reason (cs_accept_ecm) and delivery recorded there live.
+nctrace: .ncclient.bin .ncserver.bin
+	@python3 newcamd-trace-live.py $(BIN)

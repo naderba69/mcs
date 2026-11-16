@@ -9355,8 +9355,17 @@ void cfg_set_id_counters(struct config_data *cfg)
 			cli->cs = cs;
 
 			if (!cli->id) {
+				/* One id space with cc_client_data (same fix as the
+				 * FreeCCcam slots above): the user trace matches by
+				 * client id alone, so a newcamd client and a CCcam
+				 * client sharing an id could bind a trace session
+				 * to the wrong client. */
+#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->clientid;
 				cfg->clientid++;
+#endif
 			}
 			cs->newcamd.totalclients++;
 			cli = cli->next;

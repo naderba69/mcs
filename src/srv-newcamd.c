@@ -766,7 +766,22 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 					uint32_t provid = ecm_getprovid( data, len, clicd.caid );
 					if (provid!=0) clicd.provid = provid;
 
+					/* Band 72: mirror the CCcam ingress trace so a
+					 * newcamd client's ECM - above all a rejection
+					 * before any ECM_DATA exists - is visible on
+					 * /user-trace with its reason, not only in the
+					 * debug log. Opt-in: all calls no-op unless a
+					 * trace session targets this client/channel. */
+					uint64_t trace_session = 0, trace_attempt = 0;
+					uint32_t trace_hash = 0;
+					if (len > 3 && user_trace_matches(cli->id, clicd.caid, clicd.provid, clicd.sid)) {
+						trace_hash = hashCode(data + 3, len - 3);
+						trace_attempt = user_trace_begin(cli->id, clicd.caid, clicd.provid, clicd.sid,
+						                                 trace_hash, &trace_session);
+					}
+
 					if (cli->ecm.busy) {
+						if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "too many ecm requests");
 						cli->ecmdenied++;
 						// send decode failed
 						buf[1] = 0; buf[2] = 0;
@@ -777,6 +792,7 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 					uint8_t cw1cycle;
 					char *error = cs_accept_ecm(cs,clicd.caid,clicd.provid,clicd.sid,ecm_getchid(data,len,clicd.caid), len, data, &cw1cycle);
 					if (error) {
+						if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, error);
 						__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 						cli->ecmdenied++;
 						buf[1] = 0; buf[2] = 0;
@@ -1050,9 +1066,18 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 					}
 
 					if (ecm) {
+						if (trace_attempt) {
+							if (!ecm->trace_instance) ecm->trace_instance = user_trace_next_instance();
+							if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
+								user_trace_add(trace_session, trace_attempt, USER_TRACE_JOINED, trace_hash, 0, 0, 0, "joined existing ECM; earlier events unavailable");
+						}
 						ecm->lastrecvtime = ticks;
 						if (ecm->dcwstatus==STAT_DCW_FAILED) {
 							if (ecm->period > cs->option.dcw.retry) {
+								if (trace_attempt) {
+									user_trace_add(trace_session, trace_attempt, USER_TRACE_FAILED, trace_hash, 0, 0, 0, "existing ECM already failed");
+									user_trace_unbind_shared(trace_session, trace_attempt);
+								}
 								buf[1] = 0; buf[2] = 0;
 								ecm_unlock();
 								ecm_lock_held = 0;
@@ -1119,6 +1144,10 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 							ecm_lock_held = 0;
 							cs_message_send_client_locked(cli, &clicd, failure, sizeof(failure), client_state_locked);
 							break;
+						}
+						if (trace_attempt) {
+							ecm->trace_instance = user_trace_next_instance();
+							user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance);
 						}
 						__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 						cs_store_ecmclient(cs, ecm, cli, clicd.msgid);
@@ -1393,6 +1422,10 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli,
 		return;
 	}
 	if (send_result <= 0) {
+		if (delivery->trace_instance)
+			user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
+			                         USER_TRACE_SEND_FAILED, 0, 0,
+			                         sent_at - response_recvtime, "CW/failure send failed");
 		cs_disconnect_cli_unlocked(cli);
 		return;
 	}
@@ -1425,6 +1458,11 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli,
 #endif
 		cli->lastecm.status = 1;
 		cli->lastdcwtime = sent_at;
+		if (delivery->trace_instance)
+			user_trace_client_cw(cli->id, delivery->trace_instance, delivery->hash,
+			                     delivery->srctype, delivery->srcid,
+			                     sent_at - response_recvtime,
+			                     "CW response sent; picture not verified", delivery->cw);
 		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
 		__atomic_fetch_add(&cli->ecmoktime, (sent_at-response_recvtime), __ATOMIC_RELAXED);
 #ifdef CACHEEX
@@ -1435,6 +1473,11 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli,
 		cli->lastecm.status = 0;
 		cli->lastecm.dcwsrctype = DCW_SOURCE_NONE;
 		cli->lastecm.dcwsrcid = 0;
+		if (delivery->trace_instance)
+			user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
+			                         USER_TRACE_FAILED, 0, 0,
+			                         sent_at - response_recvtime,
+			                         "decode failed; detailed reason unavailable");
 		memset(cli->lastecm.dcw, 0, 16);
 #ifdef CACHEEX
 		memset(cli->lastecm.ecmd5, 0, sizeof(cli->lastecm.ecmd5));
