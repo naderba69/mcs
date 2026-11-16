@@ -30,6 +30,7 @@
 066a660817a29e57b1faca730f5a6d3a  make-x64/test_htmlesc.c
 06b7f3718dda37ca59a68aeafdd2ad34  src/debug-ecm.c
 06bae9fe000492dfa491d390c2bcb72b  docs/memcheck-4.1/compile-test_dcwstruct.log
+06df00457aa9f3b5ceab2bb0ab6db6f6  tests/Makefile
 06e20b2aed733b9e963e8e4977b61661  src/x64/msg-radegast.o
 06eeb376613b8c6be1195c2c0a73d095  FINAL-MERGE-SUMMARY.md
 06f7610d9056f5d5bfa4e91c7178a988  src/x64/server-health.o
@@ -137,7 +138,6 @@
 18f8a0cb17b12aa30501b28134953ff3  .gitignore
 1937446cf283174bac9d7c855ad7be8b  src/cache-prefetch.h
 19f1cd0e67849a7127a784aaef6f5f6a  docs/SSF-DCWSTRICT-IMPLEMENTATION-ar.md
-19f74710ae569143f3aee7292082930b  docs/REPORT-R48-ar.md
 1a773c998d38226c5f58fccba9ed4a83  tests/scoped-checksum-reload-inflight.py
 1acb880b3c9b0ba9d2d5d8d126f9acdc  src/cwcrosslearn.h
 1c750692c5ee23b7f20e5bcd7d1b0efa  make-x64/test_cwplaus.c
@@ -159,7 +159,6 @@
 26fef06bb40a4b0a6a550a64ac8b003f  docs/REPORT-R19-ar.md
 2705d00e492159046048ee63df94b1df  src/setdcw.c
 27e438ae921bb8718ad577d349a5ab0e  src/msg-cccam.c
-281244d4f5ecf570efcb047ba9ebeda9  MANIFEST-md5
 288ac657dbf0c7e5a9ad71e074128894  make-x64/test_cw_quarantine_clientbuf_ticks.c
 28f2ed1793c9576d8a7fa42ab2639743  src/cw-postvalidate.h
 290afce53223ffe3ff3dd37caaa15496  src/auto-tuning.h
@@ -511,6 +510,7 @@
 9e3786581c2805e6100b6d8c389859c2  src/cli-common.c
 9e4b8eb92bb71d2b9a4d2dc0f5075af1  src/cachewarm.h
 9e9683c5f47a897e2dd2f6067c77cf7c  tools/generate-expert-config.py
+9ef79fb3c2a076960dbb2746cc1801bb  MANIFEST-md5
 a0b01eefd61eb6ba69c631f05f4e7aa0  bin/README-R24-x64.md
 a0b0374f430a676da8ddd2ac7401d3e9  docs/expert-profile-research-ar.md
 a0f37c725a1265fa1c0e8f680287f7a2  src/cwcm.h
@@ -597,7 +597,6 @@ b96b6e418347dbd5ae5b51b317bfd3f1  src/x64/server-stats.o
 b9adef5035fca75f335c75c33a3e00a6  docs/REPORT-R15-ar.md
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
 ba3dbab45abea98efcb6961173889ec0  src/httpserver.h
-bb069de98738015a0724f833f5c224aa  tests/Makefile
 bb42a53e55698772ba3b4e6dd8fb80f6  src/scramchk.h
 bbb8636e6b121a90c2a8c70ba6e5e0f8  src/cexwire.h
 bc8f3f995e6b4c85a333ea7ee10d30fe  CAID-PROBLEMS-DETAILED.md
@@ -819,6 +818,7 @@ eea4557a1d93c03a001dafecf656b537  src/cwverify.h
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
 f00ae2c6904ea3453f4ee57564dacb77  src/x64/debug-ecm.o
+f01f9a36541c73df756ac5458a8668e7  docs/REPORT-R48-ar.md
 f0d46c0de316c3c7cccb86a924bb6358  src/trust.h
 f0ec532845da6e63abfc4182a782e37b  src/ecm-provider-config.c
 f1d0ea91e018fb5043f134a4dfb05a02  tests/cccam-reconnect.py

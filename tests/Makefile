@@ -280,6 +280,11 @@ protoban:
 loginaudit:
 	sh ./loginaudit.sh
 
+# Band 64: live mgcamd ban proof (band 63 wiring driven by the
+# ncclient harness - mgcamd shares newcamd's cs_message framing).
+mgban:
+	sh ./mgban.sh
+
 # Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
 # be delivered from cache, the mismatched scope must not.
 c1884:
