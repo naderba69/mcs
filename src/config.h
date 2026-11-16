@@ -1561,6 +1561,10 @@ struct config_data
 		int cwpair_discover;
 		uint16_t cwpair_discover_caids[32];
 		int cwpair_discover_n;
+		/* CACHEEX LOGIN FAILS/BAN (band 78): protoban thresholds for
+		 * cacheex peer identities (PB_CACHEEX). 0 = OFF, stock. */
+		int loginfails;
+		int loginbansec;
 		/* CACHEEX NOPUSH AFTER (band 41): exact-CAID stale-push
 		 * brake. Empty (n=0) = OFF, stock pushes. */
 		uint16_t nopushafter_caids[32];

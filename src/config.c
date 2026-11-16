@@ -509,6 +509,8 @@ void init_config(struct config_data *cfg)
 	cfg->camd35.serverid = 1;
 	cfg->camd35.loginfails = 0;            /* Band 76: off = stock */
 	cfg->camd35.loginbansec = 3600;        /* Band 76: 1h once armed */
+	cfg->cache.loginfails = 0;             /* Band 78: off = stock */
+	cfg->cache.loginbansec = 3600;         /* Band 78: 1h once armed */
 
 	cfg->cs378x.clientid = 1;
 	cfg->cs378x.serverid = 1;
@@ -4064,6 +4066,36 @@ link_mgcamd_user:
 						break;
 					}
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHEEX NOPUSH AFTER: %d entries\n",file->nbline,iparser-currentline, cfg->cache.nopushafter_n);
+				}
+			}
+			else if (!strcmp(str,"LOGIN")) {
+				/* Band 78: CACHEEX LOGIN FAILS/BAN (global; protoban
+				 * for cacheex peer identities, PB_CACHEEX). */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FAILS")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cache.loginfails = atoi(str);
+					if (cfg->cache.loginfails<0) cfg->cache.loginfails = 0;
+					if (cfg->cache.loginfails>1000) cfg->cache.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHEEX LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->cache.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cache.loginbansec = atoi(str);
+					if (cfg->cache.loginbansec<0) cfg->cache.loginbansec = 0;
+					if (cfg->cache.loginbansec>604800) cfg->cache.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHEEX LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->cache.loginbansec);
 				}
 			}
 			else if (!strcmp(str,"VALIDECMTIME")) {
@@ -8924,6 +8956,8 @@ void reread_config( struct config_data *cfg )
 	cfg->cs378x.loginbansec = newcfg.cs378x.loginbansec;
 	cfg->camd35.loginfails = newcfg.camd35.loginfails;
 	cfg->camd35.loginbansec = newcfg.camd35.loginbansec;
+	cfg->cache.loginfails = newcfg.cache.loginfails;   /* Band 78 */
+	cfg->cache.loginbansec = newcfg.cache.loginbansec; /* Band 78 */
 
 	update_servers( cfg, &newcfg );
 	update_cacheexservers( cfg, &newcfg );

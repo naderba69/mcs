@@ -331,6 +331,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 
 	uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 	//Check for clients
+	int is_cx = 0;   /* Band 78: identity matched the cacheex peer list */
 	struct camd35_client_data *cli = camd35->client;
 	while (cli) {
 		if (cli->ucrc==ucrc) break;
@@ -339,10 +340,15 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 	if (!cli) {
 		cli = camd35->cacheexclient;
 		while (cli) {
-			if (cli->ucrc==ucrc) break;
+			if (cli->ucrc==ucrc) { is_cx = 1; break; }
 			cli = cli->next;
 		}
 	}
+	/* Band 78: a cacheex peer under a PB_CACHEEX ban is dropped here, at
+	 * the first point its identity is known. Unknown UCRCs stay with
+	 * PB_CAMD35 above: an unattributed guess cannot be told apart from
+	 * a client guess, so it is counted on this door (band 76). */
+	if (cli && is_cx && cfg.cache.loginfails>0 && protoban_banned(recv_ip, PB_CACHEEX)) return;
 	if (!cli) {
 		debugf(getdbgflag(DBG_CAMD35,camd35->id,0)," camd35%d: Unknown Client UCRC=%08x (%s)\n", camd35->id, ucrc, ip2string(recv_ip));
 		{
@@ -361,8 +367,9 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 	}
 	/* A frame from a known client is this door's success: it clears the
 	 * IP's camd35 failure count (same semantics as a cs378x login). No
-	 * audit entry: UDP has no credential event to ring-log per packet. */
-	protoban_note_success(recv_ip, PB_CAMD35);
+	 * audit entry: UDP has no credential event to ring-log per packet.
+	 * Band 78: a cacheex peer's frame clears PB_CACHEEX instead. */
+	protoban_note_success(recv_ip, is_cx ? PB_CACHEEX : PB_CAMD35);
 	//
 	cli->ip = recv_ip;
 	cli->port = recv_port;

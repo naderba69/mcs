@@ -348,3 +348,8 @@ c35ban: .cs378xclient.bin .ncserver.bin
 # (credential-only CCcam counting, reload shield, atomic editor save).
 relban: .ncserver.bin
 	@python3 reloadban-live.py $(BIN)
+
+# Band 78: cacheex protoban door live (attribution-based counting on
+# the CCcam door; per-identity separation; unarmed = stock).
+cxban: .ncserver.bin
+	@python3 cacheexban-live.py $(BIN)

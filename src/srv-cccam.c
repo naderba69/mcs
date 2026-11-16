@@ -391,12 +391,12 @@ void *cacheex_cc_cli_recvmsg(void *param);
  * a duplicate reject clears the count instead, like any verified
  * credential presentation. Brute force still presents credentials and
  * still fails here, so the gate keeps its teeth. */
-static void cccam_protoban_fail(struct cccam_server_data *cccam, uint32_t ip, int lf, int lb)
+static void cccam_protoban_fail(struct cccam_server_data *cccam, uint32_t ip, int proto, int lf, int lb)
 {
 	int banned = 0;
-	protoban_note_failure(ip, PB_CCCAM, (uint32_t)(lf>0?lf:0),
+	protoban_note_failure(ip, proto, (uint32_t)(lf>0?lf:0),
 	                      (uint32_t)(lb>0?lb:0), &banned);
-	if (banned) debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: %s reached the login failure threshold, banned for cccam\n", cccam->id, ip2string(ip));
+	if (banned) debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: %s reached the login failure threshold, banned for %s\n", cccam->id, ip2string(ip), protoban_name(proto));
 }
 
 /* Band 60: is the CCcam protoban armed? Snapshot under the config gate. */
@@ -425,6 +425,8 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 	char usr[64];
 	char pwd[255];
 	int pb_lf = 0, pb_lb = 0;   /* Band 77: protoban snapshot, counted only on real failure */
+	int pbx_lf = 0, pbx_lb = 0; /* Band 78: cacheex-identity thresholds (PB_CACHEEX) */
+	int is_cx = 0;              /* Band 78: identity matched the cacheex client list */
 	// Store data from param
 	struct cccam_server_data *cccam = param->server;
 	int sock = param->sock;
@@ -443,6 +445,8 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 		newcamd_config_read_lock();
 		pb_lf = cfg.cccam.loginfails;
 		pb_lb = cfg.cccam.loginbansec;
+		pbx_lf = cfg.cache.loginfails;
+		pbx_lb = cfg.cache.loginbansec;
 		newcamd_config_read_unlock();
 	}
 
@@ -587,6 +591,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 					return NULL;
 				}
 				found = 1;
+				is_cx = 1;   /* Band 78 */
 				break;
 			}
 			cli = cli->next;
@@ -594,9 +599,18 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 	}
 	///pthread_mutex_unlock(&prg.lockcccli);
 
+	/* Band 78: a cacheex peer identity under a PB_CACHEEX ban is refused
+	 * here, at the first point its identity is known (the shared CCcam
+	 * port cannot be filtered per-identity at accept time). */
+	if (found && is_cx && pbx_lf>0 && protoban_banned(ip, PB_CACHEEX)) {
+		debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: cacheex client '%s' (%s) refused, ip banned for cacheex (band 78)\n", cccam->id, usr, ip2string(ip));
+		close(sock);
+		return NULL;
+	}
+
 	if (!found) {
 		debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: Unknown Client '%s' (%s)\n", cccam->id, usr, ip2string(ip));
-		cccam_protoban_fail(cccam, ip, pb_lf, pb_lb); /* Band 77 */
+		cccam_protoban_fail(cccam, ip, is_cx?PB_CACHEEX:PB_CCCAM, is_cx?pbx_lf:pb_lf, is_cx?pbx_lb:pb_lb); /* Band 77/78 */
 		close(sock);
 		return NULL;
 	}
@@ -622,7 +636,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 		cc_decrypt(&recvblock, buf, 6);
 		if ( memcmp(buf,"CCcam\0",6) ) {
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: login failed from client '%s'\n", cccam->id, usr);
-			cccam_protoban_fail(cccam, ip, pb_lf, pb_lb); /* Band 77 */
+			cccam_protoban_fail(cccam, ip, is_cx?PB_CACHEEX:PB_CCCAM, is_cx?pbx_lf:pb_lf, is_cx?pbx_lb:pb_lb); /* Band 77/78 */
 			cli->nbloginerror++;
 			close(sock);
 			return NULL;
@@ -630,7 +644,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 	}
 	else {
 		debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: login failed from client '%s', error receiving crypted password\n", cccam->id, usr);
-		cccam_protoban_fail(cccam, ip, pb_lf, pb_lb); /* Band 77 */
+		cccam_protoban_fail(cccam, ip, is_cx?PB_CACHEEX:PB_CCCAM, is_cx?pbx_lf:pb_lf, is_cx?pbx_lb:pb_lb); /* Band 77/78 */
 		cli->nbloginerror++;
 		close(sock);
 		return NULL;
@@ -671,7 +685,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 	if (cli->option.nodeid[0] && cli->option.nodeid[7]) {
 		if (memcmp(cli->option.nodeid, tmpcli.nodeid, 8)) { // diff nodeid
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: login failed from client '%s' (%s), wrong nodeid\n", cccam->id, usr, ip2string(ip));
-			cccam_protoban_fail(cccam, ip, pb_lf, pb_lb); /* Band 77 */
+			cccam_protoban_fail(cccam, ip, is_cx?PB_CACHEEX:PB_CCCAM, is_cx?pbx_lf:pb_lf, is_cx?pbx_lb:pb_lb); /* Band 77/78 */
 			cli->nbloginerror++;
 			close(sock);
 			return NULL;
@@ -737,7 +751,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 		 * session (or the same user from another IP), not a failure.
 		 * Clear the door count instead of letting reload/reconnect
 		 * churn accumulate toward a ban of a legitimate IP. */
-		protoban_note_success(ip, PB_CCCAM);
+		protoban_note_success(ip, is_cx?PB_CACHEEX:PB_CCCAM); /* Band 78 */
 		if (reject_different_ip)
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: Client '%s' (%s) already connected with different ip, Connection closed.\n", cccam->id, usr, ip2string(ip));
 		else
@@ -750,7 +764,7 @@ void *cc_connect_cli_inner(struct connect_cli_data *param)
 #ifdef IPLIST
 	if (ipdata) iplist_goodlogin(ipdata);
 #endif
-	protoban_note_success(ip, PB_CCCAM); /* Band 60 */
+	protoban_note_success(ip, is_cx?PB_CACHEEX:PB_CCCAM); /* Band 60/78 */
 	loginaudit_note(PB_CCCAM, ip, usr, 1); /* Band 63: usr is parsed by here */
 
 	// send cli data ack without holding client state across the TCP write

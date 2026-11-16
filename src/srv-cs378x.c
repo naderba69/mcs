@@ -73,6 +73,7 @@ void *cs378x_connect_cli(struct connect_cli_data *param)
 	}
 	uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 	//Check for clients
+	int is_cx = 0;   /* Band 78: identity matched the cacheex peer list */
 	struct camd35_client_data *cli = cs378x->client;
 	while (cli) {
 		if (cli->ucrc==ucrc) break;
@@ -81,8 +82,22 @@ void *cs378x_connect_cli(struct connect_cli_data *param)
 	if (!cli) {
 		cli = cs378x->cacheexclient;
 		while (cli) {
-			if (cli->ucrc==ucrc) break;
+			if (cli->ucrc==ucrc) { is_cx = 1; break; }
 			cli = cli->next;
+		}
+	}
+	/* Band 78: a cacheex peer under a PB_CACHEEX ban is refused at the
+	 * first point its identity is known (unknown UCRCs stay with
+	 * PB_CS378X: unattributed guesses cannot be told apart). */
+	if (cli && is_cx) {
+		int cx_lf;
+		newcamd_config_read_lock();
+		cx_lf = cfg.cache.loginfails;
+		newcamd_config_read_unlock();
+		if (cx_lf>0 && protoban_banned(ip, PB_CACHEEX)) {
+			debugf(getdbgflag(DBG_CS378X,cs378x->id,0)," cs378x%d: cacheex connection from %s closed, ip banned for cacheex (band 78)\n", cs378x->id, ip2string(ip));
+			close(sock);
+			return NULL;
 		}
 	}
 	if (!cli) {
@@ -138,7 +153,7 @@ void *cs378x_connect_cli(struct connect_cli_data *param)
 			return NULL;
 		}
 		debugf(getdbgflag(DBG_CS378X,0,cli->id)," cs378x: client '%s' connected\n", cli->user);
-		protoban_note_success(ip, PB_CS378X); /* Band 61 */
+		protoban_note_success(ip, is_cx ? PB_CACHEEX : PB_CS378X); /* Band 61/78 */
 		loginaudit_note(PB_CS378X, ip, cli->user, 1); /* Band 63 */
 		cli->connection.status = 1;
 		cli->connection.time = GetTickCount();
