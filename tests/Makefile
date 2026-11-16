@@ -290,6 +290,12 @@ mgban:
 slow1884:
 	sh ./slow1884.sh
 
+# Band 71: functional ECM/CW matrix - every shipped profile booted alone
+# with a synthetic card (fast 60ms / slow 2500ms) and client; exit 0
+# unless a fast failure is UNEXPLAINED (synthetic-ECM limits classify).
+funcmatrix: .ncclient.bin .ncserver.bin
+	@python3 profile-functional-audit.py --binary $(BIN) --output /tmp/funcmatrix.json
+
 # Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
 # be delivered from cache, the mismatched scope must not.
 c1884:

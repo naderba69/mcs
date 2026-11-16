@@ -206,7 +206,6 @@
 3aab82dc7bac9d7a085fbefd7314e0d7  src/srv-newcamd.c
 3b666e657e78246f6c6152adb39209f9  tests/cache-consensus-three-peers.py
 3c179649f35242beb81256a4591df153  docs/REPORT-3.15-ar.md
-3c2e335a588e424f8cf5926b15516824  tests/Makefile
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
 3c5316c19e5835a2b401e2d8a0c8e5e2  src/iplock.c
 3c87dd954636176284faf9f6e874e6a3  src/ipdata.h
@@ -425,6 +424,7 @@
 82eafab8830930e4826d0af4d452d432  src/cwanomaly.h
 8348e7b9c44d5103a19c0dd5f0e218f2  make-x64/test_cachewarm_ticks.c
 838b9271d70d24e634be8843dc0b7c05  src/cccam-session.h
+83c31baa0d97dbf966978885f4d47846  tests/profile-functional-audit.py
 840b448e408cd494d64da9a60d8ea929  docs/REPORT-3.12-ar.md
 846da9f9d1b473bb531ac20393fc0613  make-x64/memcheck.supp
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
@@ -529,7 +529,6 @@ a6452aa7a4ce444a4bfa931b29d51b64  src/cwcrosschannel.h
 a659624ae03d34db02dd9b87418a2e14  docs/soak-4.2/run.log
 a69e62118399aa39a8459e84b8e33048  tests/protoban
 a6b70555324a3fe05ad469089ad1a0fa  make-x64/test_parser.c
-a701bd987a2d0580cc7bfe4fd580fa86  docs/REPORT-R48-ar.md
 a74bff115c3c6ab06b900285103a73e4  make-x64/test_dcwstats.c
 a74d6b015bf048ea55a231a31cd7f351  tests/cccam-isolated.py
 a7fe7bd30728be1ea3bc45b63f9fcc29  src/r22stats.h
@@ -610,7 +609,6 @@ bead7d71e3e08fb87a6fe0c0befcc636  PRIORITY-2-IMPLEMENTATION.md
 bebd6954e41d617cb6349afb821829b9  src/httpserver.c
 bef2e86c50922352138870bf67059fdf  src/cwmemlimit.h
 bf5f2cad77d31b2c4f20424313b549f5  src/debug.h
-bf73fc629f923abb68ac3b8bde6eee08  MANIFEST-md5
 bfb3a851cf0621cef59278438da00a45  tests/cccam-dcw-check-trace.py
 bff339575cae858c45efffe13fd170f2  tests/cfgcheck.py
 c026a65105561c3224d792c01f36d38a  src/cache-pipe-queue.h
@@ -799,6 +797,7 @@ e7a39ffed4a0717d2723240e9b52607b  src/tools.h
 e7cd5960f2172cb799e0b4f86a8e45f8  docs/REPORT-R26-ar.md
 e7eabf1e4afbf7775a4816bd34906c33  docs/all312-run.log
 e8089b31f4093d955d650a3f93c2287e  make-x64/test_cache_pipe_queue.c
+e814a983b728d685215148620fa72c8d  tests/Makefile
 e843eabd5132ca97ddf0d1063991b90e  src/newcamd-lifetime.h
 e8559395f1ec707de919eb21cb25f9f5  make-x64/test_peer_origin.c
 e8da713e1b67f0d61e76b594004b1349  src/dcwstrict.h
@@ -836,6 +835,7 @@ f3b6e3ead0dd6133435b0fe1124effe4  docs/soak-4.2/peer-mirror.log
 f3e419169c0039325d271f5da056885f  src/ecm-optimizations.c
 f3f6a7c915be49c80fe39bf223631256  make-x64/asan.supp
 f3fc54807bccbb39748a1d699d4b3aef  BUILD-FIX-REPORT.md
+f42b4057f8afd3167b6e50f3a57ab775  docs/REPORT-R48-ar.md
 f4d45d5cfd4d923ec4b0d88d1618334c  src/cache-pipe-codec.h
 f5792f193f098e5126e639f1129e98b4  FINAL-SUMMARY-REPORT.md
 f57c0f6cc7ecbede3f6234f5d72c1d49  docs/user-trace.md
