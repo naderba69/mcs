@@ -529,11 +529,11 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 
 						//Check for card availability
 						memcpy( data, buf+17, len-17);
-						cardid = buf[10]<<24 | buf[11]<<16 | buf[12]<<8 | buf[13];
+						cardid = ((uint32_t)buf[10]<<24) | buf[11]<<16 | buf[12]<<8 | buf[13];
 						uint16_t caid = buf[4]<<8 | buf[5];
 						uint16_t sid = buf[14]<<8 | buf[15];
 						uint32_t provid = ecm_getprovid( data, len-17, caid );
-						if (provid==0) provid = buf[6]<<24 | buf[7]<<16 | buf[8]<<8 | buf[9];
+						if (provid==0) provid = ((uint32_t)buf[6]<<24) | buf[7]<<16 | buf[8]<<8 | buf[9];
 
 						/* User trace (mirrors srv-cccam.c): FreeCCcam-sourced
 						 * ECMs previously carried no trace instance, so gate

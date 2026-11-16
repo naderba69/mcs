@@ -68,7 +68,7 @@ void camd35_srv_recvmsg(struct server_data *srv)
 	int received = recvfrom( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
 	if ( (received<20)||(received>1020) ) return;
 
-	uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+	uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 	//Check for client
 	if (srv->ucrc!=ucrc) return;
 	//
@@ -228,7 +228,7 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 			cacheex.sid = (buf[12]<<8)|buf[13];
 			cacheex.caid = (buf[14]<<8)|buf[15];
-			cacheex.provid = (buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];
+			cacheex.provid = (((uint32_t)buf[16]<<24))|(buf[17]<<16)|(buf[18]<<8)|buf[19];
 			// Look for cardserver
 			cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
 			if ( !cs || !cs->option.fallowcacheex ) {
@@ -240,7 +240,7 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			if ((buf[23]&0xFE)==0x80) cacheex.tag = buf[23]; else cacheex.tag = 0;
 			memcpy( cacheex.ecmd5, buf+24, 16);
 			//if ( !checkECMD5(cacheex.ecmd5) ) cli->cacheex.totalcsp++;
-			cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
+			cacheex.hash = (((uint32_t)buf[43]<<24)) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 			if (!cacheex_check(&cacheex)) break;
 			//debugf( getdbgflag(DBG_CACHEEX, 0, 0)," CACHEEX PUSH from client(%d) %04x:%06x:%04x (%08x)\n",cli->id,cacheex.caid,cacheex.provid,cacheex.sid,cacheex.hash);
 			pthread_mutex_lock(&prg.lockcacheex);
@@ -364,7 +364,7 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 			unsigned char buf[1024];
 			int received = recvfrom( fd, buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
 			if ( (received<20)||(received>1020) ) break;
-			uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+			uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 			if (srv->ucrc!=ucrc) break;
 			aes_decrypt( &srv->decryptkey, buf+4, received-4);
 			if (buf[4]==CAMD_CEX_IDREPLY) { // good
@@ -413,7 +413,7 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 			unsigned char buf[1024];
 			int received = recvfrom( fd, buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
 			if ( (received<20)||(received>1020) ) break;
-			uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+			uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 			if (srv->ucrc!=ucrc) break;
 			aes_decrypt( &srv->decryptkey, buf+4, received-4);
 			if (buf[4]==CAMD_KEEPALIVE) { // good

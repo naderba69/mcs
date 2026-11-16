@@ -529,7 +529,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 				case CC_MSG_CARD_DEL: // Delete Card
 					ecm_lock(); //###
 					card = srv->card;
-					uint32_t k = buf[4]<<24 | buf[5]<<16 | buf[6]<<8 | buf[7];
+					uint32_t k = ((uint32_t)buf[4]<<24) | buf[5]<<16 | buf[6]<<8 | buf[7];
 					struct cs_card_data *prevcard = NULL;
 					while (card) {
 						if (card->shareid==k) {
@@ -562,7 +562,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 						// nodeid index = 26 + 7 * buf[24]
 						struct cs_card_data tcard;
 						memset(&tcard, 0, sizeof(struct cs_card_data) );
-						tcard.shareid = buf[4]<<24 | buf[5]<<16 | buf[6]<<8 | buf[7];
+						tcard.shareid = ((uint32_t)buf[4]<<24) | buf[5]<<16 | buf[6]<<8 | buf[7];
 						tcard.uphops = buf[14]+1;
 						memcpy( tcard.nodeid, buf+26+buf[24]*7, 8);
 						tcard.caid = (buf[12]<<8)+(buf[13]);
@@ -629,7 +629,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 							memset(&cacheex, 0, sizeof(cacheex));
 							cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 							cacheex.caid = (buf[4]<<8) | buf[5];
-							cacheex.provid = (buf[6]<<24) | (buf[7]<<16) | (buf[8]<<8) | buf[9];
+							cacheex.provid = (((uint32_t)buf[6]<<24)) | (buf[7]<<16) | (buf[8]<<8) | buf[9];
 							cacheex.sid = (buf[14]<<8) | buf[15];
 						// Look for cardserver
 						cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
@@ -649,7 +649,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 								srv->cacheex.csp++;
 								pthread_mutex_unlock(&prg.lockcacheex);
 							}
-							cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
+							cacheex.hash = (((uint32_t)buf[43]<<24)) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 							memcpy( cw, buf+44, 16);
 							if (!cacheex_check(&cacheex)) break;
 							pthread_mutex_lock( &prg.lockcache );

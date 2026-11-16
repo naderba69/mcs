@@ -171,14 +171,14 @@ uint32_t flagdebug = 0; // ALL
 
 uint32_t getdbgflag( int i, int j, int k)
 {
-	return (i<<24) | (j<<16) | k;
+	return ((uint32_t)i<<24) | ((uint32_t)j<<16) | (uint32_t)k;
 }
 
 // to see servers/clients when profile is for debug
 uint32_t getdbgflagpro( int i, int j, int k, int csid )
 {
-	if ( (flagdebug>>24)==DBG_NEWCAMD ) return ( (DBG_NEWCAMD<<24) | (csid<<16) );
-	else return (i<<24) | (j<<16) | k;
+	if ( (flagdebug>>24)==DBG_NEWCAMD ) return ( ((uint32_t)DBG_NEWCAMD<<24) | ((uint32_t)csid<<16) );
+	else return ((uint32_t)i<<24) | ((uint32_t)j<<16) | (uint32_t)k;
 }
 
 int chkdbgflag( uint32_t f )

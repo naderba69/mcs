@@ -1155,7 +1155,7 @@ int get_cache2ecm_with_verify(uint8_t *buf, size_t len,
 	pcache->sid = (buf[2]<<8) | buf[3];
 	pcache->onid = (buf[4]<<8) | buf[5];
 	pcache->caid = (buf[6]<<8) | buf[7];
-	pcache->hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | buf[11];
+	pcache->hash = ((uint32_t)((uint32_t)buf[8]<<24)) | (buf[9]<<16) | (buf[10]<<8) | buf[11];
 	memcpy(&pcache->ecm, buf+index, sizeof(void*));
 	index += sizeof(void*);
 	memcpy(&ecm_lifetime_id, buf+index, sizeof(ecm_lifetime_id));
@@ -1163,7 +1163,7 @@ int get_cache2ecm_with_verify(uint8_t *buf, size_t len,
 	pcache->ecm_lifetime_id = ecm_lifetime_id;
 	index += sizeof(ecm_lifetime_id);
 	if (has_cw) {
-		uint32_t peerid = ((uint32_t)buf[index]<<24) | ((uint32_t)buf[index+1]<<16) |
+		uint32_t peerid = ((uint32_t)((uint32_t)buf[index]<<24)) | ((uint32_t)buf[index+1]<<16) |
 		                  ((uint32_t)buf[index+2]<<8) | buf[index+3];
 		index += CACHE_PIPE_FIND_SUCCESS_PEERID_LEN;
 		memcpy(cw, buf+index, CACHE_PIPE_FIND_SUCCESS_CW_LEN);
@@ -1414,7 +1414,7 @@ int get_ecm2cache(uint8_t *buf, int len, struct cache_data *pcache, uint8_t *cw)
 	pcache->sid = (buf[2]<<8) | buf[3];
 	pcache->onid = (buf[4]<<8) | buf[5];
 	pcache->caid = (buf[6]<<8) | buf[7];
-	pcache->hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | (buf[11]);
+	pcache->hash = ((uint32_t)((uint32_t)buf[8]<<24)) | (buf[9]<<16) | (buf[10]<<8) | (buf[11]);
 	pcache->provid = (buf[12]<<16) | (buf[13]<<8) | (buf[14]);
 	pcache->provider_known = !!(buf[15] & 0x80) || pcache->provid != 0;
 	pcache->cwcycle = (cwcycle_t)(buf[15] & 0x7F);
@@ -3443,7 +3443,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.sid = (buf[2]<<8) | buf[3];
 			req.onid = (buf[4]<<8) | buf[5];
 			req.caid = (buf[6]<<8) | buf[7];
-			req.hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
+			req.hash = ((uint32_t)((uint32_t)buf[8]<<24)) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
 			req.provid = 0;
 
 
@@ -3515,7 +3515,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.sid = (buf[2]<<8) | buf[3];
 			req.onid = (buf[4]<<8) | buf[5];
 			req.caid = (buf[6]<<8) | buf[7];
-			req.hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
+			req.hash = ((uint32_t)((uint32_t)buf[8]<<24)) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
 			req.provid = 0;
 
 
@@ -3581,7 +3581,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.sid = (buf[6]<<8) | buf[7];
 			req.onid = (buf[8]<<8) | buf[9];
 			req.caid = (buf[10]<<8) | buf[11];
-			req.hash = ((uint32_t)buf[12]<<24) | (buf[13]<<16) | (buf[14]<<8) | buf[15];
+			req.hash = ((uint32_t)((uint32_t)buf[12]<<24)) | (buf[13]<<16) | (buf[14]<<8) | buf[15];
 			req.provid = 0;
 			//
 			// Check Cache Request
@@ -3882,7 +3882,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			int totalcards = (received-2)/4;
 			int j=0;
 			while ( (j<totalcards)&&(idx<1024) ){
-				peer->cards[idx] = ((uint32_t)buf[2+j*4]<<24)|((uint32_t)buf[3+j*4]<<16)|((uint32_t)buf[4+j*4]<<8)|buf[5+j*4];
+				peer->cards[idx] = ((uint32_t)((uint32_t)buf[2+j*4]<<24))|((uint32_t)buf[3+j*4]<<16)|((uint32_t)buf[4+j*4]<<8)|buf[5+j*4];
 				j++; idx++;
 			}
 			peer->nbcards = idx;
@@ -3927,7 +3927,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
 			if (IS_DISABLED(peer->flags)) break;
 			if (received<6) break;
-			uint32_t hash = ((uint32_t)buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
+			uint32_t hash = ((uint32_t)((uint32_t)buf[1]<<24)) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
 			buf[received] = 0;
 			// Reject an oversized escaped message without storing it or sending ACK.
 			struct sms_data *sms = malloc( sizeof(struct sms_data) );
@@ -3966,7 +3966,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			if (IS_DISABLED(peer->flags)) break;
 			if (received!=5) break;
 			if (!peer->sms) break;
-			hash = ((uint32_t)buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
+			hash = ((uint32_t)((uint32_t)buf[1]<<24)) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
 			// Search for data
 			sms = peer->sms;
 			while (sms) {

@@ -71,7 +71,7 @@ void *cs378x_connect_cli(struct connect_cli_data *param)
 		close(sock);
 		return NULL;
 	}
-	uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+	uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 	//Check for clients
 	struct camd35_client_data *cli = cs378x->client;
 	while (cli) {
@@ -501,7 +501,7 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 		cs378x_disconnect_cli(cli);
 		return NULL;
 	}
-	uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+	uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 	if (ucrc!=cli->ucrc) {
 		debugf(getdbgflag(DBG_CS378X,0,cli->id)," cs378x: wrong UCRC failed from client '%s'\n", cli->user);
 		cs378x_disconnect_cli(cli);
@@ -577,7 +577,7 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 			cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 			cacheex.sid = (buf[12]<<8)|buf[13];
 			cacheex.caid = (buf[14]<<8)|buf[15];
-			cacheex.provid = (buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];
+			cacheex.provid = (((uint32_t)buf[16]<<24))|(buf[17]<<16)|(buf[18]<<8)|buf[19];
 			// Look for cardserver
 			cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
 			if ( !cs || !cs->option.fallowcacheex ) {
@@ -589,7 +589,7 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 			if ((buf[23]&0xFE)==0x80) cacheex.tag = buf[23]; else cacheex.tag = 0;
 			memcpy( cacheex.ecmd5, buf+24, 16);
 			//if ( !checkECMD5(cacheex.ecmd5) ) cli->cacheex.totalcsp++;
-			cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
+			cacheex.hash = (((uint32_t)buf[43]<<24)) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 			if (!cacheex_check(&cacheex)) break;
 			pthread_mutex_lock(&prg.lockcacheex);
 			cli->cacheex.got[0]++;
@@ -711,7 +711,7 @@ void *cs378x_recvmsg( struct camd35_client_data *cli )
 			uint16_t sid = buf[4+8]<<8 | buf[4+9];
 			uint16_t caid = buf[4+10]<<8 | buf[4+11];
 			uint32_t provid = ecm_getprovid( ecmdata, ecmlen, caid );
-			if (provid==0) provid = buf[4+12]<<24 | buf[4+13]<<16 | buf[4+14]<<8 | buf[4+15];
+			if (provid==0) provid = ((uint32_t)buf[4+12]<<24) | buf[4+13]<<16 | buf[4+14]<<8 | buf[4+15];
 
 			/* Band 73: mirror the CCcam ingress trace for cs378x
 			 * clients - see srv-mgcamd.c. Opt-in via /user-trace. */

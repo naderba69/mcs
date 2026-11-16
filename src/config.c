@@ -6875,9 +6875,9 @@ int read_ip2country( struct config_data *cfg )
 			memset( data, 0, sizeof(struct ip2country_data) );
 			unsigned int ip4[4];
 			if (sscanf(value[idfirstip],"%d.%d.%d.%d", &ip4[0], &ip4[1], &ip4[2], &ip4[3])==4) {
-				data->ipstart = (ip4[0]<<24)|(ip4[1]<<16)|(ip4[2]<<8)|(ip4[3]);
+				data->ipstart = (((uint32_t)ip4[0]<<24))|(ip4[1]<<16)|(ip4[2]<<8)|(ip4[3]);
 				if (sscanf(value[idlastip],"%d.%d.%d.%d", &ip4[0], &ip4[1], &ip4[2], &ip4[3])==4) {
-					data->ipend = (ip4[0]<<24)|(ip4[1]<<16)|(ip4[2]<<8)|(ip4[3]);
+					data->ipend = (((uint32_t)ip4[0]<<24))|(ip4[1]<<16)|(ip4[2]<<8)|(ip4[3]);
 					strcpy(data->code, value[idcode]);
 					data->next = cfg->ip2country;
 					cfg->ip2country = data;

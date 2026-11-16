@@ -308,7 +308,7 @@ void cacheex_pipe_recvmsg()
 					req.tag = buf[3];
 					req.provid = (buf[4]<<16) | (buf[5]<<8) | buf[6];
 					req.sid = (buf[7]<<8) | buf[8];
-					req.hash = (buf[9]<<24) | (buf[10]<<16) | (buf[11]<<8) | buf[12];
+					req.hash = (((uint32_t)buf[9]<<24)) | (buf[10]<<16) | (buf[11]<<8) | buf[12];
 					memcpy(req.ecmd5, buf+13, 16);
 					memcpy(cw, buf+29, 16);
 					// Send Reply
@@ -324,7 +324,7 @@ void cacheex_pipe_recvmsg()
 					req.tag = buf[3];
 					req.provid = (buf[4]<<16) | (buf[5]<<8) | buf[6];
 					req.sid = (buf[7]<<8) | buf[8];
-					req.hash = (buf[9]<<24) | (buf[10]<<16) | (buf[11]<<8) | buf[12];
+					req.hash = (((uint32_t)buf[9]<<24)) | (buf[10]<<16) | (buf[11]<<8) | buf[12];
 					memcpy(req.ecmd5, buf+13, 16);
 					memcpy(cw, buf+29, 16);
 					// Send Reply

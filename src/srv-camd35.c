@@ -323,7 +323,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 	}
 #endif
 
-	uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+	uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 	//Check for clients
 	struct camd35_client_data *cli = camd35->client;
 	while (cli) {
@@ -352,7 +352,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 	else len = buf[5];
 	// Check for data-crc
 	uint32_t datacrc = crc32(0L, buf+24, len);
-	uint32_t x = (buf[8]<<24)|(buf[9]<<16)|(buf[10]<<8)|buf[11];
+	uint32_t x = (((uint32_t)buf[8]<<24))|(buf[9]<<16)|(buf[10]<<8)|buf[11];
 	if (x!=datacrc) {
 		debugf(0, " camd35: Bad crc got=%08x calculated=%08x\n", x, datacrc);
 		return;
@@ -393,7 +393,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 			cacheex.sid = (buf[12]<<8)|buf[13];
 			cacheex.caid = (buf[14]<<8)|buf[15];
-			cacheex.provid = (buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];
+			cacheex.provid = (((uint32_t)buf[16]<<24))|(buf[17]<<16)|(buf[18]<<8)|buf[19];
 			// Look for cardserver
 			cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
 			if ( !cs || !cs->option.fallowcacheex ) {
@@ -405,7 +405,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			if ((buf[23]&0xFE)==0x80) cacheex.tag = buf[23]; else cacheex.tag = 0;
 			memcpy( cacheex.ecmd5, buf+24, 16);
 			//if ( !checkECMD5(cacheex.ecmd5) ) cli->cacheex.totalcsp++;
-			cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
+			cacheex.hash = (((uint32_t)buf[43]<<24)) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 			if (!cacheex_check(&cacheex)) break;
 			pthread_mutex_lock(&prg.lockcacheex);
 			cli->cacheex.got[0]++;
@@ -526,7 +526,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			uint16_t sid = buf[4+8]<<8 | buf[4+9];
 			uint16_t caid = buf[4+10]<<8 | buf[4+11];
 			uint32_t provid = ecm_getprovid( ecmdata, ecmlen, caid );
-			if (provid==0) provid = buf[4+12]<<24 | buf[4+13]<<16 | buf[4+14]<<8 | buf[4+15];
+			if (provid==0) provid = ((uint32_t)buf[4+12]<<24) | buf[4+13]<<16 | buf[4+14]<<8 | buf[4+15];
 
 			/* Band 73: mirror the CCcam ingress trace for camd35
 			 * clients - see srv-cs378x.c. Opt-in via /user-trace. */
