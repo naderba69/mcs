@@ -2643,36 +2643,6 @@ sid accept:
 		}
 #endif
 
-		else if (!strcmp(str,"ECM")) {
-			parse_name(str);
-			uppercase(str);
-			if (strcmp(str,"DOUBLECHECK")) {
-				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown ECM option '%s'\n",file->nbline,iparser-currentline,str);
-				continue;
-			}
-			/* ECM DOUBLECHECK: 1884 0500 ... -- hex CAIDs whose ECMs get
-			 * an observe-mode double check (results compared + logged in
-			 * setdcw.c; delivery is never gated by it). No line = inert. */
-			parse_spaces();
-			if ((*iparser!=':')&&(*iparser!='=')) {
-				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
-				continue;
-			} else iparser++;
-			parse_spaces();
-			if (!strncasecmp(iparser,"OFF",3)) { cfg_doublecheck_caid_count = -1; iparser += 3; continue; }
-			cfg_doublecheck_caid_count = 0;
-			for (;;) {
-				unsigned long v; char *endp;
-				parse_spaces();
-				if (!*iparser) break;
-				v = strtoul(iparser, &endp, 16);
-				if (endp==iparser) break;
-				iparser = endp;
-				if (cfg_doublecheck_caid_count<64)
-					cfg_doublecheck_caids[cfg_doublecheck_caid_count++] = (int)(v & 0xffff);
-			}
-		}
-
 		else if (!strcmp(str,"R22")) {
 			/* R22 LAYERS: YES/NO -- runtime kill switch for the candidate
 			 * CW layers (compiled only in the release-r22 flavour; parsed
@@ -5413,13 +5383,37 @@ link_mgcamd_user:
 		}
 
 		else if (!strcmp(str,"ECM")) {
-			if (!cardserver) {
+			/* Band 70: ONE ECM branch. The old early global branch
+			 * shadowed every profile ECM key (CHECK LENGTH /
+			 * FINGERPRINT / LENGTH / HEADERWLST never parsed). */
+			parse_name(str);
+			uppercase(str);
+			if (!strcmp(str,"DOUBLECHECK")) {
+				/* ECM DOUBLECHECK: hex CAIDs, observe-only (global). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_spaces();
+				if (!strncasecmp(iparser,"OFF",3)) { cfg_doublecheck_caid_count = -1; iparser += 3; continue; }
+				cfg_doublecheck_caid_count = 0;
+				for (;;) {
+					unsigned long v; char *endp;
+					parse_spaces();
+					if (!*iparser) break;
+					v = strtoul(iparser, &endp, 16);
+					if (endp==iparser) break;
+					iparser = endp;
+					if (cfg_doublecheck_caid_count<64)
+						cfg_doublecheck_caids[cfg_doublecheck_caid_count++] = (int)(v & 0xffff);
+				}
+			}
+			else if (!cardserver) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip ECM, undefined profile\n",file->nbline,iparser-currentline);
 				continue;
 			}
-			parse_name(str);
-			uppercase(str);
-			if (!strcmp(str,"LENGTH")) {
+			else if (!strcmp(str,"LENGTH")) {
 				parse_spaces();
 				if ((*iparser!=':')&&(*iparser!='=')) {
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
