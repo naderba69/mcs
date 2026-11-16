@@ -63,7 +63,13 @@ def audit(path, table):
             eff, src = CODE_DEFAULT_MS, "default"
         flag = "  <-- silently capped" if src == "TABLE-CAP" else ""
         print(f"{name[:42]:42} CAID {caid:04X}  effective {eff:5} ms  ({src}){flag}")
-    print(f"-- {path}: {profiles} profiles, {capped} TABLE-CAP")
+        # Band 68 invariant: the cache wait must finish inside the
+        # client deadline, or a cache miss starves the server path.
+        ct = re.search(r"\nCACHE TIMEOUT:\s*(\d+)", part)
+        if ct and int(ct.group(1)) >= eff:
+            capped += 1
+            print(f"{name[:42]:42} CAID {caid:04X}  CACHE TIMEOUT {ct.group(1)} >= DCW {eff}  <-- cache wait can never complete")
+    print(f"-- {path}: {profiles} profiles, {capped} violation(s)")
     return capped
 
 
