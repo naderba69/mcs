@@ -153,6 +153,7 @@
 20d219f9c855160bef706a75cc36cea2  tests/ca-bite.c
 21c11b2bf2a08063dbb9360881f67577  src/x64/multics
 221eef2b67884d1166dedd89e3f45fa0  EXTERNAL-RESEARCH-REPORT.md
+23b491c910c7fb143e0a0c39d369803f  tests/slow1884.sh
 23cc74be3f43edc4814aeb88e6859a32  tests/crypto-alignment.c
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 25067811fa0dcf30f1d15577121d674a  src/config.h
@@ -290,6 +291,7 @@
 53ae8bfafba95484e8e78ca411323617  tests/test_cfgcheck_blind.py
 53f8885a80d80c901975fad3382382fb  src/chanhealth.h
 54373e8292d92f415ebccef5266a09a3  src/fallback.h
+5441ace0b4b12dd4fd447f324e330a97  MANIFEST-md5
 54aad7857f4f8b732d9b26967dad9db4  docs/REPORT-R4-ar.md
 550040f3cc08f2d97789982ce116b846  make-x64/test_cw_timing.c
 55279f1a4ba1ad8d9c4cd3b9132810a6  COMPREHENSIVE-TEST-REPORT-ar.md
@@ -579,7 +581,6 @@ b45d9346505033f80bc5597fd71e87a2  tests/cacheex-provider-collision.py
 b4f2772066e269642b5b67726fdcf930  docs/all39-run.log
 b57093651752baaeac6de0e701c8cdd2  src/msg-radegast.h
 b5cf4be5602fcf8a63af62118e18f288  tests/docrefs.sh
-b6145daf146642f728883a6ec8b20459  MANIFEST-md5
 b6379a08119c84be4dde275a46bab425  tests/ecm-radegast-identity.c
 b660590b0a8c9ed2aca2fa38cabdd312  tests/cccam-repeated-cw.py
 b668f23cfad77bd06c1caee5e96fd77c  src/udpfast.h
