@@ -1571,7 +1571,11 @@ void cs_recv_pipe()
 						if (!pipe_decode_u32_message(buf, (size_t)len,
 						                            PIPE_CLI_CONNECTED, &client_id) ||
 						    !client_id) break;
-						cli = getnewcamdclientbyid(client_id);
+						/* Band 85: cli was used undeclared in this
+						 * EPOLL_NEWCAMD branch (production builds
+						 * take the #else thread, so only test
+						 * harnesses defining EPOLL_NEWCAMD saw it). */
+						struct cs_client_data *cli = getnewcamdclientbyid(client_id);
 						if (!cli || newcamd_client_state_lock(cli) != 0) break;
 						handle = cli->handle;
 						session_generation = cs_client_session_generation(cli);
@@ -1652,7 +1656,7 @@ void *cs_recvmsg_thread(void *param)
 					debugf(DBG_ERROR, "Err! epoll_wait() pipe\n");
 				continue;
 			}
-			cli = getnewcamdclientbyid(client_id);
+			struct cs_client_data *cli = getnewcamdclientbyid(client_id); /* Band 85: was undeclared */
 			if (cli)
 				cs_cli_process_epoll_event(cli, event_generation_low, events);
 		}

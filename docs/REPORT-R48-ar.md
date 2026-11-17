@@ -2267,3 +2267,23 @@ Commits على `arena/59c38810-mcs`: ‏`033efd7`، ‏`172e455`، ‏`f9d5fe2`�
       (MARCHCHECK/CWDUP/CWREUSE/LATECW) مطفأة ما لم
       تُفعّل مفاتيحها هي أيضًا.
     - البصمة الجديدة `2f42f4c5f6d2053280840dd46d809cae`.
+
+85. **تصليح أهداف cache-check/cross المنكسرة (بند 85)**:
+    - الديون (ب) من بند 83 أُغلقت: الأهداف الثلاثة
+      (cache-check-characterization, cache-cross-provider,
+      cache-cross-gates) كانت تنكسر قبل تشغيل أي تأكيد.
+    - الأسباب ثلاثة: (1) فرع EPOLL_NEWCAMD في
+      srv-newcamd.c (لا يستخدمه بناء الإنتاج) استخدم
+      `cli` دون إعلان في موضعين؛ (2) عقدة cross-provider
+      افتقدت stubs لعدّادات diagnostics/analytics وفحص
+      الإعفاء و`-lm`، بنفس نمط الـstubs القائمة فيها؛
+      (3) كود DropDiffs في setdcw.c استخدم `ecm->ecmd5`
+      دون حماية رغم أن الحقل يوجد فقط تحت CACHEEX —
+      عطل تجميع كامن لأي بناء بلا CACHEEX. الآن تُتخطى
+      DropDiffs حيث لا هوية ecmd5 (لا تُمرَّر NULL لأن
+      الدوال تنسخ الـhash).
+    - النتيجة: الأهداف الثلاثة PASS كاملة. بناء الإنتاج
+      بصمته لم تتغير (`2f42f4c5f6d2053280840dd46d809cae`)
+      لأن كل الإصلاحات خارج مسارات CACHEEX/EPOLL_NEWCAMD
+      المُترجمة إنتاجيًا — دليل إضافي على انعدام الأثر.
+      dropdiffs-live وssfconsole وcwpair خضراء.

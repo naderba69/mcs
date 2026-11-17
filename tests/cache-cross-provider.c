@@ -107,6 +107,18 @@ void debughex(uint8_t *a,int b) { (void)a;(void)b; }
 void dcw_filter_globals_snapshot(int *a,int *b,int *c,int *d)
 { if(a)*a=0;if(b)*b=0;if(c)*c=0;if(d)*d=0; }
 int dcw_filter_strict_snapshot(void) { return 0; } /* strict OFF in this harness, same contract as the globals stub above */
+/* Band 85: diagnostics/analytics counters and the checksum-exemption
+ * probe are not subjects of this harness; setdcw.c references them,
+ * so stub them like the other non-subject counters above. */
+void diagnostics_record_rejection(void) {}
+void diagnostics_record_delivery(int cache_hit, uint32_t response_ms)
+{ (void)cache_hit; (void)response_ms; }
+void cache_analytics_record_request(uint16_t caid, uint32_t provid, uint16_t sid,
+                                    int cache_hit, uint32_t response_time)
+{ (void)caid; (void)provid; (void)sid; (void)cache_hit; (void)response_time; }
+int dcw_checksum_exemption_applies(struct cardserver_data *cs,
+                                   uint16_t caid, uint32_t provid, uint16_t sid)
+{ (void)cs; (void)caid; (void)provid; (void)sid; return 0; }
 void hex32(int a,char *b) { (void)a;if(b)b[0]=0; }
 int rdgd_message_send(int a,unsigned char *b,int c) { (void)a;(void)b;(void)c;return -1; }
 int dcw_profile_cycle_enabled(struct cardserver_data *cs) { (void)cs; return 0; }

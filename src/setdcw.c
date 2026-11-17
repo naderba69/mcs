@@ -1421,7 +1421,12 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 	 * it cannot tell a first fake from a first truth, which is the
 	 * consensus/profile gates' job. */
 	if ((cs->option.dropdiffs ? cs->option.dropdiffs == 1 : cfg.cache.dropdiffs) &&
-	    !cacheex_dropdiffs_check(ecm->caid, ecm->provid, ecm->sid, dcw, ecm->ecmd5)) {
+#ifdef CACHEEX
+	    !cacheex_dropdiffs_check(ecm->caid, ecm->provid, ecm->sid, dcw, ecm->ecmd5)
+#else
+	    0 /* Band 85: no ecmd5 identity without CACHEEX; DropDiffs cannot judge */
+#endif
+	    ) {
 		char detail[96];
 		snprintf(detail, sizeof(detail), "CW rejected by ECM worker: DropDiffs (differs from known-good for this ECM)");
 		trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, detail);
@@ -1595,8 +1600,12 @@ trusted_deliver:
 	/* DROPDIFFS: this committed CW becomes the known-good reference
 	 * for any later differing candidate for the same ECM. */
 	if (cs->option.dropdiffs ? cs->option.dropdiffs == 1 : cfg.cache.dropdiffs)
+#ifdef CACHEEX
 		cacheex_dropdiffs_store_good(ecm->caid, ecm->provid, ecm->sid, dcw, ecm->ecmd5,
 		                             srctype == DCW_SOURCE_SERVER ? 10 : 5);
+#else
+		(void)0; /* Band 85: no ecmd5 identity without CACHEEX; nothing to store */
+#endif
 	cache_reply_len = pipe_cache_reply(ecm, cs, cache_reply_buf,
 	                                   sizeof(cache_reply_buf), source_origin_mask);
 	delivery_valid = ledger_delivery_snapshot_capture_locked(&delivery, ecm);

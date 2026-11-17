@@ -152,7 +152,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-c6b24e9e79d7c657e3faad36bb49bd8e  docs/REPORT-R48-ar.md
+803c0cc27f26939c885080ff0eedf6e9  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -649,7 +649,7 @@ bb42a53e55698772ba3b4e6dd8fb80f6  src/scramchk.h
 443bfe888cce44b30ec6639915ec090c  src/server-performance.h
 c28cc5d8f7396e2075fcca2c459e7d22  src/server-stats.c
 614c96c16fce728cdf28c2a94b457c9e  src/server-stats.h
-bbef43ae68a1e9530d038020e401e671  src/setdcw.c
+3ae0046463242dfcbd30650898b66580  src/setdcw.c
 16c69e6b1bab07c3fd1af90038d12fa6  src/sha1.c
 f245f7e5032e0752df586d67ed24942a  src/sha1.h
 9cfcb141eba70989f1caf2ff070cc994  src/sha256.c
@@ -665,7 +665,7 @@ d81f1b6f49a731250730434cd6f39859  src/sockets.h
 577668e37e3654ea447385ef344b757f  src/srv-cs378x.c
 6991787ba89662d200e4c2878b31231c  src/srv-freecccam.c
 9415156458289e3205f7c120dc266146  src/srv-mgcamd.c
-e588c5233726e2ffa207643a2fa5c07f  src/srv-newcamd.c
+ad62f9764d124747c8a610abe0faee3b  src/srv-newcamd.c
 e1dd36053481d6f4abd4a1cd15030109  src/srv-radegast.c
 5cf4fd45ab8a814068fa38434d0089ac  src/statsline.h
 fa9299cc3f10cb25ca87bb13e36e0138  src/supersmartfilter.h
@@ -750,8 +750,8 @@ b33f280bc38bdb26a3c20fa7c7dc8db2  tests/cache-consensus-prefill.py
 3b666e657e78246f6c6152adb39209f9  tests/cache-consensus-three-peers.py
 d8c969bf2fa789a0acf23c9ab926fa4f  tests/cache-cross-gates.c
 02b50c5de7b3016ff1110552573c4a71  tests/cache-cross-gates.sh
-37d5fc9afafa87672d86e472493e7f9a  tests/cache-cross-provider.c
-7d51b985a1ce0202c0deb375e2de3dd5  tests/cache-cross-provider.sh
+199098561194fd1c9b0e79cb65d7cf4c  tests/cache-cross-provider.c
+a8cf1ad4cfeb5bf88f09ad3f44872911  tests/cache-cross-provider.sh
 0c0f09210608d313292b8059e984a9f4  tests/cache-disabled-peer.py
 92e1649007ac451546185835a949bf70  tests/cache-hash-invariants.c
 8f7bb2c2aa793a2a0c5adfced695a531  tests/cache-hash-invariants.sh
