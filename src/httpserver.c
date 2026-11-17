@@ -1065,6 +1065,20 @@ void http_send_ok(int sock)
 	tcp_flush(&tcpbuf, sock);
 }
 
+/* Band 89: detail pages (server/profile/client/cache-peer) used to
+ * `return` without writing a single byte when the id was missing
+ * or unknown -- the browser got an empty, closed connection
+ * (ERR_EMPTY_RESPONSE) instead of an answer. Always respond. */
+static void http_send_not_found(int sock, const char *what)
+{
+	char http_buf[256];
+	struct tcp_buffer_data tcpbuf;
+	tcp_init(&tcpbuf);
+	snprintf( http_buf, sizeof(http_buf), "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n%s not found\n", what);
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	tcp_flush(&tcpbuf, sock);
+}
+
 
 void http_send_text(int sock, char *buf)
 {
@@ -2199,15 +2213,12 @@ void http_send_server(int sock, http_request *req)
 	//
 	int get_id;
 	char *str_id = isset_get( req, "id");
-	if (str_id)	get_id = atoi(str_id); else return;
+	if (str_id)	get_id = atoi(str_id); else { http_send_not_found(sock, "Server"); return; }
 
 	//look for server
 	struct server_data *srv = getsrvbyid( get_id );
 	if (!srv) {
-		tcp_init(&tcpbuf);
-		http_replyok_write(req, &tcpbuf, sock);
-		sprintf( http_buf, "<br>Server not found (id=%d)<br>", get_id);
-		tcp_flush(&tcpbuf, sock);
+		http_send_not_found(sock, "Server"); /* Band 89: the composed message was never written (200, empty body) */
 		return;
 	}
 	//
@@ -3151,9 +3162,9 @@ void http_send_cache_peer(int sock, http_request *req)
 	struct http_cache_peer_detail_snapshot detail;
 	struct http_cache_peer_row_snapshot status_row;
 	struct http_cache_peer_row_snapshot *peer;
-	if (!str_id) return;
+	if (!str_id) { http_send_not_found(sock, "Cache peer"); return; }
 	parsed_id = strtol(str_id, &id_end, 10);
-	if (id_end == str_id || *id_end || parsed_id < 0 || parsed_id > 0xffff) return;
+	if (id_end == str_id || *id_end || parsed_id < 0 || parsed_id > 0xffff) { http_send_not_found(sock, "Cache peer"); return; }
 	get_id = (int)parsed_id;
 
 	str_action = isset_get(req, "action");
@@ -4166,11 +4177,11 @@ static void http_send_newcamd_client_inner(int sock, http_request *req)
 	int have_lastecm_snapshot = 0;
 	int have_current_ecm_snapshot = 0;
 	char *str_id = isset_get( req, "id");
-	if (!str_id) return; //error
+	if (!str_id) { http_send_not_found(sock, "Client"); return; } //error
 	int get_id = atoi(str_id);
 	//
 	struct cs_client_data *cli = getnewcamdclientbyid( get_id );
-	if (!cli) return;
+	if (!cli) { http_send_not_found(sock, "Client"); return; }
 	// Action
 	char *str_action = isset_get( req, "action");
 	int get_action = 0;
@@ -4472,7 +4483,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 	char *str_id = isset_get( req, "id");
 	if (str_id)	get_id = atoi(str_id);
 	struct cardserver_data *cs = getcsbyid(get_id);
-	if (!cs) return;
+	if (!cs) { http_send_not_found(sock, "Profile"); return; }
 	// Action
 	char *str_action = isset_get( req, "action");
 	int get_action = 0;
@@ -6739,7 +6750,7 @@ void http_send_cccam_client(int sock, http_request *req)
 		struct cccam_server_data *cccam = getcccamserverbyid( atoi(str_srvid) );
 		if (cccam) cli = getcccamclientbyname( cccam, str_name );
 	}
-	if (!cli) return;
+	if (!cli) { http_send_not_found(sock, "Client"); return; }
 	//
 
 	if (get_action==ACTION_XML) {
@@ -7599,10 +7610,10 @@ void http_send_mgcamd_client(int sock, http_request *req)
 	struct tcp_buffer_data tcpbuf;
 	// Get Client ID
 	char *str_id = isset_get( req, "id");
-	if (!str_id) return; //error
+	if (!str_id) { http_send_not_found(sock, "Client"); return; } //error
 	int get_id = atoi(str_id);
 	struct mg_client_data *cli = getmgcamdclientbyid(get_id);
-	if (!cli) return;
+	if (!cli) { http_send_not_found(sock, "Client"); return; }
 	// Action
 	char *str_action = isset_get( req, "action");
 	int get_action = 0;

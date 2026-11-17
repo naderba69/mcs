@@ -377,3 +377,7 @@ readycfg:
 # Operator report: whole-file editor save must not kick clients.
 savekick: .ncclient.bin .ncserver.bin
 	@python3 savekick-live.py $(BIN)
+
+# Band 89: every web route answered and sane (virtual browser sweep).
+pageaudit:
+	@python3 pageaudit.py $(BIN)
