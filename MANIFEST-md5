@@ -152,7 +152,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-22bcf16dbdb9d1b240c686cc2195eee3  docs/REPORT-R48-ar.md
+c294f335f909b11efea31045a221dbf7  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -737,7 +737,7 @@ addad57e2865ca125b0a0e344a04d5b2  src/zerohandoff.h
 d891e63347205f1bde3fca5ae2239420  src/zerolatency.h
 49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-1ed4a632e850d567d765c3b11cea16ee  tests/Makefile
+ae0c6abb8bfe535389bfac6ef9bc7d61  tests/Makefile
 c4753a58d62747cb581addf833032ef3  tests/__pycache__/cccam-trace-success.cpython-311.pyc
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 20d219f9c855160bef706a75cc36cea2  tests/ca-bite.c
@@ -851,6 +851,7 @@ eb65b452fadc1bf7176791d50b3e7ca8  tests/protoban.c
 e1ddbbf8b0eb15a374b9c52b041a702e  tests/protoban.sh
 b15af4b90f3df83d9880d9601260f980  tests/r107peer.c
 cc0f9f1ddf4f423a3bbdf994ef856e2a  tests/radegast-server-smoke.py
+12bd2da9e1dd42c9171f427266e32297  tests/readycfg-audit.py
 af805e473a54bb17c93da08d7ad64ba5  tests/reloadban-live.py
 5dad8068f5991738e8ac93cdaa9529da  tests/run-peerrep-pr.sh
 60584449465bb20ece8afe3f76abd73f  tests/safe-time.c

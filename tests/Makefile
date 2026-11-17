@@ -373,3 +373,7 @@ ssfconsole: .ncclient.bin .ncserver.bin
 # Band 86: shipped 30W-52E config, booted; declared settings in effect.
 readycfg:
 	@python3 readycfg-audit.py $(BIN)
+
+# Operator report: whole-file editor save must not kick clients.
+savekick: .ncclient.bin .ncserver.bin
+	@python3 savekick-live.py $(BIN)
