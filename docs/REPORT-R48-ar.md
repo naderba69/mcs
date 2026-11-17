@@ -2371,3 +2371,33 @@ Commits على `arena/59c38810-mcs`: ‏`033efd7`، ‏`172e455`، ‏`f9d5fe2`�
       و/restart يرد صفحته ثم يُعيد التشغيل كما صُمم —
       يُفحص أخيرًا لأنه فعل لا صفحة).
     - البصمة الجديدة `6c3c96db63a8137496d13d048570db9e`.
+
+90. **ترقية تصميم UX/UI لكل صفحات الويب (بند 90)**:
+    - طلب المشغّل: ترقية تصميم UX/UI لجميع الصفحات.
+      الجرد أثبت أن الأنماط المشتركة كلها في مصدر واحد
+      (`src/httpstyle.c`، تُحقن inline في كل صفحة عبر
+      `http_style_write`)، فأُعيدت كتابتها كنظام تصميم
+      كامل يصل كل الصفحات دفعة واحدة دون لمس أي خطاف
+      كلاس قائم (.menu/.maintable/.infotable/.option/
+      .infomenu/.alt1-3/.success/.failed/.busy/.online/
+      .offline/.connect_data/.sbutton/.perf-card…):
+      متغيرات CSS موسّعة بتدرّجات زرقاء/فيروزية، احترام
+      `prefers-color-scheme` عند غياب اختيار محفوظ في
+      الثيم الداكن القائم (زر 🌙 + localStorage)، رؤوس
+      جداول لاصقة، شارات حالة pill، نماذج وأزرار حديثة
+      مع focus-visible، أرقام tabular، scrollbars
+      ملوّنة، `prefers-reduced-motion`، وتحسينات جوال.
+    - وُاءمت الصفحات ذات الأنماط المستقلة القديمة على
+      نفس الهوية: cache-analytics وdebug-ecm و
+      server-stats وdiagnostics (بطاقات stat-card) و
+      log-viewer (داكن) و/user-trace (مضمّنة في
+      httpserver.c)، إضافة إلى ألوان بطاقات home
+      (mainborder وأخواتها).
+    - التحقق: `pageaudit: PASS` ‏57/57 بالثنائي الجديد،
+      وssfconsole-live وsavekick-live PASS (فشل أولي
+      «card never connected» كان بقايا عمليات/تعارض
+      منافذ مع المعاينة الحية، يزول بإعادة التشغيل
+      النظيفة)، وكل الصفحات المُتحقق منها حيًّا تحمل
+      التدرّجات الجديدة (/editor0 ‏106KB و/log-viewer
+      و/user-trace…).
+    - البصمة الجديدة `fea98af3e588b4d4e681ec2ab659ec92`.
