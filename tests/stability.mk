@@ -36,6 +36,7 @@ STAB_CFG   = .stability.cfg
 # and once producing `/bin/sh: Syntax error: end of file unexpected`.
 stability:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@test -x ../make-x64/x64/multics || { echo "stability: building the stock flavour first"; $(MAKE) -C ../make-x64 >/dev/null; }
 	@command -v stdbuf >/dev/null || { echo "stdbuf required"; exit 1; }
 	@{ printf 'HTTP PORT: $(STAB_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-stability\nTELNET PORT: $(STAB_CPORT)\n\n'; \

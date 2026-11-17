@@ -369,3 +369,7 @@ cwconfirm: .ncclient.bin .ncserver.bin
 # Band 83: /smartfilter reads the single SSF state instance.
 ssfconsole: .ncclient.bin .ncserver.bin
 	@python3 ssfconsole-live.py $(BIN)
+
+# Band 86: shipped 30W-52E config, booted; declared settings in effect.
+readycfg:
+	@python3 readycfg-audit.py $(BIN)
