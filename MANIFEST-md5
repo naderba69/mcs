@@ -152,7 +152,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-c294f335f909b11efea31045a221dbf7  docs/REPORT-R48-ar.md
+1bd94b003bc1e63a2f39e15d21d6407c  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -421,7 +421,7 @@ f6e60d8a80d14fe8c5d7265099e93ba5  make-x64/test_supersmartfilter_ticks.c
 ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
-7e16bc89853a49726b7d3f5e8c404ddf  multics-full-30w-52e.cfg
+806b9eeb08eaf9dda4ae8f87fe8ca717  multics-full-30w-52e.cfg
 ab51ddde94ca34844e4a7958ad775fa8  multics-r24-expert-reviewed.cfg
 2a59b63aea594b9460c72e902c461bad  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
@@ -855,6 +855,7 @@ cc0f9f1ddf4f423a3bbdf994ef856e2a  tests/radegast-server-smoke.py
 af805e473a54bb17c93da08d7ad64ba5  tests/reloadban-live.py
 5dad8068f5991738e8ac93cdaa9529da  tests/run-peerrep-pr.sh
 60584449465bb20ece8afe3f76abd73f  tests/safe-time.c
+acea77f13277ecce54ee99fd9a0c5972  tests/savekick-live.py
 3efd91a83794f209f2347dba5a41519f  tests/scoped-checksum-policy.c
 1a773c998d38226c5f58fccba9ed4a83  tests/scoped-checksum-reload-inflight.py
 b30e2c361e045f3542a84ad12807ca71  tests/scoped-checksum-reload.py
