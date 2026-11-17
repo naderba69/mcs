@@ -53,14 +53,14 @@ dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 5392840310182c115bf07767de740867  bin/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  bin/multics-r82a-r22-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-6f7c228880e7bb21fb28c3f7ba6782e7  bin/multics-r82a-stats-x64
+2f42f4c5f6d2053280840dd46d809cae  bin/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  bin/multics-r82a-stock-x64
 fbfef2a162b03fed8d56aca7babd3ef3  bin/multics-r82a-x64
-6f7c228880e7bb21fb28c3f7ba6782e7  bin/multics.x64
+2f42f4c5f6d2053280840dd46d809cae  bin/multics.x64
 9d212081c5d435e4166a24fd6a48d666  dist/multics-r82a-queue-stats-x64
 4a574b9f126f88809cbbe56f4ceaa633  dist/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  dist/multics-r82a-r22-x64
-6f7c228880e7bb21fb28c3f7ba6782e7  dist/multics-r82a-stats-x64
+2f42f4c5f6d2053280840dd46d809cae  dist/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
@@ -70,7 +70,7 @@ fca6bb5931ff91b9593f86bf16734ebc  docs/BLACKSCREEN.md
 088d92251d68affde9c8b2fa437ed079  docs/CACHE-OPTIMIZATION-ar.md
 ec5b0f81b3d501843c4f61f5e9074dc6  docs/COMPAT-ar.md
 c1588a22082f34909da1de9fbd413360  docs/CONFIG-GUIDE-R22-R24-ar.md
-dbee3ad73e0322ff7f1d883469170fc9  docs/CONFIG-REFERENCE-ar.md
+ea60cd98674cf2e410f559af9ea51d34  docs/CONFIG-REFERENCE-ar.md
 ce9abc6aa510e68693ae7ec947ef77c2  docs/DECISIONS.md
 eeccdc8a2c1198465ff95551663c8ef2  docs/DEPLOYMENT-ar.md
 3c31a1c0ccc07b4b5322cc9bca54a548  docs/DISCUSSION.md
@@ -152,7 +152,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-b490a784120e3bf12f2c9b7500090e41  docs/REPORT-R48-ar.md
+c6b24e9e79d7c657e3faad36bb49bd8e  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -487,7 +487,7 @@ aee7bf15b72c60d902cf2dc7c11ba01e  src/cli-cs378x.c
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
 bfdeb5ee4b6c6ec251862779968b8300  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-af1388d21be5678d703b113f1d9046eb  src/config.c
+d1cd9399072e5e45a01447237d5b7a58  src/config.c
 58978da6c98d008ca3ac3f894072be49  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
@@ -600,7 +600,7 @@ c7e6fdad95760a74355a4dfc10f32c38  src/log-viewer.h
 dc99542e3a97ff25a558f0b6cf730f17  src/loginthrottle.c
 5bd7b53e8e592c33d2da9ea2f53465b8  src/loginthrottle.h
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
-615c393f021b517a3668345b7084f167  src/main.c
+d96280090f7eaa39ecf084b68f567f0d  src/main.c
 cad8295c0e073cc695a0f79d689bea2f  src/main.h
 768f97604c3433fc57689f1b338acdda  src/md5.c
 99fc08532a6cf0afc9360597c2a848be  src/md5.h
@@ -862,6 +862,7 @@ b7c2703b1ceb20a754b47f46ad6faf89  tests/share-limits.c
 23b491c910c7fb143e0a0c39d369803f  tests/slow1884.sh
 6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
+662f8a46ca84fd676c4385f9b79795ba  tests/ssfconsole-live.py
 889068847bf02cda55c381380a518368  tests/stability.mk
 53ae8bfafba95484e8e78ca411323617  tests/test_cfgcheck_blind.py
 4b0b7518bc1609cb2f0eb1bb406b8b58  tests/thread-create-unaligned.c

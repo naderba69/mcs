@@ -3238,6 +3238,16 @@ void mainprocess()
 
 
 #ifndef WIN32
+	/* Band 84: SuperSmartFilter defaults must exist BEFORE the
+	 * config is parsed. supersmartfilter_init() used to run after
+	 * start_thread_config(), wiping every CACHE SF key the parser
+	 * had just applied (and filter_level was then forced to 0),
+	 * so the documented global SF keys were dead on boot. The
+	 * filter stays OFF by default: init's internal level is
+	 * overridden to 0 here, and only an operator CACHE SF LEVEL
+	 * (or a per-profile FILTER) raises it. */
+	supersmartfilter_init();
+	ssf_cfg.filter_level = 0;
 	start_thread_config();
 	wait_config_ready();	/* TASK 4.1 — was a 100 ms hope */
 
@@ -3301,15 +3311,15 @@ void mainprocess()
 	autorecov_init(&g_autorecov_table, 0);  /* band 47: enable is read live from AUTO RECOVER (default OFF); init only prepares the table+lock */
 	debugf(0, " [BLACKSCREEN] Detection, Analytics, and Auto-Recovery systems initialized\n");
 
-	/* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT */
-	supersmartfilter_init();
+	/* R200 v2.5 Integration: DCW STRICT. SuperSmartFilter state was
+	 * initialised before config parsing (band 84, above), so this
+	 * block no longer re-initialises it. */
 	dcwstrict_init();
 	/* These heuristics are not reliable proof of a bad CW: the same valid
 	 * key can legitimately answer several ECMs or services. Until their
 	 * rejection rules are redesigned and explicitly configurable, keep both
 	 * off; the established DCW filters remain in the delivery path. */
 	dcwstrict_cfg.enabled = 0;
-	ssf_cfg.filter_level = 0;
 	debugf(0, " [R200 v2.5] Heuristic CW rejection disabled; standard DCW filters remain active\n");
 
 	/* Auto-Tuning System - Automatic profile optimization */

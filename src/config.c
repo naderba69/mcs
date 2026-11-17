@@ -4514,9 +4514,14 @@ link_mgcamd_user:
 
 			/* R48 SuperSmartFilter v6.0: CACHE SF_* settings. */
 			else if (!strcmp(str,"SF")) {
+				/* Band 84: accept both "CACHE SF: LEVEL: n" and the
+				 * documented "CACHE SF LEVEL: n". Before this, the
+				 * colon was mandatory right after SF, so every
+				 * documented global SF key (as used in the ready
+				 * production configs) was silently ignored. */
 				parse_spaces();
-				if ((*iparser==':')||(*iparser=='=')) {
-					iparser++;
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				{
 					parse_name(str);
 					uppercase(str);
 					if (!strcmp(str,"MULTICHECK")) {
