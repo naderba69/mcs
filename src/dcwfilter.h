@@ -19,6 +19,7 @@
  *   0 = test skipped, for bouquets whose keys do not carry the standard checksum
  */
 extern int dcw_filter_checksum;
+extern int dcw_filter_strict;
 
 /*
  * Gate the "three equal leading bytes in a half" test.

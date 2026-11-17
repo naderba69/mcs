@@ -10,12 +10,14 @@
 #include "cwlog.h"	/* TASK R11 (D65): the /cwlog page + /json section */
 #include "peer_origin.h"/* TASK R11 (D65): peer id masks on the page */
 #endif
+#include "supersmartfilter.h" /* R48: SmartFilter console (/smartfilter) */
 #include "biss.h"	/* BISS key management */
 #include "diagnostics.h"	/* Advanced diagnostics and analytics */
 #include "debug-ecm.h"	/* Detailed ECM tracking */
 #include "server-stats.h"	/* Server statistics */
 #include "log-viewer.h"	/* Live log viewer */
 #include "user-trace.h"
+#include "field-status.h"	/* field-trial snapshot filled by main.c */
 #include "cache-analytics.h"	/* Cache analytics */
 #include "auto-tuning.h"	/* Auto-tuning suggestions */
 #include "common.h"
@@ -99,6 +101,9 @@ void mg_disconnect_cli(struct mg_client_data *cli);
 
 #ifdef CS378X_SRV
 struct camd35_client_data *getcs378xclientbyid(uint32_t id);
+#endif
+#ifdef CAMD35_SRV
+struct camd35_client_data *getcamd35clientbyid(uint32_t id);
 #endif
 
 
@@ -501,8 +506,10 @@ int parse_http_request(int sock, http_request *req )
 
 
 
-/// XXX: not thread safe
-char channelname[256];
+/* Thread-local fallback buffer: HTTP handlers run on multiple threads
+ * and getchname() is called from several of them. A shared buffer raced
+ * (one thread's sprintf overwrote another's channel name). */
+static __thread char channelname[256];
 char *getchname(uint16_t caid, uint32_t prov, uint16_t sid )
 {
 	struct chninfo_data *chn= cfg.chninfo;
@@ -694,6 +701,7 @@ static void http_style_write(struct tcp_buffer_data *tcpbuf, int sock)
 #define PAGE_DEBUG     14
 #define PAGE_CWLOG     15   /* TASK R11 (D65), stats flavour only */
 #define PAGE_BISS      16   /* BISS key management */
+#define PAGE_SMARTFILTER 17 /* R48: SuperSmartFilter console */
 
 
 char *yesno( int a )
@@ -873,6 +881,12 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	sprintf( buf, class, "/cwlog", mlabel("CW Log","سجل الأحكام")); tcp_writestr(tcpbuf, sock, buf);
 #endif
 
+	/* R48: SuperSmartFilter console. */
+	{
+		if (selected==PAGE_SMARTFILTER) class = cSelected; else class = cNormal;
+		sprintf( buf, class, "/smartfilter", mlabel("SmartFilter","الفلتر الذكي")); tcp_writestr(tcpbuf, sock, buf);
+	}
+
 #ifdef FREECCCAM_SRV
 	// FreeCCcam
 	if (snapshot.has_freecccam) {
@@ -890,6 +904,7 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 		sprintf( buf, class, "/diagnostics", mlabel("Diagnostics","التشخيص")); tcp_writestr(tcpbuf, sock, buf);
 		sprintf( buf, class, "/debug-ecm", mlabel("Debug ECM","تتبع ECM")); tcp_writestr(tcpbuf, sock, buf);
 		sprintf( buf, class, "/server-stats", mlabel("Server Stats","إحصائيات الخوادم")); tcp_writestr(tcpbuf, sock, buf);
+		/* No separate dashboard: everything lives on the CCcam Trace page (/user-trace). */
 		sprintf( buf, class, "/log-viewer", mlabel("Log Viewer","عارض السجلات")); tcp_writestr(tcpbuf, sock, buf);
 #ifdef CCCAM_SRV
 		if (!snapshot.nocccam) { sprintf(buf, class, "/user-trace", mlabel("CCcam Trace", "متابعة CCcam")); tcp_writestr(tcpbuf, sock, buf); }
@@ -901,8 +916,10 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	/* TASK R7 (D61): the language toggle and logout close the bar */
 	if (tls_http_rtl) tcp_writestr(tcpbuf, sock, "<li><a href='?lang=en'>English</a></li>");
 	else tcp_writestr(tcpbuf, sock, "<li><a href='?lang=ar'>عربي</a></li>");
+	tcp_writestr(tcpbuf, sock, "<li><a href='#' onclick='toggleTheme();return false;' class='theme-toggle'>🌙</a></li>");
 	sprintf( buf, "<li><a href='/logout'>%s</a></li>", mlabel("Logout","خروج"));
 	tcp_writestr(tcpbuf, sock, buf);
+	tcp_writestr(tcpbuf, sock, "<script>\nfunction toggleTheme(){var t=document.documentElement.getAttribute('data-theme');var n=t==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',n);try{localStorage.setItem('mcs-theme',n);}catch(e){}}\n(function(){try{var t=localStorage.getItem('mcs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();\n</script>\n");
 	tcp_writestr(tcpbuf, sock, "</ul><span style='float:right;'>Multi Card Server r"REVISION_STR"</span></div>\n");
 
 	//
@@ -1235,6 +1252,15 @@ void flagdebugvalue( char *str )
 }
 
 
+
+///////////////////////////////////////////////////////////////////////////////
+static char *escf( char *buf, const char *src );	/* defined below; used by the trace overview */
+
+/* The former /dashboard page was folded into the CCcam Trace page
+ * (/user-trace, trace_overview_write) on 2026-11-14: the operator
+ * asked for one single page instead of navigating between pages
+ * and log files. Its data now renders there, auto-refreshed. */
+
 void http_send_index(int sock, http_request *req)
 {
 	char http_buf[2048];
@@ -1285,7 +1311,7 @@ void http_send_index(int sock, http_request *req)
 	FILE *fp = fopen ("/proc/loadavg", "r");
 	if (fp) {
 		float avg;
-		int i = fscanf(fp, "%f", &avg);
+		(void)fscanf(fp, "%f", &avg);
 		sprintf( http_buf,"<br>Load Average: %01.2f", avg); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		fclose(fp);
 	}
@@ -1293,7 +1319,7 @@ void http_send_index(int sock, http_request *req)
 	fp = fopen ("/proc/meminfo", "r");
 	if (fp) {
 		int memfree;
-		int i = fscanf (fp, "MemTotal: %*d kB MemFree: %d kB", &memfree);
+		(void)fscanf (fp, "MemTotal: %*d kB MemFree: %d kB", &memfree);
 		sprintf( http_buf,"<br>Free Memory: %d kB", memfree); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		fclose(fp);
 	}
@@ -1304,6 +1330,20 @@ void http_send_index(int sock, http_request *req)
 	sprintf( http_buf, "<br>Total Mgcamd Servers: %d", cfg.mgcamd.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<br>Total Camd35 Servers: %d", cfg.camd35.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<br>Total cs378x Servers: %d", cfg.cs378x.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	/* R48: ECM performance cards */
+	{
+		int total_ecm = 0, accepted_ecm = 0, ok_ecm = 0;
+		struct cardserver_data *cs;
+		for (cs = cfg.cardserver; cs; cs = cs->next) {
+			total_ecm += __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED) + __atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED);
+			accepted_ecm += __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED);
+			ok_ecm += __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
+		}
+		int success_rate = total_ecm > 0 ? (ok_ecm * 100 / total_ecm) : 100;
+		const char *rate_class = success_rate >= 90 ? "good" : (success_rate >= 70 ? "warn" : "bad");
+		sprintf(http_buf, "<div class='perf-cards'><div class='perf-card'><div class='label'>Total ECM</div><div class='value'>%d</div><div class='sub'>all profiles</div></div><div class='perf-card'><div class='label'>Accepted</div><div class='value'>%d</div><div class='sub'>passed validation</div></div><div class='perf-card %s'><div class='label'>Success Rate</div><div class='value'>%d%%</div><div class='sub'>ECM OK / Total</div></div><div class='perf-card'><div class='label'>Profiles</div><div class='value'>%d</div><div class='sub'>active bouquets</div></div></div>", total_ecm, accepted_ecm, rate_class, success_rate, cfg.totalprofiles);
+		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+	}
 	/*
 	 * TASK 3.12 -- DCW stats on the home page, inside the refreshed div.
 	 *
@@ -1439,11 +1479,11 @@ void http_send_debug(int sock, http_request *req)
 		if (sel==DBG_ERROR) tcp_writestr(&tcpbuf, sock, "<option value='ERROR' selected>ERROR</option>"); else tcp_writestr(&tcpbuf, sock, "<option value='ERROR'>ERROR</option>");
 		tcp_writestr(&tcpbuf, sock, "</select></legend>\n");
 		sprintf( http_buf, "<pre style=\"font-size:10; color:#004455;\">"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		int current = idbgline;
+		int current = __atomic_load_n(&idbgline, __ATOMIC_RELAXED);
 		int i = current - 35;
 		if (i<0) i += 70;
 		do {
-			{ char hesc[3200]; html_esc(hesc,(int)sizeof(hesc),dbgline[i]);
+			{ char hesc[3200]; char line_copy[512]; dbg_copy_line(i, line_copy, (int)sizeof(line_copy)); html_esc(hesc,(int)sizeof(hesc),line_copy);
 			  tcp_write(&tcpbuf, sock, hesc, strlen(hesc)); }	/* TASK 3.2 -- log lines are text, not markup */
 			i++;
 			if (i>=MAX_DBGLINES) i=0;
@@ -1573,14 +1613,14 @@ static void http_server_detail_snapshot_take(
 	memset(snapshot, 0, sizeof(*snapshot));
 	pthread_mutex_lock(&prg.locksrv);
 	snapshot->connected = srv->connection.status > 0;
-	snapshot->handle_active = srv->handle > 0;
+	snapshot->handle_active = __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0;
 	snapshot->connection_time = srv->connection.time;
 	snapshot->lastseen = srv->connection.lastseen;
 	snapshot->uptime = srv->connection.uptime;
 	snapshot->host_ip = host_ip_snapshot(srv->host);
 	snapshot->ecmnb = srv->ecmnb;
-	snapshot->ecmok = srv->ecmok;
-	snapshot->ecmoktime = srv->ecmoktime;
+	snapshot->ecmok = __atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED);
+	snapshot->ecmoktime = __atomic_load_n(&srv->ecmoktime, __ATOMIC_RELAXED);
 	memcpy(snapshot->version, srv->version, sizeof(snapshot->version));
 	snapshot->version[sizeof(snapshot->version) - 1] = 0;
 #ifdef CCCAM_CLI
@@ -1622,9 +1662,9 @@ static void http_server_detail_snapshot_take(
 #else
 			snapshot->cards[index].id = card->localid;
 #endif
-			snapshot->cards[index].ecmok = card->ecmok;
+			snapshot->cards[index].ecmok = __atomic_load_n(&card->ecmok, __ATOMIC_RELAXED);
 			snapshot->cards[index].ecmnb = card->ecmnb;
-			snapshot->cards[index].ecmoktime = card->ecmoktime;
+			snapshot->cards[index].ecmoktime = __atomic_load_n(&card->ecmoktime, __ATOMIC_RELAXED);
 			snapshot->cards[index].caid = card->caid;
 			snapshot->cards[index].nbprov = card->nbprov;
 			if (snapshot->cards[index].nbprov < 0)
@@ -1817,12 +1857,12 @@ void getservercells(struct server_data *srv, char cell[8][2048] )
 	{
 		// CELL4
 		if (srv->ecmnb)
-			sprintf( cell[4],"%d / %d<span style=\"float: right;\">%d%%</span><br>Hits = %d",srv->ecmok ,srv->ecmnb, (srv->ecmok*100)/srv->ecmnb, srv->hits);
+			sprintf( cell[4],"%d / %d<span style=\"float: right;\">%d%%</span><br>Hits = %d",__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED) ,srv->ecmnb, (__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED)*100)/srv->ecmnb, srv->hits);
 		else
 			sprintf( cell[4],"<span style=\"float: right;\">0%%</span>");
 		// CELL5
-		if (srv->ecmok)
-			sprintf( cell[5],"%d ms",(srv->ecmoktime/srv->ecmok) ); //, srv->hits );
+		if (__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED))
+			sprintf( cell[5],"%d ms",(__atomic_load_n(&srv->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED)) ); //, srv->hits );
 		else
 			sprintf( cell[5],"-- ms");
 	}
@@ -2009,7 +2049,7 @@ void http_send_servers(int sock, http_request *req)
 		// Send XML CELLS
 		getservercells(srv,cell);
 		char buf[5000] = "";
-		sprintf( buf, "<server>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n</server>\n",cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6] );
+		snprintf(buf, sizeof(buf), "<server>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n</server>\n",cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}
@@ -2100,7 +2140,7 @@ void http_send_servers(int sock, http_request *req)
 			if (http_server_matches_list(srv, get_type, get_list)) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
+				snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			srv = srv->next;
@@ -2111,7 +2151,7 @@ void http_send_servers(int sock, http_request *req)
 			if (http_server_matches_list(srv, get_type, get_list)) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
+				snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			srv = srv->next;
@@ -2122,7 +2162,7 @@ void http_send_servers(int sock, http_request *req)
 			if (http_server_matches_list(srv, get_type, get_list)) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
+				snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			srv = srv->next;
@@ -2133,7 +2173,7 @@ void http_send_servers(int sock, http_request *req)
 			if (http_server_matches_list(srv, get_type, get_list)) {
 				if (alt==1) alt=2; else alt=1;
 				getservercells(srv,cell);
-				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
+				snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td align=\"center\">%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td align=\"center\">%s</td><td>%s</td></tr>\n",srv->id,alt,srv->id,cell[0],cell[1],cell[2],cell[7],cell[3],cell[4],cell[5],cell[6]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			srv = srv->next;
@@ -2205,7 +2245,7 @@ void http_send_server(int sock, http_request *req)
 	else if (get_action==5) {
 		int connected;
 		pthread_mutex_lock(&prg.locksrv);
-		connected = (srv->connection.status > 0 && srv->handle > 0);
+		connected = (srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0);
 		pthread_mutex_unlock(&prg.locksrv);
 		if (connected) http_send_text(sock,"connected"); else http_send_text(sock,"disconnected");
 		tcp_flush(&tcpbuf, sock);
@@ -2359,17 +2399,17 @@ void http_send_server(int sock, http_request *req)
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
 #ifdef CCCAM_CLI
-					sprintf( http_buf,"<td class=alt%d>%d / %d<span style=\"float:right\">",alt,card->ecmok,card->ecmnb);
+					sprintf( http_buf,"<td class=alt%d>%d / %d<span style=\"float:right\">",alt,__atomic_load_n(&card->ecmok, __ATOMIC_RELAXED),card->ecmnb);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
 					if (card->ecmnb)
-						sprintf( http_buf,"%d%%</span></td>", card->ecmok*100/card->ecmnb);
+						sprintf( http_buf,"%d%%</span></td>", __atomic_load_n(&card->ecmok, __ATOMIC_RELAXED)*100/card->ecmnb);
 					else
 						sprintf( http_buf,"0%%</span></td>");
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
-					if (card->ecmok)
-						sprintf( http_buf,"<td class=alt%d align=center>%d ms</td>",alt, card->ecmoktime/card->ecmok );
+					if (__atomic_load_n(&card->ecmok, __ATOMIC_RELAXED))
+						sprintf( http_buf,"<td class=alt%d align=center>%d ms</td>",alt, __atomic_load_n(&card->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&card->ecmok, __ATOMIC_RELAXED) );
 					else
 						sprintf( http_buf,"<td class=alt%d align=center>-- ms</td>",alt);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
@@ -2809,7 +2849,7 @@ void http_send_cache(int sock, http_request *req)
 		getcachecells(&peer_row,cell);
 		for(i=0; i<12; i++) xmlescape( cell[i] );
 		char buf[5000] = "";
-		sprintf( buf, "<peer>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8><c9>%s</c9><c10>%s</c10>\n</peer>\n",cell[0],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9],cell[10],cell[11] );
+		snprintf(buf, sizeof(buf), "<peer>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8><c9>%s</c9><c10>%s</c10>\n</peer>\n",cell[0],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9],cell[10],cell[11] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}
@@ -3022,7 +3062,7 @@ void http_send_cache(int sock, http_request *req)
 				getcachecells(row, cell);
 				/* HTML cells are rendered from a value-only snapshot. */
 				if (row->runtime) alt = 3;
-				sprintf(http_buf, "<tr id=\"Row%u\" class=alt%d onMouseOver='setupdateRow(%u)' onMouseOut='setupdateRow(0)'><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n", row->id, alt, row->id, cell[0], cell[1], cell[2], cell[3], cell[4], cell[5], cell[6], cell[7], cell[8], cell[9], cell[10], cell[11]);
+				snprintf(http_buf, sizeof(http_buf), "<tr id=\"Row%u\" class=alt%d onMouseOver='setupdateRow(%u)' onMouseOut='setupdateRow(0)'><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n", row->id, alt, row->id, cell[0], cell[1], cell[2], cell[3], cell[4], cell[5], cell[6], cell[7], cell[8], cell[9], cell[10], cell[11]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
 			}
 		}
@@ -3062,7 +3102,7 @@ void http_send_cache(int sock, http_request *req)
 					if (alt == 1) alt = 2; else alt = 1;
 					getcachecells(row, cell);
 					if (row->runtime) alt = 3;
-					sprintf(http_buf, "<tr id=\"Row%u\" class=alt%d onMouseOver='setupdateRow(%u)' onMouseOut='setupdateRow(0)'><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n", row->id, alt, row->id, cell[0], cell[1], cell[2], cell[3], cell[4], cell[5], cell[6], cell[7], cell[8], cell[9], cell[10], cell[11]);
+					snprintf(http_buf, sizeof(http_buf), "<tr id=\"Row%u\" class=alt%d onMouseOver='setupdateRow(%u)' onMouseOut='setupdateRow(0)'><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n", row->id, alt, row->id, cell[0], cell[1], cell[2], cell[3], cell[4], cell[5], cell[6], cell[7], cell[8], cell[9], cell[10], cell[11]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
 				}
 			}
@@ -3273,14 +3313,14 @@ void http_send_cache_peer(int sock, http_request *req)
 			struct http_cache_peer_sms_snapshot *sms = &detail.sms[sms_index];
 			char timebuf[80];
 			time_t sms_rawtime;
-			struct tm time_storage;
+			union { struct tm tm; char slack[sizeof(struct tm) + 32]; } time_storage; /* tail slack: packed TU, libc writes native tm (ASan-proven) */
 			struct tm *timeinfo;
 			const char *color;
 			char escaped_msg[sizeof(sms->msg) * 6];
 			const char *display_msg = sms->msg;
 			int display_len;
 			memcpy(&sms_rawtime, PACKED_MPTR(sms, time_t, rawtime), sizeof(sms_rawtime));
-			timeinfo = localtime_r(&sms_rawtime, &time_storage);
+			timeinfo = localtime_r(&sms_rawtime, &time_storage.tm);
 			if (timeinfo) strftime(timebuf, sizeof(timebuf), "%x %X", timeinfo);
 			else snprintf(timebuf, sizeof(timebuf), "unknown time");
 			if (sms->status & 1) color = (sms->status & 2) ? "blue" : "grey";
@@ -3358,22 +3398,22 @@ static int newcamd_web_client_matches_list(struct cs_client_data *cli,
 void getprofilecells(struct cardserver_data *cs, char cell[11][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 	// CELL0 # Profile name
 	sprintf( cell[0],"<a href=\"/profile?id=%d\">%s</a>", cs->id, escf(et1,cs->name));
 	// CELL1 # Port
 	sprintf( cell[1],"<a href=\"/newcamd?pid=%d\">%d</a>", cs->id, cs->newcamd.port); 
 	if (cs->newcamd.handle>0) sprintf( cell[10],"online"); else sprintf( cell[10],"offline"); 
 	// CELL2 # Ecm Time
-	if (cs->ecmok) sprintf( cell[2],"%d ms",(cs->ecmoktime/cs->ecmok) ); else sprintf( cell[2],"-- ms");
+	if (__atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED)) sprintf( cell[2],"%d ms",(__atomic_load_n(&cs->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED)) ); else sprintf( cell[2],"-- ms");
 
 	// CELL3 # TotalECM
-	int ecmnb = cs->ecmaccepted+cs->ecmdenied;
+	int ecmnb = __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED)+__atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED);
 	sprintf( cell[3], "%d", ecmnb );
 	// CELL4 # AcceptedECM
-	getstatcell( cs->ecmaccepted, ecmnb, cell[4] );
+	getstatcell( __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED), ecmnb, cell[4] );
 	// CELL5 # ECM OK
-	getstatcell( cs->ecmok, cs->ecmaccepted, cell[5] );
+	getstatcell( __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED), __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED), cell[5] );
 	/* Cache-source hit counters are updated under lockcacheex. */
 	int csp_hits, csp_ihits, cacheex_hits = 0, cacheex_ihits = 0;
 	pthread_mutex_lock(&prg.lockcacheex);
@@ -3385,10 +3425,10 @@ void getprofilecells(struct cardserver_data *cs, char cell[11][2048])
 #endif
 	pthread_mutex_unlock(&prg.lockcacheex);
 	// CELL6 # CacheHits
-	getstatcell( csp_hits, cs->ecmok, cell[6] );
+	getstatcell( csp_hits, __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED), cell[6] );
 #ifdef CACHEEX
 	if (cs->option.fallowcacheex) {
-		getstatcell( cacheex_hits, cs->ecmok, temp );
+		getstatcell( cacheex_hits, __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED), temp );
 		strcat( cell[6], "<br>" );
 		strcat( cell[6], temp );
 	}
@@ -3470,7 +3510,7 @@ static void http_send_profiles_inner(int sock, http_request *req)
 			}
 			sprintf(http_buf, "<totalecm>%d</totalecm>", srv->ecmaccepted+srv->ecmdenied); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			sprintf(http_buf, "<acceptedecm>%d</acceptedecm>", srv->ecmaccepted); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-			sprintf(http_buf, "<ecmok>%d</ecmok>", srv->ecmok); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+			sprintf(http_buf, "<ecmok>%d</ecmok>", __atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED)); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			tcp_writestr(&tcpbuf, sock, "\n</profile>");
 			if (cs) break; else srv = srv->next;
 		}
@@ -3495,7 +3535,7 @@ static void http_send_profiles_inner(int sock, http_request *req)
 		getprofilecells(cs,cell);
 		for(i=0; i<11; i++) xmlescape( cell[i] );
 		char buf[5000] = "";
-		sprintf( buf, "<profile>\n<c0>%s</c0>\n<c1_c>%s</c1_c>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n<c9>%s</c9>\n</profile>\n",cell[0],cell[10],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9] );
+		snprintf(buf, sizeof(buf), "<profile>\n<c0>%s</c0>\n<c1_c>%s</c1_c>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n<c9>%s</c9>\n</profile>\n",cell[0],cell[10],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}
@@ -3544,7 +3584,7 @@ static void http_send_profiles_inner(int sock, http_request *req)
 		if (alt==1) alt=2; else alt=1;
 		getprofilecells( cs, cell );
 		/* R35: page/div tail is HTML -- no blanket escape (builders pre-escape text) */
-		sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td>%s</td><td class=%s>%s</td><td align=center>%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",cs->id,alt,cs->id,cell[0],cell[10],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9]);
+		snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'><td>%s</td><td class=%s>%s</td><td align=center>%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",cs->id,alt,cs->id,cell[0],cell[10],cell[1],cell[2],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8],cell[9]);
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		cs = cs->next;
 	}
@@ -3558,9 +3598,9 @@ static void http_send_profiles_inner(int sock, http_request *req)
 	int totcacheihits = 0;
 	cs = cfg.cardserver;
 	while(cs) {
-		totecm += cs->ecmaccepted+cs->ecmdenied;
-		totecmaccepted += cs->ecmaccepted;
-		totecmok += cs->ecmok;
+		totecm += __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED)+__atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED);
+		totecmaccepted += __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED);
+		totecmok += __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
 		cs = cs->next;
 	}
 	pthread_mutex_lock(&prg.lockcacheex);
@@ -3668,7 +3708,7 @@ int connected_radegast_clients(struct cardserver_data *cs)
 	struct rdgd_client_data *rdgdcli=cs->radegast.client;
 	if (cs->radegast.handle)
 	while (rdgdcli) {
-		if (rdgdcli->handle>0) nb++;
+		if (__atomic_load_n(&rdgdcli->handle, __ATOMIC_RELAXED)>0) nb++;
 		rdgdcli=rdgdcli->next;
 	}
 	return nb;
@@ -3732,7 +3772,7 @@ void getnewcamdclientcells(struct cs_client_data *cli, char cell[10][2048])
 {
 	struct cs_client_data client_snapshot;
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 	unsigned int ticks = GetTickCount();
 	unsigned int d;
 	if (!cli) return;
@@ -3790,10 +3830,10 @@ void getnewcamdclientcells(struct cs_client_data *cli, char cell[10][2048])
 	//
 	int ecmaccepted = cli->ecmnb-cli->ecmdenied;
 	getstatcell( ecmaccepted, cli->ecmnb, cell[5]);
-	getstatcell( cli->ecmok, ecmaccepted, cell[6]);
+	getstatcell( __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED), ecmaccepted, cell[6]);
 	// Ecm Time
-	if (cli->ecmok)
-		sprintf( cell[7],"%d ms",(cli->ecmoktime/cli->ecmok) );
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED))
+		sprintf( cell[7],"%d ms",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) );
 	else
 		sprintf( cell[7],"-- ms");
 
@@ -3932,7 +3972,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 		getnewcamdclientcells(cli,cell);
 		for(i=0; i<10; i++) xmlescape( cell[i] );
 		char buf[5000] = "";
-		sprintf( buf, "<newcamd>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</newcamd>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+		snprintf(buf, sizeof(buf), "<newcamd>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</newcamd>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}
@@ -4012,7 +4052,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 					if (alt==1) alt=2; else alt=1;
 					getnewcamdclientcells(cli, cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -4023,7 +4063,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 				if (alt==1) alt=2; else alt=1;
 				getnewcamdclientcells(cli, cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cli->next;
 			}
@@ -4034,7 +4074,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 					if (alt==1) alt=2; else alt=1;
 					getnewcamdclientcells(cli, cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -4062,7 +4102,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 						if (alt==1) alt=2; else alt=1;
 						getnewcamdclientcells(cli, cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -4075,7 +4115,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 					if (alt==1) alt=2; else alt=1;
 					getnewcamdclientcells(cli, cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					cli = cli->next;
 				}
@@ -4088,7 +4128,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 						if (alt==1) alt=2; else alt=1;
 						getnewcamdclientcells(cli, cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -4294,11 +4334,11 @@ sprintf( http_buf,"<tr><td class=left>User name</td><td class=right>%s</td></tr>
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<tr><td class=left>Accepted ECM requests</td><td class=right>%d</td></tr>\n", ecmaccepted);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", cli->ecmok);
+	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED));
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	//Ecm Time
-	if (cli->ecmok) {
-		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(cli->ecmoktime/cli->ecmok) );
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) {
+		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) );
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	}
 #ifdef SRV_CSCACHE
@@ -4504,7 +4544,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 	csp_hits = cs->hits.csp;
 	csp_ihits = cs->hits.instant.csp;
 	pthread_mutex_unlock(&prg.lockcacheex);
-	sprintf( http_buf, "</li><li>Total ECM = %d</li> <li>Accepted ECM = %d</li><li>Ecm OK = %d</li><li>Ecm Time = %dms</li><li>Total Cache Hits = %d</li><li>Instant Cache Hits = %d</li></ul>", cs->ecmaccepted+cs->ecmdenied, cs->ecmaccepted, cs->ecmok, cs->ecmoktime/(cs->ecmok+1), csp_hits, csp_ihits);
+	sprintf( http_buf, "</li><li>Total ECM = %d</li> <li>Accepted ECM = %d</li><li>Ecm OK = %d</li><li>Ecm Time = %dms</li><li>Total Cache Hits = %d</li><li>Instant Cache Hits = %d</li></ul>", __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED)+__atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED), __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED), __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED), __atomic_load_n(&cs->ecmoktime, __ATOMIC_RELAXED)/(__atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED)+1), csp_hits, csp_ihits);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
 	sprintf( http_buf, "</div><span style=\"float:right\"><table class=option border=1px cellspacing=0><tr><th width=150px>Option</th><th width=50px>Value</th></tr>");
@@ -4563,7 +4603,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 		rdgdcli = cs->radegast.client;
 		int alt=0;
 		while (rdgdcli) {
-			if (rdgdcli->handle>0) {
+			if (__atomic_load_n(&rdgdcli->handle, __ATOMIC_RELAXED)>0) {
 				if (alt==1) alt=2; else alt=1;
 				d = (GetTickCount()-rdgdcli->connected)/1000;
 				if (rdgdcli->ecm.busy)
@@ -4576,10 +4616,10 @@ static void http_send_profile_inner(int sock, http_request *req)
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				int ecmaccepted = rdgdcli->ecmnb-rdgdcli->ecmdenied;
 				tcp_writeecmdata(&tcpbuf, sock, ecmaccepted, rdgdcli->ecmnb);
-				tcp_writeecmdata(&tcpbuf, sock, rdgdcli->ecmok, ecmaccepted);
+				tcp_writeecmdata(&tcpbuf, sock, __atomic_load_n(&rdgdcli->ecmok, __ATOMIC_RELAXED), ecmaccepted);
 				//Ecm Time
-				if (rdgdcli->ecmok)
-					sprintf( http_buf,"<td align=center>%d ms</td>",(rdgdcli->ecmoktime/rdgdcli->ecmok) );
+				if (__atomic_load_n(&rdgdcli->ecmok, __ATOMIC_RELAXED))
+					sprintf( http_buf,"<td align=center>%d ms</td>",(__atomic_load_n(&rdgdcli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&rdgdcli->ecmok, __ATOMIC_RELAXED)) );
 				else
 					sprintf( http_buf,"<td align=center>-- ms</td>");
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
@@ -4635,7 +4675,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 	sprintf( http_buf, "<style type=\"text/css\">\n.cacheexborder { background: darkblue; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n</style>\n");
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 #endif
-	if (cs->ecmok) {
+	if (__atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED)) {
 		sprintf( http_buf, "\n<br><br><table class=\"mainborder\" width=100%%>"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		sprintf( http_buf, "<tr><td><div class=\"redborder\" style=\"height: 10px; width: 10px;\"></div> </td><td width=100%%>Total DCW number</td></tr><tr><td><div class=greenborder style=\"height: 10px; width: 10px;\"></div> </td><td width=100%%>Number of DCW from servers</td></tr><tr><td><div class=cacheborder style=\"height: 10px; width: 10px;\"></div> </td><td width=100%%>Number of DCW from Cache</td></tr><tr><td><div class=cacheexborder style=\"height: 10px; width: 10px;\"></div> </td><td width=100%%>Number of DCW from CacheEX</td></tr><tr><td><div class=clientsborder style=\"height: 10px; width: 10px;\"></div> </td><td width=100%%>Number of DCW from Newcamd/Mgcamd Clients</td></tr>\n"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		//Get Max of ttime
@@ -4730,7 +4770,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 		struct sid_chid_ecmlen_data *sids = cs->sidlist.data;
 		for(i=0;i<MAX_SIDS;i++,sids++) {
 			if (!sids->sid) break;
-			sprintf( http_buf, "<tr> <td>%04x:%04x:%04x.%02x</td> <td>%d</td> <td>%d</td> </tr>", sids->sid, sids->chid, sids->ecmlen, sids->cw1cycle, sids->ecmnb, sids->ecmok );
+			sprintf( http_buf, "<tr> <td>%04x:%04x:%04x.%02x</td> <td>%d</td> <td>%d</td> </tr>", sids->sid, sids->chid, sids->ecmlen, sids->cw1cycle, sids->ecmnb, __atomic_load_n(&sids->ecmok, __ATOMIC_RELAXED) );
 			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		}
 
@@ -4762,7 +4802,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 			for(j=0;j<MAX_SIDS;j++,sids++) {
 				if (j>=cs->card.prov[i].sidlist.total) break;
 				if (!sids->sid) break;
-				sprintf( http_buf, "<tr> <td>%04x:%04x:%04x.%02x</td> <td>%d</td> <td>%d</td> </tr>", sids->sid, sids->chid, sids->ecmlen, sids->cw1cycle, sids->ecmnb, sids->ecmok );
+				sprintf( http_buf, "<tr> <td>%04x:%04x:%04x.%02x</td> <td>%d</td> <td>%d</td> </tr>", sids->sid, sids->chid, sids->ecmlen, sids->cw1cycle, sids->ecmnb, __atomic_load_n(&sids->ecmok, __ATOMIC_RELAXED) );
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			sprintf( http_buf, "</table>");
@@ -4883,9 +4923,9 @@ void getcccamcells(struct cc_client_data *cli, char cell[10][2048])
 	sprintf( cell[4], "%d", cli->ecmnb);
 	int ecmaccepted = cli->ecmnb-cli->ecmdenied;
 	getstatcell( ecmaccepted, cli->ecmnb, cell[5]);
-	getstatcell( cli->ecmok, ecmaccepted, cell[6]);
+	getstatcell( __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED), ecmaccepted, cell[6]);
 	// CELL7 # Ecm Time
-	if (cli->ecmok) sprintf( cell[7],"%d ms",(cli->ecmoktime/cli->ecmok) ); else sprintf( cell[7],"-- ms");
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) sprintf( cell[7],"%d ms",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) ); else sprintf( cell[7],"-- ms");
 	// CELL8 # Last Used Share
 	if ( cli->connection.status<=0 && cli->connection.lastseen) {
 		d = (ticks-cli->connection.lastseen)/1000;
@@ -4982,7 +5022,7 @@ void http_send_cccam(int sock, http_request *req)
 		getcccamcells(cli,cell);
 		int i; for(i=0; i<10; i++) xmlescape( cell[i] );
 		char buf[5000] = "";
-		sprintf( buf, "<cccam>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</cccam>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+		snprintf(buf, sizeof(buf), "<cccam>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</cccam>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}			
@@ -5000,7 +5040,7 @@ void http_send_cccam(int sock, http_request *req)
 			tcp_writestr(&tcpbuf, sock, "\n<cccam>");
 			sprintf(http_buf, "<id>%d</id>", srv->id); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			sprintf(http_buf, "<port>%d</port>", srv->port); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-			sprintf(http_buf, "<status>%d</status>", (srv->handle>0) ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+			sprintf(http_buf, "<status>%d</status>", (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			uint32_t ticks = GetTickCount();
 			struct cc_client_data *cli = srv->client;
 			while (cli) {
@@ -5154,7 +5194,7 @@ void http_send_cccam(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcccamcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5166,7 +5206,7 @@ void http_send_cccam(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcccamcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5177,7 +5217,7 @@ void http_send_cccam(int sock, http_request *req)
 				if (alt==1) alt=2; else alt=1;
 				getcccamcells(cli,cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cli->next;
 			}
@@ -5203,7 +5243,7 @@ void http_send_cccam(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcccamcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -5216,7 +5256,7 @@ void http_send_cccam(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcccamcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					cli = cli->next;
 				}
@@ -5229,7 +5269,7 @@ void http_send_cccam(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcccamcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -5255,7 +5295,7 @@ void http_send_cccam(int sock, http_request *req)
 void getcs378xcells(struct camd35_client_data *cli, char cell[10][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 
 	// CELL0 # NAME
 	sprintf( cell[0],"<a href='/mgcamdclient?id=%d'>%s</a>",cli->id,escf(et1,cli->user));
@@ -5290,10 +5330,10 @@ void getcs378xcells(struct camd35_client_data *cli, char cell[10][2048])
 
 	int ecmaccepted = cli->ecmnb-cli->ecmdenied;
 	getstatcell( ecmaccepted, cli->ecmnb, cell[5]);
-	getstatcell( cli->ecmok, ecmaccepted, cell[6]);
+	getstatcell( __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED), ecmaccepted, cell[6]);
 
 	// CELL7 # Ecm Time
-	if (cli->ecmok) sprintf( cell[7],"%d ms",(cli->ecmoktime/cli->ecmok) ); else sprintf( cell[7],"-- ms");
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) sprintf( cell[7],"%d ms",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) ); else sprintf( cell[7],"-- ms");
 
 	// CELL8 # Last Used Share
 /*
@@ -5409,7 +5449,7 @@ void http_send_cs378x(int sock, http_request *req)
 							// Send XML CELLS
 							getcs378xcells(cli,cell);
 							int i; for(i=0; i<10; i++) xmlescape( cell[i] );
-							sprintf( http_buf, "<cs378x>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</cs378x>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+							snprintf(http_buf, sizeof(http_buf), "<cs378x>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</cs378x>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 							http_send_xml( sock, req, http_buf, strlen(http_buf));
 						}
 						cli = cli->next;
@@ -5541,7 +5581,7 @@ void http_send_cs378x(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcs378xcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5553,7 +5593,7 @@ void http_send_cs378x(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcs378xcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5564,7 +5604,7 @@ void http_send_cs378x(int sock, http_request *req)
 				if (alt==1) alt=2; else alt=1;
 				getcs378xcells(cli,cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cli->next;
 			}
@@ -5590,7 +5630,7 @@ void http_send_cs378x(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcs378xcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -5603,7 +5643,7 @@ void http_send_cs378x(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcs378xcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					cli = cli->next;
 				}
@@ -5616,7 +5656,7 @@ void http_send_cs378x(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcs378xcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -5658,7 +5698,7 @@ void http_send_cs378x(int sock, http_request *req)
 void getcamd35cells(struct camd35_client_data *cli, char cell[10][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 
 	// CELL0 # NAME
 	sprintf( cell[0],"<a href='/mgcamdclient?id=%d'>%s</a>",cli->id,escf(et1,cli->user));
@@ -5693,10 +5733,10 @@ void getcamd35cells(struct camd35_client_data *cli, char cell[10][2048])
 
 	int ecmaccepted = cli->ecmnb-cli->ecmdenied;
 	getstatcell( ecmaccepted, cli->ecmnb, cell[5]);
-	getstatcell( cli->ecmok, ecmaccepted, cell[6]);
+	getstatcell( __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED), ecmaccepted, cell[6]);
 
 	// CELL7 # Ecm Time
-	if (cli->ecmok) sprintf( cell[7],"%d ms",(cli->ecmoktime/cli->ecmok) ); else sprintf( cell[7],"-- ms");
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) sprintf( cell[7],"%d ms",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) ); else sprintf( cell[7],"-- ms");
 
 	// CELL8 # Last Used Share
 /*
@@ -5802,7 +5842,6 @@ void http_send_camd35(int sock, http_request *req)
 
 	if (get_action==ACTION_ROW) {
 		// Check for XML ROW
-		struct camd35_client_data *cli = NULL;
 		if (str_clid) {
 			int id = atoi(str_clid);
 			struct camd35_server_data *camd35 = cfg.camd35.server;
@@ -5814,7 +5853,7 @@ void http_send_camd35(int sock, http_request *req)
 							// Send XML CELLS
 							getcamd35cells(cli,cell);
 							int i; for(i=0; i<10; i++) xmlescape( cell[i] );
-							sprintf( http_buf, "<camd35>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</camd35>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+							snprintf(http_buf, sizeof(http_buf), "<camd35>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</camd35>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 							http_send_xml( sock, req, http_buf, strlen(http_buf));
 						}
 						cli = cli->next;
@@ -5946,7 +5985,7 @@ void http_send_camd35(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcamd35cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5958,7 +5997,7 @@ void http_send_camd35(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcamd35cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -5969,7 +6008,7 @@ void http_send_camd35(int sock, http_request *req)
 				if (alt==1) alt=2; else alt=1;
 				getcamd35cells(cli,cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cli->next;
 			}
@@ -5995,7 +6034,7 @@ void http_send_camd35(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcamd35cells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -6008,7 +6047,7 @@ void http_send_camd35(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getcamd35cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					cli = cli->next;
 				}
@@ -6021,7 +6060,7 @@ void http_send_camd35(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getcamd35cells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -6064,7 +6103,7 @@ void http_send_camd35(int sock, http_request *req)
 void cacheex_server_cells(struct server_data *srv, char cell[10][2048] )
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 	unsigned int ticks = GetTickCount();
 	uint32_t d;
 
@@ -6192,7 +6231,7 @@ void cacheex_server_cells(struct server_data *srv, char cell[10][2048] )
 void cacheex_cccamclient_cells(struct cc_client_data *cli, char cell[10][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 	unsigned int ticks = GetTickCount();
 	unsigned int d;
 	memset(cell, 0, 10*2048);
@@ -6290,7 +6329,7 @@ void cacheex_cccamclient_cells(struct cc_client_data *cli, char cell[10][2048])
 void cacheex_camd35client_cells(struct camd35_client_data *cli, char cell[10][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 	unsigned int ticks = GetTickCount();
 	unsigned int d;
 	memset(cell, 0, 10*2048);
@@ -6412,7 +6451,7 @@ void http_send_cacheex(int sock, http_request *req)
 						if ( !(cli->flags&FLAG_DELETE) && cli->id==(i&0xffff) ) {
 			                cacheex_cccamclient_cells(cli,cell);
 			                for(i=0; i<10; i++) xmlescape( cell[i] );
-			                sprintf( http_buf, "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
+			                snprintf(http_buf, sizeof(http_buf), "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
 			                http_send_xml( sock, req, http_buf, strlen(http_buf));
 							return;
 						}
@@ -6431,7 +6470,7 @@ void http_send_cacheex(int sock, http_request *req)
 						if ( !(cli->flags&FLAG_DELETE) && cli->id==(i&0xffff) ) {
 			                cacheex_camd35client_cells(cli,cell);
 			                for(i=0; i<10; i++) xmlescape( cell[i] );
-			                sprintf( http_buf, "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
+			                snprintf(http_buf, sizeof(http_buf), "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
 			                http_send_xml( sock, req, http_buf, strlen(http_buf));
 							return;
 						}
@@ -6450,7 +6489,7 @@ void http_send_cacheex(int sock, http_request *req)
 						if ( !(cli->flags&FLAG_DELETE) && cli->id==(i&0xffff) ) {
 			                cacheex_camd35client_cells(cli,cell);
 			                for(i=0; i<10; i++) xmlescape( cell[i] );
-			                sprintf( http_buf, "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
+			                snprintf(http_buf, sizeof(http_buf), "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
 			                http_send_xml( sock, req, http_buf, strlen(http_buf));
 							return;
 						}
@@ -6466,7 +6505,7 @@ void http_send_cacheex(int sock, http_request *req)
 				if ( !(srv->flags&FLAG_DELETE) && srv->id==(i&0xffff) ) {
 					cacheex_server_cells(srv,cell);
 					for(i=0; i<10; i++) xmlescape( cell[i] );
-					sprintf( http_buf, "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
+					snprintf(http_buf, sizeof(http_buf), "<cacheex>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4_c>%s</c4_c>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6><c7>%s</c7><c8>%s</c8>\n</cacheex>\n",cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8] );
 					http_send_xml( sock, req, http_buf, strlen(http_buf));
 					return;
 				}
@@ -6542,7 +6581,7 @@ void http_send_cacheex(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					cacheex_cccamclient_cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x10000),(cli->id+0x10000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x10000),(cli->id+0x10000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -6570,7 +6609,7 @@ void http_send_cacheex(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					cacheex_camd35client_cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x20000),(cli->id+0x20000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x20000),(cli->id+0x20000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -6599,7 +6638,7 @@ void http_send_cacheex(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					cacheex_camd35client_cells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x30000),(cli->id+0x30000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(cli->id+0x30000),(cli->id+0x30000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -6643,7 +6682,7 @@ void http_send_cacheex(int sock, http_request *req)
 				if (alt==1) alt=2; else alt=1;
 				cacheex_server_cells(srv,cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(srv->id+0x40000),(srv->id+0x40000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",alt,(srv->id+0x40000),(srv->id+0x40000),cell[0],cell[1],cell[2],cell[3],cell[9],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			}
 			srv = srv->next;
@@ -6734,7 +6773,7 @@ void http_send_cccam_client(int sock, http_request *req)
 		}
 		sprintf(http_buf, "<ecmnb>%d</ecmnb>", cli->ecmnb); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		sprintf(http_buf, "<ecmaccepted>%d</ecmaccepted>", cli->ecmnb-cli->ecmdenied); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf(http_buf, "<ecmok>%d</ecmok>", cli->ecmok); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf(http_buf, "<ecmok>%d</ecmok>", __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		tcp_writestr(&tcpbuf, sock, "\n</client>");
 		tcp_flush(&tcpbuf, sock);
 		return;
@@ -6804,7 +6843,7 @@ sprintf( http_buf,"<tr><td class=left>User name</td><td class=right>%s</td></tr>
 		sprintf( http_buf,"<tr><td class=left>IP Address</td><td class=right>%s</td></tr>\n",(char*)ip2string(cli->ip) );
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		// fd
-		sprintf( http_buf,"<tr><td class=left>File Descriptor</td><td class=right>%d</td></tr>\n", cli->handle );
+		sprintf( http_buf,"<tr><td class=left>File Descriptor</td><td class=right>%d</td></tr>\n", __atomic_load_n(&cli->handle, __ATOMIC_RELAXED) );
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		// CCcam Version
 		sprintf( http_buf,"<tr><td class=left>CCcam Version</td><td class=right>%s</td></tr>",cli->version );
@@ -6860,11 +6899,11 @@ sprintf( http_buf,"<tr><td class=left>User name</td><td class=right>%s</td></tr>
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<tr><td class=left>Accepted ECM requests</td><td class=right>%d</td></tr>\n", ecmaccepted);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", cli->ecmok);
+	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED));
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	//Ecm Time
-	if (cli->ecmok) {
-		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(cli->ecmoktime/cli->ecmok) );
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) {
+		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) );
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	}
 	// Freeze
@@ -7024,7 +7063,7 @@ void http_send_freecccam(int sock, http_request *req)
 				// Send XML CELLS
 				getcccamcells(cli,cell);
 				int i; for(i=0; i<10; i++) xmlescape( cell[i] );
-				sprintf( http_buf, "<cccam>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2_c>%s</c2_c>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n</cccam>\n",cell[2],cell[1],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+				snprintf(http_buf, sizeof(http_buf), "<cccam>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2_c>%s</c2_c>\n<c2>%s</c2>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n</cccam>\n",cell[2],cell[1],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 				http_send_xml( sock, req, http_buf, strlen(http_buf));
 				return;
 			}			
@@ -7073,7 +7112,7 @@ void http_send_freecccam(int sock, http_request *req)
 		if (cli->connection.status>0) {
 			if (alt==1) alt=2; else alt=1;
 			getcccamcells( cli,cell);
-			sprintf( http_buf,"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",alt,cli->id,cli->id,cell[2],cell[1],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+			snprintf(http_buf, sizeof(http_buf),"\n<tr class=alt%d id=\"Row%d\" onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",alt,cli->id,cli->id,cell[2],cell[1],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		}
 		cli = cli->next;
@@ -7097,7 +7136,7 @@ void http_send_freecccam(int sock, http_request *req)
 void getmgcamdcells(struct mg_client_data *cli, char cell[10][2048])
 {
 	char temp[2048];
-	char et1[1024], et2[1024];	/* R35 text-field scratch */
+	char et1[1024];	/* R35 text-field scratch */
 
 	// CELL0 # NAME
 	if (cli->realname)
@@ -7153,10 +7192,10 @@ void getmgcamdcells(struct mg_client_data *cli, char cell[10][2048])
 
 	int ecmaccepted = cli->ecmnb-cli->ecmdenied;
 	getstatcell( ecmaccepted, cli->ecmnb, cell[5]);
-	getstatcell( cli->ecmok, ecmaccepted, cell[6]);
+	getstatcell( __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED), ecmaccepted, cell[6]);
 
 	// CELL7 # Ecm Time
-	if (cli->ecmok) sprintf( cell[7],"%d ms",(cli->ecmoktime/cli->ecmok) ); else sprintf( cell[7],"-- ms");
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) sprintf( cell[7],"%d ms",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) ); else sprintf( cell[7],"-- ms");
 
 	// CELL8 # Last Used Share
 	if ( cli->lastecm.caid ) {
@@ -7289,7 +7328,7 @@ void http_send_mgcamd(int sock, http_request *req)
 		getmgcamdcells(cli,cell);
 		int i; for(i=0; i<10; i++) xmlescape( cell[i] );
 		char buf[5000] = "";
-		sprintf( buf, "<mgcamd>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</mgcamd>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
+		snprintf(buf, sizeof(buf), "<mgcamd>\n<c0>%s</c0>\n<c1>%s</c1>\n<c2>%s</c2>\n<c3_c>%s</c3_c>\n<c3>%s</c3>\n<c4>%s</c4>\n<c5>%s</c5>\n<c6>%s</c6>\n<c7>%s</c7>\n<c8>%s</c8>\n</mgcamd>\n",cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8] );
 		http_send_xml( sock, req, buf, strlen(buf));
 		return;
 	}			
@@ -7307,7 +7346,7 @@ void http_send_mgcamd(int sock, http_request *req)
 			tcp_writestr(&tcpbuf, sock, "\n<mgcamd>");
 			sprintf(http_buf, "<id>%d</id>", srv->id); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			sprintf(http_buf, "<port>%d</port>", srv->port); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-			sprintf(http_buf, "<status>%d</status>", (srv->handle>0) ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+			sprintf(http_buf, "<status>%d</status>", (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 			uint32_t ticks = GetTickCount();
 			struct mg_client_data *cli = srv->client;
 			while (cli) {
@@ -7457,7 +7496,7 @@ void http_send_mgcamd(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getmgcamdcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -7469,7 +7508,7 @@ void http_send_mgcamd(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getmgcamdcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				}
 				cli = cli->next;
@@ -7480,7 +7519,7 @@ void http_send_mgcamd(int sock, http_request *req)
 				if (alt==1) alt=2; else alt=1;
 				getmgcamdcells(cli,cell);
 				/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-				sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+				snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 				tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 				cli = cli->next;
 			}
@@ -7506,7 +7545,7 @@ void http_send_mgcamd(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getmgcamdcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -7519,7 +7558,7 @@ void http_send_mgcamd(int sock, http_request *req)
 					if (alt==1) alt=2; else alt=1;
 					getmgcamdcells(cli,cell);
 					/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-					sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+					snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 					tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					cli = cli->next;
 				}
@@ -7532,7 +7571,7 @@ void http_send_mgcamd(int sock, http_request *req)
 						if (alt==1) alt=2; else alt=1;
 						getmgcamdcells(cli,cell);
 						/* R35: HTML rows render composed cells as-is; raw text fields are pre-escaped in the builders (escf/html_esc). Blanket escape here printed the page's own tags as text. */
-						sprintf( http_buf,"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
+						snprintf(http_buf, sizeof(http_buf),"\n<tr id=\"Row%d\" class=alt%d onMouseOver='setupdateRow(%d)' onMouseOut='setupdateRow(0)'> <td>%s</td><td>%s</td><td>%s</td><td class=\"%s\">%s</td><td align=center>%s</td><td>%s</td><td>%s</td><td align=center>%s</td><td>%s</td></tr>\n",cli->id,alt,cli->id,cell[0],cell[1],cell[2],cell[9],cell[3],cell[4],cell[5],cell[6],cell[7],cell[8]);
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
 					cli = cli->next;
@@ -7690,11 +7729,11 @@ sprintf( http_buf,"<tr><td class=left>User name</td><td class=right>%s</td></tr>
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<tr><td class=left>Accepted ECM requests</td><td class=right>%d</td></tr>\n", ecmaccepted);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", cli->ecmok);
+	sprintf( http_buf, "<tr><td class=left>Good ECM answer</td><td class=right>%d</td></tr>\n", __atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED));
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	//Ecm Time
-	if (cli->ecmok) {
-		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(cli->ecmoktime/cli->ecmok) );
+	if (__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) {
+		sprintf( http_buf,"<tr><td class=left>Average Time</td><td class=right>%d ms</td></tr>\n",(__atomic_load_n(&cli->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)) );
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	}
 #ifdef SRV_CSCACHE
@@ -8147,14 +8186,37 @@ void http_send_editor(int sock, http_request *req, int index)
 						*content = 0;
 						//printf(" the file is:\n-------------\n%s\n-------------\n", pdata); 
 						// save
-						FILE *cfgfd = fopen( fname, "w");
-						if (!cfgfd) {
-							sprintf( http_buf, "<h2>Error opening file '%s'</h2>", fname);
-						}
-						else {
-							fwrite( pdata, 1, content-pdata, cfgfd);
-							fclose(cfgfd);
-							sprintf( http_buf, "<script type=\"text/JavaScript\"><!--\nsetTimeout(\"location.href = '/editor%d';\",5000);\n--></script>\n<h3><center>file '%s' is Successfully Saved</center></h3>", index, fname);
+						/* Band 77: atomic save. Stock wrote fopen(fname,"w"):
+						 * the live config sat truncated/partial on disk for
+						 * the whole write, so any reader (or a crash, or a
+						 * dropped POST) could leave the server with a
+						 * gutted file. Write a temp file in the same
+						 * directory, keep the original mode (the file holds
+						 * passwords), then rename() over the original: the
+						 * config on disk is always whole. The config watcher
+						 * treats the rename (IN_IGNORED) as a change and
+						 * reloads exactly once. */
+						{
+							char tmpname[1100];
+							int atomic_ok = snprintf(tmpname, sizeof(tmpname), "%s.tmp", fname) < (int)sizeof(tmpname);
+							FILE *cfgfd = fopen( atomic_ok ? tmpname : fname, "w");
+							if (!cfgfd) {
+								sprintf( http_buf, "<h2>Error opening file '%s'</h2>", fname);
+							}
+							else {
+								int save_ok = fwrite( pdata, 1, content-pdata, cfgfd) == (size_t)(content-pdata);
+								if (fclose(cfgfd)!=0) save_ok = 0;
+								if (save_ok && atomic_ok) {
+									struct stat st;
+									if (stat(fname, &st)==0) chmod(tmpname, st.st_mode);
+									if (rename(tmpname, fname)!=0) save_ok = 0;
+								}
+								if (save_ok) sprintf( http_buf, "<script type=\"text/JavaScript\"><!--\nsetTimeout(\"location.href = '/editor%d';\",5000);\n--></script>\n<h3><center>file '%s' is Successfully Saved</center></h3>", index, fname);
+								else {
+									if (atomic_ok) unlink(tmpname);
+									sprintf( http_buf, "<h2>Error saving file '%s'</h2>", fname);
+								}
+							}
 						}
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 					}
@@ -8350,6 +8412,190 @@ static void http_send_cwlog(int sock, struct http_request *req)
 }
 #endif /* MCS_DCWSTATS */
 
+/* R48: /smartfilter -- the SuperSmartFilter console (v6.0 spec).
+ * Sections: Overview (counters + config), Recent CW (history ring),
+ * Peers (with Strongest/Bad filters), Profiles (per-profile FILTER
+ * levels), Logs (pointer to the live log viewer). Read-only: snapshots
+ * are copied under ssf_lock, the page never mutates filter state. */
+static void http_send_smartfilter(int sock, struct http_request *req)
+{
+	struct ssf_stats st;
+	struct ssf_config sc;
+	struct ssf_peer_stats peers[SSF_MAX_PEERS];
+	struct ssf_cw_history hist[SSF_MAX_HISTORY];
+	char http_buf[2048];
+	struct tcp_buffer_data tcpbuf;
+	int npeers, nhist, i;
+	const char *filter;
+	int fmode; /* 0=all, 1=strongest (bad% > 1), 2=bad (bad% < 1) */
+
+	(void)req;
+	tcp_init(&tcpbuf);
+	http_replyok_write(req, &tcpbuf, sock);
+	http_html_write(req, &tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head, strlen(http_head) );
+	sprintf( http_buf, html_title, cfg.http.title, mlabel("SmartFilter Console","كونسول الفلتر الذكي"));
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	tcp_write(&tcpbuf, sock, http_link, strlen(http_link) );
+	http_style_write(&tcpbuf, sock);
+	tcp_write(&tcpbuf, sock, http_head_, strlen(http_head_) );
+	tcp_write(&tcpbuf, sock, http_body, strlen(http_body) );
+	tcp_write_menu(&tcpbuf, sock, PAGE_SMARTFILTER);
+
+	supersmartfilter_get_stats(&st);
+	ssf_snapshot_config(&sc);
+	npeers = ssf_snapshot_peers(peers, SSF_MAX_PEERS);
+	nhist = ssf_snapshot_history(hist, SSF_MAX_HISTORY);
+
+	filter = isset_get(req, "filter");
+	fmode = 0;
+	if (filter && !strcmp(filter, "strongest")) fmode = 1;
+	else if (filter && !strcmp(filter, "bad")) fmode = 2;
+
+	/* ---- Overview ---- */
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Overview", "نظرة عامة"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<div class=perf-cards>\n");
+	{
+		double rate = st.total_checked ? (100.0 * (double)st.total_rejected / (double)st.total_checked) : 0.0;
+		sprintf( http_buf, "<div class=perf-card><div class=label>%s</div><div class=value>%llu</div></div>\n",
+			mlabel("Total Checked", "إجمالي المفحوص"), (unsigned long long)st.total_checked);
+		tcp_writestr(&tcpbuf, sock, http_buf);
+		sprintf( http_buf, "<div class=perf-card><div class=label>%s</div><div class=value>%llu</div></div>\n",
+			mlabel("Total Rejected", "إجمالي المرفوض"), (unsigned long long)st.total_rejected);
+		tcp_writestr(&tcpbuf, sock, http_buf);
+		sprintf( http_buf, "<div class=perf-card><div class=label>%s</div><div class=value>%.2f%%</div></div>\n",
+			mlabel("Rejection Rate", "نسبة الرفض"), rate);
+		tcp_writestr(&tcpbuf, sock, http_buf);
+		sprintf( http_buf, "<div class=perf-card><div class=label>%s</div><div class=value>%llu</div></div>\n",
+			mlabel("Peers Blocked", "نظراء محظورون"), (unsigned long long)st.peers_blocked);
+		tcp_writestr(&tcpbuf, sock, http_buf);
+	}
+	tcp_writestr(&tcpbuf, sock, "</div>\n<table class=module style='font-size:0.85em;'><tr>");
+	sprintf( http_buf, "<th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th>",
+		mlabel("Empty", "فارغ"), mlabel("Fake", "فايك"), mlabel("Entropy", "إنتروبيا"),
+		mlabel("Pattern", "نمط"), mlabel("Format", "تنسيق"), mlabel("Blacklist", "قائمة سوداء"),
+		mlabel("Duplicate", "مكرر"), mlabel("Multicheck", "فحص متعدد"), mlabel("Marchcheck", "فحص المسير"),
+		mlabel("CW-Dup", "تكرار ثابت"), mlabel("CW-Reuse", "نصف مُعاد"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	sprintf( http_buf, "</tr><tr><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td><td>%llu</td></tr></table>\n",
+		(unsigned long long)st.rejected_empty, (unsigned long long)st.rejected_fake,
+		(unsigned long long)st.rejected_entropy, (unsigned long long)st.rejected_pattern,
+		(unsigned long long)st.rejected_format, (unsigned long long)st.rejected_blacklist,
+		(unsigned long long)st.rejected_duplicate, (unsigned long long)st.rejected_multicheck,
+		(unsigned long long)st.rejected_marchcheck, (unsigned long long)st.rejected_cwdup,
+		(unsigned long long)st.rejected_cwreuse);
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	sprintf( http_buf, "<p style='font-size:0.85em;'>%s: %llu &middot; %s: %llu &middot; %s: %llu &middot; %s: %llu/%llu</p>\n",
+		mlabel("Marchcheck flagged (log-only sightings included)", "رُصد مسير (يشمل وضع التسجيل)"),
+		(unsigned long long)st.marchcheck_flagged,
+		mlabel("CW-Dup flagged", "رُصد تكرار ثابت"),
+		(unsigned long long)st.cwdup_flagged,
+		mlabel("CW-Reuse flagged", "رُصد نصف مُعاد"),
+		(unsigned long long)st.cwreuse_flagged,
+		mlabel("Late-CW flagged / rejected", "متأخرة رُصدت / رُفضت"),
+		(unsigned long long)st.latecw_flagged, (unsigned long long)st.rejected_latecw);
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	sprintf( http_buf, "<p style='font-size:0.85em;'>%s %d &middot; %s %dms &middot; %s %d%%/%d &middot; %s %d &middot; %s %ds</p>\n",
+		mlabel("Level", "المستوى"), sc.filter_level,
+		mlabel("Window", "النافذة"), sc.filter_time_ms,
+		mlabel("BadCW ratio", "نسبة السيئ"), sc.badcwratio, sc.badcwratiomin,
+		mlabel("Min replies", "أدنى ردود"), sc.minreplies,
+		mlabel("Unblock", "فك الحظر"), sc.unblock_time);
+	tcp_writestr(&tcpbuf, sock, http_buf);
+
+	/* ---- Recent CW ---- */
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Recent CW", "أحدث المفاتيح"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<table class=module style='font-size:0.85em; white-space:nowrap;'><tr>");
+	sprintf( http_buf, "<th>#</th><th>%s</th><th>%s</th></tr>\n",
+		mlabel("Channel", "القناة"), mlabel("Age", "العمر"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	{
+		uint32_t now_ms = GetTickCount();
+		for (i = 0; i < nhist; i++) {
+			sprintf( http_buf, "<tr><td>%d</td><td>%04x:%06x:%04x</td><td>+%lus</td></tr>\n",
+				i + 1, hist[i].caid, hist[i].provid, hist[i].sid,
+				(unsigned long)(tick32_elapsed(now_ms, hist[i].timestamp) / 1000u));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+	}
+	if (nhist == 0) {
+		sprintf( http_buf, "<tr><td colspan=3>%s</td></tr>\n",
+			mlabel("No CWs in history yet", "لا مفاتيح في السجل بعد"));
+		tcp_writestr(&tcpbuf, sock, http_buf);
+	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n");
+
+	/* ---- Peers ---- */
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Peers", "النظراء"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<p style='font-size:0.85em;'>");
+	sprintf( http_buf, "<a href='/smartfilter?filter=all'>%s</a> &middot; <a href='/smartfilter?filter=strongest'>%s</a> &middot; <a href='/smartfilter?filter=bad'>%s</a></p>\n",
+		mlabel("All", "الكل"), mlabel("Strongest", "الأقوى"), mlabel("Bad", "السيئ"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	tcp_writestr(&tcpbuf, sock, "<table class=module style='font-size:0.85em; white-space:nowrap;'><tr>");
+	sprintf( http_buf, "<th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr>\n",
+		mlabel("Peer", "النظير"), mlabel("Total CW", "إجمالي المفاتيح"),
+		mlabel("Bad CW", "مفاتيح سيئة"), mlabel("Bad %", "نسبة السيئ"),
+		mlabel("Status", "الحالة"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	{
+		int shown = 0;
+		for (i = 0; i < npeers; i++) {
+			double badratio = peers[i].total_cws ? (100.0 * (double)peers[i].bad_cws / (double)peers[i].total_cws) : 0.0;
+			if (fmode == 1 && badratio <= 1.0) continue;
+			if (fmode == 2 && badratio >= 1.0) continue;
+			shown++;
+			sprintf( http_buf, "<tr><td>%u</td><td>%llu</td><td>%llu</td><td>%.2f%%</td><td>%s</td></tr>\n",
+				peers[i].peer_id, (unsigned long long)peers[i].total_cws,
+				(unsigned long long)peers[i].bad_cws, badratio,
+				peers[i].blocked ? mlabel("Blocked", "محظور") : mlabel("Active", "نشط"));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+		if (shown == 0) {
+			sprintf( http_buf, "<tr><td colspan=5>%s</td></tr>\n",
+				mlabel("No peers in this view", "لا نظراء في هذا العرض"));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n");
+
+	/* ---- Profiles ---- */
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Profiles", "البروفايلات"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<table class=module style='font-size:0.85em; white-space:nowrap;'><tr>");
+	sprintf( http_buf, "<th>%s</th><th>CAID</th><th>%s</th></tr>\n",
+		mlabel("Profile", "البروفايل"), mlabel("FILTER level", "مستوى الفلتر"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	{
+		struct cardserver_data *cs;
+		int nprof = 0;
+		for (cs = cfg.cardserver; cs; cs = cs->next) {
+			nprof++;
+			sprintf( http_buf, "<tr><td>%s</td><td>%04x</td><td>%d%s</td></tr>\n",
+				cs->name, cs->card.caid, cs->option.sf_filter_level,
+				cs->option.sf_filter_level ? "" : mlabel(" (inherit)", " (وراثة)"));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+		if (nprof == 0) {
+			sprintf( http_buf, "<tr><td colspan=3>%s</td></tr>\n",
+				mlabel("No profiles configured", "لا بروفايلات مهيأة"));
+			tcp_writestr(&tcpbuf, sock, http_buf);
+		}
+	}
+	tcp_writestr(&tcpbuf, sock, "</table>\n");
+
+	/* ---- Logs ---- */
+	tcp_writestr(&tcpbuf, sock, "<h2>");
+	tcp_writestr(&tcpbuf, sock, mlabel("Logs", "السجلات"));
+	tcp_writestr(&tcpbuf, sock, "</h2>\n<p style='font-size:0.85em;'>");
+	sprintf( http_buf, "%s <a href='/log-viewer'>%s</a></p>\n</body></html>\n",
+		mlabel("SmartFilter events are written to the server log.", "أحداث الفلتر الذكي تُكتب في سجل الخادم."),
+		mlabel("Open log viewer", "فتح عارض السجلات"));
+	tcp_writestr(&tcpbuf, sock, http_buf);
+	tcp_flush(&tcpbuf, sock);
+}
 
 /* TASK R5 (D59): the machine readout. One JSON document behind the SAME
  * Basic auth as every page (the gate runs before this router, and the R3
@@ -8898,6 +9144,213 @@ static void trace_summary_write(struct tcp_buffer_data *tcpbuf, int sock,
     else tcp_writestr(tcpbuf, sock, "<li>بحث الكاش: غير معروف لهذه المحاولة من الأحداث المحتفظ بها.</li>");
     tcp_writestr(tcpbuf, sock, "</ul><p>أحداث الكاش المصنفة «قناة فقط» لا تثبت أنها تخص هذه المحاولة؛ لذلك لا تُنسب إليها كسبب. القيم المسجلة لقطة عند البحث؛ قد تنتهي المهلة قبل وقتها بسبب مسارات أخرى.</p>");
 }
+
+/* Everything the operator used to hunt across /dashboard and the
+ * [ECM-DBLCHK] log lines, on the CCcam trace page itself (field request,
+ * 2026-11-14): system counters, per-profile state, the R22 anti-fake
+ * layers' live counters, and the last DoubleCheck decisions from the
+ * in-memory ring in ecm-doublecheck.h. Rendered inside the auto-refreshed
+ * #trace-data section, so this page is now the single place to look. */
+static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
+{
+    char out[2048];
+    long tot_req = 0, tot_ok = 0;
+    int profiles = 0;
+    struct cardserver_data *cs = cfg.cardserver;
+    while (cs) {
+        profiles++;
+        tot_req += __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED) + __atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED);
+        tot_ok += __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
+        cs = cs->next;
+    }
+    {
+        double rate = tot_req ? (100.0 * tot_ok / tot_req) : 0.0;
+        unsigned int up = GetTickCount()/1000;
+        tcp_writestr(tcpbuf, sock, "<h2>نظرة عامة — النظام والطبقات والتحقق المزدوج</h2>");
+        snprintf(out, sizeof(out), "<p>✅ النظام نشط | وقت التشغيل %02dd %02d:%02d:%02d | الباقات: %d | إجمالي الطلبات: %ld | فك تشفير ناجح: %ld | مرفوض/فاشل: %ld | نسبة النجاح: %.1f%%</p>",
+                 up/(3600*24), (up/3600)%24, (up/60)%60, up%60, profiles, tot_req, tot_ok, tot_req - tot_ok, rate);
+        tcp_writestr(tcpbuf, sock, out);
+    }
+    tcp_writestr(tcpbuf, sock, "<table><tr><th>الباقة</th><th>CAID</th><th>الطلبات</th><th>نسبة النجاح</th><th>الحالة</th></tr>");
+    cs = cfg.cardserver;
+    while (cs) {
+        char et1[1024];
+        long req_p = __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED) + __atomic_load_n(&cs->ecmdenied, __ATOMIC_RELAXED);
+        long ok_p = __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
+        double rate = req_p ? (100.0 * ok_p / req_p) : 0.0;
+        int online = (__atomic_load_n(&cs->newcamd.handle, __ATOMIC_RELAXED) > 0);
+        snprintf(out, sizeof(out), "<tr><td>%s</td><td>%04X</td><td>%ld</td><td>%.1f%%</td><td>%s</td></tr>",
+                 escf(et1, cs->name), cs->card.caid, req_p, rate, online ? "✅ نشط" : "❌ متوقف");
+        tcp_writestr(tcpbuf, sock, out);
+        cs = cs->next;
+    }
+    tcp_writestr(tcpbuf, sock, "</table>");
+{
+        struct mcs_field_status st;
+        int i;
+        mcs_field_status_fill(&st);
+        if (st.r22_compiled) {
+            snprintf(out, sizeof(out), "<p><b>طبقات R22 المضادة للفايك:</b> %s | CWs من الكاش فُحصت: %u | قُبلت: %u | رُفضت: %u (فايك واضح: %u، قائمة الحظر: %u) | محتجزة بالحجر: %u | CWs بطاقات سُجلت كحقيقة: %u | اشتباه متعدد القنوات (مراقبة فقط): %u</p>",
+                     st.r22_enabled ? "✅ مفعّلة" : "⏸️ موقوفة من الإعداد (R22 LAYERS: NO)",
+                     st.r22_cache_total, st.r22_cache_accepted, st.r22_cache_rejected,
+                     st.r22_pattern_fake, st.r22_propblock_hit,
+                     st.r22_quarantine_held, st.r22_server_total, st.r22_cross_blocked);
+            tcp_writestr(tcpbuf, sock, out);
+        } else {
+            tcp_writestr(tcpbuf, sock, "<p><b>طبقات R22 المضادة للفايك:</b> ➖ غير مُجمّعة في نكهة stock هذه (ثنائي التجربة الميدانية release-r22 يفعّلها).</p>");
+        }
+        snprintf(out, sizeof(out), "<p><b>التحقق المزدوج (DoubleCheck — مراقبة فقط، لا يحجب التسليم):</b> CAIDs مراقبة: %d | فحوص بدأت: %llu | تطابق مصدرين: %llu | قرارات عدم تطابق: %llu | مهلات: %llu | نسبة عدم التطابق: %.2f%% (%llu من %llu)</p>",
+                 st.dc_caids,
+                 (unsigned long long)st.dc_total, (unsigned long long)st.dc_ok,
+                 (unsigned long long)st.dc_fail, (unsigned long long)st.dc_timeouts,
+                 st.dc_total ? (100.0 * (double)st.dc_fail / (double)st.dc_total) : 0.0,
+                 (unsigned long long)st.dc_fail, (unsigned long long)st.dc_total);
+        tcp_writestr(tcpbuf, sock, out);
+        if (st.dc_event_count) {
+            tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>القناة</th><th>قرار DoubleCheck</th><th>مصادر</th></tr>");
+            for (i = 0; i < st.dc_event_count; i++) {
+                char timestr[32];
+                mcs_format_local_time(timestr, sizeof(timestr), (time_t)st.dc_events[i].timestamp, "%H:%M:%S");
+                snprintf(out, sizeof(out), "<tr><td>%s</td><td><code>%04X:%06X:%04X</code></td><td>%s</td><td>%d</td></tr>",
+                         timestr, st.dc_events[i].caid, st.dc_events[i].provid, st.dc_events[i].sid,
+                         st.dc_events[i].kind == 1 ? "✅ تطابق مصدرين" : "⚠️ عدم تطابق المصادر", st.dc_events[i].sources);
+                tcp_writestr(tcpbuf, sock, out);
+            }
+            tcp_writestr(tcpbuf, sock, "</table>");
+        } else {
+            tcp_writestr(tcpbuf, sock, "<p>لا قرارات DoubleCheck بعد في هذه الجلسة (تظهر هنا فور حدوثها، بدل سجلات [ECM-DBLCHK]).</p>");
+        }
+        /* CWPAIR (band 38): discovery counters + ready-to-paste pairs */
+        snprintf(out, sizeof(out), "<p><b>اقتران الشفرات (CWPAIR — SimulCrypt):</b> %s | شفرات ملاحظة: %lu | تطابقات توأم: %lu | قُدّمت من التوأم: %lu | رُفضت للقدم: %lu | رفض STRICTCYCLE: %lu | لا توأم معروف: %lu</p>",
+                 st.cwpair_discover ? "اكتشاف مفعّل" : "اكتشاف مطفأ (CWDEDUP_CHECK: YES لتفعيله)",
+                 st.cwpair_observed, st.cwpair_matches, st.cwpair_served,
+                 st.cwpair_stale, st.cwpair_strict_rejected, st.cwpair_no_twin);
+        tcp_writestr(tcpbuf, sock, out);
+        snprintf(out, sizeof(out), "<p><b>كبح الدفع المتأخر (CACHEEX NOPUSH AFTER):</b> %s | فُحص: %lu | كُبح دفعها (سُلّمت للعميل ولم تُدفع): %lu</p>",
+                 st.nopush_entries ? "مفعّل" : "مطفأ (لا أسطر CACHEEX NOPUSH AFTER)",
+                 st.nopush_checked, st.nopush_blocked);
+        tcp_writestr(tcpbuf, sock, out);
+        /* Band 57, unified table since band 79: web-door brute-force
+         * guard, on the one diagnostic page */
+        {
+            uint64_t lb_total = 0;
+            int lb_active = 0, lf_cfg = 0, lb_cfg = 0;
+            lb_total = protoban_total_proto(PB_HTTP);
+            lb_active = protoban_active(PB_HTTP);
+            newcamd_config_read_lock();
+            lf_cfg = cfg.http.loginfails;
+            lb_cfg = cfg.http.loginbansec;
+            newcamd_config_read_unlock();
+            snprintf(out, sizeof(out), "<p><b>حارس تخمين الويب (HTTP LOGIN FAILS/BAN):</b> %s | عتبة الفشل: %d | مدة الحظر: %ds | حظر إجمالي هذه الجلسة: %llu | محظور الآن: %d</p>",
+                     lf_cfg > 0 ? "مسلّح" : "مطفأ (HTTP LOGIN FAILS: 0)",
+                     lf_cfg, lb_cfg,
+                     (unsigned long long)lb_total, lb_active);
+            tcp_writestr(tcpbuf, sock, out);
+        }
+        /* Band 60: active per-protocol bans (telnet/cccam/...), if any */
+        {
+            struct protoban_view pv[16];
+            int pn = protoban_snapshot(pv, 16);
+            int pi2;
+            snprintf(out, sizeof(out), "<p><b>حظر حسب البروتوكول (Band 60):</b> إجمالي الجلسة: %llu | نشط الآن: %d</p>",
+                     (unsigned long long)protoban_total(), pn);
+            tcp_writestr(tcpbuf, sock, out);
+            for (pi2 = 0; pi2 < pn; pi2++) {
+                snprintf(out, sizeof(out), "<p style='margin-left:2em'>%s — %s — متبقٍّ %us (محاولات %lu)</p>",
+                         protoban_name(pv[pi2].proto), ip2string(pv[pi2].ip),
+                         pv[pi2].seconds_left, (unsigned long)pv[pi2].fails);
+                tcp_writestr(tcpbuf, sock, out);
+            }
+        }
+        /* Band 62: recent login attempts on the interactive doors */
+        {
+            struct login_audit_entry la[16];
+            int ln2 = loginaudit_snapshot(la, 16);
+            int li2;
+            tcp_writestr(tcpbuf, sock, "<h3>سجلّ محاولات الدخول (الويب/التلنت)</h3>");
+            if (ln2) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>الباب</th><th>من</th><th>المستخدم</th><th>النتيجة</th></tr>");
+                for (li2 = 0; li2 < ln2; li2++) {
+                    char timestr[32];
+                    char escuser[128];
+                    html_esc(escuser, sizeof(escuser), la[li2].user);
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)la[li2].when, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+                             timestr, protoban_name(la[li2].proto), ip2string(la[li2].ip),
+                             escuser, la[li2].success ? "✅ ناجحة" : "❌ فاشلة");
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else {
+                tcp_writestr(tcpbuf, sock, "<p>لا محاولات دخول موثّقة بعد في هذه الجلسة (تُسجَّل محاولات الويب والتلنت الحقيقية فقط، لا طلبات الجلسات).</p>");
+            }
+        }
+        snprintf(out, sizeof(out), "<p><b>حسم الخدمة عند الشك (CACHE SERVICE DOUBT):</b> %s | انتقادات ذات مرشحين مختلفين: %lu | رُفضت الخدمة للشك: %lu | خُدمت بأغلبية صارمة: %lu</p>",
+                 st.svc_armed ? "مفعّل" : "مطفأ (CACHE SERVICE DOUBT: ON لتفعيله)", st.svc_checked, st.svc_doubt, st.svc_majority);
+        tcp_writestr(tcpbuf, sock, out);
+        if (st.svc_profiles_on || st.svc_profiles_off) {
+            snprintf(out, sizeof(out), "<p>تجاوزات SERVICE DOUBT البروفايلية: %d بروفايل يفرض ON و%d يفرض OFF (تتقدّم على العام)</p>",
+                     st.svc_profiles_on, st.svc_profiles_off);
+            tcp_writestr(tcpbuf, sock, out);
+        }
+        snprintf(out, sizeof(out), "<p><b>الاسترداد التلقائي (مراقبة فقط — لا قرار يُبنى عليه):</b> %s | بدء استرداد: %lu | نجاحات: %lu | قنوات في مرحلة استرداد الآن: %d</p>",
+                 st.ar_enabled ? "مفعّل (AUTO RECOVER: ON)" : "مطفأ (AUTO RECOVER: ON لتفعيله)", st.ar_recoveries, st.ar_successes, st.ar_active);
+        tcp_writestr(tcpbuf, sock, out);
+        snprintf(out, sizeof(out), "<p><b>البوابات المسلّحة:</b> CI VALIDATE عام: %s (بروفايلات تفرض ON: %d، تفرض OFF: %d) | DROPDIFFS عام: %s (تفرض ON: %d، تفرض OFF: %d) | CACHE EVIDENCE في %d بروفايل | استثناء checksum (بند 37) في %d بروفايل</p>",
+                 st.gate_ci_global ? "ON" : "OFF", st.gate_ci_on, st.gate_ci_off,
+                 st.gate_dd_global ? "ON" : "OFF", st.gate_dd_on, st.gate_dd_off,
+                 st.gate_ev_profiles, st.gate_checksum_exempt_profiles);
+        tcp_writestr(tcpbuf, sock, out);
+        if (st.cwpair_pair_count > 0) {
+            int i;
+            /* Band 82: confirmation-grade pair list, most-confirmed
+             * first: both providers, match count, age of the last
+             * match, and whether a profile already carries the pair
+             * (so the operator confirms -- or sees it is armed --
+             * without leaving this page). */
+            tcp_writestr(tcpbuf, sock, "<p>أزواج مكتشفة (مرتّبة بالأكثر تأكيدًا — أكّد من الحداثة وعدد التطابقات، ثم انسخ المناسب إلى بروفايله وابدأ بـACTIVE: NO):</p>");
+            for (i = 0; i < st.cwpair_pair_count; i++) {
+                struct mcs_cwpair_pair *pr = &st.cwpair_pairs[i];
+                uint32_t age_ms = GetTickCount() - pr->last_tick;
+                const char *armed_name = NULL;
+                int armed_active = 0, armed_found = 0;
+                struct cardserver_data *pcs = cfg.cardserver;
+                while (pcs && !armed_found) {
+                    int dir_ok = 0, k;
+                    if (pcs->card.caid == pr->caid_a && pcs->option.cwpair_caid == pr->caid_b) dir_ok = 1;
+                    if (pcs->card.caid == pr->caid_b && pcs->option.cwpair_caid == pr->caid_a) dir_ok = 2;
+                    if (dir_ok) {
+                        if (pcs->option.cwpair_sid_n == 0) armed_found = 1;
+                        else for (k = 0; k < pcs->option.cwpair_sid_n; k++) {
+                            uint16_t loc = (dir_ok == 1) ? pr->sid_a : pr->sid_b;
+                            uint16_t per = (dir_ok == 1) ? pr->sid_b : pr->sid_a;
+                            if (pcs->option.cwpair_sid_local[k] == loc && pcs->option.cwpair_sid_peer[k] == per) { armed_found = 1; break; }
+                        }
+                        if (armed_found) { armed_name = pcs->name; armed_active = pcs->option.cwpair_active; }
+                    }
+                    pcs = pcs->next;
+                }
+                snprintf(out, sizeof(out), "<p><code>%04X:%06X:%04X</code> ↔ <code>%04X:%06X:%04X</code> — تطابقات: %u — آخر تطابق قبل %us%s</p>",
+                         pr->caid_a, pr->provid_a, pr->sid_a,
+                         pr->caid_b, pr->provid_b, pr->sid_b,
+                         pr->matches, age_ms / 1000,
+                         armed_found ? " — ✅ مُهيّأ أصلًا" : "");
+                tcp_writestr(tcpbuf, sock, out);
+                if (armed_found) {
+                    snprintf(out, sizeof(out), "<p style='margin-left:2em'>مُهيّأ في بروفايل [%s] — CWPAIR ACTIVE: %s (لا حاجة للنسخ)</p>",
+                             armed_name, armed_active ? "YES" : "NO");
+                    tcp_writestr(tcpbuf, sock, out);
+                } else {
+                    snprintf(out, sizeof(out), "<pre>## in the profile whose CAID is %04X:\nCWPAIR CAID: %04X\nCWPAIR ACTIVE: NO\nCWPAIR SID: %04X-&gt;%04X  (matches: %u)</pre>",
+                             pr->caid_a, pr->caid_b,
+                             pr->sid_a, pr->sid_b,
+                             pr->matches);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+            }
+        }
+    }
+}
 static void http_send_user_trace(int sock, http_request *req)
 {
     struct tcp_buffer_data tcpbuf;
@@ -8950,7 +9403,20 @@ static void http_send_user_trace(int sock, http_request *req)
                                      trace_parse_number(trace_post_value(req, "sid"), 16, 0xffff, &sid) && sid))) {
                             struct user_trace_target t = {0};
                             user_trace_config_lock();
-                            if (getcccamclientbyid((uint32_t)client)) {
+                            /* Band 72: newcamd clients are traceable too;
+                             * ids share one space (config.c sweep). */
+                            if (getcccamclientbyid((uint32_t)client) ||
+                                getnewcamdclientbyid((uint32_t)client)
+#ifdef MGCAMD_SRV
+                                || getmgcamdclientbyid((uint32_t)client)
+#endif
+#ifdef CS378X_SRV
+                                || getcs378xclientbyid((uint32_t)client)
+#endif
+#ifdef CAMD35_SRV
+                                || getcamd35clientbyid((uint32_t)client)
+#endif
+                                ) {
                                 t.client_id = client; t.caid = caid; t.provider = prov; t.sid = sid;
                                 t.all_channels = all;
                                 ok = user_trace_start(&t) != 0;
@@ -8981,26 +9447,159 @@ static void http_send_user_trace(int sock, http_request *req)
         if (options) {
             struct cccam_server_data *server;
             user_trace_config_lock();
+#ifdef FREECCCAM_SRV
+            /* FreeCCcam clients live on the embedded freecccam server,
+             * not in the cccam server list; without this the operator
+             * cannot select them for a trace at all. */
+            {
+                struct cc_client_data *fclient = cfg.freecccam.server.client;
+                while (fclient && !(cfg.freecccam.server.flags & FLAG_DELETE)) {
+                    if (!(fclient->flags & FLAG_DELETE)) {
+                        if (n == 4096) { truncated = 1; break; }
+                        /* Snapshot under the client state lock: connect
+                         * and ECM writers mutate these fields under it,
+                         * and the bare reads raced them (TSan, band 28). */
+                        if (client_state_lock(fclient) == 0) {
+                            options[n].id = fclient->id;
+                            options[n].connected = fclient->connection.status > 0;
+                            options[n].caid = fclient->lastecm.caid;
+                            options[n].provider = fclient->lastecm.prov;
+                            options[n].sid = fclient->lastecm.sid;
+                            memcpy(options[n].name, fclient->user, sizeof(options[n].name));
+                            options[n].name[sizeof(options[n].name)-1] = 0;
+                            client_state_unlock(fclient);
+                            ++n;
+                        }
+                    }
+                    fclient = fclient->next;
+                }
+            }
+#endif
             server = cfg.cccam.server;
             while (server) {
                 struct cc_client_data *client = server->client;
                 while (client) {
                     if (!(server->flags & FLAG_DELETE) && !(client->flags & FLAG_DELETE)) {
                         if (n == 4096) { truncated = 1; break; }
-                        options[n].id = client->id;
-                        options[n].connected = client->connection.status > 0;
-                        options[n].caid = client->lastecm.caid;
-                        options[n].provider = client->lastecm.prov;
-                        options[n].sid = client->lastecm.sid;
-                        memcpy(options[n].name, client->user, sizeof(options[n].name));
-                        options[n].name[sizeof(options[n].name)-1] = 0;
-                        ++n;
+                        if (client_state_lock(client) == 0) {
+                            options[n].id = client->id;
+                            options[n].connected = client->connection.status > 0;
+                            options[n].caid = client->lastecm.caid;
+                            options[n].provider = client->lastecm.prov;
+                            options[n].sid = client->lastecm.sid;
+                            memcpy(options[n].name, client->user, sizeof(options[n].name));
+                            options[n].name[sizeof(options[n].name)-1] = 0;
+                            client_state_unlock(client);
+                            ++n;
+                        }
                     }
                     client = client->next;
                 }
                 if (truncated) break;
                 server = server->next;
             }
+            /* Band 72: newcamd clients live on cardservers, not in the
+             * CCcam server list; without this they cannot be selected
+             * for a trace at all. Their ids share the CCcam counter
+             * space (config.c setup sweep), so an id names one client. */
+            {
+                struct cardserver_data *csx = cfg.cardserver;
+                while (csx && !truncated) {
+                    struct cs_client_data *ncli = csx->newcamd.client;
+                    while (ncli) {
+                        struct cs_client_data *nnext = ncli->next;
+                        if (!(ncli->flags & FLAG_DELETE)) {
+                            if (n == 4096) { truncated = 1; break; }
+                            if (newcamd_client_state_lock(ncli) == 0) {
+                                options[n].id = ncli->id;
+                                options[n].connected = ncli->connection.status > 0;
+                                options[n].caid = ncli->lastecm.caid;
+                                options[n].provider = ncli->lastecm.prov;
+                                options[n].sid = ncli->lastecm.sid;
+                                snprintf(options[n].name, sizeof(options[n].name), "%s [newcamd]", ncli->user);
+                                newcamd_client_state_unlock(ncli);
+                                ++n;
+                            }
+                        }
+                        ncli = nnext;
+                    }
+                    csx = csx->next;
+                }
+            }
+            /* Band 73: mgcamd/cs378x/camd35 clients, whose ECM paths
+             * now record trace attempts too. Their ids share the
+             * CCcam counter space (config.c setup sweeps). These
+             * structs have no per-client state lock; the reads follow
+             * the plain getter convention under the config lock. */
+#ifdef MGCAMD_SRV
+            {
+                struct mgcamdserver_data *mgs = cfg.mgcamd.server;
+                while (mgs && !truncated) {
+                    struct mg_client_data *mcli = mgs->client;
+                    while (mcli) {
+                        struct mg_client_data *mnext = mcli->next;
+                        if (!(mcli->flags & FLAG_DELETE)) {
+                            if (n == 4096) { truncated = 1; break; }
+                            options[n].id = mcli->id;
+                            options[n].connected = mcli->handle != INVALID_SOCKET && mcli->handle > 0;
+                            options[n].caid = mcli->lastecm.caid;
+                            options[n].provider = mcli->lastecm.prov;
+                            options[n].sid = mcli->lastecm.sid;
+                            snprintf(options[n].name, sizeof(options[n].name), "%s [mgcamd]", mcli->user);
+                            ++n;
+                        }
+                        mcli = mnext;
+                    }
+                    mgs = mgs->next;
+                }
+            }
+#endif
+#ifdef CS378X_SRV
+            {
+                struct camd35_server_data *css = cfg.cs378x.server;
+                while (css && !truncated) {
+                    struct camd35_client_data *ccli = css->client;
+                    while (ccli) {
+                        struct camd35_client_data *cnext = ccli->next;
+                        if (!(ccli->flags & FLAG_DELETE)) {
+                            if (n == 4096) { truncated = 1; break; }
+                            options[n].id = ccli->id;
+                            options[n].connected = ccli->connection.status > 0;
+                            options[n].caid = ccli->lastecm.caid;
+                            options[n].provider = ccli->lastecm.prov;
+                            options[n].sid = ccli->lastecm.sid;
+                            snprintf(options[n].name, sizeof(options[n].name), "%s [cs378x]", ccli->user);
+                            ++n;
+                        }
+                        ccli = cnext;
+                    }
+                    css = css->next;
+                }
+            }
+#endif
+#ifdef CAMD35_SRV
+            {
+                struct camd35_server_data *cds = cfg.camd35.server;
+                while (cds && !truncated) {
+                    struct camd35_client_data *ccli = cds->client;
+                    while (ccli) {
+                        struct camd35_client_data *cnext = ccli->next;
+                        if (!(ccli->flags & FLAG_DELETE)) {
+                            if (n == 4096) { truncated = 1; break; }
+                            options[n].id = ccli->id;
+                            options[n].connected = ccli->connection.status > 0;
+                            options[n].caid = ccli->lastecm.caid;
+                            options[n].provider = ccli->lastecm.prov;
+                            options[n].sid = ccli->lastecm.sid;
+                            snprintf(options[n].name, sizeof(options[n].name), "%s [camd35]", ccli->user);
+                            ++n;
+                        }
+                        ccli = cnext;
+                    }
+                    cds = cds->next;
+                }
+            }
+#endif
             user_trace_config_unlock();
             for (k = 0; k < n; ++k) {
                 char name[384]; html_esc(name, sizeof(name), options[k].name);
@@ -9017,7 +9616,9 @@ static void http_send_user_trace(int sock, http_request *req)
     }
     snprintf(out, sizeof(out), "</select></label><label>نطاق المراقبة <select name='mode' onchange='traceMode(this)'><option value='single'%s>قناة واحدة</option><option value='all'%s>كل قنوات العميل</option></select></label><label>CAID <input name='caid' maxlength='4' value='%04X'></label><label>Provider <input name='provid' maxlength='6' value='%06X'></label><label>SID <input name='sid' maxlength='4' value='%04X'></label><button type='submit'>بدء متابعة جديدة</button></form><form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='stop'><button type='submit'>إيقاف</button></form>", snap->target.all_channels ? "" : " selected", snap->target.all_channels ? " selected" : "", snap->active ? snap->target.caid : 0, snap->active ? snap->target.provider : 0, snap->active ? snap->target.sid : 0, trace_csrf);
     tcp_writestr(&tcpbuf, sock, out);
-    snprintf(out, sizeof(out), "<section id='trace-data'><p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
+    tcp_writestr(&tcpbuf, sock, "<section id='trace-data'>");
+    trace_overview_write(&tcpbuf, sock);
+    snprintf(out, sizeof(out), "<p>الحالة: %s | العميل ID: %u | النطاق: %s <code>%04X:%06X:%04X</code> | أحداث مستبدلة: %llu | روابط مفقودة: %llu | أحداث مفقودة: %llu</p><p>تنبيه: تظهر CW للمشرفين المخوّلين فقط وتبقى في ذاكرة الجلسة حتى بدء جلسة جديدة أو إعادة التشغيل؛ استخدم شبكة إدارة آمنة.</p>", snap->active ? "تعمل" : "متوقفة", snap->target.client_id, snap->target.all_channels ? "كل القنوات" : "قناة واحدة", snap->target.caid, snap->target.provider, snap->target.sid, (unsigned long long)snap->overwritten, (unsigned long long)snap->dropped_links, (unsigned long long)snap->dropped_events);
     tcp_writestr(&tcpbuf, sock, out);
     tcp_writestr(&tcpbuf, sock, "<details><summary>كيف أقرأ أدلة الكاش؟</summary><p>عند امتلاء Consensus: used عدد الخانات المستعملة من الإجمالي، held خانات تنتظر انتهاء النافذة، overdue خانات محتجزة تجاوزت النافذة، reclaimable خانات غير محتجزة يمكن إعادة استخدامها، oldest hold عمر أقدم حجز وwindow مدة النافذة. الخانات التي ليست held هي سجلات غير محتجزة محفوظة مؤقتاً. هذه حالة الجدول العام عند الحدث، لا هوية أصحاب الخانات ولا سببًا مثبتًا لفشل هذا العميل.</p><p>في أحداث الدورة: incoming الدورة التي وصلت إلى مسار الفحص، وقد تكون محفوظة من أول رد عند انتهاء Consensus؛ expected المتوقعة في سجل الكاش وassessed الدورة التي قيّمها الفلتر. no marker تعني عدم وجود علامة دورة معروفة في هذا المسار؛ previous CW يبين توفر CW سابقة للمقارنة، وليس صحتها. اختلاف الدورة لا يثبت وحده أن المصدر خبيث أو أن الصورة لن تظهر.</p></details>");
     snprintf(out, sizeof(out), "<p>ردود CSP قصيرة جدًا لا تكفي لقراءة القناة: %llu خلال جلسة المتابعة، على مستوى السيرفر كله؛ لا يمكن نسبتها لهذا العميل أو قناته. أحداث CSP المرفوضة ذات الترويسة غير المتحقق منها تعرض قناة يدّعيها المرسل فقط، دون CW أو إثبات طلب العميل.</p>", (unsigned long long)snap->csp_unattributed_short);
@@ -9057,9 +9658,21 @@ void *gererClient(struct connect_data *param)
 	 * request is even parsed -- one line, said once, with the address. */
 					newcamd_config_read_lock();
 	int ip_allowed = login_allowed(&cfg.http.allow, ip);
+	int ban_armed = cfg.http.loginfails;
 	newcamd_config_read_unlock();
 	if ( !ip_allowed ) {
 		debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN ALLOW] http: %s is not on the allow list, connection closed pre-auth\n", ip2string(ip));
+		close(sock);
+		return NULL;
+	}
+	/* Band 57, unified in band 79: a banned source is closed pre-auth,
+	 * exactly like the allowlist door. The ban lives in the shared
+	 * protoban table (PB_HTTP) like every other door since band 60 --
+	 * one table, one snapshot on /user-trace, one unban path. Gated on
+	 * the live config: HTTP LOGIN FAILS: 0 disarms instantly, including
+	 * bans already in force. */
+	if ( ban_armed>0 && protoban_banned(ip, PB_HTTP) ) {
+		debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN BAN] http: %s is banned after repeated failures, connection closed pre-auth\n", ip2string(ip));
 		close(sock);
 		return NULL;
 	}
@@ -9110,6 +9723,8 @@ void *gererClient(struct connect_data *param)
 		}
 		else {
 			int auth=0;
+			char attempt_user[64] = "";  /* Band 62: decoded Basic user, for the audit ring */
+			int attempt_seen = 0;
 			if ( (req.type==HTTP_GET)||(req.type==HTTP_POST) ) {
 				int auth_open;
 				/* TASK 3.1 -- the open door. Stock checked cfg.http.user[0] TWICE
@@ -9132,6 +9747,7 @@ void *gererClient(struct connect_data *param)
 						//printf("Authorization: %s\n", req.headers[i].value);
 						//get auth type
 						if (!memcmp(req.headers[i].value, "Basic ",6)) {
+							attempt_seen = 1;
 							// get encrypted login
 							char pass[256];
 							char realpass[256];
@@ -9141,6 +9757,14 @@ void *gererClient(struct connect_data *param)
 							 * 64+64 in config.h); refuse them without decoding. */
 							if (strlen(&req.headers[i].value[6]) > 340) break;
 							base64_pdecode( &req.headers[i].value[6], pass);
+							{
+								/* Band 62: keep only the user half for auditing */
+								const char *colon = strchr(pass, ':');
+								size_t ul = colon ? (size_t)(colon - pass) : strlen(pass);
+								if (ul >= sizeof(attempt_user)) ul = sizeof(attempt_user) - 1;
+								memcpy(attempt_user, pass, ul);
+								attempt_user[ul] = 0;
+							}
 							//printf("PASS: %s\n",pass);
 /*
 							time_t nowtime = time(NULL);
@@ -9155,7 +9779,12 @@ void *gererClient(struct connect_data *param)
 							/* TASK R7 (D61): one token per real login; a
 							 * request that already presented a valid token
 							 * keeps the one it has (no churn). */
-							if ( !http_session_check(&req, ip) ) http_session_mint(&req, ip);
+							if ( !http_session_check(&req, ip) ) {
+								http_session_mint(&req, ip);
+								/* Band 62: audit the real login (session
+								 * mint), not every Basic-carrying request. */
+								loginaudit_note(PB_HTTP, ip, attempt_user, 1);
+							}
 						}
 						}
 						break;
@@ -9168,6 +9797,7 @@ void *gererClient(struct connect_data *param)
 					newcamd_config_read_lock();
 					int config_read_pinned = 1;
 					login_note_success(ip); /* TASK R3 (D57): a good login resets the failure count */
+					protoban_note_success(ip, PB_HTTP); /* Band 79: unified table */
 					req.sock = sock;
 				req.ip = ip;
 				if (strcmp(req.path,"/")==0) http_send_index(sock,&req);
@@ -9250,6 +9880,13 @@ void *gererClient(struct connect_data *param)
 					http_send_server_stats(sock,&req);
 				}
 #ifdef CCCAM_SRV
+				else if (strcmp(req.path,"/dashboard")==0) {
+					/* Folded into the trace page: old bookmarks land there. */
+					struct tcp_buffer_data tcpbuf;
+					tcp_init(&tcpbuf);
+					tcp_writestr(&tcpbuf, sock, "HTTP/1.1 303 See Other\r\nLocation: /user-trace\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
+					tcp_flush(&tcpbuf, sock);
+				}
 				else if (strcmp(req.path,"/user-trace")==0) {
 					if (!cfg.http.show.nocccam) http_send_user_trace(sock,&req);
 				}
@@ -9323,6 +9960,9 @@ void *gererClient(struct connect_data *param)
 					http_send_cwlog(sock,&req);
 				}
 #endif
+				else if (strcmp(req.path,"/smartfilter")==0) { /* R48: SmartFilter console */
+					http_send_smartfilter(sock,&req);
+				}
 				else if ( !memcmp(req.path,"/flag_",6) && !memcmp(req.path+8,".gif",4) ) {
 					// check for code
 					char code[3];
@@ -9359,15 +9999,30 @@ void *gererClient(struct connect_data *param)
 				 * thread, before the stock 401 goes out. Off = instant 401
 				 * exactly as stock. */
 					{
-						uint32_t lt_fails = login_note_failure(ip);
 						uint32_t login_delay;
 						uint32_t lt_wait;
+						uint32_t lt_fails;
+						int lt_banned_now = 0;
 						char title[sizeof(cfg.http.title)];
+						int lf, lb;
 						newcamd_config_read_lock();
 						login_delay = (uint32_t)cfg.http.logindelay;
+						lf = cfg.http.loginfails;
+						lb = cfg.http.loginbansec;
 						memcpy(title, cfg.http.title, sizeof(title));
 						title[sizeof(title) - 1] = 0;
 						newcamd_config_read_unlock();
+						/* Band 79 (was 57, telnet shape): the lt table
+						 * counts only for the progressive delay; the ban
+						 * decision lives in the unified protoban table. */
+						lt_fails = login_note_failure(ip);
+						protoban_note_failure(ip, PB_HTTP, (uint32_t)(lf>0?lf:0),
+						                      (uint32_t)(lb>0?lb:0), &lt_banned_now);
+						if (lt_banned_now)
+							debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN BAN] http: %s reached the failure threshold, IP banned\n", ip2string(ip));
+							/* Band 62: audit only real credential attempts; a bare
+							 * 401 probe (no Authorization header) is not an attempt. */
+							if (attempt_seen) loginaudit_note(PB_HTTP, ip, attempt_user, 0);
 						lt_wait = login_delay_ms(login_delay, lt_fails);
 						if (lt_wait) debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN THROTTLE] http: failure #%u from %s, delaying %ums\n", lt_fails, ip2string(ip), lt_wait);
 						if (lt_wait) usleep(lt_wait*1000);
@@ -9533,12 +10188,10 @@ void http_send_biss(int sock, struct http_request *req)
 			char added_time[32] = "Never";
 			char last_used[32] = "Never";
 			if (biss_keys.keys[i].added_time > 0) {
-				time_t t = biss_keys.keys[i].added_time;
-				strftime(added_time, sizeof(added_time), "%Y-%m-%d %H:%M", localtime(&t));
+				mcs_format_local_time(added_time, sizeof(added_time), biss_keys.keys[i].added_time, "%Y-%m-%d %H:%M");
 			}
 			if (biss_keys.keys[i].last_used > 0) {
-				time_t t = biss_keys.keys[i].last_used;
-				strftime(last_used, sizeof(last_used), "%Y-%m-%d %H:%M", localtime(&t));
+				mcs_format_local_time(last_used, sizeof(last_used), biss_keys.keys[i].last_used, "%Y-%m-%d %H:%M");
 			}
 
 			sprintf(http_buf,
@@ -9628,16 +10281,22 @@ void *http_thread(void *param)
 	prctl(PR_SET_NAME,"HTTP Server",0,0,0);
 
 	while (!prg.restart) {
-		if (cfg.http.handle>0) {
+		/* D49 follow-up (loaded TSan session): the config thread rewrites
+		 * cfg.http.handle on a port-changing reload while this loop polls
+		 * it. Snapshot it atomically once per iteration; all writers in
+		 * config.c store it atomically too, so the pair is race-free and
+		 * this loop never polls a half-updated descriptor. */
+		int http_handle = __atomic_load_n(&cfg.http.handle, __ATOMIC_RELAXED);
+		if (http_handle>0) {
 			//pthread_mutex_lock(&prg.lockhttp);
 
 			struct pollfd pfd;
-			pfd.fd = cfg.http.handle;
+			pfd.fd = http_handle;
 			pfd.events = POLLIN | POLLPRI;
 			int retval = poll(&pfd, 1, 3002);
 			if ( retval>0 ) {
 				if ( pfd.revents & (POLLIN|POLLPRI) ) {
-					clientsock = accept(cfg.http.handle, (struct sockaddr*)&client_addr, /*(socklen_t*)*/&socklen);
+					clientsock = accept(http_handle, (struct sockaddr*)&client_addr, /*(socklen_t*)*/&socklen);
 					if ( clientsock<0 ) {
 						debugf(getdbgflag(DBG_HTTP,0,0)," HTTP Server: Accept Error\n");
 						break;
@@ -9646,6 +10305,7 @@ void *http_thread(void *param)
 						//SetSocketNoDelay(clientsock);
 						pthread_t cli_tid;
 						struct connect_data *newdata = malloc( sizeof(struct connect_data) );
+						if (!newdata) { close(clientsock); continue; }
 						newdata->sock = clientsock; 
 						newdata->ip = client_addr.sin_addr.s_addr;
 						if (!create_thread(&cli_tid, (threadfn)gererClient, newdata)) {

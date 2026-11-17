@@ -12,7 +12,7 @@ from cfgcheck import parse
 subprocess.run([sys.executable, str(ROOT/'tools/generate-expert-config.py'), '--check'], check=True)
 base, old = parse(ROOT/'multics-r24-optimized.cfg')
 template, new = parse(ROOT/'multics-r24-expert-reviewed.cfg')
-assert len(old) == len(new) == 72
+assert len(old) == len(new) == 91
 for label, globals_, profiles in (("optimized", base, old), ("expert-reviewed", template, new)):
     for key in ('DEFAULT CACHE EVIDENCE', 'CACHE EVIDENCE'):
         for value in globals_.get(key, []):
@@ -34,4 +34,4 @@ for before, after in zip(old, new):
     assert set(before['kv']) == set(after['kv'])
     for key, values in before['kv'].items():
         assert [v.split('#', 1)[0].strip() for v in values] == after['kv'][key], (before['name'], key)
-print('PASS: 72 profiles preserve all directives; HTTP management is disabled')
+print('PASS: 91 profiles preserve all directives; HTTP management is disabled')

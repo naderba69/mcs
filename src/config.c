@@ -5,6 +5,7 @@
 #include "safe-time.h"
 #include "cwtime.h"   /* TASK 2.3: CWT_MAX_FLOOR, so the clamp and the module agree */
 #include "newcamd-lifetime.h"
+#include "supersmartfilter.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -77,6 +78,11 @@
  * snapshots and the global DCW gates while config reload publishes them.
  * Writers hold no other lock while publishing policy. Readers copy a snapshot
  * and release the lock before validation or trace work. */
+extern int cfg_r22_layers_enabled;
+extern int cfg_auto_recover_enabled;
+extern int cfg_doublecheck_caids[64];
+extern int cfg_doublecheck_caid_count;
+
 static pthread_mutex_t profile_validation_lock __attribute__((aligned(8))) = PTHREAD_MUTEX_INITIALIZER;
 
 #ifdef MCS_DCWSTATS
@@ -351,6 +357,8 @@ void init_config(struct config_data *cfg)
 
 	cfg->newcamd.clientid = 0;
 	cfg->newcamd.dcwcheck = 1;
+	cfg->newcamd.loginfails = 0;           /* Band 61: off = stock */
+	cfg->newcamd.loginbansec = 3600;       /* Band 61: 1h once armed */
 
 	/*
 	 * TASK 1.10b — stage global DCW-filter defaults with this config. The
@@ -430,11 +438,13 @@ void init_config(struct config_data *cfg)
 
 #ifdef HTTP_SRV
 	cfg->http.port = 5500;
-	cfg->http.handle = -1;
+	__atomic_store_n(&cfg->http.handle, -1, __ATOMIC_RELAXED);
 	cfg->http.autorefresh = 0;
 	strcpy(cfg->http.title, "Multi CardServer");
 	cfg->http.logindelay = 0;              /* TASK R3 (D57): off = stock */
 	login_allow_reset(&cfg->http.allow);
+	cfg->http.loginfails = 0;              /* Band 57: off = stock */
+	cfg->http.loginbansec = 3600;          /* Band 57: 1h once armed */
 #endif
 
 	// CACHE
@@ -462,6 +472,8 @@ void init_config(struct config_data *cfg)
 	cfg->cccam.serverid = 1;
 	cfg->cccam.server = NULL;
 	cfg->cccam.dcwcheck = 1;
+	cfg->cccam.loginfails = 0;             /* Band 60: off = stock */
+	cfg->cccam.loginbansec = 3600;         /* Band 60: 1h once armed */
 	//init_cccamserver( &cfg->cccam ); cfg->cccam.id = cfg->cccamserverid; cfg->cccamserverid++;
 #endif
 
@@ -471,6 +483,7 @@ void init_config(struct config_data *cfg)
 	sprintf(cfg->freecccam.build, "%d", cc_build[0]);
 	memcpy(cfg->freecccam.nodeid, cccam_nodeid, 8);
 
+	cfg->freecccam.clientid = 1;
 	cfg->freecccam.server.client = NULL;
 	cfg->freecccam.server.handle = -1;
 	cfg->freecccam.server.port = 0;
@@ -482,6 +495,8 @@ void init_config(struct config_data *cfg)
 	cfg->mgcamd.serverid = 1;
 	cfg->mgcamd.server = NULL;
 	cfg->mgcamd.dcwcheck = 1;
+	cfg->mgcamd.loginfails = 0;            /* Band 63: off = stock */
+	cfg->mgcamd.loginbansec = 3600;        /* Band 63: 1h once armed */
 #endif
 
 #ifdef TESTCHANNEL
@@ -492,9 +507,15 @@ void init_config(struct config_data *cfg)
 
 	cfg->camd35.clientid = 1;
 	cfg->camd35.serverid = 1;
+	cfg->camd35.loginfails = 0;            /* Band 76: off = stock */
+	cfg->camd35.loginbansec = 3600;        /* Band 76: 1h once armed */
+	cfg->cache.loginfails = 0;             /* Band 78: off = stock */
+	cfg->cache.loginbansec = 3600;         /* Band 78: 1h once armed */
 
 	cfg->cs378x.clientid = 1;
 	cfg->cs378x.serverid = 1;
+	cfg->cs378x.loginfails = 0;            /* Band 61: off = stock */
+	cfg->cs378x.loginbansec = 3600;        /* Band 61: 1h once armed */
 
 }
 
@@ -728,6 +749,10 @@ void parse_server_data( struct server_data *tsrv )
 					if (parse_hex(str)) tsrv->cacheex_forward = hex2int(str);
 				}
 #endif
+				else if (!strcmp(str,"trusted")) {
+					tsrv->trusted = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(,%d): server trusted: %s\n",iparser-currentline, tsrv->trusted?"YES":"NO");
+				}
 
 				parse_spaces();
 				if (*iparser==';') iparser++; else break;
@@ -834,6 +859,34 @@ void cfg_addcccamclient(struct cccam_server_data *cccam, struct cc_client_data *
 	}
 }
 
+/* Parse-time duplicate-user diagnostics (the former "TODO: Check for
+ * same user"). Login handlers scan the client list linearly and return
+ * the FIRST strcmp match (srv-cccam.c / srv-mgcamd.c), so a repeated
+ * username silently shadows every later entry. Observe-only: parsing
+ * still adds the line exactly as before; we only warn about it. The
+ * reload merge paths move existing clients through cfg_add*client and
+ * must not be flagged, so the check lives at the parse sites only. */
+static int cccam_client_user_exists(struct cccam_server_data *cccam, struct cc_client_data *cli)
+{
+	struct cc_client_data *tmp;
+#ifdef CACHEEX
+	tmp = cli->cacheex_mode ? cccam->cacheexclient : cccam->client;
+#else
+	tmp = cccam->client;
+#endif
+	for (; tmp; tmp = tmp->next)
+		if (!strcmp(tmp->user, cli->user)) return 1;
+	return 0;
+}
+
+static int mgcamd_client_user_exists(struct mgcamdserver_data *srv, struct mg_client_data *cli)
+{
+	struct mg_client_data *tmp;
+	for (tmp = srv->client; tmp; tmp = tmp->next)
+		if (!strcmp(tmp->user, cli->user)) return 1;
+	return 0;
+}
+
 void cfg_addcccamserver(struct config_data *cfg, struct cccam_server_data *srv)
 {
 	struct cccam_server_data *tmp = cfg->cccam.server;
@@ -898,6 +951,7 @@ void cfg_addcs378xserver(struct config_data *cfg, struct camd35_server_data *srv
 
 void cfg_addcachepeer(struct cacheserver_data *srv, struct cachepeer_data *peer)
 {
+	if (!srv || !peer) return; /* analyzer: a runtime caller may pass a NULL cache */
 	struct cachepeer_data *tmp = srv->peer;
 	peer->next = NULL;
 	if (tmp) {
@@ -974,6 +1028,7 @@ struct includefile_data *newfile(char *name)
 		return NULL;
 	} 
 	struct includefile_data *data = malloc( sizeof(struct includefile_data) );
+	if (!data) { fclose(fd); return NULL; }
 	data->fd = fd;
 	data->next = NULL;
 	strcpy(data->name, name);
@@ -1298,6 +1353,35 @@ link_radegast_server:
 				} else iparser++;
 				cfg->newcamd.keepalive = parse_boolean();
 			}
+			else if (!strcmp(str,"LOGIN")) { /* Band 61 */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FAILS")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->newcamd.loginfails = atoi(str);
+					if (cfg->newcamd.loginfails<0) cfg->newcamd.loginfails = 0;
+					if (cfg->newcamd.loginfails>1000) cfg->newcamd.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): NEWCAMD LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->newcamd.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->newcamd.loginbansec = atoi(str);
+					if (cfg->newcamd.loginbansec<0) cfg->newcamd.loginbansec = 0;
+					if (cfg->newcamd.loginbansec>604800) cfg->newcamd.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): NEWCAMD LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->newcamd.loginbansec);
+				}
+				else debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown newcamd LOGIN option '%s'\n",file->nbline,iparser-currentline,str);
+			}
 		}
 
 		/*
@@ -1321,11 +1405,12 @@ link_radegast_server:
 		else if (!strcmp(str,"DCWFILTER")) {
 			parse_name(str);
 			uppercase(str);
-			if (!strcmp(str,"REPEAT")||!strcmp(str,"CHECKSUM")||!strcmp(str,"CYCLE")||!strcmp(str,"PATTERN")) {
-				int which; /* 0 checksum, 1 repeat, 2 cycle (TASK R2), 3 pattern (TASK R28) */
+			if (!strcmp(str,"REPEAT")||!strcmp(str,"CHECKSUM")||!strcmp(str,"CYCLE")||!strcmp(str,"PATTERN")||!strcmp(str,"STRICT")) {
+				int which; /* 0 checksum, 1 repeat, 2 cycle (TASK R2), 3 pattern (TASK R28), 4 strict (R48) */
 				if (str[0]=='R') which = 1;
 				else if (str[0]=='C' && str[1]=='Y') which = 2;
 				else if (str[0]=='P') which = 3;
+				else if (str[0]=='S') which = 4;
 				else which = 0;
 				parse_spaces();
 				if ((*iparser!=':')&&(*iparser!='=')) {
@@ -1341,20 +1426,29 @@ link_radegast_server:
 				 * TASK R2 -- CYCLE follows the same tristate; its global
 				 * default stays OFF (D56: a declared marker is evidence,
 				 * not proof, so the refusal never runs un-asked).
+				 * R48 -- STRICT is global-only (dcwstrict_cfg); a
+				 * per-profile STRICT line is accepted and ignored
+				 * with a debug note, since the strict table is
+				 * process-global by design.
 				 */
 				if (cardserver) {
 					int mode = on ? DCWFILTER_ON : DCWFILTER_OFF;
 					if (which==1) cardserver->option.dcwfilter_repeat = mode;
 					else if (which==2) cardserver->option.dcwfilter_cycle = mode;
 					else if (which==3) cardserver->option.dcwfilter_pattern = mode;
+					else if (which==4) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER STRICT is global-only; profile line ignored (profile %s)\n",file->nbline,iparser-currentline, cardserver->name);
+						continue;
+					}
 					else cardserver->option.dcwfilter_checksum = mode;
-					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s (profile %s)\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":"CHECKSUM")), on?"ON":"OFF", cardserver->name);
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s (profile %s)\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":(which==4?"STRICT":"CHECKSUM"))), on?"ON":"OFF", cardserver->name);
 				} else {
 					if (which==1) cfg->dcw_filters.repeat = on;
 					else if (which==2) cfg->dcw_filters.cycle = on;
 					else if (which==3) cfg->dcw_filters.pattern = on;
+					else if (which==4) cfg->dcw_filters.strict = on;
 					else cfg->dcw_filters.checksum = on;
-					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":"CHECKSUM")), on?"ON":"OFF");
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCWFILTER %s: %s\n",file->nbline,iparser-currentline, which==1?"REPEAT":(which==2?"CYCLE":(which==3?"PATTERN":(which==4?"STRICT":"CHECKSUM"))), on?"ON":"OFF");
 				}
 			}
 			/*
@@ -1368,6 +1462,20 @@ link_radegast_server:
 				char bad[64];
 				strcpy(bad, str);
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown DCWFILTER option '%s'\n",file->nbline,iparser-currentline, bad);
+			}
+		}
+
+		/* R48 SuperSmartFilter per-profile level: FILTER: <0-20> */
+		else if (!strcmp(str,"FILTER") && cardserver) {
+			parse_spaces();
+			if ((*iparser==':')||(*iparser=='=')) {
+				iparser++;
+				parse_int(str);
+				int lvl = atoi(str);
+				if (lvl < 0) lvl = 0;
+				if (lvl > 20) lvl = 20;
+				cardserver->option.sf_filter_level = (uint8_t)lvl;
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): FILTER: %d (profile %s)\n",file->nbline,iparser-currentline, lvl, cardserver->name);
 			}
 		}
 
@@ -1938,6 +2046,35 @@ link_radegast_server:
 				camd35_init_packed_data(cli->user, cli->pass, &cli->encryptkey, &cli->decryptkey, &cli->ucrc);
 				cfg_addcamd35client(camd35, cli);
 			}
+			else if (!strcmp(str,"LOGIN")) { /* Band 76 */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FAILS")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->camd35.loginfails = atoi(str);
+					if (cfg->camd35.loginfails<0) cfg->camd35.loginfails = 0;
+					if (cfg->camd35.loginfails>1000) cfg->camd35.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CAMD35 LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->camd35.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->camd35.loginbansec = atoi(str);
+					if (cfg->camd35.loginbansec<0) cfg->camd35.loginbansec = 0;
+					if (cfg->camd35.loginbansec>604800) cfg->camd35.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CAMD35 LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->camd35.loginbansec);
+				}
+				else debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown camd35 LOGIN option '%s'\n",file->nbline,iparser-currentline,str);
+			}
 		}
 
 #endif
@@ -2075,6 +2212,35 @@ link_radegast_server:
 				} else iparser++;
 				cfg->cs378x.keepalive = parse_boolean();
 			}
+			else if (!strcmp(str,"LOGIN")) { /* Band 61 */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FAILS")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cs378x.loginfails = atoi(str);
+					if (cfg->cs378x.loginfails<0) cfg->cs378x.loginfails = 0;
+					if (cfg->cs378x.loginfails>1000) cfg->cs378x.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CS378X LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->cs378x.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cs378x.loginbansec = atoi(str);
+					if (cfg->cs378x.loginbansec<0) cfg->cs378x.loginbansec = 0;
+					if (cfg->cs378x.loginbansec>604800) cfg->cs378x.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CS378X LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->cs378x.loginbansec);
+				}
+				else debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown cs378x LOGIN option '%s'\n",file->nbline,iparser-currentline,str);
+			}
 		}
 #endif
 
@@ -2176,6 +2342,30 @@ link_camd35_server:
 					cfg->telnet.logindelay = atoi(str);
 					if (cfg->telnet.logindelay<0) cfg->telnet.logindelay = 0;
 				}
+				else if (!strcmp(str,"FAILS")) { /* Band 60 */
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->telnet.loginfails = atoi(str);
+					if (cfg->telnet.loginfails<0) cfg->telnet.loginfails = 0;
+					if (cfg->telnet.loginfails>1000) cfg->telnet.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): TELNET LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->telnet.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) { /* Band 60 */
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->telnet.loginbansec = atoi(str);
+					if (cfg->telnet.loginbansec<0) cfg->telnet.loginbansec = 0;
+					if (cfg->telnet.loginbansec>604800) cfg->telnet.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): TELNET LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->telnet.loginbansec);
+				}
 				else if (!strcmp(str,"ALLOW")) {
 					parse_spaces();
 					if ((*iparser!=':')&&(*iparser!='=')) {
@@ -2276,6 +2466,30 @@ sid accept:
 					parse_int(str);
 					cfg->http.logindelay = atoi(str);
 					if (cfg->http.logindelay<0) cfg->http.logindelay = 0;
+				}
+				else if (!strcmp(str,"FAILS")) { /* Band 57 */
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->http.loginfails = atoi(str);
+					if (cfg->http.loginfails<0) cfg->http.loginfails = 0;
+					if (cfg->http.loginfails>1000) cfg->http.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): HTTP LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->http.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) { /* Band 57 */
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->http.loginbansec = atoi(str);
+					if (cfg->http.loginbansec<0) cfg->http.loginbansec = 0;
+					if (cfg->http.loginbansec>604800) cfg->http.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): HTTP LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->http.loginbansec);
 				}
 				else if (!strcmp(str,"ALLOW")) {
 					parse_spaces();
@@ -2421,6 +2635,7 @@ sid accept:
 					if (*iparser!=',') continue;
 					iparser++;
 					struct http_file_data *file = malloc( sizeof(struct http_file_data) );
+					if (!file) break;
 					strcpy( file->path, str );
 					parse_quotes('"', file->url, sizeof(file->url));
 					if (*iparser==',') {
@@ -2460,6 +2675,44 @@ sid accept:
 
 		}
 #endif
+
+		else if (!strcmp(str,"R22")) {
+			/* R22 LAYERS: YES/NO -- runtime kill switch for the candidate
+			 * CW layers (compiled only in the release-r22 flavour; parsed
+			 * harmlessly in every flavour). Default YES in that flavour. */
+			parse_name(str);
+			uppercase(str);
+			if (strcmp(str,"LAYERS")) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown R22 option '%s'\n",file->nbline,iparser-currentline,str);
+				continue;
+			}
+			parse_spaces();
+			if ((*iparser!=':')&&(*iparser!='=')) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+				continue;
+			} else iparser++;
+			cfg_r22_layers_enabled = parse_boolean();
+		}
+
+		else if (!strcmp(str,"AUTO")) {
+			/* AUTO RECOVER: ON|OFF -- arms the autorecov bookkeeping
+			 * (band 47). Monitor only: it records black-screen
+			 * triggers/successes for /user-trace; no code acts on
+			 * its stages. Default OFF. */
+			parse_name(str);
+			uppercase(str);
+			if (strcmp(str,"RECOVER")) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown AUTO option '%s'\n",file->nbline,iparser-currentline,str);
+				continue;
+			}
+			parse_spaces();
+			if ((*iparser!=':')&&(*iparser!='=')) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+				continue;
+			} else iparser++;
+			cfg_auto_recover_enabled = parse_boolean();
+			debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): AUTO RECOVER: %s\n",file->nbline,iparser-currentline, cfg_auto_recover_enabled?"ON":"OFF");
+		}
 
 		else if (!strcmp(str,"BAD-DCW")) {
 			parse_spaces();
@@ -2634,6 +2887,7 @@ sid accept:
 					parse_int(str);
 					parse_spaces();
 					defaultcs.option.dcw.timeout = atoi(str);
+					defaultcs.option.dcw.timeout_explicit = 1;
 					if (defaultcs.option.dcw.timeout<300) defaultcs.option.dcw.timeout=300;
 					else if (defaultcs.option.dcw.timeout>9999) defaultcs.option.dcw.timeout=9999;
 				}
@@ -3212,7 +3466,7 @@ link_cccam_client:
 			cli->userhash = hashCode( (unsigned char *)cli->user, strlen(cli->user) );
 			parse_str(str);
 			cfg_store_field(cli->pass, sizeof(cli->pass), str, file->nbline, ucol38, "password");
-			// TODO: Check for same user 
+			// duplicate-user check: at cfg_addcccamclient/mgcamd site below (warn-only)
 			if (parse_int(str)) {
 				cli->dnhops = atoi(str);
 				if (parse_int(str)) {
@@ -3339,6 +3593,8 @@ link_cccam_client:
 				if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 			}
 
+			if (cccam_client_user_exists(cccam, cli))
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): duplicate CCcam user '%s': later entry is shadowed at login (first match wins)\n",file->nbline,iparser-currentline,cli->user);
 			cli->handle = -1;
 			cfg_addcccamclient(cccam,cli);
 		}
@@ -3363,7 +3619,37 @@ link_cccam_client:
 					}
 			}
 
-			else if (!strcmp(str,"DCW")) {
+						else if (!strcmp(str,"LOGIN")) { /* Band 60 */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FAILS")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cccam.loginfails = atoi(str);
+					if (cfg->cccam.loginfails<0) cfg->cccam.loginfails = 0;
+					if (cfg->cccam.loginfails>1000) cfg->cccam.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CCCAM LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->cccam.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cccam.loginbansec = atoi(str);
+					if (cfg->cccam.loginbansec<0) cfg->cccam.loginbansec = 0;
+					if (cfg->cccam.loginbansec>604800) cfg->cccam.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CCCAM LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->cccam.loginbansec);
+				}
+				else debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown cccam LOGIN option '%s'\n",file->nbline,iparser-currentline,str);
+			}
+
+else if (!strcmp(str,"DCW")) {
 				parse_name(str);
 				uppercase(str);
 				if (!strcmp(str,"CHECK")) {
@@ -3527,7 +3813,7 @@ link_mgcamd_user:
 			cli->userhash = hashCode( (unsigned char *)cli->user, strlen(cli->user) );
 			parse_str(str);
 			cfg_store_field(cli->pass, sizeof(cli->pass), str, file->nbline, ucol38, "password");
-			// TODO: Check for same user 
+			// duplicate-user check: at the cfg_addmgcamdclient site below (warn-only)
 			cli->sharelimits[0].caid = 0xFFFF;
 			parse_spaces();
 			if (*iparser=='{') { // Get Ports List & User Info
@@ -3616,6 +3902,8 @@ link_mgcamd_user:
 				if (*iparser!='}') debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): '}' expected\n",file->nbline,iparser-currentline);
 			}
 
+			if (mgcamd_client_user_exists(mgcamd, cli))
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): duplicate Mgcamd user '%s': later entry is shadowed at login (first match wins)\n",file->nbline,iparser-currentline,cli->user);
 			cli->handle = -1;
 			cfg_addmgcamdclient(mgcamd,cli);
 		}
@@ -3673,6 +3961,35 @@ link_mgcamd_user:
 					cfg->mgcamd.dcwcheck = parse_boolean();
 				}
 			}
+			else if (!strcmp(str,"LOGIN")) { /* Band 63 */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FAILS")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->mgcamd.loginfails = atoi(str);
+					if (cfg->mgcamd.loginfails<0) cfg->mgcamd.loginfails = 0;
+					if (cfg->mgcamd.loginfails>1000) cfg->mgcamd.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): MGCAMD LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->mgcamd.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->mgcamd.loginbansec = atoi(str);
+					if (cfg->mgcamd.loginbansec<0) cfg->mgcamd.loginbansec = 0;
+					if (cfg->mgcamd.loginbansec>604800) cfg->mgcamd.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): MGCAMD LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->mgcamd.loginbansec);
+				}
+				else debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): unknown mgcamd LOGIN option '%s'\n",file->nbline,iparser-currentline,str);
+			}
 			else if (!strcmp(str,"PROFILES")) {
 				if (!mgcamd) {
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip MGCAMD PROFILES, undefined Mgcamd Server\n",file->nbline,iparser-currentline);
@@ -3720,7 +4037,68 @@ link_mgcamd_user:
 		else if ( !strcmp(str,"CACHEEX") ) {
 			parse_name(str);
 			uppercase(str);
-			if (!strcmp(str,"VALIDECMTIME")) {
+			if (!strcmp(str,"NOPUSH")) {
+				/* CACHEEX NOPUSH AFTER: 1884:1200, 09CD:500 (band 41) */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"AFTER")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.nopushafter_n = 0;
+					for (;;) {
+						uint16_t caid; uint32_t ms;
+						parse_spaces();
+						if (parse_hex(str) <= 0) break;
+						caid = (uint16_t)hex2int(str);
+						parse_spaces();
+						if (*iparser != ':') break;
+						iparser++;
+						parse_spaces();
+						if (!parse_int(str)) break;
+						ms = (uint32_t)atoi(str);
+						if (cfg->cache.nopushafter_n < 32) {
+							int k = cfg->cache.nopushafter_n++;
+							cfg->cache.nopushafter_caids[k] = caid;
+							cfg->cache.nopushafter_ms[k] = ms;
+						}
+						parse_spaces();
+						if (*iparser == ',') { iparser++; continue; }
+						break;
+					}
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHEEX NOPUSH AFTER: %d entries\n",file->nbline,iparser-currentline, cfg->cache.nopushafter_n);
+				}
+			}
+			else if (!strcmp(str,"LOGIN")) {
+				/* Band 78: CACHEEX LOGIN FAILS/BAN (global; protoban
+				 * for cacheex peer identities, PB_CACHEEX). */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FAILS")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cache.loginfails = atoi(str);
+					if (cfg->cache.loginfails<0) cfg->cache.loginfails = 0;
+					if (cfg->cache.loginfails>1000) cfg->cache.loginfails = 1000;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHEEX LOGIN FAILS: %d\n",file->nbline,iparser-currentline, cfg->cache.loginfails);
+				}
+				else if (!strcmp(str,"BAN")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					parse_int(str);
+					cfg->cache.loginbansec = atoi(str);
+					if (cfg->cache.loginbansec<0) cfg->cache.loginbansec = 0;
+					if (cfg->cache.loginbansec>604800) cfg->cache.loginbansec = 604800;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHEEX LOGIN BAN: %ds\n",file->nbline,iparser-currentline, cfg->cache.loginbansec);
+				}
+			}
+			else if (!strcmp(str,"VALIDECMTIME")) {
 				parse_spaces();
 				if ((*iparser!=':')&&(*iparser!='=')) {
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
@@ -3801,6 +4179,18 @@ link_mgcamd_user:
 		}
 #endif
 
+		else if (!strcmp(str,"CWDEDUP")) {
+			/* CWPAIR discovery (band 38): CWDEDUP CHECK: YES|NO */
+			parse_name(str);
+			uppercase(str);
+			if (!strcmp(str,"CHECK")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				cfg->cache.cwpair_discover = parse_boolean();
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CWDEDUP CHECK: %s\n",file->nbline,iparser-currentline, cfg->cache.cwpair_discover?"YES":"NO");
+			}
+		}
+
 		else if (!strcmp(str,"CACHE")) {
 			parse_name(str);
 			uppercase(str);
@@ -3874,6 +4264,7 @@ link_mgcamd_user:
 							if (parse_boolean()) peer->flags |= FLAG_CACHE_SENDREP; else peer->flags &= ~FLAG_CACHE_SENDREP;
 						}
 						else if (!strcmp(str,"shares")) parse_option_shares( &peer->sharelimits, sizeof(peer->sharelimits) );
+						else if (!strcmp(str,"trusted")) { peer->trusted = parse_boolean(); debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE PEER trusted: %s\n",file->nbline,iparser-currentline, peer->trusted?"YES":"NO"); }
 						parse_spaces();
 						if (*iparser==';') iparser++; else break;
 					}
@@ -3958,6 +4349,33 @@ link_mgcamd_user:
 			 * CACHE CONSENSUS WINDOW: <ms> sizes the corroboration
 			 * hold (100..2000 clamped, 0/absent = 400). Both default
 			 * to OFF/0 = stock behaviour byte for byte. */
+			else if (!strcmp(str,"SERVICE")) {
+				/* CACHE SERVICE DOUBT: ON|OFF (band 42) */
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"DOUBT")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.service_doubt = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SERVICE DOUBT: %s\n",file->nbline,iparser-currentline, cfg->cache.service_doubt?"ON":"OFF");
+				}
+			}
+			else if (!strcmp(str,"CI")) {
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"VALIDATE")) {
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.ci_validate = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CI VALIDATE: %s\n",file->nbline,iparser-currentline, cfg->cache.ci_validate?"ON":"OFF");
+				}
+			}
+			else if (!strcmp(str,"DROPDIFFS")) {
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				cfg->cache.dropdiffs = parse_boolean();
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE DROPDIFFS: %s\n",file->nbline,iparser-currentline, cfg->cache.dropdiffs?"ON":"OFF");
+			}
 			else if (!strcmp(str,"CONSENSUS")) {
 				parse_spaces();
 				if ((*iparser==':')||(*iparser=='=')) {
@@ -4089,6 +4507,331 @@ link_mgcamd_user:
 						if (!cfg->cache.attest) cfg->cache.attest = 2;
 						cfg->dcw_filters.pattern = 1;
 						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE PROTECTION: STANDARD (consensus 600/3, pattern, attest 2)\n",file->nbline,iparser-currentline);
+					}
+					continue;
+				}
+			}
+
+			/* R48 SuperSmartFilter v6.0: CACHE SF_* settings. */
+			else if (!strcmp(str,"SF")) {
+				/* Band 84: accept both "CACHE SF: LEVEL: n" and the
+				 * documented "CACHE SF LEVEL: n". Before this, the
+				 * colon was mandatory right after SF, so every
+				 * documented global SF key (as used in the ready
+				 * production configs) was silently ignored. */
+				parse_spaces();
+				if ((*iparser==':')||(*iparser=='=')) iparser++;
+				{
+					parse_name(str);
+					uppercase(str);
+					if (!strcmp(str,"MULTICHECK")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.sf_multicheck = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MULTICHECK: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_multicheck);
+					}
+					else if (!strcmp(str,"MARCHCHECK")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 2) v = 2;
+							ssf_cfg.sf_marchcheck = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MARCHCHECK: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_marchcheck);
+					}
+					else if (!strcmp(str,"CWDUP")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 2) v = 2;
+							ssf_cfg.sf_cwdup = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWDUP: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwdup);
+					}
+					else if (!strcmp(str,"CWDUPREP")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 2) v = 2; if (v > 10) v = 10;
+							ssf_cfg.sf_cwdup_rep = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWDUPREP: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwdup_rep);
+					}
+					else if (!strcmp(str,"CWREUSE")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 2) v = 2;
+							ssf_cfg.sf_cwreuse = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWREUSE: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwreuse);
+					}
+					else if (!strcmp(str,"CWREUSEWINDOW")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 1000) v = 1000; if (v > 600000) v = 600000;
+							ssf_cfg.sf_cwreuse_window_ms = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWREUSEWINDOW: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwreuse_window_ms);
+					}
+					else if (!strcmp(str,"REUSECAIDS")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						{
+							char *p2 = iparser;
+							ssf_cfg.sf_reuse_caids_count = 0;
+							while (*p2 && *p2 != '\n' && *p2 != '#') {
+								if ((*p2 >= '0' && *p2 <= '9') || (*p2 >= 'A' && *p2 <= 'F') || (*p2 >= 'a' && *p2 <= 'f')) {
+									char hex[5]; int hi = 0;
+									while (*p2 && hi < 4 && ((*p2 >= '0' && *p2 <= '9') || (*p2 >= 'A' && *p2 <= 'F') || (*p2 >= 'a' && *p2 <= 'f'))) hex[hi++] = *p2++;
+									hex[hi] = 0;
+									if (hi == 4 && ssf_cfg.sf_reuse_caids_count < 32) {
+										ssf_cfg.sf_reuse_caids[ssf_cfg.sf_reuse_caids_count++] = (uint16_t)strtoul(hex, NULL, 16);
+									}
+								}
+								else p2++;
+							}
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF REUSECAIDS: %d entries\n",file->nbline,iparser-currentline, ssf_cfg.sf_reuse_caids_count);
+					}
+					else if (!strcmp(str,"LATECW")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 2) v = 2;
+							ssf_cfg.sf_latecw = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF LATECW: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_latecw);
+					}
+					else if (!strcmp(str,"LATECWMS")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 100) v = 100; if (v > 60000) v = 60000;
+							ssf_cfg.sf_latecw_ms = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF LATECWMS: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_latecw_ms);
+					}
+					else if (!strcmp(str,"MC")) {
+						parse_spaces();
+						parse_name(str);
+						uppercase(str);
+						if (!strcmp(str,"MATCH")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							parse_int(str);
+							{
+								int v = atoi(str);
+								if (v < 1) v = 1; if (v > 16) v = 16;
+								ssf_cfg.sf_mc_match = v;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MC MATCH: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_mc_match);
+						}
+						else if (!strcmp(str,"MODE")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							parse_int(str);
+							{
+								int v = atoi(str);
+								if (v < 1) v = 1; if (v > 2) v = 2;
+								ssf_cfg.sf_mc_mode = v;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MC MODE: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_mc_mode);
+						}
+						else if (!strcmp(str,"WAIT")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							parse_int(str);
+							{
+								int v = atoi(str);
+								if (v < 0) v = 0; if (v > 60000) v = 60000;
+								ssf_cfg.sf_mc_wait_ms = v;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MC WAIT: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_mc_wait_ms);
+						}
+						else if (!strcmp(str,"CAIDS")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							char *p = iparser;
+							while (*p && *p != '\n' && *p != '#') {
+								if ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f')) {
+									char hex[5]; int hi = 0;
+									while (*p && hi < 4 && ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f'))) hex[hi++] = *p++;
+									hex[hi] = 0;
+									if (hi == 4 && ssf_cfg.sf_mc_caids_count < 32) {
+										ssf_cfg.sf_mc_caids[ssf_cfg.sf_mc_caids_count++] = (uint16_t)strtoul(hex, NULL, 16);
+									}
+								}
+								else p++;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MC CAIDS: %d entries\n",file->nbline,iparser-currentline, ssf_cfg.sf_mc_caids_count);
+						}
+					}
+					else if (!strcmp(str,"HALFCW")) {
+						parse_spaces();
+						parse_name(str);
+						uppercase(str);
+						if (!strcmp(str,"CAIDS")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							char *p = iparser;
+							while (*p && *p != '\n' && *p != '#') {
+								if ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f')) {
+									char hex[5]; int hi = 0;
+									while (*p && hi < 4 && ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f'))) hex[hi++] = *p++;
+									hex[hi] = 0;
+									if (hi == 4 && ssf_cfg.sf_halfcw_caids_count < 32) {
+										ssf_cfg.sf_halfcw_caids[ssf_cfg.sf_halfcw_caids_count++] = (uint16_t)strtoul(hex, NULL, 16);
+									}
+								}
+								else p++;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF HALFCW CAIDS: %d entries\n",file->nbline,iparser-currentline, ssf_cfg.sf_halfcw_caids_count);
+						}
+					}
+					else if (!strcmp(str,"LEVEL")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 20) v = 20;
+							ssf_cfg.filter_level = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF LEVEL: %d\n",file->nbline,iparser-currentline, ssf_cfg.filter_level);
+					}
+					else if (!strcmp(str,"TIME")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 60000) v = 60000;
+							ssf_cfg.filter_time_ms = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF TIME: %d\n",file->nbline,iparser-currentline, ssf_cfg.filter_time_ms);
+					}
+					else if (!strcmp(str,"BADCWRATIO")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0; if (v > 100) v = 100;
+							ssf_cfg.badcwratio = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF BADCWRATIO: %d\n",file->nbline,iparser-currentline, ssf_cfg.badcwratio);
+					}
+					else if (!strcmp(str,"BADCWRATIOMIN")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0;
+							ssf_cfg.badcwratiomin = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF BADCWRATIOMIN: %d\n",file->nbline,iparser-currentline, ssf_cfg.badcwratiomin);
+					}
+					else if (!strcmp(str,"MINREPLIES")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0;
+							ssf_cfg.minreplies = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF MINREPLIES: %d\n",file->nbline,iparser-currentline, ssf_cfg.minreplies);
+					}
+					else if (!strcmp(str,"UNBLOCK")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 0) v = 0;
+							ssf_cfg.unblock_time = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF UNBLOCK: %d\n",file->nbline,iparser-currentline, ssf_cfg.unblock_time);
+					}
+					else if (!strcmp(str,"DROPBAD")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.dropbadcws = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF DROPBAD: %d\n",file->nbline,iparser-currentline, ssf_cfg.dropbadcws);
+					}
+					else if (!strcmp(str,"BLOCKFAKE")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.blockfakecws = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF BLOCKFAKE: %d\n",file->nbline,iparser-currentline, ssf_cfg.blockfakecws);
+					}
+					else if (!strcmp(str,"ENTROPY")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.sf_entropy = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF ENTROPY: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_entropy);
+					}
+					else if (!strcmp(str,"PATTERN")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.sf_pattern = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF PATTERN: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_pattern);
+					}
+					else if (!strcmp(str,"DUPSEEN")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						ssf_cfg.sf_dupseen = parse_boolean();
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF DUPSEEN: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_dupseen);
+					}
+					else if (!strcmp(str,"HISTORY")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						parse_int(str);
+						{
+							int v = atoi(str);
+							if (v < 1) v = 1; if (v > 16) v = 16;
+							ssf_cfg.sf_history = v;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF HISTORY: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_history);
+					}
+					else if (!strcmp(str,"CWFMT")) {
+						parse_spaces();
+						parse_name(str);
+						uppercase(str);
+						if (!strcmp(str,"AUTO")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							ssf_cfg.sf_cwfmt_auto = parse_boolean();
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWFMT AUTO: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwfmt_auto);
+						}
+						else if (!strcmp(str,"ENFORCE")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							parse_int(str);
+							{
+								int v = atoi(str);
+								if (v < 0) v = 0; if (v > 2) v = 2;
+								ssf_cfg.sf_cwfmt_enforce = v;
+							}
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE SF CWFMT ENFORCE: %d\n",file->nbline,iparser-currentline, ssf_cfg.sf_cwfmt_enforce);
+						}
 					}
 					continue;
 				}
@@ -4574,14 +5317,171 @@ link_mgcamd_user:
 			} else iparser++;
 			cardserver->option.skipcwc_excl_total = parse_packed_sidlist(cardserver->option.skipcwc_excl);
 		}
-		else if (!strcmp(str,"ECM")) {
+		else if (!strcmp(str,"CI")) {
+			/* Per-profile CI VALIDATE: ON|OFF (band 33) */
+			parse_name(str);
+			uppercase(str);
+			if (!strcmp(str,"VALIDATE") && cardserver) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.ci_validate = parse_boolean() ? 1 : 2;
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CI VALIDATE: %s (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.ci_validate==1?"ON":"OFF", cardserver->name);
+			}
+		}
+		else if (!strcmp(str,"SERVICE")) {
+			/* Per-profile SERVICE DOUBT: ON|OFF (band 43) */
+			parse_name(str);
+			uppercase(str);
+			if (!strcmp(str,"DOUBT") && cardserver) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.service_doubt = parse_boolean() ? 1 : 2;
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): SERVICE DOUBT: %s (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.service_doubt==1?"ON":"OFF", cardserver->name);
+			}
+		}
+
+		else if (!strcmp(str,"CWPAIR")) {
+			/* Per-profile CWPAIR (band 38): CAID/ACTIVE/SID/MAXAGE/
+			 * SKIPCYCLE/STRICTCYCLE inside a profile section. */
+			parse_name(str);
+			uppercase(str);
 			if (!cardserver) {
+				/* Global scope: CWPAIR DISCOVER CAID: <list> */
+				if (!strcmp(str,"DISCOVER")) {
+					parse_name(str);
+					uppercase(str);
+					if (!strcmp(str,"CAID")) {
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						cfg->cache.cwpair_discover_n = 0;
+						while (parse_hex(str) > 0) {
+							if (cfg->cache.cwpair_discover_n < 32)
+								cfg->cache.cwpair_discover_caids[cfg->cache.cwpair_discover_n++] = (uint16_t)hex2int(str);
+							parse_spaces();
+							if (*iparser == ',') iparser++; else break;
+						}
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CWPAIR DISCOVER CAID: %d caids\n",file->nbline,iparser-currentline, cfg->cache.cwpair_discover_n);
+					}
+				}
+			} else if (!strcmp(str,"CAID")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				if (parse_hex(str) > 0) cardserver->option.cwpair_caid = (uint16_t)hex2int(str);
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CWPAIR CAID: %04X (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.cwpair_caid, cardserver->name);
+			} else if (!strcmp(str,"ACTIVE")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.cwpair_active = (uint8_t)parse_boolean();
+			} else if (!strcmp(str,"MAXAGE")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				if (parse_int(str)) cardserver->option.cwpair_maxage = atoi(str);
+			} else if (!strcmp(str,"SKIPCYCLE")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.cwpair_skipcycle = (uint8_t)parse_boolean();
+			} else if (!strcmp(str,"STRICTCYCLE")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.cwpair_strictcycle = (uint8_t)parse_boolean();
+			} else if (!strcmp(str,"SID")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.cwpair_sid_n = 0;
+				for (;;) {
+					uint16_t l, r;
+					parse_spaces();
+					if (parse_hex(str) <= 0) break;
+					l = (uint16_t)hex2int(str);
+					parse_spaces();
+					if (*iparser != '-') break;
+					iparser++;
+					if (*iparser == '>') iparser++;
+					parse_spaces();
+					if (parse_hex(str) <= 0) break;
+					r = (uint16_t)hex2int(str);
+					if (cardserver->option.cwpair_sid_n < 16) {
+						int k = cardserver->option.cwpair_sid_n++;
+						cardserver->option.cwpair_sid_local[k] = l;
+						cardserver->option.cwpair_sid_peer[k] = r;
+					}
+					parse_spaces();
+					if (*iparser == ',') { iparser++; continue; }
+					break;
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CWPAIR SID: %d maps (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.cwpair_sid_n, cardserver->name);
+			}
+		}
+
+		else if (!strcmp(str,"DROPDIFFS")) {
+			/* Per-profile DROPDIFFS: ON|OFF (band 33) */
+			parse_spaces();
+			if ((*iparser!=':')&&(*iparser!='=')) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+				continue;
+			} else iparser++;
+			if (cardserver) {
+				cardserver->option.dropdiffs = parse_boolean() ? 1 : 2;
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DROPDIFFS: %s (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.dropdiffs==1?"ON":"OFF", cardserver->name);
+			}
+		}
+
+		else if (!strcmp(str,"ECM")) {
+			/* Band 70: ONE ECM branch. The old early global branch
+			 * shadowed every profile ECM key (CHECK LENGTH /
+			 * FINGERPRINT / LENGTH / HEADERWLST never parsed). */
+			parse_name(str);
+			uppercase(str);
+			if (!strcmp(str,"DOUBLECHECK")) {
+				/* ECM DOUBLECHECK: hex CAIDs, observe-only (global). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_spaces();
+				if (!strncasecmp(iparser,"OFF",3)) { cfg_doublecheck_caid_count = -1; iparser += 3; continue; }
+				cfg_doublecheck_caid_count = 0;
+				for (;;) {
+					unsigned long v; char *endp;
+					parse_spaces();
+					if (!*iparser) break;
+					v = strtoul(iparser, &endp, 16);
+					if (endp==iparser) break;
+					iparser = endp;
+					if (cfg_doublecheck_caid_count<64)
+						cfg_doublecheck_caids[cfg_doublecheck_caid_count++] = (int)(v & 0xffff);
+				}
+			}
+			else if (!cardserver) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip ECM, undefined profile\n",file->nbline,iparser-currentline);
 				continue;
 			}
-			parse_name(str);
-			uppercase(str);
-			if (!strcmp(str,"LENGTH")) {
+			else if (!strcmp(str,"LENGTH")) {
 				parse_spaces();
 				if ((*iparser!=':')&&(*iparser!='=')) {
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
@@ -4641,6 +5541,34 @@ link_mgcamd_user:
 					cardserver->option.checkecm = parse_boolean();
 				}
 			}
+			else if (!strcmp(str,"FINGERPRINT")) {
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				cardserver->option.ecm_fingerprint = parse_boolean();
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ECM FINGERPRINT: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.ecm_fingerprint, cardserver->name);
+			}
+			else if (!strcmp(str,"CW")) {
+				/* "ECM CW FINGERPRINT: ON" -- the CW half of the
+				 * fingerprint pair. Parsed here because the
+				 * outer key is ECM and the inner keys are CW
+				 * then FINGERPRINT (same two-word pattern as
+				 * CHECK LENGTH above). */
+				parse_spaces();
+				parse_name(str);
+				uppercase(str);
+				if (!strcmp(str,"FINGERPRINT")) {
+					parse_spaces();
+					if ((*iparser!=':')&&(*iparser!='=')) {
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+						continue;
+					} else iparser++;
+					cardserver->option.cw_fingerprint = parse_boolean();
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CW FINGERPRINT: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.cw_fingerprint, cardserver->name);
+				}
+			}
 		}
 
 		else if (!strcmp(str,"DCW")) {
@@ -4680,6 +5608,113 @@ link_mgcamd_user:
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW STATS ignored - this build has no dcwstats counters\n",file->nbline,iparser-currentline);
 #endif
 			}
+			else if (!strcmp(str,"MARCHCHECK") && cardserver) {
+				/* Band 55: per-profile MARCHCHECK 0|1|2 (stored +1 so
+				 * 0 keeps meaning "inherit the global setting"). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 2) v = 2;
+					cardserver->option.sf_marchcheck = (uint8_t)(v + 1);
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW MARCHCHECK: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_marchcheck - 1, cardserver->name);
+			}
+			else if (!strcmp(str,"CWDUP") && cardserver) {
+				/* Band 56: per-profile CW_DUP 0|1|2 (stored +1, 0=inherit). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 2) v = 2;
+					cardserver->option.sf_cwdup = (uint8_t)(v + 1);
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW CWDUP: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_cwdup - 1, cardserver->name);
+			}
+			else if (!strcmp(str,"CWREUSE") && cardserver) {
+				/* Band 58: per-profile half-CW reuse 0|1|2 (stored +1, 0=inherit). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 2) v = 2;
+					cardserver->option.sf_cwreuse = (uint8_t)(v + 1);
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW CWREUSE: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_cwreuse - 1, cardserver->name);
+			}
+			else if (!strcmp(str,"LATECW") && cardserver) {
+				/* Band 59: per-profile late-CW 0|1|2 (stored +1, 0=inherit). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 2) v = 2;
+					cardserver->option.sf_latecw = (uint8_t)(v + 1);
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW LATECW: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_latecw - 1, cardserver->name);
+			}
+			else if (!strcmp(str,"LATECWMS") && cardserver) {
+				/* Band 65: per-CAID late threshold, ms (0=inherit). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 600000) v = 600000;
+					cardserver->option.sf_latecw_ms = v;
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW LATECWMS: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_latecw_ms, cardserver->name);
+			}
+			else if (!strcmp(str,"CWREUSEWINDOW") && cardserver) {
+				/* Band 65: per-CAID reuse window, ms (0=inherit). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0; if (v > 600000) v = 600000;
+					cardserver->option.sf_cwreuse_window_ms = v;
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW CWREUSEWINDOW: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_cwreuse_window_ms, cardserver->name);
+			}
+			else if (!strcmp(str,"CWDUPREP") && cardserver) {
+				/* Band 65: per-CAID dup repeats (0=inherit, else 2..10). */
+				parse_spaces();
+				if ((*iparser!=':')&&(*iparser!='=')) {
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
+					continue;
+				} else iparser++;
+				parse_int(str);
+				{
+					int v = atoi(str);
+					if (v < 0) v = 0;
+					if (v > 0 && v < 2) v = 2; if (v > 10) v = 10;
+					cardserver->option.sf_cwdup_rep = v;
+				}
+				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): DCW CWDUPREP: %d (profile %s)\n",file->nbline,iparser-currentline, cardserver->option.sf_cwdup_rep, cardserver->name);
+			}
 			else if (!cardserver) {
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): Skip DCW, undefined profile\n",file->nbline,iparser-currentline);
 				continue;
@@ -4693,6 +5728,7 @@ link_mgcamd_user:
 				parse_int(str);
 				parse_spaces();
 				cardserver->option.dcw.timeout = atoi(str);
+				cardserver->option.dcw.timeout_explicit = 1;
 				if (cardserver->option.dcw.timeout<300) cardserver->option.dcw.timeout=300;
 				else if (cardserver->option.dcw.timeout>9999) cardserver->option.dcw.timeout=9999;
 			}
@@ -5419,7 +6455,18 @@ link_mgcamd_user:
 		struct cc_client_data *cli = malloc( sizeof(struct cc_client_data) );
 		memset(cli, 0, sizeof(struct cc_client_data) );
 		// init Default
-		cli->id = i+1;
+		/* One id space for every cc_client_data: the slots used to be
+		 * numbered 1..maxusers independently of cccam.clientid, so a
+		 * FreeCCcam slot and a CCcam client could share an id and the
+		 * user trace (which matches by id alone) could bind to the
+		 * wrong client. Draw from the CCcam counter instead; the
+		 * setup sweep assigns regular clients afterwards, so ids stay
+		 * unique within one config build either way. */
+#ifdef CCCAM_SRV
+		cli->id = cfg->cccam.clientid++;
+#else
+		cli->id = cfg->freecccam.clientid++;
+#endif
 		cli->handle = -1;
 		cli->dnhops = 0;
 		cli->uphops = 0;
@@ -5896,9 +6943,9 @@ int read_ip2country( struct config_data *cfg )
 			memset( data, 0, sizeof(struct ip2country_data) );
 			unsigned int ip4[4];
 			if (sscanf(value[idfirstip],"%d.%d.%d.%d", &ip4[0], &ip4[1], &ip4[2], &ip4[3])==4) {
-				data->ipstart = (ip4[0]<<24)|(ip4[1]<<16)|(ip4[2]<<8)|(ip4[3]);
+				data->ipstart = (((uint32_t)ip4[0]<<24))|(ip4[1]<<16)|(ip4[2]<<8)|(ip4[3]);
 				if (sscanf(value[idlastip],"%d.%d.%d.%d", &ip4[0], &ip4[1], &ip4[2], &ip4[3])==4) {
-					data->ipend = (ip4[0]<<24)|(ip4[1]<<16)|(ip4[2]<<8)|(ip4[3]);
+					data->ipend = (((uint32_t)ip4[0]<<24))|(ip4[1]<<16)|(ip4[2]<<8)|(ip4[3]);
 					strcpy(data->code, value[idcode]);
 					data->next = cfg->ip2country;
 					cfg->ip2country = data;
@@ -5986,6 +7033,7 @@ int read_providers( struct config_data *cfg )
 					//strcpy(str,iparser);
 					//debugf(getdbgflag(DBG_CONFIG,0,0),"%04x:%06x:%04x '%s'\n",caid,prov,sid,iparser);
 					struct providers_data *prov = malloc( sizeof(struct providers_data) + strlen(iparser) + 1 );
+					if (!prov) continue;
 					prov->caprovid = caprovid;
 					strcpy( prov->name, iparser );
 					prov->next = cfg->providers;
@@ -6698,6 +7746,26 @@ void update_freecccam_server(struct config_data *cfg, struct config_data *newcfg
 		strcpy(cfg->freecccam.build ,newcfg->freecccam.build);
 		memcpy(cfg->freecccam.nodeid ,newcfg->freecccam.nodeid, 8);
 		memcpy(cfg->freecccam.csport ,newcfg->freecccam.csport, sizeof(cfg->freecccam.csport));
+
+		/* The incoming slots were numbered from the new config's own
+		 * counter (starting at 1), but live CCcam clients keep their
+		 * old ids across the reload (update_cccam_clients reuses the
+		 * objects) -- a kept client whose id falls inside the new
+		 * slot range would collide with a slot, and the id-matched
+		 * user trace could bind to the wrong client. Renumber the
+		 * incoming slots from the live generation's counter, which
+		 * is past every live id. */
+		{
+			struct cc_client_data *newslot = newcfg->freecccam.server.client;
+			while (newslot) {
+#ifdef CCCAM_SRV
+				newslot->id = cfg->cccam.clientid++;
+#else
+				newslot->id = cfg->freecccam.clientid++;
+#endif
+				newslot = newslot->next;
+			}
+		}
 
 		void *temp = cfg->freecccam.server.client;
 		cfg->freecccam.server.client = newcfg->freecccam.server.client;
@@ -7529,6 +8597,7 @@ void dcw_filter_globals_publish(const struct config_data *cfg)
     dcw_filter_repeat = cfg->dcw_filters.repeat;
     dcw_filter_cycle = cfg->dcw_filters.cycle;
     dcw_filter_pattern = cfg->dcw_filters.pattern;
+    dcw_filter_strict = cfg->dcw_filters.strict;
     pthread_mutex_unlock(&profile_validation_lock);
 }
 
@@ -7541,6 +8610,17 @@ void dcw_filter_globals_snapshot(int *checksum, int *repeat, int *cycle, int *pa
     if (cycle) *cycle = dcw_filter_cycle;
     if (pattern) *pattern = dcw_filter_pattern;
     pthread_mutex_unlock(&profile_validation_lock);
+}
+
+/* Snapshot the STRICT gate (R48). Separate from the 4-arg snapshot
+ * above so existing callers are untouched. */
+int dcw_filter_strict_snapshot(void)
+{
+    int v;
+    pthread_mutex_lock(&profile_validation_lock);
+    v = dcw_filter_strict;
+    pthread_mutex_unlock(&profile_validation_lock);
+    return v;
 }
 
 int dcw_profile_cycle_enabled(struct cardserver_data *cs)
@@ -7619,6 +8699,22 @@ int acceptDCW_profile_ca_sid_reason(uint8_t *data, struct cardserver_data *cs, u
     return result;
 }
 
+
+/* Whether the exact CW_CHECKSUM_EXEMPT scope (profile CAID + provider
+ * + SID, no wildcard) applies -- used by gates that re-check the
+ * structural checksum after profile validation has already honoured
+ * the exemption (the Nagravision FAKE-CW backstop in setdcw.c). */
+int dcw_checksum_exemption_applies(struct cardserver_data *cs,
+                                   uint16_t caid, uint32_t provid, uint16_t sid)
+{
+    int scoped;
+    pthread_mutex_lock(&profile_validation_lock);
+    scoped = cs && cs->option.cw_checksum_exempt_active &&
+        cs->card.caid == caid && cs->option.cw_checksum_exempt_provider == provid &&
+        cs->option.cw_checksum_exempt_sid == sid;
+    pthread_mutex_unlock(&profile_validation_lock);
+    return scoped;
+}
 
 int acceptDCW_profile_ecm_trace_reason(uint8_t *data, struct cardserver_data *cs,
                                        uint16_t caid, uint32_t provid, uint16_t sid,
@@ -7769,8 +8865,8 @@ void reread_config( struct config_data *cfg )
 	if (cfg->http.port!=newcfg.http.port) {
 		//cfg->http.flags |= FLAG_DISCONNECT;
 		cfg->http.port = newcfg.http.port;
-		newcfg.http.handle = cfg->http.handle;
-		cfg->http.handle = -1;
+		newcfg.http.handle = __atomic_load_n(&cfg->http.handle, __ATOMIC_RELAXED);
+		__atomic_store_n(&cfg->http.handle, -1, __ATOMIC_RELAXED);
 	}
 	// update http file data
 	pointer = cfg->http.files;
@@ -7778,13 +8874,15 @@ void reread_config( struct config_data *cfg )
 	newcfg.http.files = pointer;
 #ifdef TELNET
 	// Telnet Server
+	cfg->telnet.loginfails = newcfg.telnet.loginfails;
+	cfg->telnet.loginbansec = newcfg.telnet.loginbansec;
 	strcpy(cfg->telnet.user, newcfg.telnet.user);
 	strcpy(cfg->telnet.pass, newcfg.telnet.pass);
 	if (cfg->telnet.port!=newcfg.telnet.port) {
 		//cfg->http.flags |= FLAG_DISCONNECT;
 		cfg->telnet.port = newcfg.telnet.port;
-		newcfg.telnet.handle = cfg->telnet.handle;
-		cfg->telnet.handle = -1;
+		newcfg.telnet.handle = __atomic_load_n(&cfg->telnet.handle, __ATOMIC_RELAXED);
+		__atomic_store_n(&cfg->telnet.handle, -1, __ATOMIC_RELAXED);
 	}
 #endif
 
@@ -7838,14 +8936,33 @@ void reread_config( struct config_data *cfg )
 	dcw_filter_globals_publish(&newcfg);
 
 	cfg->newcamd.clientid = newcfg.newcamd.clientid;
+#ifdef CCCAM_SRV
+	/* New clients that moved in carry new-generation ids; never let
+	 * the live counter fall behind them (a later FreeCCcam slot
+	 * renumber draws from it). */
+	if (newcfg.cccam.clientid > cfg->cccam.clientid)
+		cfg->cccam.clientid = newcfg.cccam.clientid;
+#endif
 	cfg->newcamd.dcwcheck = newcfg.newcamd.dcwcheck;
 	cfg->newcamd.keepalive = newcfg.newcamd.keepalive;
+	cfg->newcamd.loginfails = newcfg.newcamd.loginfails;
+	cfg->newcamd.loginbansec = newcfg.newcamd.loginbansec;
 
 	cfg->mgcamd.dcwcheck = newcfg.mgcamd.dcwcheck;
+	cfg->mgcamd.loginfails = newcfg.mgcamd.loginfails;
+	cfg->mgcamd.loginbansec = newcfg.mgcamd.loginbansec;
 	cfg->mgcamd.keepalive = newcfg.mgcamd.keepalive;
 	cfg->cccam.dcwcheck = newcfg.cccam.dcwcheck;
 	cfg->cccam.keepalive = newcfg.cccam.keepalive;
+	cfg->cccam.loginfails = newcfg.cccam.loginfails;
+	cfg->cccam.loginbansec = newcfg.cccam.loginbansec;
 	cfg->cs378x.keepalive = newcfg.cs378x.keepalive;
+	cfg->cs378x.loginfails = newcfg.cs378x.loginfails;
+	cfg->cs378x.loginbansec = newcfg.cs378x.loginbansec;
+	cfg->camd35.loginfails = newcfg.camd35.loginfails;
+	cfg->camd35.loginbansec = newcfg.camd35.loginbansec;
+	cfg->cache.loginfails = newcfg.cache.loginfails;   /* Band 78 */
+	cfg->cache.loginbansec = newcfg.cache.loginbansec; /* Band 78 */
 
 	update_servers( cfg, &newcfg );
 	update_cacheexservers( cfg, &newcfg );
@@ -8083,36 +9200,42 @@ int check_config(struct config_data *cfg)
 
 	// HTTP Port
 #ifdef HTTP_SRV
-	if (cfg->http.handle<=0) {
+	if (__atomic_load_n(&cfg->http.handle, __ATOMIC_RELAXED)<=0) {
 		if ( (cfg->http.port<1024)||(cfg->http.port>0xffff) ) {
 			debugf(getdbgflag(DBG_CONFIG,0,0)," HTTP Server: invalid port value (%d)\n", cfg->http.port);
-			cfg->http.handle = -1;
-		}
-		else if ( (cfg->http.handle=CreateServerSockTcp(cfg->http.port, IP_ADRESS)) == -1) {
-			debugf(getdbgflag(DBG_CONFIG,0,0)," HTTP Server: bind port failed (%d)\n", cfg->http.port);
-			cfg->http.handle = -1;
+			__atomic_store_n(&cfg->http.handle, -1, __ATOMIC_RELAXED);
 		}
 		else {
-			debugf(getdbgflag(DBG_CONFIG,0,0)," HTTP server started on port %d\n",cfg->http.port);
-			CHECK_IP_ADRESS(cfg->http.handle);
+			/* atomic store: the HTTP accept thread snapshots this fd */
+			int http_sock = CreateServerSockTcp(cfg->http.port, IP_ADRESS);
+			__atomic_store_n(&cfg->http.handle, http_sock, __ATOMIC_RELAXED);
+			if (http_sock == -1) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," HTTP Server: bind port failed (%d)\n", cfg->http.port);
+			} else {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," HTTP server started on port %d\n",cfg->http.port);
+				CHECK_IP_ADRESS(http_sock);
+			}
 		}
 	}
 #endif
 
 #ifdef TELNET
 	// telnet Port
-	if (cfg->telnet.handle<=0) {
+	if (__atomic_load_n(&cfg->telnet.handle, __ATOMIC_RELAXED)<=0) {
 		if ( (cfg->telnet.port<1024)||(cfg->telnet.port>0xffff) ) {
 			debugf(getdbgflag(DBG_CONFIG,0,0)," Telnet Server: invalid port value (%d)\n", cfg->telnet.port);
-			cfg->telnet.handle = -1;
-		}
-		else if ( (cfg->telnet.handle=CreateServerSockTcp(cfg->telnet.port, IP_ADRESS)) == -1) {
-			debugf(getdbgflag(DBG_CONFIG,0,0)," Telnet Server: bind port failed (%d)\n", cfg->telnet.port);
-			cfg->telnet.handle = -1;
+			__atomic_store_n(&cfg->telnet.handle, -1, __ATOMIC_RELAXED);
 		}
 		else {
-			debugf(getdbgflag(DBG_CONFIG,0,0)," Telnet server started on port %d\n",cfg->telnet.port);
-			CHECK_IP_ADRESS(cfg->telnet.handle);
+			/* atomic store: the Telnet accept thread snapshots this fd */
+			int telnet_sock = CreateServerSockTcp(cfg->telnet.port, IP_ADRESS);
+			__atomic_store_n(&cfg->telnet.handle, telnet_sock, __ATOMIC_RELAXED);
+			if (telnet_sock == -1) {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," Telnet Server: bind port failed (%d)\n", cfg->telnet.port);
+			} else {
+				debugf(getdbgflag(DBG_CONFIG,0,0)," Telnet server started on port %d\n",cfg->telnet.port);
+				CHECK_IP_ADRESS(telnet_sock);
+			}
 		}
 	}
 #endif
@@ -8304,8 +9427,17 @@ void cfg_set_id_counters(struct config_data *cfg)
 			cli->cs = cs;
 
 			if (!cli->id) {
+				/* One id space with cc_client_data (same fix as the
+				 * FreeCCcam slots above): the user trace matches by
+				 * client id alone, so a newcamd client and a CCcam
+				 * client sharing an id could bind a trace session
+				 * to the wrong client. */
+#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->clientid;
 				cfg->clientid++;
+#endif
 			}
 			cs->newcamd.totalclients++;
 			cli = cli->next;
@@ -8369,8 +9501,12 @@ void cfg_set_id_counters(struct config_data *cfg)
 		while (cli) {
 			//cli->srvid = camd35->id;
 			if (!cli->id) {
+				#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->camd35.clientid;
 				cfg->camd35.clientid++;
+#endif
 			}
 			camd35->totalclients++;
 			cli = cli->next;
@@ -8380,8 +9516,12 @@ void cfg_set_id_counters(struct config_data *cfg)
 		while (cli) {
 			//cli->srvid = camd35->id;
 			if (!cli->id) {
+				#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->camd35.clientid;
 				cfg->camd35.clientid++;
+#endif
 			}
 			camd35->totalclients++;
 			cli = cli->next;
@@ -8407,8 +9547,12 @@ void cfg_set_id_counters(struct config_data *cfg)
 		while (cli) {
 			//cli->srvid = cs378x->id;
 			if (!cli->id) {
+				#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->cs378x.clientid;
 				cfg->cs378x.clientid++;
+#endif
 			}
 			cs378x->totalclients++;
 			cli = cli->next;
@@ -8418,8 +9562,12 @@ void cfg_set_id_counters(struct config_data *cfg)
 		while (cli) {
 			//cli->srvid = cs378x->id;
 			if (!cli->id) {
+				#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->cs378x.clientid;
 				cfg->cs378x.clientid++;
+#endif
 			}
 			cs378x->totalclients++;
 			cli = cli->next;
@@ -8444,8 +9592,12 @@ void cfg_set_id_counters(struct config_data *cfg)
 		while (cli) {
 			cli->parent = mgcamd;
 			if (!cli->id) {
+				#ifdef CCCAM_SRV
+				cli->id = cfg->cccam.clientid++;
+#else
 				cli->id = cfg->mgcamd.clientid;
 				cfg->mgcamd.clientid++;
+#endif
 			}
 			mgcamd->totalclients++;
 			cli = cli->next;
@@ -8511,11 +9663,11 @@ int done_config(struct config_data *cfg)
 
 #ifdef HTTP_SRV
 	// HTTP Port
-	if (cfg->http.handle>0) close(cfg->http.handle);
+	if (__atomic_load_n(&cfg->http.handle, __ATOMIC_RELAXED)>0) close(__atomic_load_n(&cfg->http.handle, __ATOMIC_RELAXED));
 #endif
 
 #ifdef TELNET
-	if (cfg->telnet.handle>0) close(cfg->telnet.handle);
+	if (__atomic_load_n(&cfg->telnet.handle, __ATOMIC_RELAXED)>0) close(__atomic_load_n(&cfg->telnet.handle, __ATOMIC_RELAXED));
 #endif
 
 #ifdef CCCAM_SRV
@@ -8611,7 +9763,7 @@ int done_config(struct config_data *cfg)
 	// Close Servers Connections
 	struct server_data *srv = cfg->server;
 	while (srv) {
-		if (srv->handle>0) close(srv->handle);
+		if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) close(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED));
 		srv = srv->next;
 	}
 

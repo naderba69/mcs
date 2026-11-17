@@ -591,6 +591,12 @@ int ecm_setsrvflag(ECM_DATA *ecm, unsigned int srvid, int flag)
 	return 0;
 }
 
+/* ECM DOUBLECHECK arrival feed (implemented in setdcw.c, main TU):
+ * every good card-server reply counts as a source for the pending
+ * check of this ECM, including a late reply whose CW will never be
+ * committed because another card answered first. Observe mode only. */
+extern void mcs_doublecheck_feed(uint32_t ecm_hash, int reader_id, const uint8_t *cw, uint32_t response_ms);
+
 int ecm_setsrvflagdcw(ECM_DATA *ecm, unsigned int srvid, int flag, uint8_t dcw[16])
 {
 	int i;
@@ -602,6 +608,9 @@ int ecm_setsrvflagdcw(ECM_DATA *ecm, unsigned int srvid, int flag, uint8_t dcw[1
 				memcpy(ecm->server[i].dcw, dcw, 16);
 				ecm->server_totalsent = ecm_nbsentsrv(ecm);
 				ecm->server_totalwait = ecm_nbwaitsrv(ecm);
+				if (flag==ECM_SRV_REPLY_GOOD)
+					mcs_doublecheck_feed(ecm->hash, (int)srvid, dcw,
+					                     (uint32_t)(GetTickCount() - ecm->recvtime));
 				return 1;
 			}
 		} else break;

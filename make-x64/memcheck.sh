@@ -22,16 +22,23 @@ note() { printf '%s\n' "$*"; }
 compile_units() {
 	dest=$1
 	extra=$2
-	mkdir -p "$dest"
+	mkdir -p "$dest/obj"
+	rm -f "$dest"/*.o
 	make -s -n -B test > "$LOG/make-n-test.txt"
 	while IFS= read -r line; do
 		out=$(printf '%s\n' "$line" | sed -n 's/.* -o \([^ ]*\).*/\1/p')
 		base=$(basename "$out")
+		# Two-step rules (scoped-policy) compile objects first: keep those in
+		# obj/ so the server link's "$dest"/*.o glob never picks them up, and
+		# point the link line's object inputs at the same place.
+		odest=$dest
+		case "$line" in *" -c "*|*" -c") odest=$dest/obj ;; esac
 		cmd=$(printf '%s\n' "$line" | sed \
 			-e "s|^gcc |gcc ${extra} |" \
 			-e 's/ -O2 / /g' \
 			-e 's/ -O3 / /g' \
-			-e "s| -o ${out} | -o ${dest}/${base} |")
+			-e "s| -o [^ ]*| -o ${odest}/${base}|" \
+			-e "s|x64/scoped-policy/|${dest}/obj/|g")
 		# shellcheck disable=SC2086
 		if ! eval "$cmd" >"$LOG/compile-${base}.log" 2>&1; then
 			note "COMPILE FAIL $dest/$base"
@@ -79,27 +86,41 @@ units() {
 	compile_units x64/mem-asan "$asan_flags" || return 1
 	note "compiling TSan units"
 	compile_units x64/mem-tsan "$tsan_flags" || return 1
-	note "compiling valgrind units"
-	compile_units x64/mem-vg "$vg_flags" || return 1
+	if command -v valgrind >/dev/null 2>&1; then
+		note "compiling valgrind units"
+		compile_units x64/mem-vg "$vg_flags" || return 1
+	else
+		note "valgrind not installed -- valgrind units SKIPPED (tool absence, not a result)"
+		printf '%s\n' "valgrind: SKIPPED (not installed)" >> "$LOG/RESULT.txt"
+	fi
 
 	run_units x64/mem-asan asan \
 		ASAN_OPTIONS=halt_on_error=1:detect_leaks=1:abort_on_error=0 \
+		LSAN_OPTIONS=suppressions=asan.supp \
 		UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1:abort_on_error=0
 	run_units x64/mem-tsan tsan \
 		TSAN_OPTIONS=halt_on_error=1:abort_on_error=0
-	run_units x64/mem-vg valgrind \
-		valgrind --quiet --error-exitcode=99 --leak-check=full \
-		--show-leak-kinds=definite,indirect \
-		--errors-for-leak-kinds=definite,indirect \
-		--suppressions=memcheck.supp
+	if command -v valgrind >/dev/null 2>&1; then
+		run_units x64/mem-vg valgrind \
+			valgrind --quiet --error-exitcode=99 --leak-check=full \
+			--show-leak-kinds=definite,indirect \
+			--errors-for-leak-kinds=definite,indirect \
+			--suppressions=memcheck.supp
+	fi
 }
 
 compile_server() {
 	dest=$1
 	extra=$2
 	mkdir -p "$dest"
-	base=$(make -s print-cflags | sed 's/-O2/-O1 -g -fno-omit-frame-pointer/')
-	srcs="sha1.c des.c md5.c aes.c dcw.c convert.c tools.c debug.c parser.c ipdata.c threads.c sockets.c msg-newcamd.c msg-cccam.c msg-radegast.c config.c ecmdata.c httpserver.c telnet.c main.c"
+	rm -f "$dest"/*.o
+	# -std=gnu89 comes from the port layer; several newer TUs use C99
+	# for-declarations and the real src build compiles them with the
+	# compiler default. The sanitizer build follows the real build.
+	base=$(make -s print-cflags | sed 's/-O2/-O1 -g -fno-omit-frame-pointer/' | sed 's/-std=gnu89/-fgnu89-inline/')
+	# Derive the TU list from src/Makefile's OBJECTS so this harness cannot
+	# drift behind the real build again (it had: 20+ TUs were missing).
+	srcs=$(awk '/^OBJECTS =/{f=1} f{print} f&&/^$/{exit}' ../src/Makefile | grep -o '[A-Za-z0-9_-]*\.o' | sort -u | sed 's/\.o$/.c/' | tr '\n' ' ')
 	for s in $srcs; do
 		# shellcheck disable=SC2086
 		if ! gcc $extra $base -w -c "../src/$s" -o "$dest/${s%.c}.o" >"$LOG/srv-${dest##*/}-${s}.log" 2>&1; then
@@ -110,7 +131,7 @@ compile_server() {
 		rm -f "$LOG/srv-${dest##*/}-${s}.log"
 	done
 	# shellcheck disable=SC2086
-	if ! gcc $extra $base -w -o "$dest/multics" "$dest"/*.o -pthread >"$LOG/srv-${dest##*/}-link.log" 2>&1; then
+	if ! gcc $extra $base -w -o "$dest/multics" "$dest"/*.o -pthread -lm >"$LOG/srv-${dest##*/}-link.log" 2>&1; then
 		note "LINK FAIL $dest/multics"
 		tail -30 "$LOG/srv-${dest##*/}-link.log"
 		return 1
@@ -220,19 +241,25 @@ live() {
 	tsan_flags="-O1 -g -fno-omit-frame-pointer -fsanitize=thread"
 	compile_server x64/mem-asan "$asan_flags" || return 1
 	compile_server x64/mem-tsan "$tsan_flags" || return 1
-	compile_server x64/mem-vg "-O1 -g -fno-omit-frame-pointer" || return 1
+	if command -v valgrind >/dev/null 2>&1; then
+		compile_server x64/mem-vg "-O1 -g -fno-omit-frame-pointer" || return 1
+	fi
 
 	live_one asan x64/mem-asan/multics \
 		ASAN_OPTIONS=halt_on_error=0:detect_leaks=0:abort_on_error=0 \
 		UBSAN_OPTIONS=halt_on_error=0:print_stacktrace=1:abort_on_error=0
 	live_one tsan x64/mem-tsan/multics \
 		TSAN_OPTIONS=halt_on_error=0:abort_on_error=0:history_size=2
-	live_one valgrind x64/mem-vg/multics \
-		valgrind --error-exitcode=99 --leak-check=full \
-		--show-leak-kinds=definite,indirect \
-		--errors-for-leak-kinds=definite,indirect \
-		--suppressions=memcheck.supp \
-		--trace-children=no
+	if command -v valgrind >/dev/null 2>&1; then
+		live_one valgrind x64/mem-vg/multics \
+			valgrind --error-exitcode=99 --leak-check=full \
+			--show-leak-kinds=definite,indirect \
+			--errors-for-leak-kinds=definite,indirect \
+			--suppressions=memcheck.supp \
+			--trace-children=no
+	else
+		note "valgrind not installed -- valgrind live session SKIPPED (tool absence, not a result)"
+	fi
 }
 
 : > "$LOG/RESULT.txt"

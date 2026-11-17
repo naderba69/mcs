@@ -11,7 +11,7 @@ void camd35_send_keepalive(struct server_data *srv)
 		buf[0] = 0x3D;
 		buf[1] = 12;
 		memcpy( buf+20, cccam_nodeid, 8);
-		camd35_sendto( srv->handle, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+12);
+		camd35_sendto( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+12);
 	}
 	else
 #endif
@@ -21,7 +21,7 @@ void camd35_send_keepalive(struct server_data *srv)
 		memset(buf,0, 21);
 		buf[0] = 0x37;
 		buf[1] = 1;
-		camd35_sendto( srv->handle, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+1);
+		camd35_sendto( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+1);
 	}
 }
 
@@ -47,7 +47,7 @@ int camd35_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 	buf[16] = srv->ecm.msgid>>8;
 	buf[17] = srv->ecm.msgid;
 	memcpy( buf+20, ecm->ecm, ecm->ecmlen);
-	camd35_sendto( srv->handle, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+ecm->ecmlen);
+	camd35_sendto( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, buf, 20+ecm->ecmlen);
 	return 1;
 }
 
@@ -65,10 +65,10 @@ void camd35_srv_recvmsg(struct server_data *srv)
 	socklen_t slen = sizeof(si_other);
 	unsigned char buf[1024];
 
-	int received = recvfrom( srv->handle, buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
+	int received = recvfrom( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
 	if ( (received<20)||(received>1020) ) return;
 
-	uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+	uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 	//Check for client
 	if (srv->ucrc!=ucrc) return;
 	//
@@ -127,9 +127,9 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			}
 			srv->busy = 0;
 			pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
-			srv->ecmok++;
+			__atomic_fetch_add(&srv->ecmok, 1, __ATOMIC_RELAXED);
 			srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
-			srv->ecmoktime += srv->lastecmoktime;
+			__atomic_fetch_add(&srv->ecmoktime, (srv->lastecmoktime), __ATOMIC_RELAXED);
 			ecm_setsrvflagdcw( ecm, srv->id, ECM_SRV_REPLY_GOOD, buf+24 );
 			debugf(getdbgflagpro(DBG_SERVER,0,srv->id,(ecm->cs ? ecm->cs->id : 0))," <= cw from camd35 server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 
@@ -139,7 +139,7 @@ void camd35_srv_recvmsg(struct server_data *srv)
 				// Store ECM Answer
 				ecm_setdcw( ecm, buf+24, DCW_SOURCE_SERVER, srv->id );
 			}
-			else if (ecm->dcwsrctype == DCW_SOURCE_CACHE) {
+			else if (ecm->dcwsrctype == DCW_SOURCE_CACHE || (cfg.cache.dropdiffs || (ecm->cs && ecm->cs->option.dropdiffs==1))) { /* DROPDIFFS (band 32/33): queue the late reply for validation so it can be refused against the known-good; OFF = stock drop */
 				/* D111 D-1: queue a late line reply as a reference candidate only. */
 				ecm_setdcw( ecm, buf+24, DCW_SOURCE_SERVER, srv->id );
 			}
@@ -228,7 +228,7 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 			cacheex.sid = (buf[12]<<8)|buf[13];
 			cacheex.caid = (buf[14]<<8)|buf[15];
-			cacheex.provid = (buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];
+			cacheex.provid = (((uint32_t)buf[16]<<24))|(buf[17]<<16)|(buf[18]<<8)|buf[19];
 			// Look for cardserver
 			cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
 			if ( !cs || !cs->option.fallowcacheex ) {
@@ -240,7 +240,7 @@ void camd35_srv_recvmsg(struct server_data *srv)
 			if ((buf[23]&0xFE)==0x80) cacheex.tag = buf[23]; else cacheex.tag = 0;
 			memcpy( cacheex.ecmd5, buf+24, 16);
 			//if ( !checkECMD5(cacheex.ecmd5) ) cli->cacheex.totalcsp++;
-			cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
+			cacheex.hash = (((uint32_t)buf[43]<<24)) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 			if (!cacheex_check(&cacheex)) break;
 			//debugf( getdbgflag(DBG_CACHEEX, 0, 0)," CACHEEX PUSH from client(%d) %04x:%06x:%04x (%08x)\n",cli->id,cacheex.caid,cacheex.provid,cacheex.sid,cacheex.hash);
 			pthread_mutex_lock(&prg.lockcacheex);
@@ -364,7 +364,7 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 			unsigned char buf[1024];
 			int received = recvfrom( fd, buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
 			if ( (received<20)||(received>1020) ) break;
-			uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+			uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 			if (srv->ucrc!=ucrc) break;
 			aes_decrypt( &srv->decryptkey, buf+4, received-4);
 			if (buf[4]==CAMD_CEX_IDREPLY) { // good
@@ -376,13 +376,13 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 				srv->connection.time = GetTickCount();
 				srv->keepalive.status = 0;
 				srv->keepalive.time = GetTickCount();
-				srv->handle = fd;
+				__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 				pthread_mutex_unlock(&prg.locksrv);
 				if (!server_connection_is_enabled(srv, fd)) return 0;
 				if (srv->cacheex_mode==2) {
 					if (!server_receive_thread_start(srv)) {
 						pthread_mutex_lock(&prg.locksrv);
-						if (srv->handle == fd) disconnect_srv(srv);
+						if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == fd) disconnect_srv(srv);
 						pthread_mutex_unlock(&prg.locksrv);
 					}
 				}
@@ -413,7 +413,7 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 			unsigned char buf[1024];
 			int received = recvfrom( fd, buf, sizeof(buf), 0, (struct sockaddr*)&si_other, &slen);
 			if ( (received<20)||(received>1020) ) break;
-			uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+			uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 			if (srv->ucrc!=ucrc) break;
 			aes_decrypt( &srv->decryptkey, buf+4, received-4);
 			if (buf[4]==CAMD_KEEPALIVE) { // good
@@ -443,7 +443,7 @@ int camd35_connect_srv(struct server_data *srv, int fd)
 				srv->connection.time = GetTickCount();
 				srv->keepalive.status = 0;
 				srv->keepalive.time = GetTickCount();
-				srv->handle = fd;
+				__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 				pthread_mutex_unlock(&prg.locksrv);
 				server_publish_connection_ready(srv, fd);
 				return 0;

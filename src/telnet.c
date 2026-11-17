@@ -3,6 +3,7 @@
 #endif
 #include "common.h"
 #include "safe-time.h"
+#include "user-trace.h"	/* config-gate lock for credential snapshots */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,7 +87,20 @@ void *telnetprocess(int *param )
 	int len;
 	/* TASK R3 (D57): the optional allowlist closes the door before any
 	 * credential is read -- one line, said once, with the address. */
-	if ( !login_allowed(&cfg.telnet.allow, myip) ) {
+	/* snapshot the allowlist under the config gate too (reload rewrites it) */
+	struct login_allow telnet_allow;
+	int telnet_ban_armed;
+	user_trace_config_lock();
+	telnet_allow = cfg.telnet.allow;
+	telnet_ban_armed = cfg.telnet.loginfails;
+	user_trace_config_unlock();
+	/* Band 60: this protocol's own ban closes the door pre-auth too. */
+	if ( telnet_ban_armed>0 && protoban_banned(myip, PB_TELNET) ) {
+		debugf(getdbgflag(DBG_HTTP,0,0)," [PROTO BAN] telnet: %s is banned for telnet after repeated failures, connection closed pre-auth\n", ip2string(myip));
+		close(fd);
+		return NULL;
+	}
+	if ( !login_allowed(&telnet_allow, myip) ) {
 		debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN ALLOW] telnet: %s is not on the allow list, connection closed pre-auth\n", ip2string(myip));
 		close(fd);
 		return NULL;
@@ -99,14 +113,39 @@ void *telnetprocess(int *param )
 	//printf(" Received(%d): '%s'\r\n", len, buf);
 	if ( (buf[len-2]!='\r')||(buf[len-1]!='\n') )  { close(fd); return NULL; }
 	buf[len-2] = 0;
-	if ( strcmp(buf, cfg.telnet.user) ) {
+	/* D49 follow-up (loaded TSan session): reread_config strcpy()s the
+	 * telnet credentials under the config gate while this thread strcmp()s
+	 * them. Snapshot credentials + login delay under the same gate and
+	 * compare against the copies. */
+	char telnet_user[64], telnet_pass[64];
+	int telnet_logindelay;
+	int telnet_loginfails = 0;
+	int telnet_loginbansec = 0;
+	user_trace_config_lock();
+	strncpy(telnet_user, cfg.telnet.user, sizeof(telnet_user)-1); telnet_user[sizeof(telnet_user)-1] = 0;
+	strncpy(telnet_pass, cfg.telnet.pass, sizeof(telnet_pass)-1); telnet_pass[sizeof(telnet_pass)-1] = 0;
+	telnet_logindelay = cfg.telnet.logindelay;
+	telnet_loginfails = cfg.telnet.loginfails;
+	telnet_loginbansec = cfg.telnet.loginbansec;
+	user_trace_config_unlock();
+	char telnet_attempt_user[64];
+	strncpy(telnet_attempt_user, buf, sizeof(telnet_attempt_user)-1);
+	telnet_attempt_user[sizeof(telnet_attempt_user)-1] = 0;
+	if ( strcmp(buf, telnet_user) ) {
 		/* TASK R3 (D57): the progressive delay. The n-th consecutive
 		 * failure from this address waits base<<(n-1), capped; a good
 		 * login resets the count. The answer itself is stock. */
 		uint32_t lt_fails = login_note_failure(myip);
-		uint32_t lt_wait = login_delay_ms(cfg.telnet.logindelay, lt_fails);
+		{
+			int pb_banned = 0;
+			protoban_note_failure(myip, PB_TELNET, (uint32_t)(telnet_loginfails>0?telnet_loginfails:0),
+			                      (uint32_t)(telnet_loginbansec>0?telnet_loginbansec:0), &pb_banned);
+			if (pb_banned) debugf(getdbgflag(DBG_HTTP,0,0)," [PROTO BAN] telnet: %s reached the failure threshold, banned for telnet\n", ip2string(myip));
+		}
+		uint32_t lt_wait = login_delay_ms(telnet_logindelay, lt_fails);
 		if (lt_wait) debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN THROTTLE] telnet: failure #%u from %s, delaying %ums\n", lt_fails, ip2string(myip), lt_wait);
 		if (lt_wait) usleep(lt_wait*1000);
+		loginaudit_note(PB_TELNET, myip, telnet_attempt_user, 0); /* Band 62 */
 		writes(fd, "wrong username, bye.\r\n");
 		close(fd);
 		return NULL;
@@ -118,16 +157,25 @@ void *telnetprocess(int *param )
 	//printf(" Received(%d): '%s'\r\n", len, buf);
 	if ( (buf[len-2]!='\r')||(buf[len-1]!='\n') )  { close(fd); return NULL; }
 	buf[len-2] = 0;
-	if ( strcmp(buf, cfg.telnet.pass) ) {
+	if ( strcmp(buf, telnet_pass) ) {
 		uint32_t lt_fails = login_note_failure(myip); /* TASK R3 (D57) */
-		uint32_t lt_wait = login_delay_ms(cfg.telnet.logindelay, lt_fails);
+		{
+			int pb_banned = 0;
+			protoban_note_failure(myip, PB_TELNET, (uint32_t)(telnet_loginfails>0?telnet_loginfails:0),
+			                      (uint32_t)(telnet_loginbansec>0?telnet_loginbansec:0), &pb_banned);
+			if (pb_banned) debugf(getdbgflag(DBG_HTTP,0,0)," [PROTO BAN] telnet: %s reached the failure threshold, banned for telnet\n", ip2string(myip));
+		}
+		uint32_t lt_wait = login_delay_ms(telnet_logindelay, lt_fails);
 		if (lt_wait) debugf(getdbgflag(DBG_HTTP,0,0)," [LOGIN THROTTLE] telnet: failure #%u from %s, delaying %ums\n", lt_fails, ip2string(myip), lt_wait);
 		if (lt_wait) usleep(lt_wait*1000);
+		loginaudit_note(PB_TELNET, myip, telnet_attempt_user, 0); /* Band 62 */
 		writes(fd, "wrong password, bye.\r\n");
 		close(fd);
 		return NULL;
 	}
 	login_note_success(myip); /* TASK R3 (D57): a good login forgives the typos */
+	protoban_note_success(myip, PB_TELNET); /* Band 60 */
+	loginaudit_note(PB_TELNET, myip, telnet_attempt_user, 1); /* Band 62 */
 	strcpy(buf, "\r\n\r\ntype 'help' for command list\r\n");write(fd, buf, strlen(buf) );
 
 	while ( 1 ) {
@@ -158,13 +206,13 @@ void *telnetprocess(int *param )
 			writes(fd, wbuf);
 		}
 		else if ( !strcmp(str, "DEBUG") ) {
-			int i=idbgline;
+			int i=__atomic_load_n(&idbgline, __ATOMIC_RELAXED);
 			do {
-				sprintf( wbuf, "%s", dbgline[i] );
+				dbg_copy_line(i, wbuf, (int)sizeof(wbuf));
 				writes(fd, wbuf);
 				i++;
 				if (i>=MAX_DBGLINES) i=0;
-			} while (i!=idbgline);
+			} while (i!=__atomic_load_n(&idbgline, __ATOMIC_RELAXED));
 		}
 		else if ( !strcmp(str, "LOADAVG") ) {
 			FILE *fp = fopen ("/proc/loadavg", "r");
@@ -298,7 +346,7 @@ void *telnetprocess(int *param )
 				while (srv) {
 					index++;
 					sprintf( wbuf, "id:%d  Port:%d", srv->id, srv->port);
-					if (srv->handle>0) strcat( wbuf, " Status:ON "); else strcat( wbuf, " Status:OFF");
+					if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) strcat( wbuf, " Status:ON "); else strcat( wbuf, " Status:OFF");
 					int total, connected, active;
 					cccam_clients( srv, &total, &connected, &active );
 					sprintf( str, "Clients Total:%d, Connected:%d, Active:%d", total, connected, active );
@@ -353,7 +401,7 @@ void *telnetprocess(int *param )
 				while (srv) {
 					index++;
 					sprintf( wbuf, "id:%d  Port:%d", srv->id, srv->port);
-					if (srv->handle>0) strcat( wbuf, " Status:ON "); else strcat( wbuf, " Status:OFF");
+					if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) strcat( wbuf, " Status:ON "); else strcat( wbuf, " Status:OFF");
 					int total, connected, active;
 					mgcamd_clients( srv, &total, &connected, &active );
 					sprintf( str, "Clients Total:%d, Connected:%d, Active:%d", total, connected, active );
@@ -371,7 +419,7 @@ void *telnetprocess(int *param )
 				if (!parse_name(str)) continue;
 				struct mg_client_data *cli = getmgcamdclientbyname( srv, str );
 				if (!cli) continue;
-				if (cli->handle>0) {
+				if (__atomic_load_n(&cli->handle, __ATOMIC_RELAXED)>0) {
 					char *p = getcountrycodebyip(cli->ip);
 					if (p) 
 						sprintf(wbuf, "<tr><td>%s</td><td>%s</td><td class=online>Connected</td><td>[%s] %s</td>", cfg.http.title, cli->user, p, ip2string(cli->ip) );
@@ -492,14 +540,17 @@ void *telnet_thread(void *param)
 	socklen_t socklen = sizeof(client_addr);
 	prctl(PR_SET_NAME,"Telnet",0,0,0);
 	while(1) {
-		if (cfg.telnet.handle>0) {
+		/* D49 follow-up: see httpserver.c -- atomic snapshot of the
+		 * listening descriptor the config thread may rewrite on reload. */
+		int telnet_handle = __atomic_load_n(&cfg.telnet.handle, __ATOMIC_RELAXED);
+		if (telnet_handle>0) {
 			struct pollfd pfd;
-			pfd.fd = cfg.telnet.handle;
+			pfd.fd = telnet_handle;
 			pfd.events = POLLIN | POLLPRI;
 			int retval = poll(&pfd, 1, 3002);
 			if ( retval>0 ) {
 				if ( pfd.revents & (POLLIN|POLLPRI) ) {
-					clientsock = accept(cfg.telnet.handle, (struct sockaddr*)&client_addr, /*(socklen_t*)*/&socklen);
+					clientsock = accept(telnet_handle, (struct sockaddr*)&client_addr, /*(socklen_t*)*/&socklen);
 					if ( clientsock<0 ) {
 						debugf(getdbgflag(DBG_HTTP,0,0)," telnet Server: Accept Error\n");
 						break;
@@ -512,6 +563,7 @@ void *telnet_thread(void *param)
 						 * the source address. Same wire behavior when both
 						 * are off. */
 						struct telnet_conn_data *param = malloc( sizeof(struct telnet_conn_data) );
+						if (!param) { close( clientsock ); continue; }
 						param->fd = clientsock;
 						param->ip = client_addr.sin_addr.s_addr;
 						if ( !create_thread(&cli_tid, (threadfn)telnetprocess,param) ) {

@@ -26,7 +26,7 @@ int rdgd_connect_srv(struct server_data *srv, int fd)
 	srv->lastecmtime = 0;
 	srv->lastdcwtime = 0;
 	srv->chkrecvtime = 0;
-	srv->handle = fd;
+	__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.locksrv);
 	server_publish_connection_ready(srv, fd);
 	return 0;
@@ -70,7 +70,7 @@ int rdgd_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 	memcpy(&buf[index+2],ecm->ecm, ecm->ecmlen);
 	index += 2+ecm->ecmlen;
 	buf[1] = index-2;
-	return rdgd_message_send(srv->handle, buf, index);
+	return rdgd_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), buf, index);
 }	
 
 
@@ -82,9 +82,9 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 	ECM_DATA *ecm;
 	unsigned char buf[CWS_NETMSGSIZE];
 
-	if (srv->handle>0)
+	if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0)
 	if (srv->type==TYPE_RADEGAST) {
-		len = rdgd_check_message(srv->handle);
+		len = rdgd_check_message(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED));
 		if (len==0) {
 			debugf(getdbgflag(DBG_SERVER,0,srv->id)," radegast: server (%s:%d) read failed %d\n", srv->host->name, srv->port, len);
 			disconnect_srv(srv);
@@ -98,7 +98,7 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 		}
 		else if (len>0) {
 			srv->chkrecvtime = 0;
-			len = rdgd_message_receive(srv->handle, buf, 3);
+			len = rdgd_message_receive(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), buf, 3);
 			if (len==0) {
 				debugf(getdbgflag(DBG_SERVER,0,srv->id)," radegast: server (%s:%d) read failed %d\n", srv->host->name, srv->port, len);
 				disconnect_srv(srv);
@@ -139,8 +139,8 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 							ecm_unlock(); //###
 							break;
 						}
-						srv->ecmok++;
-						srv->ecmoktime += GetTickCount()-srv->lastecmtime;
+						__atomic_fetch_add(&srv->ecmok, 1, __ATOMIC_RELAXED);
+						__atomic_fetch_add(&srv->ecmoktime, (GetTickCount()-srv->lastecmtime), __ATOMIC_RELAXED);
 						srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
 
 						ecm_setsrvflagdcw(srv->ecm.request, srv->id, ECM_SRV_REPLY_GOOD, &buf[4]);
@@ -152,7 +152,7 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 							// Store ECM Answer
 							ecm_setdcw( ecm, &buf[4], DCW_SOURCE_SERVER, srv->id );
 						}
-						else if (ecm->dcwsrctype == DCW_SOURCE_CACHE) {
+						else if (ecm->dcwsrctype == DCW_SOURCE_CACHE || (cfg.cache.dropdiffs || (ecm->cs && ecm->cs->option.dropdiffs==1))) { /* DROPDIFFS (band 32/33): queue the late reply for validation so it can be refused against the known-good; OFF = stock drop */
 							/* D111 D-1: queue a late line reply as a reference candidate only. */
 							ecm_setdcw( ecm, &buf[4], DCW_SOURCE_SERVER, srv->id );
 						}
@@ -207,7 +207,7 @@ void rdgd_srv_recvmsg(struct server_data *srv)
 				default:
 					buf[0] = 0x81;
 					buf[1] = 0;
-					rdgd_message_send(srv->handle,buf,2);
+					rdgd_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED),buf,2);
 				}
 			}
 

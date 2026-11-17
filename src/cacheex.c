@@ -196,14 +196,14 @@ void cacheex_push(struct cache_data *pcache, uint8_t cw[16], uint8_t *nodeid )
 		if ( (srv->cacheex_mode==3) && (srv->connection.status>0) )
 		if ( acceptshare(srv->sharelimits, pcache->caid, pcache->provid) ) {
 			if (srv->type==TYPE_CCCAM) {
-				if ( !cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_CACHE_PUSH, cccamlen, cccambuf) ) disconnect_srv(srv);
+				if ( !cc_msg_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_CACHE_PUSH, cccamlen, cccambuf) ) disconnect_srv(srv);
 			}
 #ifdef CAMD35_CLI
-			else if (srv->type==TYPE_CAMD35) camd35_sendto( srv->handle, host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, camd35buf, camd35len);
+			else if (srv->type==TYPE_CAMD35) camd35_sendto( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), host_ip_snapshot(srv->host), srv->port, &srv->encryptkey, srv->ucrc, camd35buf, camd35len);
 #endif
 #ifdef CS378X_CLI
 			else if (srv->type==TYPE_CS378X) {
-				if ( !cs378x_send( srv->handle, &srv->encryptkey, srv->ucrc, camd35buf, camd35len) )  disconnect_srv(srv);
+				if ( !cs378x_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->encryptkey, srv->ucrc, camd35buf, camd35len) )  disconnect_srv(srv);
 			}
 #endif
 			srv->cacheex.push[0]++;
@@ -265,7 +265,7 @@ void cacheex_push(struct cache_data *pcache, uint8_t cw[16], uint8_t *nodeid )
 			if ( (cli->cacheex_mode==2) && (cli->connection.status>0) )
 			if ( !nodeid || memcmp(nodeid, cli->nodeid, 8) )
 			if ( acceptshare(cli->sharelimits, pcache->caid, pcache->provid) ) {
-				if ( !cs378x_send( cli->handle, &cli->encryptkey, cli->ucrc, camd35buf, camd35len) ) cs378x_disconnect_cli(cli);
+				if ( !cs378x_send( __atomic_load_n(&cli->handle, __ATOMIC_RELAXED), &cli->encryptkey, cli->ucrc, camd35buf, camd35len) ) cs378x_disconnect_cli(cli);
 				pthread_mutex_lock(&prg.lockcacheex);
 				cli->cacheex.push[0]++;
 				if (nodeid) cli->cacheex.push[2]++; else cli->cacheex.push[1]++;
@@ -308,7 +308,7 @@ void cacheex_pipe_recvmsg()
 					req.tag = buf[3];
 					req.provid = (buf[4]<<16) | (buf[5]<<8) | buf[6];
 					req.sid = (buf[7]<<8) | buf[8];
-					req.hash = (buf[9]<<24) | (buf[10]<<16) | (buf[11]<<8) | buf[12];
+					req.hash = (((uint32_t)buf[9]<<24)) | (buf[10]<<16) | (buf[11]<<8) | buf[12];
 					memcpy(req.ecmd5, buf+13, 16);
 					memcpy(cw, buf+29, 16);
 					// Send Reply
@@ -324,7 +324,7 @@ void cacheex_pipe_recvmsg()
 					req.tag = buf[3];
 					req.provid = (buf[4]<<16) | (buf[5]<<8) | buf[6];
 					req.sid = (buf[7]<<8) | buf[8];
-					req.hash = (buf[9]<<24) | (buf[10]<<16) | (buf[11]<<8) | buf[12];
+					req.hash = (((uint32_t)buf[9]<<24)) | (buf[10]<<16) | (buf[11]<<8) | buf[12];
 					memcpy(req.ecmd5, buf+13, 16);
 					memcpy(cw, buf+29, 16);
 					// Send Reply
@@ -420,9 +420,9 @@ void *cacheex_recvmsg_thread(void *param)
 		while (srv) {
 			srv->ipoll = -1;
 			if (srv->cacheex_mode == 3 && !IS_DISABLED(srv->flags) &&
-			    srv->handle > 0 && pfdcount < CACHEEX_MAX_PFD) {
+			    __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0 && pfdcount < CACHEEX_MAX_PFD) {
 				srv->ipoll = pfdcount;
-				pfd[pfdcount].fd = srv->handle;
+				pfd[pfdcount].fd = __atomic_load_n(&srv->handle, __ATOMIC_RELAXED);
 				pfd_server_generation[pfdcount] = srv->connect_generation;
 				pfd[pfdcount++].events = POLLIN | POLLPRI;
 			}
@@ -470,8 +470,8 @@ void *cacheex_recvmsg_thread(void *param)
 				while (srv) {
 					int ipoll = srv->ipoll;
 					if (srv->cacheex_mode == 3 && !IS_DISABLED(srv->flags) &&
-					    srv->handle > 0 && ipoll >= 0 && ipoll < pfdcount &&
-					    srv->handle == pfd[ipoll].fd &&
+					    __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0 && ipoll >= 0 && ipoll < pfdcount &&
+					    __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == pfd[ipoll].fd &&
 					    srv->connect_generation == pfd_server_generation[ipoll]) {
 						if (pfd[ipoll].revents & (POLLHUP | POLLNVAL))
 							disconnect_srv(srv);

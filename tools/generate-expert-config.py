@@ -15,7 +15,7 @@ from cfgcheck import parse
 source = ROOT / 'multics-r24-optimized.cfg'
 target = ROOT / 'multics-r24-expert-reviewed.cfg'
 global_values, profiles = parse(source)
-assert len(profiles) == 72
+assert len(profiles) == 91
 header = '''# MultiCS r82a — قالب بروفايلات محافظ / 2026-10-29
 # ينسخ قيم البروفايلات من multics-r24-optimized.cfg دون تغييرات تشغيلية.
 # PEER REPUTATION هنا قديمة ومحدودة بـIP:port؛ BAN عزل مؤقت 60 دقيقة فقط،

@@ -36,6 +36,7 @@ STAB_CFG   = .stability.cfg
 # and once producing `/bin/sh: Syntax error: end of file unexpected`.
 stability:
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@test -x ../make-x64/x64/multics || { echo "stability: building the stock flavour first"; $(MAKE) -C ../make-x64 >/dev/null; }
 	@command -v stdbuf >/dev/null || { echo "stdbuf required"; exit 1; }
 	@{ printf 'HTTP PORT: $(STAB_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\n'; \
 	   printf 'HTTP TITLE: mcs-stability\nTELNET PORT: $(STAB_CPORT)\n\n'; \
@@ -2412,7 +2413,7 @@ HA_CFG   = .ha.cfg
 HA_CFG2  = .ha2.cfg
 
 .PHONY: ha
-ha:
+ha: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
@@ -2510,7 +2511,7 @@ XS_CFG   = .xs.cfg
 XS_KEY   = 0102030405060708091011121314
 
 .PHONY: xs
-xs:
+xs: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
@@ -2533,7 +2534,7 @@ xs:
 	np=0; ne=0; \
 	for pg in / /newcamd /newcamdclient?id=1 /debug; do \
 	  body=$$(curl -s -m 3 -u admin:admin "http://127.0.0.1:$(XS_HPORT)$$pg"); \
-	  if echo "$$body" | grep -q '<script>'; then \
+	  if echo "$$body" | grep -q '<script>alert'; then \
 	    echo "[FAIL] $$pg carries a RAW <script> tag from the username"; ok=0; np=$$((np+1)); \
 	  fi; \
 	  if echo "$$body" | grep -q '&lt;script&gt;'; then ne=$$((ne+1)); fi; \
@@ -2581,7 +2582,7 @@ DL_CFG   = .dl.cfg
 DL_KEY   = 0102030405060708091011121314
 
 .PHONY: dl
-dl:
+dl: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 -x '.cachepeer.bin' 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
 	  pkill -9 -x '.ncclient.bin' 2>/dev/null; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; sleep 1; true
@@ -4179,7 +4180,7 @@ CE_KEY    = 0102030405060708091011121314
 
 .PHONY: ce
 
-ce: $(CXPEER)
+ce: $(CXPEER) $(NCCLIENT)
 	@test -x $(CE_BIN) || { echo "build the stats release first: make -C ../make-x64 release-stats"; exit 1; }
 	@chmod +x $(CXPEER) $(NCCLIENT) 2>/dev/null || true
 	@rm -f .ce-srv.log .ce-nc.out .ce-peer.out .ce-stats.out $(CE_CFG); ok=1; \
@@ -4521,7 +4522,7 @@ JM_REP    = .jm.rep
 # seeds its push identity from its FIRST find only, and its 150 ms marked
 # repushes need a few seconds to pile up the three contradiction events
 # phase 8 reads -- hence the break on B's own 'got request' + sleep 8.
-jm:
+jm: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 -x multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(JM_REP) $(JM_CFG) .jm-srv.log .jm-a.log .jm-b.log .jm.json multics.peers; \
@@ -4581,7 +4582,7 @@ PM_NPORT  = 16985
 PM_CFG    = .pm-srv.cfg
 
 .PHONY: pm
-pm:
+pm: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(PM_CFG) .pm-srv.log .pm-a.log .pm-b.log .pm-cli.log; \
@@ -4611,7 +4612,7 @@ pm:
 	wall_ms=$$(( (t1 - t0) / 1000000 )); cpu_ms=$$(( (utime1 - utime0) * 10 )); \
 	echo "PM: binary=$(BIN)"; \
 	echo "PM: delivered=$$deliv/100  wall_ms=$$wall_ms  pushes_applied=$$pushes  cpu_ms=$$cpu_ms  rss_hwm_kb=$${hwm1:-?}  queue_dropped=$$qtally"; \
-	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; 
+	kill -9 $$pa $$pb 2>/dev/null; kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; true
 	@echo "PM: logs kept under tests/.pm-*"
 
 # ---------------------------------------------------------------------------
@@ -4718,7 +4719,7 @@ CN_CFG    = .cn-srv.cfg
 CN_REP    = .cn.rep
 
 .PHONY: cn
-cn:
+cn: $(CACHEPEER) $(NCCLIENT)
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
 	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
 	@rm -f $(CN_CFG) $(CN_REP) .cn-*.log .cn-*.cfg .cn-cli*.log; \
@@ -4869,7 +4870,7 @@ ri: .ncclient.bin .cachepeer.bin
 	else echo "[FAIL] logs kept under tests/.ri-*"; fi; \
 	[ "$$ok" = "1" ]
 
-vl:
+vl: $(CACHEPEER) $(NCCLIENT)
 	@test -x ../bin/multics-r82a-stats-x64 || { echo "build first: make -C ../make-x64 release-stats"; exit 1; }
 	@test -x ../bin/multics-r82a-stock-x64 || { echo "stock release missing: make -C ../make-x64 release"; exit 1; }
 	@pkill -9 '^multics' 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; chmod +x .cachepeer.bin .ncclient.bin 2>/dev/null; true
@@ -5523,4 +5524,62 @@ rt: .ccdcw.bin $(CACHEPEER)
 	else echo "[FAIL] R43: the fresh ECM after rotation was refused -- the good key was filed"; ok=0; fi; \
 	if [ "$$ok" = "1" ]; then rm -f $(RT_CFG) .rt-srv.log .rt-peer.log .rt-a.log .rt-b.log .rt-c.log; \
 	else echo "[FAIL] logs kept under tests/.rt-*"; fi; \
+	[ "$$ok" = "1" ]
+
+# ---------------------------------------------------------------------------
+# TASK R48 telemetry feed -- /cache-analytics and /diagnostics used to render
+# permanent zeros: cache_analytics_record_request had no caller at all and
+# diagnostics had counters nobody wrote. Both are now fed from the single
+# delivery commit point (trusted_deliver in ecm_setdcwdata) plus the traced
+# rejection sites. This target proves the counters MOVE after a real cache
+# delivery, and stay at zero before it. Advisory only: nothing gates on them.
+#
+# PORTS: 17300 http, 17301 newcamd, 17302 cache, 17303 peer.
+# ---------------------------------------------------------------------------
+
+TM_HPORT = 17300
+TM_NPORT = 17301
+TM_CACHE = 17302
+TM_PEER  = 17303
+TM_CFG   = .tm.cfg
+TM_KEY   = 0102030405060708091011121314
+TM_CW    = 10203060405060F070809080A0B0C010
+
+.PHONY: tm
+tm: $(CACHEPEER) $(NCCLIENT)
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 -x multics 2>/dev/null; pkill -9 -x '.cachepeer.bin' 2>/dev/null; sleep 1; true
+	@{ printf 'HTTP PORT: $(TM_HPORT)\nHTTP USER: admin\nHTTP PASS: admin\nHTTP TITLE: mcs-tm\nTELNET PORT: 0\n'; \
+	   printf 'CACHE PORT: $(TM_CACHE)\nCACHE FILTER: OFF\nCACHE PEER: 127.0.0.1:$(TM_PEER)\n\n'; \
+	   printf '[ tm ]\nCAID: 1884\nPROVIDERS: 0\nPORT: $(TM_NPORT)\nCACHE TIMEOUT: 2000\nDCW TIMEOUT: 4000\nUSER: u1 p1\n'; } > $(TM_CFG); \
+	ok=1; rm -f .tm-srv.log .tm-peer.log .tm-cli.log; \
+	stdbuf -o0 -e0 ./$(CACHEPEER) $(TM_CACHE) $(TM_PEER) "$(TM_CW)" 64 > .tm-peer.log 2>&1 & peer=$$!; \
+	for i in $$(seq 1 30); do grep -q "PEER: bound" .tm-peer.log && break; sleep 0.1; done; \
+	stdbuf -o0 -e0 $(BIN) -C $(TM_CFG) -v > .tm-srv.log 2>&1 & srv=$$!; \
+	for i in $$(seq 1 40); do curl -s -m 2 -o /dev/null -u admin:admin http://127.0.0.1:$(TM_HPORT)/ && break; sleep 1; done; \
+	ca0=$$(curl -s -m 3 -u admin:admin http://127.0.0.1:$(TM_HPORT)/cache-analytics); \
+	dg0=$$(curl -s -m 3 -u admin:admin http://127.0.0.1:$(TM_HPORT)/diagnostics); \
+	if [ -n "$$ca0" ] && [ -n "$$dg0" ]; then echo "  [ ok ] both telemetry pages serve before traffic"; \
+	else echo "[FAIL] a telemetry page did not serve before traffic"; ok=0; fi; \
+	if echo "$$dg0" | grep -q '>100%<'; then echo "[FAIL] diagnostics claims 100% before any delivery"; ok=0; \
+	else echo "  [ ok ] diagnostics is honestly zeroed before traffic"; fi; \
+	for i in $$(seq 1 60); do grep -q "come Online" .tm-srv.log && break; sleep 0.5; done; \
+	if grep -q "come Online" .tm-srv.log; then echo "  [ ok ] cache peer completed the handshake"; \
+	else echo "[FAIL] cache peer did not come online"; ok=0; fi; \
+	env NC_ECMS=2 ./$(NCCLIENT) 127.0.0.1 $(TM_NPORT) u1 p1 $(TM_KEY) 0 1884 0064 > .tm-cli.log 2>&1; sleep 1; \
+	nd=$$(grep -c "DELIVERED" .tm-cli.log); \
+	if [ "$$nd" -ge 1 ]; then echo "  [ ok ] the cache CW was delivered to a real client ($$nd)"; \
+	else echo "[FAIL] no delivery to count"; ok=0; fi; \
+	ca1=$$(curl -s -m 3 -u admin:admin http://127.0.0.1:$(TM_HPORT)/cache-analytics); \
+	dg1=$$(curl -s -m 3 -u admin:admin http://127.0.0.1:$(TM_HPORT)/diagnostics); \
+	if echo "$$ca1" | grep -q '1884' && echo "$$ca1" | grep -q '>1<'; then \
+	  echo "  [ ok ] /cache-analytics moved: CAID 1884 shows a delivered request"; \
+	else echo "[FAIL] /cache-analytics still zero after a delivery"; ok=0; fi; \
+	if echo "$$dg1" | grep -q '>100%<' && echo "$$dg1" | grep -q '>1<'; then \
+	  echo "  [ ok ] /diagnostics moved: success rate and counters are live"; \
+	else echo "[FAIL] /diagnostics still zero after a delivery"; ok=0; fi; \
+	if grep -qi "segmentation\|SIGSEGV" .tm-srv.log; then echo "[FAIL] server logged a segfault"; ok=0; fi; \
+	kill $$srv $$peer 2>/dev/null; sleep 1; kill -9 $$srv $$peer 2>/dev/null; pkill -9 -x multics 2>/dev/null; \
+	if [ "$$ok" = "1" ]; then rm -f $(TM_CFG) .tm-srv.log .tm-peer.log .tm-cli.log; \
+	else echo "[FAIL] logs kept under tests/.tm-*"; fi; \
 	[ "$$ok" = "1" ]

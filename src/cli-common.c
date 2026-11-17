@@ -74,12 +74,12 @@ void disconnect_srv(struct server_data *srv)
 	srv->statmsg = msg;
 	// Remove before close; already-returned events are filtered by connection token.
 #ifdef EPOLL_ECM
-	if (prg.epoll.ecm > 0 && srv->handle > 0)
-		epoll_ctl(prg.epoll.ecm, EPOLL_CTL_DEL, srv->handle, NULL);
+	if (prg.epoll.ecm > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0)
+		epoll_ctl(prg.epoll.ecm, EPOLL_CTL_DEL, __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), NULL);
 #endif
 	// close handle
-	if (srv->handle > 0) close(srv->handle);
-	srv->handle = -1;
+	if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0) close(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED));
+	__atomic_store_n(&srv->handle, -1, __ATOMIC_RELAXED);
 	// Set connection data
 	srv->connection.status = 0;
 	uint32_t ticks = GetTickCount();

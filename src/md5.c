@@ -1,4 +1,5 @@
-//FIXME Not checked on threadsafety yet; after checking please remove this line
+/* Thread-safety checked (2026-11-14 audit): all state lives in the caller's
+ * MD5Context; file-scope data is static const tables only -- stateless. */
 /*
  * MD5C.C - RSA Data Security, Inc., MD5 message-digest algorithm
  *

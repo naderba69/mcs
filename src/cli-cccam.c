@@ -35,7 +35,7 @@ int cc_sendinfo_srv(struct server_data *srv, int ismultics)
 	}
 	memcpy(buf + 61, cfg.cccam.build, 32);	// build number (ascii)
 	debugf( getdbgflag(DBG_SERVER, 0, srv->id), " Server: send client info User: '%s', Version: '%s', Build: '%s'.\n", srv->user, cfg.cccam.version, cfg.cccam.build);
-	return cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_CLI_INFO, 20 + 8 + 1 + 64, buf);
+	return cc_msg_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_CLI_INFO, 20 + 8 + 1 + 64, buf);
 }
 
 
@@ -138,12 +138,12 @@ int cc_connect_srv(struct server_data *srv, int fd)
 	}// else debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: login succeeded to Server (%s:%d)\n",srv->host->name,srv->port);
 
 	pthread_mutex_lock(&prg.locksrv);
-	srv->handle = fd;
+	__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.locksrv);
 	if (!cc_sendinfo_srv(srv,ismultics)) {
 		static char msg[]= "Error sending client data";
 		pthread_mutex_lock(&prg.locksrv);
-		srv->handle = -1;
+		__atomic_store_n(&srv->handle, -1, __ATOMIC_RELAXED);
 		srv->statmsg = msg;
 		pthread_mutex_unlock(&prg.locksrv);
 		debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: login failed to Server (%s:%d), could not send client data\n",srv->host->name,srv->port);
@@ -171,7 +171,7 @@ int cc_connect_srv(struct server_data *srv, int fd)
 		if (!server_connection_is_enabled(srv, fd)) return 0;
 		if (!server_receive_thread_start(srv)) {
 			pthread_mutex_lock(&prg.locksrv);
-			if (srv->handle == fd) disconnect_srv(srv);
+			if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == fd) disconnect_srv(srv);
 			pthread_mutex_unlock(&prg.locksrv);
 		}
 	}
@@ -192,8 +192,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 	int i, len;
 	ECM_DATA *ecm;
 
-	if ( (srv->type==TYPE_CCCAM)&&(srv->handle>0) ) {
-		len = cc_peekmsg( srv->handle, &srv->recvblock, &srv->msg, buf );
+	if ( (srv->type==TYPE_CCCAM)&&(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0) ) {
+		len = cc_peekmsg( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->recvblock, &srv->msg, buf );
 		if (len==0) {
 			debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: server (%s:%d) read failed %d\n", srv->host->name, srv->port, len);
 			disconnect_srv(srv);
@@ -316,8 +316,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 						        ? "CCcam CW passed initial checks under scoped checksum exemption; validity and picture unknown"
 						        : "CCcam CW passed initial validation; further gates remain");
 					srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
-					srv->ecmoktime += srv->lastecmoktime;
-					srv->ecmok++;
+					__atomic_fetch_add(&srv->ecmoktime, (srv->lastecmoktime), __ATOMIC_RELAXED);
+					__atomic_fetch_add(&srv->ecmok, 1, __ATOMIC_RELAXED);
 
 					ecm_setsrvflagdcw(srv->ecm.request, srv->id, ECM_SRV_REPLY_GOOD,dcw);
 #ifdef SID_FILTER
@@ -327,8 +327,8 @@ void cc_srv_recvmsg(struct server_data *srv)
 					}
 #endif
 					if (card) {
-						card->ecmoktime += GetTickCount()-srv->lastecmtime;
-						card->ecmok++;
+						__atomic_fetch_add(&card->ecmoktime, (GetTickCount()-srv->lastecmtime), __ATOMIC_RELAXED);
+						__atomic_fetch_add(&card->ecmok, 1, __ATOMIC_RELAXED);
 					}
 
 			if (ecm->dcwstatus!=STAT_DCW_SUCCESS) {
@@ -347,10 +347,22 @@ void cc_srv_recvmsg(struct server_data *srv)
 			autorecov_success(&g_autorecov_table, ecm->caid, ecm->provid, ecm->sid);
 			/* CAID-specific performance tracking: record success */
 			caid_integration_track_performance(ecm->caid, response_time, 1);
+			/* Auto-tuning suggestions: record decode success (its
+			 * record_* API had no callers, so /auto-tuning stayed
+			 * empty; tuned values are advisory only and are never
+			 * applied to the live config). */
+			auto_tuning_record_decode_success(ecm->caid, ecm->provid);
 			/* CAID optimizations: update stats for this CAID */
 			caid_update_stats(ecm->caid, response_time, 1);
 			/* Server health monitoring: record success */
 			server_health_record_success(srv->id, response_time);
+			/* Server stats page (/server-stats): was initialized and
+			 * rendered but never fed, so it always showed zeros.
+			 * record_request creates the row and counts the answered
+			 * ECM; success/failure below complete it. Display only:
+			 * no decode or routing decision reads these counters. */
+			server_stats_record_request(srv->id, srv->host->name, srv->host->name, srv->port);
+			server_stats_record_success(srv->id, response_time);
 			/* CW prediction: record for future use */
 			cw_prediction_record(ecm->caid, ecm->provid, ecm->sid, dcw);
 			/* Prefetch: record successful ECM pattern */
@@ -359,7 +371,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 			predictive_warming_record(ecm->caid, ecm->provid, ecm->sid);
 			ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
 			}
-			else if (ecm->dcwsrctype == DCW_SOURCE_CACHE) {
+			else if (ecm->dcwsrctype == DCW_SOURCE_CACHE || (cfg.cache.dropdiffs || (ecm->cs && ecm->cs->option.dropdiffs==1))) { /* DROPDIFFS (band 32/33): queue the late reply for validation so it can be refused against the known-good; OFF = stock drop */
 				/* D111 D-1: queue a late line reply as a reference candidate only. */
 				ecm_setdcw( ecm, dcw, DCW_SOURCE_SERVER, srv->id );
 			}
@@ -447,10 +459,15 @@ void cc_srv_recvmsg(struct server_data *srv)
 			                         srv->id, 0, 0);
 			/* CAID-specific performance tracking: record failure */
 			caid_integration_track_performance(ecm->caid, GetTickCount()-srv->lastecmtime, 0);
+			/* Auto-tuning suggestions: record decode failure */
+			auto_tuning_record_decode_failed(ecm->caid, ecm->provid);
 			/* CAID optimizations: update stats for this CAID */
 			caid_update_stats(ecm->caid, GetTickCount()-srv->lastecmtime, 0);
 			/* Server health monitoring: record failure */
 			server_health_record_failure(srv->id);
+			/* Server stats page: see the success path above. */
+			server_stats_record_request(srv->id, srv->host->name, srv->host->name, srv->port);
+			server_stats_record_failure(srv->id);
 			/* Auto recovery: trigger recovery on ECM failure */
 			auto_recovery_trigger(1);  /* type 1 = ECM failure */
 			/* DCW emergency: check if channel needs emergency CW */
@@ -499,7 +516,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 
 
 				case CC_MSG_BAD_ECM:
-					if ( !cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_BAD_ECM, 0, NULL) ) disconnect_srv(srv);
+					if ( !cc_msg_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_BAD_ECM, 0, NULL) ) disconnect_srv(srv);
 					//debugf( getdbgflag(DBG_SERVER, 0, srv->id), " CCcam: cmd 0x05 from Server (%s:%d)\n",srv->host->name,srv->port);
 					//currentecm.state = ECM_STATUS_FAILED;
 					break;
@@ -512,7 +529,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 				case CC_MSG_CARD_DEL: // Delete Card
 					ecm_lock(); //###
 					card = srv->card;
-					uint32_t k = buf[4]<<24 | buf[5]<<16 | buf[6]<<8 | buf[7];
+					uint32_t k = ((uint32_t)buf[4]<<24) | buf[5]<<16 | buf[6]<<8 | buf[7];
 					struct cs_card_data *prevcard = NULL;
 					while (card) {
 						if (card->shareid==k) {
@@ -545,7 +562,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 						// nodeid index = 26 + 7 * buf[24]
 						struct cs_card_data tcard;
 						memset(&tcard, 0, sizeof(struct cs_card_data) );
-						tcard.shareid = buf[4]<<24 | buf[5]<<16 | buf[6]<<8 | buf[7];
+						tcard.shareid = ((uint32_t)buf[4]<<24) | buf[5]<<16 | buf[6]<<8 | buf[7];
 						tcard.uphops = buf[14]+1;
 						memcpy( tcard.nodeid, buf+26+buf[24]*7, 8);
 						tcard.caid = (buf[12]<<8)+(buf[13]);
@@ -612,7 +629,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 							memset(&cacheex, 0, sizeof(cacheex));
 							cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 							cacheex.caid = (buf[4]<<8) | buf[5];
-							cacheex.provid = (buf[6]<<24) | (buf[7]<<16) | (buf[8]<<8) | buf[9];
+							cacheex.provid = (((uint32_t)buf[6]<<24)) | (buf[7]<<16) | (buf[8]<<8) | buf[9];
 							cacheex.sid = (buf[14]<<8) | buf[15];
 						// Look for cardserver
 						cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
@@ -632,7 +649,7 @@ void cc_srv_recvmsg(struct server_data *srv)
 								srv->cacheex.csp++;
 								pthread_mutex_unlock(&prg.lockcacheex);
 							}
-							cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
+							cacheex.hash = (((uint32_t)buf[43]<<24)) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 							memcpy( cw, buf+44, 16);
 							if (!cacheex_check(&cacheex)) break;
 							pthread_mutex_lock( &prg.lockcache );
@@ -746,7 +763,7 @@ int cc_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 {
 	unsigned char buf[CC_MAXMSGSIZE];
 
-	//if ( (srv->handle>0)&&(!srv->busy) ) {
+	//if ( (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)>0)&&(!srv->busy) ) {
 	//	if (!cc_getcardbyid(srv, srv->busycardid)) return 0;
 		//mlogf(LOGINFO,getdbgflag(DBG_SERVER, 0, srv->id), " -> ecm to CCcam server (%s:%d) ch %04x:%06x:%04x shareid %x\n", srv->host->name, srv->port,ecm->caid,ecm->provid,ecm->sid,srv->busycardid);
 	buf[0] = ecm->caid>>8;
@@ -767,7 +784,7 @@ int cc_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 	srv->lastecmtime = GetTickCount();
 	srv->busy = 1;
 	////srv->ecm.msgid = ecm->id;
-	return cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_ECM_REQUEST, 13+ecm->ecmlen, buf );
+	return cc_msg_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_ECM_REQUEST, 13+ecm->ecmlen, buf );
 	//}
 	//return 0;
 }
@@ -780,7 +797,7 @@ int cc_send_cw_share(struct server_data *srv, uint16_t caid, uint16_t sid, uint3
 {
 	unsigned char buf[32];
 	
-	if (!srv || srv->handle <= 0 || !cw) return 0;
+	if (!srv || __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) <= 0 || !cw) return 0;
 	
 	// Build CW share message
 	buf[0] = caid >> 8;
@@ -797,7 +814,7 @@ int cc_send_cw_share(struct server_data *srv, uint16_t caid, uint16_t sid, uint3
 	debugf(0, "BISS SHARE: Sending CW to server (%s:%d) for %04X:%06X:%04X\n",
 		srv->host->name, srv->port, caid, provid, sid);
 	
-	return cc_msg_send(srv->handle, &srv->sendblock, CC_MSG_CW_SHARE, 25, buf);
+	return cc_msg_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_CW_SHARE, 25, buf);
 }
 
 

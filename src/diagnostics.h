@@ -94,6 +94,11 @@ void diagnostics_init(void);
 // Update diagnostics (call periodically)
 void diagnostics_update(void);
 
+// Telemetry feeds (called from the ECM worker delivery/rejection points;
+// internally locked, advisory only -- never gate a delivery on these)
+void diagnostics_record_delivery(int cache_hit, uint32_t response_ms);
+void diagnostics_record_rejection(void);
+
 // Generate full diagnostic report
 void diagnostics_generate_report(struct diagnostic_report *report);
 

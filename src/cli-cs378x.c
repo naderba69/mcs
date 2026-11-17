@@ -29,7 +29,7 @@ void cs378x_send_keepalive(struct server_data *srv)
 		buf[0] = CAMD_CEX_IDREQUEST;
 		buf[1] = 12;
 		memcpy( buf+20, cccam_nodeid, 8);
-		cs378x_send( srv->handle, &srv->encryptkey, srv->ucrc, buf, 20+12);
+		cs378x_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->encryptkey, srv->ucrc, buf, 20+12);
 	}
 	else
 #endif
@@ -40,7 +40,7 @@ void cs378x_send_keepalive(struct server_data *srv)
 		buf[0] = CAMD_KEEPALIVE;
 		buf[1] = 1;
 		buf[2] = 0;
-		cs378x_send( srv->handle, &srv->encryptkey, srv->ucrc, buf, 20+1);
+		cs378x_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->encryptkey, srv->ucrc, buf, 20+1);
 	}
 }
 
@@ -72,7 +72,7 @@ int cs378x_sendecm_srv(struct server_data *srv, ECM_DATA *ecm)
 	buf[16] = srv->ecm.msgid>>8;
 	buf[17] = srv->ecm.msgid;
 	memcpy( buf+20, ecm->ecm, ecm->ecmlen);
-	cs378x_send( srv->handle, &srv->encryptkey, srv->ucrc, buf, 20+ecm->ecmlen);
+	cs378x_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->encryptkey, srv->ucrc, buf, 20+ecm->ecmlen);
 	return 1;
 }
 
@@ -106,8 +106,8 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 		}
 		else if ( (srv->keepalive.status>1) && ((srv->keepalive.time+10000)<ticks) ) {
 			debugf(getdbgflag(DBG_SERVER,0,srv->id),, " cs378x server disconnected, keepalive timeout\n");
-			close(srv->handle);
-			srv->handle = -1;
+			close(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED));
+			__atomic_store_n(&srv->handle, -1, __ATOMIC_RELAXED);
 			srv->pid = 0;
 			srv->connected = 0;
 			srv->keepalive.status = 0;
@@ -117,14 +117,14 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 */
 
 		unsigned char buf[2048];
-		int received = recv_nonb( srv->handle, buf, 32+4, 1000);
+		int received = recv_nonb( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), buf, 32+4, 1000);
 		if (received<=0 || received < 36 || received > (int)sizeof(buf)) {
 			disconnect_srv(srv);
 			//debugf(getdbgflag(DBG_SERVER,0,srv->id), " cs378x server disconnected, receive timeout\n");
 			return NULL;
 		}
 
-		uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+		uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 		if (srv->ucrc!=ucrc) {
 			disconnect_srv(srv);
 			//debugf(getdbgflag(DBG_SERVER,0,srv->id), " cs378x server disconnected, wrong ucrc\n");
@@ -139,7 +139,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 		}
 		if (received<newlen) {
 			int need = newlen-received;
-			int n = recv_nonb( srv->handle, buf+received, need, 500);
+			int n = recv_nonb( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), buf+received, need, 500);
 			if ( n != need ) {
 				disconnect_srv(srv);
 				//debugf(getdbgflag(DBG_SERVER,0,srv->id), " cs378x server disconnected, receive timeout\n");
@@ -198,9 +198,9 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 				}
 				srv->busy = 0;
 				pipe_cmd( prg.pipe.ecm[1], PIPE_SRV_AVAILABLE );
-				srv->ecmok++;
+				__atomic_fetch_add(&srv->ecmok, 1, __ATOMIC_RELAXED);
 				srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
-				srv->ecmoktime += srv->lastecmoktime;
+				__atomic_fetch_add(&srv->ecmoktime, (srv->lastecmoktime), __ATOMIC_RELAXED);
 				ecm_setsrvflagdcw( ecm, srv->id, ECM_SRV_REPLY_GOOD, buf+24 );
 				debugf(getdbgflagpro(DBG_SERVER,0,srv->id,(ecm->cs ? ecm->cs->id : 0))," <= cw from cs378x server (%s:%d) ch %04x:%06x:%04x (%dms)\n", srv->host->name,srv->port, ecm->caid,ecm->provid,ecm->sid, GetTickCount()-srv->lastecmtime);
 
@@ -210,7 +210,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 					// Store ECM Answer
 					ecm_setdcw( ecm, buf+24, DCW_SOURCE_SERVER, srv->id );
 				}
-				else if (ecm->dcwsrctype == DCW_SOURCE_CACHE) {
+				else if (ecm->dcwsrctype == DCW_SOURCE_CACHE || (cfg.cache.dropdiffs || (ecm->cs && ecm->cs->option.dropdiffs==1))) { /* DROPDIFFS (band 32/33): queue the late reply for validation so it can be refused against the known-good; OFF = stock drop */
 					/* D111 D-1: queue a late line reply as a reference candidate only. */
 					ecm_setdcw( ecm, buf+24, DCW_SOURCE_SERVER, srv->id );
 				}
@@ -303,7 +303,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 				cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 				cacheex.sid = (buf[12]<<8)|buf[13];
 				cacheex.caid = (buf[14]<<8)|buf[15];
-				cacheex.provid = (buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];
+				cacheex.provid = (((uint32_t)buf[16]<<24))|(buf[17]<<16)|(buf[18]<<8)|buf[19];
 				// Look for cardserver
 				cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
 				if ( !cs || !cs->option.fallowcacheex ) {
@@ -315,7 +315,7 @@ void *cs378x_srv_recvmsg(struct server_data *srv)
 				if ((buf[23]&0xFE)==0x80) cacheex.tag = buf[23]; else cacheex.tag = 0;
 				memcpy( cacheex.ecmd5, buf+24, 16);
 				//if ( !checkECMD5(cacheex.ecmd5) ) cli->cacheex.totalcsp++;
-				cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
+				cacheex.hash = (((uint32_t)buf[43]<<24)) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 				if (!cacheex_check(&cacheex)) break;
 				//debugf(getdbgflag(DBG_SERVER,0,srv->id), " CACHEEX PUSH from client(%d) %04x:%06x:%04x (%08x)\n",cli->id,cacheex.caid,cacheex.provid,cacheex.sid,cacheex.hash);
 				pthread_mutex_lock(&prg.lockcacheex);
@@ -428,12 +428,12 @@ int cs378x_connect_srv(struct server_data *srv, int fd)
 {
 
 	pthread_mutex_lock(&prg.locksrv);
-	srv->handle = fd;
+	__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.locksrv);
 	SetSocketTimeout(fd, 5000);
 	cs378x_send_keepalive(srv);
 	pthread_mutex_lock(&prg.locksrv);
-	srv->handle = 0;
+	__atomic_store_n(&srv->handle, 0, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.locksrv);
 	// Poll
 	struct pollfd pfd;
@@ -453,7 +453,7 @@ int cs378x_connect_srv(struct server_data *srv, int fd)
 			srv->connection.time = GetTickCount();
 			srv->keepalive.status = 0;
 			srv->keepalive.time = GetTickCount();
-			srv->handle = fd;
+			__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 			pthread_mutex_unlock(&prg.locksrv);
 			//
 			char str[8*3+1];
@@ -464,7 +464,7 @@ int cs378x_connect_srv(struct server_data *srv, int fd)
 			if (srv->cacheex_mode==2) {
 				if (!server_receive_thread_start(srv)) {
 					pthread_mutex_lock(&prg.locksrv);
-					if (srv->handle == fd) disconnect_srv(srv);
+					if (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == fd) disconnect_srv(srv);
 					pthread_mutex_unlock(&prg.locksrv);
 					/* disconnect_srv already closed fd; don't close it again upstream. */
 					return 0;
@@ -501,7 +501,7 @@ int cs378x_connect_srv(struct server_data *srv, int fd)
 			srv->connection.time = GetTickCount();
 			srv->keepalive.status = 0;
 			srv->keepalive.time = GetTickCount();
-			srv->handle = fd;
+			__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 			pthread_mutex_unlock(&prg.locksrv);
 			server_publish_connection_ready(srv, fd);
 			return 0;

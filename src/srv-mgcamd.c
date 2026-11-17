@@ -208,6 +208,17 @@ void *mg_connect_cli(struct connect_cli_data *param)
 		buf[2] = 0;
 		//cs_message_send(sock, NULL, buf, 3, sessionkey);
 		debugf(getdbgflag(DBG_MGCAMD,0,0)," mgcamd: unknown user '%s' (%s)\n", &buf[3], ip2string(ip));
+		{
+			int pb_lf, pb_lb, pb_banned = 0;
+			char uname[32];
+			memcpy(uname, &buf[3], 31); uname[31] = 0;
+			newcamd_config_read_lock();
+			pb_lf = cfg.mgcamd.loginfails; pb_lb = cfg.mgcamd.loginbansec;
+			newcamd_config_read_unlock();
+			protoban_note_failure(ip, PB_MGCAMD, (uint32_t)(pb_lf>0?pb_lf:0), (uint32_t)(pb_lb>0?pb_lb:0), &pb_banned);
+			loginaudit_note(PB_MGCAMD, ip, uname, 0); /* Band 63 */
+			if (pb_banned) debugf(getdbgflag(DBG_MGCAMD,0,0)," mgcamd: %s reached the failure threshold, banned for mgcamd\n", ip2string(ip));
+		}
 		pthread_mutex_unlock(&prg.lockclimg);
 		close(sock);
 		return NULL;
@@ -283,6 +294,8 @@ void *mg_connect_cli(struct connect_cli_data *param)
 		cli->lastecmtime = 0;
 		cli->chkrecvtime = 0;
 			debugf(getdbgflag(DBG_MGCAMD,0,cli->id)," mgcamd: client '%s' connected (%s)\n", cli->user, ip2string(ip));
+			protoban_note_success(ip, PB_MGCAMD); /* Band 63 */
+			loginaudit_note(PB_MGCAMD, ip, cli->user, 1); /* Band 63 */
 			connected_client_id = cli->id;
 			pthread_mutex_unlock(&prg.lockclimg);
 #ifdef EPOLL_MGCAMD
@@ -300,6 +313,15 @@ void *mg_connect_cli(struct connect_cli_data *param)
 		buf[2] = 0;
 		//cs_message_send(sock, NULL, buf, 3, sessionkey);
 		debugf(getdbgflag(DBG_MGCAMD,0,cli->id)," mgcamd: client '%s' wrong password (%s)\n", cli->user, ip2string(ip));
+		{
+			int pb_lf, pb_lb, pb_banned = 0;
+			newcamd_config_read_lock();
+			pb_lf = cfg.mgcamd.loginfails; pb_lb = cfg.mgcamd.loginbansec;
+			newcamd_config_read_unlock();
+			protoban_note_failure(ip, PB_MGCAMD, (uint32_t)(pb_lf>0?pb_lf:0), (uint32_t)(pb_lb>0?pb_lb:0), &pb_banned);
+			loginaudit_note(PB_MGCAMD, ip, cli->user, 0); /* Band 63 */
+			if (pb_banned) debugf(getdbgflag(DBG_MGCAMD,0,cli->id)," mgcamd: %s reached the failure threshold, banned for mgcamd\n", ip2string(ip));
+		}
 		cli->nbloginerror++;
 		pthread_mutex_unlock(&prg.lockclimg);
 		close(sock);
@@ -309,11 +331,21 @@ void *mg_connect_cli(struct connect_cli_data *param)
 
 
 
+/* Band 63: is the mgcamd protoban armed? Snapshot under the config gate. */
+static int mgcamd_protoban_armed(void)
+{
+	int armed;
+	newcamd_config_read_lock();
+	armed = cfg.mgcamd.loginfails;
+	newcamd_config_read_unlock();
+	return armed > 0;
+}
+
 void mgcamd_srv_accept(struct mgcamdserver_data *srv)
 {
 	struct sockaddr_in newaddr;
 	socklen_t socklen = sizeof(struct sockaddr);
-	int newfd = accept( srv->handle, (struct sockaddr*)&newaddr, /*(socklen_t*)*/&socklen);
+	int newfd = accept( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), (struct sockaddr*)&newaddr, /*(socklen_t*)*/&socklen);
 	if ( newfd<=0 ) {
 		if ( (errno!=EAGAIN) && (errno!=EINTR) ) debugf( getdbgflag(DBG_MGCAMD,0,0)," Mgcamd%d: Accept failed (errno=%d)\n", srv->id,errno);
 	}
@@ -328,7 +360,11 @@ void mgcamd_srv_accept(struct mgcamdserver_data *srv)
 			srv->iplist = ipdata;
 		}
 #endif
-		if ( isblockedip(newip) ) {
+		if ( mgcamd_protoban_armed() && protoban_banned(newip, PB_MGCAMD) ) {
+			debugf(getdbgflag(DBG_MGCAMD,0,0)," Mgcamd%d: New Connection (%s) closed, ip banned for mgcamd (band 63)\n", srv->id, ip2string(newip) );
+			close(newfd);
+		}
+		else if ( isblockedip(newip) ) {
 			debugf(getdbgflag(DBG_MGCAMD,0,0)," Mgcamd%d: New Connection (%s) closed, ip blocked\n", srv->id, ip2string(newip) );
 			close(newfd);
 		}
@@ -584,7 +620,21 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					uint32_t provid = ecm_getprovid( ecmdata, ecmlen, clicd.caid );
 					if (provid!=0) clicd.provid = provid;
 
+					/* Band 73: mirror the CCcam/newcamd ingress trace
+					 * so an mgcamd client's ECM and its rejection
+					 * reason are visible on /user-trace. Opt-in:
+					 * no-op unless a trace session targets this
+					 * client/channel. */
+					uint64_t trace_session = 0, trace_attempt = 0;
+					uint32_t trace_hash = 0;
+					if (ecmlen > 3 && user_trace_matches(cli->id, clicd.caid, clicd.provid, clicd.sid)) {
+						trace_hash = hashCode(ecmdata + 3, ecmlen - 3);
+						trace_attempt = user_trace_begin(cli->id, clicd.caid, clicd.provid, clicd.sid,
+						                                 trace_hash, &trace_session);
+					}
+
 					if (cli->ecm.busy) {
+						if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "too many ecm requests");
 						cli->ecmdenied++;
 						// send decode failed
 						buf[1] = 0; buf[2] = 0;
@@ -594,6 +644,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					}
 					// Check for CAID&SID
 					if ( !clicd.caid ) {
+						if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "Invalid CAID");
 						cli->ecmdenied++;
 						// send decode failed
 						buf[1] = 0; buf[2] = 0;
@@ -615,6 +666,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 							}
 						}
 						if (!port || !cs) {
+							if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "Invalid CAID/PROVIDER");
 							cli->ecmdenied++;
 							// send decode failed
 							buf[1] = 0; buf[2] = 0;
@@ -634,6 +686,7 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 							cs = cs->next;
 						}
 						if (!cs) {
+							if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "Invalid CAID/PROVIDER");
 							cli->ecmdenied++;
 							// send decode failed
 							buf[1] = 0; buf[2] = 0;
@@ -645,8 +698,9 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					// Check for Accepted sids
 					uint8_t cw1cycle;
 					if ( !accept_sid(cs, clicd.provid, clicd.sid, ecm_getchid(ecmdata,ecmlen,clicd.caid), ecmlen, &cw1cycle) ) {
+						if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "SID not accepted");
 						cli->ecmdenied++;
-						cs->ecmdenied++;
+						__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 						// send decode failed
 						buf[1] = 0; buf[2] = 0;
 						if ( !cs_message_send( cli->handle, &clicd, buf, 3, cli->sessionkey) ) { mg_disconnect_cli( cli ); return; }
@@ -655,8 +709,9 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					}
 
 					if ( !accept_ecmlen(len) ) {
+						if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "ecm length error");
 						cli->ecmdenied++;
-						cs->ecmdenied++;
+						__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 						// send decode failed
 						buf[1] = 0; buf[2] = 0;
 						if ( !cs_message_send( cli->handle, &clicd, buf, 3, cli->sessionkey) ) { mg_disconnect_cli( cli ); return; }
@@ -694,9 +749,18 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 					}
 					int isnew =  ( ecm==NULL );
 					if (ecm) {
+						if (trace_attempt) {
+							if (!ecm->trace_instance) ecm->trace_instance = user_trace_next_instance();
+							if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
+								user_trace_add(trace_session, trace_attempt, USER_TRACE_JOINED, trace_hash, 0, 0, 0, "joined existing ECM; earlier events unavailable");
+						}
 						ecm->lastrecvtime = ticks;
 						if (ecm->dcwstatus==STAT_DCW_FAILED) {
 							if (ecm->period > cs->option.dcw.retry) {
+								if (trace_attempt) {
+									user_trace_add(trace_session, trace_attempt, USER_TRACE_FAILED, trace_hash, 0, 0, 0, "existing ECM already failed");
+									user_trace_unbind_shared(trace_session, trace_attempt);
+								}
 								// send decode failed
 								buf[1] = 0; buf[2] = 0;
 								cs_message_send(cli->handle, &clicd, buf, 3, cli->sessionkey);
@@ -755,14 +819,18 @@ void mg_cli_recvmsg(struct mg_client_data *cli)
 						// Setup ECM Request for Server(s)
 						ecm = store_ecmdata(cs, ecmdata, ecmlen, clicd.sid,clicd.caid,clicd.provid);
 						if (!ecm) {
-							cs->ecmdenied++;
+							__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 							cli->ecmdenied++;
 							uint8_t failure[3] = { ecmdata[0], 0, 0 };
 							if (!cs_message_send(cli->handle, &clicd, failure, sizeof(failure), cli->sessionkey)) mg_disconnect_cli(cli);
 							ecm_unlock();
 							break;
 						}
-						cs->ecmaccepted++;
+						if (trace_attempt) {
+							ecm->trace_instance = user_trace_next_instance();
+							user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance);
+						}
+						__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 						mg_store_ecmclient(ecm, cli, clicd.msgid);
 						debugf(getdbgflagpro(DBG_MGCAMD,0,cli->id, cs->id)," <- ecm from mgcamd client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,clicd.caid,clicd.provid,clicd.sid,ecm->hash);
 						cli->ecm.busy=1;
@@ -895,7 +963,6 @@ void mg_senddcw_cli(struct mg_client_data *cli, const struct ledger_delivery_sna
 	}
 
 #ifdef CACHEEX
-	ECM_DATA *ecm = NULL;
 	uint16_t response_caid = delivery->caid;
 	uint32_t response_provid = delivery->provid;
 	uint8_t response_provider_known = delivery->provider_known;
@@ -958,6 +1025,12 @@ void mg_senddcw_cli(struct mg_client_data *cli, const struct ledger_delivery_sna
 		memcpy(&buf[3], ecm->cw, 16);
 #endif
 		if ( !cs_message_send( cli->handle, &clicd, buf, 19, cli->sessionkey) ) {
+#ifdef CACHEEX
+			if (delivery->trace_instance)
+				user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
+				                         USER_TRACE_SEND_FAILED, 0, 0,
+				                         GetTickCount()-response_recvtime, "CW send failed");
+#endif
 			mg_disconnect_cli( cli );
 			return;
 		}
@@ -970,11 +1043,16 @@ void mg_senddcw_cli(struct mg_client_data *cli, const struct ledger_delivery_sna
 		memcpy(cli->lastecm.dcw, ecm->cw, sizeof(cli->lastecm.dcw));
 #endif
 		cli->lastecm.status=1;
-		cli->ecmok++;
-		cli->ecmoktime += sent_at-response_recvtime;
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at-response_recvtime), __ATOMIC_RELAXED);
 		cli->lastdcwtime = sent_at;
 #ifdef CACHEEX
 		ledger_note_delivered(delivery, sent_at);
+		if (delivery->trace_instance)
+			user_trace_client_cw(cli->id, delivery->trace_instance, delivery->hash,
+			                     delivery->srctype, delivery->srcid,
+			                     sent_at-response_recvtime,
+			                     "CW response sent; picture not verified", delivery->cw);
 #endif
 		debugf(getdbgflagpro(DBG_MGCAMD,0,cli->id,response_profile)," => cw to mgcamd client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, response_caid,response_provid,response_sid, sent_at-response_recvtime);
 	}
@@ -992,9 +1070,25 @@ void mg_senddcw_cli(struct mg_client_data *cli, const struct ledger_delivery_sna
 		buf[1] = 0;
 		buf[2] = 0;
 		if ( !cs_message_send(  cli->handle, &clicd, buf, 3, cli->sessionkey) ) {
+#ifdef CACHEEX
+			if (delivery->trace_instance)
+				user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
+				                         USER_TRACE_SEND_FAILED, 0, 0,
+				                         GetTickCount()-response_recvtime, "failure response send failed");
+#endif
 			mg_disconnect_cli( cli );
 			return;
 		}
+#ifdef CACHEEX
+		if (delivery->trace_instance) {
+			char fail_detail[128];   /* band 80 */
+			snprintf(fail_detail, sizeof(fail_detail), "decode failed (%s)",
+			         delivery->statusmsg[0] ? delivery->statusmsg : "reason unavailable");
+			user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
+			                         USER_TRACE_FAILED, 0, 0,
+			                         GetTickCount()-response_recvtime, fail_detail);
+		}
+#endif
 		debugf(getdbgflagpro(DBG_MGCAMD,0,cli->id,response_profile)," |> decode failed to mgcamd client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, response_caid,response_provid,response_sid, GetTickCount()-response_recvtime);
 	}
 	cli->ecm.busy=0;
@@ -1037,7 +1131,6 @@ void mg_recv_pipe()
 	struct cardserver_data *cs;
 	struct cardserver_data card_event;
 
-	struct mg_client_data *cli;
 
 	uint8_t buf[1024];
 	struct pollfd pfd[2];
@@ -1275,7 +1368,6 @@ void *mg_recvmsg_thread(void *param)
 
 int start_thread_mgcamd()
 {
-	pthread_t tid;
 #ifndef MONOTHREAD_ACCEPT
 	create_thread(&tid, mgcamd_accept_thread,NULL);
 #endif

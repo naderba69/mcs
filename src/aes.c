@@ -1,5 +1,5 @@
 #ifndef WITH_LIBCRYPTO
-//FIXME Not checked on threadsafety yet; after checking please remove this line
+/* Thread-safety verified: only static const tables + caller buffers (stateless). */
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>

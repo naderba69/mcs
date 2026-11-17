@@ -17,6 +17,10 @@
 #include <stdint.h>
 #include <string.h>
 
+/* Runtime kill switch (defined in main.c, set by "R22 LAYERS: YES/NO").
+ * Declared unconditionally so every flavour links the same way. */
+extern int cfg_r22_layers_enabled;
+
 #ifdef R22_LAYERS
 
 #include "cwverify.h"
@@ -124,6 +128,7 @@ static struct cwpredict_table      r22_pred;
 
 static inline void r22_layers_init(void)
 {
+    if (!cfg_r22_layers_enabled) return;  /* R22 LAYERS: NO in config */
     cwquarantine_init(&r22_quar, 3);  /* 3s quarantine */
     cwpropblock_init(&r22_propb);
     cwfeedback_init(&r22_fdbk);
@@ -208,7 +213,8 @@ static inline int r22_hook_cache_setdcw(
 {
     int source_id = peerid & 0xFF;
     int channel_count;
-    
+
+    if (!cfg_r22_layers_enabled) return 0;  /* R22 LAYERS: NO */
     R22STATS_INC(hook_cache_total);
 
     /* R24: Source scoring — DISABLED TEMPORARILY (too strict) */
@@ -246,15 +252,17 @@ static inline int r22_hook_cache_setdcw(
         return -1;
     }
 
-    /* 2. Cross-channel check — same CW for too many channels? */
+    /* 2. Cross-channel check — same CW for too many channels?
+     * OBSERVE ONLY since 2026-11-14: a synthetic peer reusing one CW
+     * across channels got 254/258 rejections from this branch in the
+     * cache-trace harness, i.e. the heuristic over-rejects traffic
+     * shapes that occur in the field (shared transponder keys, peer
+     * replays). It still counts every suspicion for the trace page,
+     * but it neither rejects nor poisons the propagation blocklist;
+     * re-arming it as a gate needs field data, not a guess. */
     channel_count = cwcrosschannel_channel_count(&r22_xchan, cw);
     if (channel_count > 3) {
-        /* Same CW used for >3 channels: suspicious */
-        cwpattern_learn(&r22_pat, cw, now);
-        cwpropblock_add(&r22_propb, cw, caid, provid, sid, now);
         R22STATS_INC(crosschannel_blocked);
-        R22STATS_INC(hook_cache_rejected);
-        return -1;
     }
 
     /* 3. Propagation block — is this CW blocked? */
@@ -331,7 +339,8 @@ static inline void r22_hook_ecm_setsrvflagdcw(
     const uint8_t *cw, unsigned int srvid, uint32_t now)
 {
     int source_id = (int)(srvid & 0xFF);
-    
+
+    if (!cfg_r22_layers_enabled) return;  /* R22 LAYERS: NO */
     R22STATS_INC(hook_server_total);
 
     /* 1. Record as ground truth (success) */

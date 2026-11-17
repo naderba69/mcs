@@ -16,7 +16,7 @@ HTTPPORT = 15500
 R48_STATS_BIN ?= ../bin/multics-r82a-stats-x64
 R48_CWLOG_CHECK ?= 0
 
-.PHONY: pm jm sk cn smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr soak pq qv rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates all
+.PHONY: pm jm sk cn smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof prof-full ce cy au pr soak pq qv rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates tm c1884 cwpair nopush svcdoubt all
 include stability.mk
 
 # TASK R48: exercise the real server's LOGIN_ACK socket backpressure path,
@@ -30,7 +30,7 @@ newcamd-config-reload:
 	@BIN="$(BIN)" CC="$(CC)" sh ./newcamd-config-reload.sh
 
 # soak is deliberately NOT in `all`. It runs for about 20 minutes.
-all: smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof ce cy au pr jm pq sk cn vl ri md fk fz at md sc qv cf rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates
+all: smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof prof-full ce cy au pr jm pq sk cn vl ri md fk fz at md sc qv cf rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates tm c1884 cwpair nopush svcdoubt
 
 # TASK 4.2. Stats binary, not the stock one: counters must be on.
 SOAK_BIN ?= ../bin/multics-r82a-stats-x64
@@ -50,8 +50,8 @@ soak: .ncclient.bin .cachepeer.bin
 smoke:
 	@command -v curl >/dev/null || { echo "curl required"; exit 1; }
 	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
-	@rm -f .smoke.log .threads.html .r48.json .r48-cwlog.html; $(BIN) -C $(CFG) > .smoke.log 2>&1 & echo $$! > .pid; \
-	code=000; threads_code=000; r48_code=000; cwlog_code=000; \
+	@rm -f .smoke.log .threads.html .r48.json .r48-cwlog.html .sf.html .sf-strong.html .sf-bad.html; $(BIN) -C $(CFG) > .smoke.log 2>&1 & echo $$! > .pid; \
+	code=000; threads_code=000; r48_code=000; cwlog_code=000; sf_code=000; sf_strong_code=000; sf_bad_code=000; tele_ss=000; tele_at=000; tele_ca=000; tele_dg=000; \
 	for i in $$(seq 1 25); do \
 	  code=$$(curl -s -m 3 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/); \
 	  [ "$$code" = "200" ] && break; \
@@ -60,6 +60,13 @@ smoke:
 	if [ "$$code" = "200" ]; then \
 	  threads_code=$$(curl -s -m 5 -u admin:admin -o .threads.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/threads); \
 	  r48_code=$$(curl -s -m 5 -u admin:admin -o .r48.json -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/json); \
+	  sf_code=$$(curl -s -m 5 -u admin:admin -o .sf.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/smartfilter); \
+	  sf_strong_code=$$(curl -s -m 5 -u admin:admin -o .sf-strong.html -w '%{http_code}' "http://127.0.0.1:$(HTTPPORT)/smartfilter?filter=strongest"); \
+	  sf_bad_code=$$(curl -s -m 5 -u admin:admin -o .sf-bad.html -w '%{http_code}' "http://127.0.0.1:$(HTTPPORT)/smartfilter?filter=bad"); \
+	  tele_ss=$$(curl -s -m 5 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/server-stats); \
+	  tele_at=$$(curl -s -m 5 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/auto-tuning); \
+	  tele_ca=$$(curl -s -m 5 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/cache-analytics); \
+	  tele_dg=$$(curl -s -m 5 -u admin:admin -o /dev/null -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/diagnostics); \
 	  if [ "$(R48_CWLOG_CHECK)" = "1" ]; then cwlog_code=$$(curl -s -m 5 -u admin:admin -o .r48-cwlog.html -w '%{http_code}' http://127.0.0.1:$(HTTPPORT)/cwlog); fi; \
 	fi; \
 	kill $$(cat .pid) 2>/dev/null; rm -f .pid; \
@@ -67,10 +74,13 @@ smoke:
 	if [ "$$code" = "200" ]; then echo "  [ ok ] HTTP / answered 200"; else echo "  [FAIL] HTTP / answered $$code"; ok=0; fi; \
 	if [ "$$threads_code" = "200" ] && grep -q 'THREADID Main =' .threads.html; then echo "  [ ok ] HTTP /threads answered 200 and rendered the thread snapshot"; else echo "  [FAIL] HTTP /threads answered $$threads_code or omitted the snapshot marker"; ok=0; fi; \
 	if [ "$$r48_code" = "200" ] && python3 -c 'import json; d=json.load(open(".r48.json")); s=d["r48_source_reputation"]; assert s["scope"] == "source-caid-provider" and isinstance(s["rows"], list)' ; then echo "  [ ok ] HTTP /json exposes the R48 source/provider evidence snapshot"; else echo "  [FAIL] HTTP /json answered $$r48_code or omitted the R48 evidence snapshot"; ok=0; fi; \
+	if [ "$$sf_code" = "200" ] && grep -q 'SmartFilter Console' .sf.html && grep -q 'Overview' .sf.html && grep -q 'Recent CW' .sf.html && grep -q 'Peers' .sf.html && grep -q 'Profiles' .sf.html && grep -q 'Logs' .sf.html; then echo "  [ ok ] HTTP /smartfilter renders the v6.0 console (Overview/Recent CW/Peers/Profiles/Logs)"; else echo "  [FAIL] HTTP /smartfilter answered $$sf_code or omitted console sections"; ok=0; fi; \
+	if [ "$$sf_strong_code" = "200" ] && [ "$$sf_bad_code" = "200" ]; then echo "  [ ok ] HTTP /smartfilter Strongest/Bad peer filters answered 200"; else echo "  [FAIL] HTTP /smartfilter peer filters answered strongest=$$sf_strong_code bad=$$sf_bad_code"; ok=0; fi; \
+	if [ "$$tele_ss" = "200" ] && [ "$$tele_at" = "200" ] && [ "$$tele_ca" = "200" ] && [ "$$tele_dg" = "200" ]; then echo "  [ ok ] HTTP telemetry pages (server-stats/auto-tuning/cache-analytics/diagnostics) answered 200"; else echo "  [FAIL] HTTP telemetry pages answered ss=$$tele_ss at=$$tele_at ca=$$tele_ca dg=$$tele_dg"; ok=0; fi; \
 	if [ "$(R48_CWLOG_CHECK)" = "1" ]; then \
 	  if [ "$$cwlog_code" = "200" ] && grep -q 'R48 source reputation (reference evidence)' .r48-cwlog.html && grep -q 'proof age / clean samples after proof' .r48-cwlog.html && grep -q 'No reference-confirmed source evidence recorded yet' .r48-cwlog.html; then echo "  [ ok ] HTTP /cwlog renders the R48 evidence panel, D-4 proof timing, and neutral empty state"; else echo "  [FAIL] HTTP /cwlog answered $$cwlog_code or omitted the R48 evidence panel"; ok=0; fi; \
 	fi; \
-	rm -f .threads.html .r48.json .r48-cwlog.html; \
+	rm -f .threads.html .r48.json .r48-cwlog.html .sf.html .sf-strong.html .sf-bad.html; \
 	if [ "$$ok" = "1" ]; then rm -f .smoke.log; else echo "--- server log (startup only) ---"; cat .smoke.log; exit 1; fi
 
 r48-web:
@@ -164,6 +174,34 @@ docrefs:
 cfgcheck:
 	@python3 cfgcheck.py ../multics-r24-optimized.cfg
 	@python3 cfgcheck.py ../multics-r24-expert-reviewed.cfg
+	@python3 cfgcheck.py ../multics-full-30w-52e.cfg
+
+# Band 34: the integrated 30W-52E file (91 profiles) must boot and listen
+# on every profile port, same standard as prof for the 72-profile file.
+prof-full:
+	@test -x $(BIN) || { echo "build first: make -C ../make-x64"; exit 1; }
+	@pkill -9 '^multics' 2>/dev/null; sleep 1; true
+	@rm -f .full-boot.cfg .full-srv.log; ok=1; \
+	sed -e 's/^HTTP PORT:.*/HTTP PORT: 17200/' \
+	    -e 's/^HTTP USER:.*/HTTP USER: a/' \
+	    -e 's/^HTTP PASS:.*/HTTP PASS: a/' \
+	    -e 's/^TELNET PORT:.*/TELNET PORT: 0/' \
+	    ../multics-full-30w-52e.cfg > .full-boot.cfg; \
+	stdbuf -o0 -e0 $(BIN) -C .full-boot.cfg -v > .full-srv.log 2>&1 & srv=$$!; \
+	code=000; for i in $$(seq 1 30); do \
+	  code=$$(curl -s -m 3 -u a:a -o /dev/null -w '%{http_code}' http://127.0.0.1:17200/ 2>/dev/null); \
+	  [ "$$code" = "200" ] && break; sleep 1; done; \
+	if [ "$$code" = "200" ]; then echo "  [ ok ] full 30W-52E file boots and HTTP answers"; \
+	else echo "[FAIL] HTTP answered '$$code' -- see .full-srv.log"; ok=0; fi; \
+	nports=$$(grep '^PORT: ' ../multics-full-30w-52e.cfg | awk '{print $$2}' | sort -u | wc -l); \
+	nopen=0; for p in $$(grep '^PORT: ' ../multics-full-30w-52e.cfg | awk '{print $$2}' | sort -u); do \
+	  bash -c "exec 3<>/dev/tcp/127.0.0.1/$$p" 2>/dev/null && nopen=$$((nopen+1)); done; \
+	if [ "$$nopen" = "$$nports" ]; then echo "  [ ok ] all $$nports full-file profile ports listen"; \
+	else echo "[FAIL] $$nopen of $$nports full-file profile ports listen"; ok=0; fi; \
+	grep -qi "segmentation\|SIGSEGV" .full-srv.log && { echo "[FAIL] logged a segfault"; ok=0; } || echo "  [ ok ] no crash in the log"; \
+	kill $$srv 2>/dev/null; sleep 1; kill -9 $$srv 2>/dev/null; pkill -9 '^multics' 2>/dev/null; \
+	if [ "$$ok" = "1" ]; then rm -f .full-boot.cfg .full-srv.log; echo "prof-full: 3/3 ok"; \
+	else echo "prof-full: FAILED (logs kept under tests/.full-*)"; exit 1; fi
 	@PYTHONDONTWRITEBYTECODE=1 python3 test_cfgcheck_blind.py
 
 ecm-radegast-identity:
@@ -171,6 +209,25 @@ ecm-radegast-identity:
 
 cacheex-provider-collision:
 	@python3 cacheex-provider-collision.py $(BIN)
+
+tsan-r22:
+	@sh ./tsan-r22-session.sh
+
+freecccam-live:
+	@python3 freecccam-live.py $(BIN)
+
+ci-validate-live:
+	@python3 ci-validate-live.py $(BIN)
+
+client-id-reload:
+	@python3 client-id-reload.py $(BIN)
+
+dropdiffs-live:
+	@python3 dropdiffs-live.py $(BIN)
+
+doublecheck-live:
+	@MODE=agree python3 doublecheck-live.py $(BIN)
+	@MODE=mismatch python3 doublecheck-live.py $(BIN)
 
 cache-check-characterization:
 	sh ./cache-check-characterization.sh
@@ -180,3 +237,139 @@ cache-cross-provider:
 
 cache-cross-gates:
 	sh ./cache-cross-gates.sh
+
+# Band 54: camd35/cs378x send length guard (oversized frame must not
+# overflow the 1024-byte stack buffer in msg-camd35.c).
+camd35-guard:
+	sh ./camd35-send-guard.sh
+
+# Band 55: MARCHCHECK same-slot parked-half detector (modes, exemptions,
+# per-profile override) against the production supersmartfilter.h.
+marchcheck:
+	sh ./marchcheck.sh
+
+# Band 56: CW_DUP constant-CW-across-cycles detector (competitor-gated,
+# overrides, fail-open without ecm_hash) against production code.
+cwdup:
+	sh ./cwdup.sh
+
+# Band 57: HTTP login hard ban (threshold/lapse/stock-off) against the
+# production loginthrottle.c with an injected clock.
+loginban:
+	sh ./loginban.sh
+
+# Band 58: half-CW cross-channel reuse (twin/stale/zero/scope safe,
+# profile override) against the production supersmartfilter.h.
+# NOTE: named cwreuse-half -- plain `cwreuse` is stability.mk's older
+# TASK 1.3 live test and must not be shadowed.
+cwreuse-half:
+	sh ./cwreuse.sh
+
+# Band 59: LATECW age-at-arrival detector (unknown age fail-open,
+# profile override) against the production supersmartfilter.h.
+latecw:
+	sh ./latecw.sh
+
+# Band 60: per-protocol IP bans (isolation/threshold/lapse/unban/
+# snapshot) against the production loginthrottle.c, injected clock.
+protoban:
+	sh ./protoban.sh
+
+# Band 62: login attempt audit ring (newest-first/wrap/truncation)
+# against the production loginthrottle.c.
+loginaudit:
+	sh ./loginaudit.sh
+
+# Band 64: live mgcamd ban proof (band 63 wiring driven by the
+# ncclient harness - mgcamd shares newcamd's cs_message framing).
+mgban:
+	sh ./mgban.sh
+
+# Band 66: 1884 slow-card A/B - provider-table 1000ms cap vs an
+# explicit per-profile DCW TIMEOUT: 5000, against a 2500ms card.
+slow1884:
+	sh ./slow1884.sh
+
+# Band 71: functional ECM/CW matrix - every shipped profile booted alone
+# with a synthetic card (fast 60ms / slow 2500ms) and client; exit 0
+# unless a fast failure is UNEXPLAINED (synthetic-ECM limits classify).
+funcmatrix: .ncclient.bin .ncserver.bin
+	@python3 profile-functional-audit.py --binary $(BIN) --output /tmp/funcmatrix.json
+
+# Band 37: cache 1884 scoped checksum exemption -- the exempted CW must
+# be delivered from cache, the mismatched scope must not.
+c1884:
+	@python3 cache-1884-compare.py $(BIN)
+
+# Band 38: CWPAIR -- twin CW served on total miss; measure mode serves nothing.
+cwpair:
+	@python3 cwpair-live.py $(BIN)
+	@CWPAIR_MODE=measure python3 cwpair-live.py $(BIN)
+
+# Band 41: CACHEEX NOPUSH AFTER -- late CW delivered, not pushed; control pushes.
+nopush:
+	@python3 nopushafter-live.py $(BIN)
+	@NOPUSH_MODE=control python3 nopushafter-live.py $(BIN)
+
+# Band 42: CACHE SERVICE DOUBT -- tied distinct CWs are not served on
+# the CACHE EVIDENCE find path; a strict peer majority is served; OFF
+# is stock. Three modes of the same harness.
+svcdoubt:
+	@python3 service-doubt-live.py $(BIN)
+	@SVC_MODE=majority python3 service-doubt-live.py $(BIN)
+	@SVC_MODE=control python3 service-doubt-live.py $(BIN)
+	@SVC_MODE=prof-on python3 service-doubt-live.py $(BIN)
+	@SVC_MODE=prof-off python3 service-doubt-live.py $(BIN)
+
+# Band 72: newcamd client selectable on /user-trace; ECM rejection
+# reason (cs_accept_ecm) and delivery recorded there live.
+nctrace: .ncclient.bin .ncserver.bin
+	@python3 newcamd-trace-live.py $(BIN)
+
+# Band 73: mgcamd client selectable on /user-trace; rejection reason
+# and delivery recorded there live (mirrors band 72 newcamd).
+mgtrace: .ncclient.bin .ncserver.bin
+	@python3 mgtrace-live.py $(BIN)
+
+# Band 74: cs378x/camd35 test client (server's own msg-camd35.c) and
+# live /user-trace proof for both protocols.
+.cs378xclient.bin: cs378xclient.c ../src/msg-camd35.c ../src/aes.c ../src/md5.c ../src/crc32.c
+	$(CC) -O2 -std=gnu99 -w -I../src -o $@ cs378xclient.c ../src/aes.c ../src/md5.c ../src/crc32.c
+
+cxtrace: .cs378xclient.bin .ncserver.bin
+	@python3 cs378xtrace-live.py $(BIN)
+
+# Band 76: camd35 protoban door live (unknown-UCRC counting, ban
+# enforcement over UDP, /user-trace visibility; unarmed = stock).
+c35ban: .cs378xclient.bin .ncserver.bin
+	@python3 camd35ban-live.py $(BIN)
+
+# Band 77: editor save + same-IP CCcam device must not kick/ban the IP
+# (credential-only CCcam counting, reload shield, atomic editor save).
+relban: .ncserver.bin
+	@python3 reloadban-live.py $(BIN)
+
+# Band 78: cacheex protoban door live (attribution-based counting on
+# the CCcam door; per-identity separation; unarmed = stock).
+cxban: .ncserver.bin
+	@python3 cacheexban-live.py $(BIN)
+
+# Band 79: HTTP ban unified into protoban (PB_HTTP) live.
+hban:
+	@python3 httpban-live.py $(BIN)
+
+# Band 80: shared-engine ECM failure reasons detailed in the trace.
+ecmfail: .ncclient.bin
+	@python3 ecmfail-trace-live.py $(BIN)
+
+# Band 82: CWPAIR confirmation + DoubleCheck rate complete on /user-trace.
+cwconfirm: .ncclient.bin .ncserver.bin
+	@python3 cwpair-confirm-live.py $(BIN)
+
+# Band 83: /smartfilter reads the single SSF state instance.
+ssfconsole: .ncclient.bin .ncserver.bin
+	@python3 ssfconsole-live.py $(BIN)
+
+# Band 86: shipped 30W-52E config, booted; declared settings in effect.
+readycfg:
+	@python3 readycfg-audit.py $(BIN)

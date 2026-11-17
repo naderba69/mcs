@@ -57,7 +57,7 @@ void frcc_disconnect_cli(struct cc_client_data *cli)
 		cli->connection.uptime += ticks - cli->connection.time;
 		cli->connection.lastseen = ticks; // Last Seen
 		close(cli->handle);
-		cli->handle = -1;
+		__atomic_store_n(&cli->handle, -1, __ATOMIC_RELAXED);
 		debugf(0," FreeCCcam: client '%s' disconnected \n", cli->user);
 		//////cli->parent->clipfd.update = 1;
 	}
@@ -215,7 +215,7 @@ static void *freecc_connect_cli_inner(struct connect_cli_data *param)
 	}
 	sprintf(cli->user,"%s", ip2string(ip));
 	//cli->ecmnb=0;
-	//cli->ecmok=0;
+	//__atomic_load_n(&cli->ecmok, __ATOMIC_RELAXED)=0;
 	memcpy(&cli->sendblock,&sendblock,sizeof(sendblock));
 	memcpy(&cli->recvblock,&recvblock,sizeof(recvblock));
 	debugf(0," FreeCCcam: client(%s) connected\n",ip2string(ip));
@@ -230,6 +230,9 @@ static void *freecc_connect_cli_inner(struct connect_cli_data *param)
 	}
 
   // Setup Client Data
+	/* State lock: the trace-page picker snapshots these fields under
+	 * client_state_lock, as do the CCcam connect/parse writers. */
+	client_state_lock(cli);
 //	pthread_mutex_lock(&prg.lockfreecccli);
 	memcpy( cli->nodeid, buf+24, 8);
 	memcpy( cli->version, buf+33, 32);
@@ -244,8 +247,9 @@ static void *freecc_connect_cli_inner(struct connect_cli_data *param)
 	cli->chkrecvtime = 0;
 	cli->ip = ip;
 	cli->msg.len = 0;
-	cli->handle = sock;
+	__atomic_store_n(&cli->handle, sock, __ATOMIC_RELAXED); /* published for frcc_recvmsg_thread's poll loop, which only holds the config read gate alongside this writer */
 	cli->ecm.busy = 0;
+	client_state_unlock(cli);
 
 //	pthread_mutex_unlock(&prg.lockfreecccli);
   // send cli data ack (under I/O guard; cli not yet published)
@@ -285,7 +289,7 @@ void freecccam_srv_accept(struct cccam_server_data *srv)
 {
 	struct sockaddr_in newaddr;
 	socklen_t socklen = sizeof(struct sockaddr);
-	int newfd = accept( srv->handle, (struct sockaddr*)&newaddr, /*(socklen_t*)*/&socklen);
+	int newfd = accept( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), (struct sockaddr*)&newaddr, /*(socklen_t*)*/&socklen);
 	if ( newfd<=0 ) {
 		if ( (errno!=EAGAIN) && (errno!=EINTR) ) debugf( getdbgflag(DBG_CCCAM,0,0)," FreeCCcam%d: Accept failed (errno=%d)\n", errno);
 	}
@@ -381,14 +385,12 @@ void frcc_senddcw_cli(struct cc_client_data *cli, const struct ledger_delivery_s
 	}
 
 #ifdef CACHEEX
-	ECM_DATA *ecm = NULL;
 	uint16_t response_caid = delivery->caid;
 	uint32_t response_provid = delivery->provid;
 	uint8_t response_provider_known = delivery->provider_known;
 	uint16_t response_sid = delivery->sid;
 	uint32_t response_hash = delivery->hash;
 	uint8_t response_tag = delivery->tag;
-	uint32_t response_profile = delivery->profile_id;
 	uint32_t response_recvtime = delivery->recvtime;
 #else
 	ECM_DATA *ecm = cli->ecm.request;
@@ -454,9 +456,9 @@ void frcc_senddcw_cli(struct cc_client_data *cli, const struct ledger_delivery_s
 		memcpy(cli->lastecm.dcw, ecm->cw, sizeof(cli->lastecm.dcw));
 #endif
 		cli->lastecm.status=1;
-		cli->ecmok++;
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
 		cli->lastdcwtime = sent_at;
-		cli->ecmoktime += sent_at-response_recvtime;
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at-response_recvtime), __ATOMIC_RELAXED);
 
 #ifdef CACHEEX
 		ledger_note_delivered(delivery, sent_at);
@@ -527,15 +529,27 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 
 						//Check for card availability
 						memcpy( data, buf+17, len-17);
-						cardid = buf[10]<<24 | buf[11]<<16 | buf[12]<<8 | buf[13];
+						cardid = ((uint32_t)buf[10]<<24) | buf[11]<<16 | buf[12]<<8 | buf[13];
 						uint16_t caid = buf[4]<<8 | buf[5];
 						uint16_t sid = buf[14]<<8 | buf[15];
 						uint32_t provid = ecm_getprovid( data, len-17, caid );
-						if (provid==0) provid = buf[6]<<24 | buf[7]<<16 | buf[8]<<8 | buf[9];
+						if (provid==0) provid = ((uint32_t)buf[6]<<24) | buf[7]<<16 | buf[8]<<8 | buf[9];
+
+						/* User trace (mirrors srv-cccam.c): FreeCCcam-sourced
+						 * ECMs previously carried no trace instance, so gate
+						 * rejections on this path never reached /user-trace. */
+						uint64_t trace_session = 0, trace_attempt = 0;
+						uint32_t trace_hash = 0;
+						if (user_trace_matches(cli->id, caid, provid, sid)) {
+							trace_hash = hashCode(data + 3, len - 20);
+							trace_attempt = user_trace_begin(cli->id, caid, provid, sid,
+							                                 trace_hash, &trace_session);
+						}
 
 						// Check for Profile
 						struct cardserver_data *cs=getcsbyid( cardid );
 						if (!cs) {
+							if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "profile not found");
 							cli->ecmdenied++;
 							if (client_io_lock(cli) == 0) {
 								int sock = cli->handle;
@@ -550,7 +564,7 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						char *error = cs_accept_ecm(cs,caid,provid,sid,ecm_getchid(data,len-17,caid), len-17, data, &cw1cycle);
 						if (error) {
 							cli->ecmdenied++;
-							cs->ecmdenied++;
+							__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 							if (client_io_lock(cli) == 0) {
 								int sock = cli->handle;
 								if (sock > 0) cc_msg_send(sock, &cli->sendblock, CC_MSG_ECM_NOK2, 0, NULL);
@@ -589,6 +603,11 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 						}
 						int isnew =  ( ecm==NULL );
 						if (ecm) {
+							if (trace_attempt) {
+								if (!ecm->trace_instance) ecm->trace_instance = user_trace_next_instance();
+								if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
+									user_trace_add(trace_session, trace_attempt, USER_TRACE_JOINED, trace_hash, 0, 0, 0, "joined existing ECM; earlier events unavailable");
+							}
 							ecm->lastrecvtime = ticks;
 							if (ecm->dcwstatus==STAT_DCW_FAILED) {
 								cc_store_ecmclient(ecm, cli);
@@ -618,7 +637,7 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 							// Setup ECM Request for Server(s)
 							ecm = store_ecmdata(cs, data, len-17, sid, caid, provid);
 							if (!ecm) {
-								cs->ecmdenied++;
+								__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 								cli->ecmdenied++;
 								/* R48: ecm_lock released before socket I/O;
 								 * the send runs under the I/O guard. */
@@ -632,7 +651,12 @@ void freecc_cli_recvmsg(struct cc_client_data *cli)
 								}
 								break;
 							}
-							cs->ecmaccepted++;
+							__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
+							if (trace_attempt) {
+								ecm->trace_instance = user_trace_next_instance();
+								if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
+									user_trace_add(trace_session, trace_attempt, USER_TRACE_NEW, trace_hash, 0, 0, 0, "new ECM accepted");
+							}
 							cc_store_ecmclient(ecm, cli);
 							debugf( getdbgflagpro(DBG_CCCAM,0,cli->id,cs->id), " <- ecm from FreeCCcam client(%s) ch %04x:%06x:%04x\n", cli->user,caid,provid,sid);
 							cli->ecm.busy=1;
@@ -731,9 +755,13 @@ void *frcc_recvmsg_thread(void *param)
 		if ( !IS_DISABLED(freecccam->flags)&&(freecccam->handle>0) ) {
 			struct cc_client_data *cli = freecccam->client;
 			while (cli && (pfdcount<MAX_PFD)) {
-				if ( !IS_DISABLED(cli->flags)&&(cli->handle>0) ) {
+				/* handle is published atomically by the connect worker
+				 * and by frcc_disconnect_cli (band 44): load it once,
+				 * exactly as the dispatch loop below does. */
+				int build_handle = __atomic_load_n(&cli->handle, __ATOMIC_RELAXED);
+				if ( !IS_DISABLED(cli->flags)&&(build_handle>0) ) {
 					cli->ipoll = pfdcount;
-					pfd[pfdcount].fd = cli->handle;
+					pfd[pfdcount].fd = build_handle;
 					pfd[pfdcount++].events = POLLIN | POLLPRI;
 				} else cli->ipoll = -1;
 				cli = cli->next;
@@ -756,7 +784,10 @@ void *frcc_recvmsg_thread(void *param)
 				//pthread_mutex_lock(&prg.lockcccli);
 				struct cc_client_data *cli = freecccam->client;
 				while (cli) {
-					if ( !IS_DISABLED(cli->flags)&&(cli->handle>0)&&(cli->ipoll>=0)&&(cli->handle==pfd[cli->ipoll].fd) ) {
+					/* handle is published atomically by the connect worker
+					 * (same read gate, so no mutual exclusion): load it once. */
+					int cli_handle = __atomic_load_n(&cli->handle, __ATOMIC_RELAXED);
+					if ( !IS_DISABLED(cli->flags)&&(cli_handle>0)&&(cli->ipoll>=0)&&(cli_handle==pfd[cli->ipoll].fd) ) {
 						if ( pfd[cli->ipoll].revents & (POLLHUP|POLLNVAL) ) frcc_disconnect_cli(cli);
 						else if ( pfd[cli->ipoll].revents & (POLLIN|POLLPRI) ) {
 							freecc_cli_recvmsg(cli);

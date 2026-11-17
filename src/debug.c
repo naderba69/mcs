@@ -40,13 +40,44 @@ struct trace_data trace;
 char dbgline[MAX_DBGLINES][512];
 int idbgline = 0;
 
+/* Live-TSan follow-up: slot CONTENT was a lock-free ring by design, and the
+ * all-paths session flagged every reader (HTTP debug page, telnet DEBUG)
+ * against every logging thread. The copy is at most 512 bytes, so a plain
+ * mutex around write-copy and read-copy is the honest fix: logging stays
+ * bounded and readers now get one whole line, never a torn one. */
+static pthread_mutex_t dbg_ring_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void dbg_copy_line(int slot, char *out, int outsz)
+{
+	if (!out || outsz <= 0) return;
+	if (slot < 0 || slot >= MAX_DBGLINES) { out[0] = '\0'; return; }
+	pthread_mutex_lock(&dbg_ring_lock);
+	dbg_addline(out, outsz, dbgline[slot]);
+	pthread_mutex_unlock(&dbg_ring_lock);
+}
+
 void add_dbgline(char *line)
 {
 	/* TASK 3.3 -- was strcpy(slot, line): a caller line longer than the
 	 * slot wrote past dbgline[..][512] in .bss. Clamped-copy instead. */
-	dbg_addline( dbgline[idbgline], (int)sizeof(dbgline[0]), line );
-	idbgline++;
-	if (idbgline>=MAX_DBGLINES) idbgline = 0;
+	/* Lock audit (D49): the ring index was incremented unsynchronized from
+	 * every thread that logs; two writers could claim the same slot and
+	 * readers (debug page, telnet) read the index racily. Claim the slot
+	 * atomically instead; slot content is copied under dbg_ring_lock and
+	 * readers go through dbg_copy_line(). */
+	/* The cursor must stay wrapped (< MAX_DBGLINES): the debug page and
+	 * telnet readers do modular arithmetic on it. Claim-and-advance it
+	 * with a CAS loop so the wrap survives. */
+	int slot, nxt;
+	do {
+		slot = __atomic_load_n(&idbgline, __ATOMIC_RELAXED);
+		nxt = slot + 1;
+		if (nxt >= MAX_DBGLINES) nxt = 0;
+	} while (!__atomic_compare_exchange_n(&idbgline, &slot, nxt, 0,
+	                                      __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+	pthread_mutex_lock(&dbg_ring_lock);
+	dbg_addline( dbgline[slot], (int)sizeof(dbgline[0]), line );
+	pthread_mutex_unlock(&dbg_ring_lock);
 }
 
 void encryptstr( unsigned char *src, unsigned char *dest)
@@ -140,14 +171,14 @@ uint32_t flagdebug = 0; // ALL
 
 uint32_t getdbgflag( int i, int j, int k)
 {
-	return (i<<24) | (j<<16) | k;
+	return ((uint32_t)i<<24) | ((uint32_t)j<<16) | (uint32_t)k;
 }
 
 // to see servers/clients when profile is for debug
 uint32_t getdbgflagpro( int i, int j, int k, int csid )
 {
-	if ( (flagdebug>>24)==DBG_NEWCAMD ) return ( (DBG_NEWCAMD<<24) | (csid<<16) );
-	else return (i<<24) | (j<<16) | k;
+	if ( (flagdebug>>24)==DBG_NEWCAMD ) return ( ((uint32_t)DBG_NEWCAMD<<24) | ((uint32_t)csid<<16) );
+	else return ((uint32_t)i<<24) | ((uint32_t)j<<16) | (uint32_t)k;
 }
 
 int chkdbgflag( uint32_t f )

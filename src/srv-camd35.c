@@ -93,7 +93,6 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 	}
 
 #ifdef CACHEEX
-	ECM_DATA *ecm = NULL;
 	uint16_t response_caid = delivery->caid;
 	uint32_t response_provid = delivery->provid;
 	uint8_t response_provider_known = delivery->provider_known;
@@ -186,10 +185,21 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 			cli->ecm.status = STAT_DCW_SENT;
 			debugf(getdbgflag(DBG_CAMD35,0,cli->id),
 			       " => cw send failed to camd35 client '%s'\n", cli->user);
+#ifdef CACHEEX
+			if (delivery->trace_instance)
+				user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
+				                         USER_TRACE_SEND_FAILED, 0, 0,
+				                         GetTickCount()-response_recvtime, "CW send failed");
+#endif
 			return;
 		}
 		sent_at = GetTickCount();
 #ifdef CACHEEX
+		if (delivery->trace_instance)
+			user_trace_client_cw(cli->id, delivery->trace_instance, delivery->hash,
+			                     delivery->srctype, delivery->srcid,
+			                     sent_at-response_recvtime,
+			                     "CW response sent; picture not verified", delivery->cw);
 		LEDGER_DELIVERY_TO_LASTECM(cli->lastecm, *delivery);
 #else
 		cli->lastecm.dcwsrctype = ecm->dcwsrctype;
@@ -197,9 +207,9 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 		memcpy(cli->lastecm.dcw, ecm->cw, sizeof(cli->lastecm.dcw));
 #endif
 		cli->lastecm.status=1;
-		cli->ecmok++;
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
 		cli->lastdcwtime = sent_at;
-		cli->ecmoktime += sent_at-response_recvtime;
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at-response_recvtime), __ATOMIC_RELAXED);
 #ifdef CACHEEX
 		ledger_note_delivered(delivery, sent_at);
 #endif
@@ -220,6 +230,16 @@ void camd35_senddcw_cli(struct camd35_server_data *camd35, struct camd35_client_
 		buf[0] = 0x44;
 		buf[1] = 0;
 		camd35_sendto( camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf, 20);
+#ifdef CACHEEX
+		if (delivery->trace_instance) {
+			char fail_detail[128];   /* band 80 */
+			snprintf(fail_detail, sizeof(fail_detail), "decode failed (%s)",
+			         delivery->statusmsg[0] ? delivery->statusmsg : "reason unavailable");
+			user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
+			                         USER_TRACE_FAILED, 0, 0,
+			                         GetTickCount()-response_recvtime, fail_detail);
+		}
+#endif
 		debugf(getdbgflagpro(DBG_CAMD35,0,cli->id,response_profile)," |> decode failed to camd35 client '%s' ch %04x:%06x:%04x (%dms)\n", cli->user, response_caid,response_provid,response_sid, GetTickCount()-response_recvtime);
 	}
 	cli->ecm.busy=0;
@@ -299,6 +319,12 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 	memcpy( &recv_ip, &si_other.sin_addr, 4);
 	recv_port = ntohs(si_other.sin_port);
 
+	/* Band 76: camd35's protoban door (PB_CAMD35 existed since band 60
+	 * but no door fed it). UDP has no connection to close: a banned
+	 * source's datagrams are simply dropped before any client lookup.
+	 * Threshold 0 (default) = stock. */
+	if ( cfg.camd35.loginfails>0 && protoban_banned(recv_ip, PB_CAMD35) ) return;
+
 #ifdef DEBUG_NETWORK
 	if (flag_debugnet) {
 		debugf(0," camd35: Recv data (%d) from address (%s:%d)\n", received, ip2string(recv_ip), recv_port );
@@ -306,8 +332,9 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 	}
 #endif
 
-	uint32_t ucrc = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+	uint32_t ucrc = (((uint32_t)buf[0]<<24))|(buf[1]<<16)|(buf[2]<<8)|buf[3];
 	//Check for clients
+	int is_cx = 0;   /* Band 78: identity matched the cacheex peer list */
 	struct camd35_client_data *cli = camd35->client;
 	while (cli) {
 		if (cli->ucrc==ucrc) break;
@@ -316,14 +343,36 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 	if (!cli) {
 		cli = camd35->cacheexclient;
 		while (cli) {
-			if (cli->ucrc==ucrc) break;
+			if (cli->ucrc==ucrc) { is_cx = 1; break; }
 			cli = cli->next;
 		}
 	}
+	/* Band 78: a cacheex peer under a PB_CACHEEX ban is dropped here, at
+	 * the first point its identity is known. Unknown UCRCs stay with
+	 * PB_CAMD35 above: an unattributed guess cannot be told apart from
+	 * a client guess, so it is counted on this door (band 76). */
+	if (cli && is_cx && cfg.cache.loginfails>0 && protoban_banned(recv_ip, PB_CACHEEX)) return;
 	if (!cli) {
 		debugf(getdbgflag(DBG_CAMD35,camd35->id,0)," camd35%d: Unknown Client UCRC=%08x (%s)\n", camd35->id, ucrc, ip2string(recv_ip));
+		{
+			int pb_banned = 0;
+			protoban_note_failure(recv_ip, PB_CAMD35,
+			                      (uint32_t)(cfg.camd35.loginfails>0?cfg.camd35.loginfails:0),
+			                      (uint32_t)(cfg.camd35.loginbansec>0?cfg.camd35.loginbansec:0), &pb_banned);
+			if (pb_banned) debugf(getdbgflag(DBG_CAMD35,camd35->id,0)," camd35%d: %s reached the failure threshold, banned for camd35\n", camd35->id, ip2string(recv_ip));
+			{
+				char ucrcname[24];
+				snprintf(ucrcname, sizeof(ucrcname), "ucrc:%08x", ucrc);
+				loginaudit_note(PB_CAMD35, recv_ip, ucrcname, 0); /* Band 76 */
+			}
+		}
 		return;
 	}
+	/* A frame from a known client is this door's success: it clears the
+	 * IP's camd35 failure count (same semantics as a cs378x login). No
+	 * audit entry: UDP has no credential event to ring-log per packet.
+	 * Band 78: a cacheex peer's frame clears PB_CACHEEX instead. */
+	protoban_note_success(recv_ip, is_cx ? PB_CACHEEX : PB_CAMD35);
 	//
 	cli->ip = recv_ip;
 	cli->port = recv_port;
@@ -335,7 +384,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 	else len = buf[5];
 	// Check for data-crc
 	uint32_t datacrc = crc32(0L, buf+24, len);
-	uint32_t x = (buf[8]<<24)|(buf[9]<<16)|(buf[10]<<8)|buf[11];
+	uint32_t x = (((uint32_t)buf[8]<<24))|(buf[9]<<16)|(buf[10]<<8)|buf[11];
 	if (x!=datacrc) {
 		debugf(0, " camd35: Bad crc got=%08x calculated=%08x\n", x, datacrc);
 		return;
@@ -376,7 +425,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 			cacheex.sid = (buf[12]<<8)|buf[13];
 			cacheex.caid = (buf[14]<<8)|buf[15];
-			cacheex.provid = (buf[16]<<24)|(buf[17]<<16)|(buf[18]<<8)|buf[19];
+			cacheex.provid = (((uint32_t)buf[16]<<24))|(buf[17]<<16)|(buf[18]<<8)|buf[19];
 			// Look for cardserver
 			cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
 			if ( !cs || !cs->option.fallowcacheex ) {
@@ -388,7 +437,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			if ((buf[23]&0xFE)==0x80) cacheex.tag = buf[23]; else cacheex.tag = 0;
 			memcpy( cacheex.ecmd5, buf+24, 16);
 			//if ( !checkECMD5(cacheex.ecmd5) ) cli->cacheex.totalcsp++;
-			cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
+			cacheex.hash = (((uint32_t)buf[43]<<24)) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 			if (!cacheex_check(&cacheex)) break;
 			pthread_mutex_lock(&prg.lockcacheex);
 			cli->cacheex.got[0]++;
@@ -509,8 +558,19 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			uint16_t sid = buf[4+8]<<8 | buf[4+9];
 			uint16_t caid = buf[4+10]<<8 | buf[4+11];
 			uint32_t provid = ecm_getprovid( ecmdata, ecmlen, caid );
-			if (provid==0) provid = buf[4+12]<<24 | buf[4+13]<<16 | buf[4+14]<<8 | buf[4+15];
+			if (provid==0) provid = ((uint32_t)buf[4+12]<<24) | buf[4+13]<<16 | buf[4+14]<<8 | buf[4+15];
+
+			/* Band 73: mirror the CCcam ingress trace for camd35
+			 * clients - see srv-cs378x.c. Opt-in via /user-trace. */
+			uint64_t trace_session = 0, trace_attempt = 0;
+			uint32_t trace_hash = 0;
+			if (ecmlen > 3 && user_trace_matches(cli->id, caid, provid, sid)) {
+				trace_hash = hashCode(ecmdata + 3, ecmlen - 3);
+				trace_attempt = user_trace_begin(cli->id, caid, provid, sid,
+				                                 trace_hash, &trace_session);
+			}
 			if ( !caid ) {
+				if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "Invalid CAID");
 				cli->ecmdenied++;
 				buf[4] = 0x44;
 				buf[5] = 0;
@@ -529,6 +589,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 				cs = cs->next;
 			}
 			if (!cs) {
+				if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "Invalid CAID/PROVIDER");
 				cli->ecmdenied++;
 				buf[4] = 0x44;
 				buf[5] = 0;
@@ -539,8 +600,9 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			// Check for Accepted sids
 			uint8_t cw1cycle;
 			if ( !accept_sid(cs, provid, sid, ecm_getchid(ecmdata,ecmlen,caid), ecmlen, &cw1cycle) ) {
+				if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "SID not accepted");
 				cli->ecmdenied++;
-				cs->ecmdenied++;
+				__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 				buf[4] = 0x44;
 				buf[5] = 0;
 				camd35_sendto( camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf+4, 20);
@@ -577,9 +639,18 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 			}
 			int isnew =  ( ecm==NULL );
 			if (ecm) {
+				if (trace_attempt) {
+					if (!ecm->trace_instance) ecm->trace_instance = user_trace_next_instance();
+					if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
+						user_trace_add(trace_session, trace_attempt, USER_TRACE_JOINED, trace_hash, 0, 0, 0, "joined existing ECM; earlier events unavailable");
+				}
 				ecm->lastrecvtime = ticks;
 				if (ecm->dcwstatus==STAT_DCW_FAILED) {
 					if (ecm->period > cs->option.dcw.retry) {
+						if (trace_attempt) {
+							user_trace_add(trace_session, trace_attempt, USER_TRACE_FAILED, trace_hash, 0, 0, 0, "existing ECM already failed");
+							user_trace_unbind_shared(trace_session, trace_attempt);
+						}
 						buf[4] = 0x44;
 						buf[5] = 0;
 						camd35_sendto( camd35->handle, cli->ip, cli->port, &cli->encryptkey, cli->ucrc, buf+4, 20);
@@ -639,7 +710,7 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 				// Setup ECM Request for Server(s)
 				ecm = store_ecmdata(cs, ecmdata, ecmlen, sid,caid,provid);
 				if (!ecm) {
-					cs->ecmdenied++;
+					__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 					cli->ecmdenied++;
 					buf[4] = 0x44;
 					buf[5] = 0;
@@ -647,7 +718,11 @@ void camd35_recvmsg( struct camd35_server_data *camd35 )
 					ecm_unlock();
 					break;
 				}
-				cs->ecmaccepted++;
+				if (trace_attempt) {
+					ecm->trace_instance = user_trace_next_instance();
+					user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance);
+				}
+				__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 				camd35_store_ecmclient(ecm, cli);
 				cli->ecm.pin = pin;
 				debugf(getdbgflagpro(DBG_CAMD35,0,cli->id, cs->id)," <- ecm from camd35 client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,caid,provid,sid, ecm->hash);
@@ -692,9 +767,11 @@ void *camd35_recvmsg_thread(void *param)
 		struct camd35_server_data *camd35 = cfg.camd35.server;
 		while (camd35) {
 			if (camd35->handle>0) {
-				camd35->ipoll = pfdcount;
-				pfd[pfdcount].fd = camd35->handle;
-				pfd[pfdcount++].events = POLLIN | POLLPRI;
+				if (pfdcount < MAX_CSPORTS) {
+					camd35->ipoll = pfdcount;
+					pfd[pfdcount].fd = camd35->handle;
+					pfd[pfdcount++].events = POLLIN | POLLPRI;
+				} else camd35->ipoll = -1; /* poll table full */
 			} else camd35->ipoll = -1;
 			camd35 = camd35->next;
 		}
@@ -722,6 +799,7 @@ void *camd35_recvmsg_thread(void *param)
 			} else if (retval<0) usleep(99000);
 		} else sleep(1);
 	}
+	return NULL; /* reached on prg.restart; a void* thread must return a value */
 }
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -61,6 +61,7 @@ char * base64_pencode(const char *in, char *out, int linesz)
     int i, o, len;
     B64_CHUNK *chunk;
     chunk = malloc(sizeof(*chunk));
+    if (!chunk) return NULL;
 
     for(i = 0, o = 0, len = 0; in[i];)
     {
@@ -132,6 +133,7 @@ char * base64_pdecode(const char *in, char *out)
     B64_CHUNK *chunk;
 
     chunk = malloc(sizeof(*chunk));
+    if (!chunk) return NULL;
 
     for (i = 0, o = 0; in[i];)
     {

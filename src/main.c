@@ -41,6 +41,7 @@
 #endif
 
 #include "ecmdata.h"
+#include "ecm-fingerprint.h"  /* R48: observe-only per-channel ECM length learning */
 #include "parser.h"
 #include "config.h"
 #include "newcamd-lifetime.h"
@@ -49,7 +50,6 @@
 #include "caid-integration.h"  /* CAID-specific optimizations */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include "auto-tuning.h"  /* Auto-tuning system */
-#include "web-dashboard.h"  /* Web dashboard */
 #include "cache-speed-suite.h"  /* Cache Speed Optimization Suite (8 systems) */
 #include "cache-window.h"  /* R48: bounded opt-in per-profile/CAID cache window */
 #include "cw-postvalidate.h"  /* Post-descramble CW validation + Fake CW detection */
@@ -92,6 +92,8 @@
 #include "r48-source-reputation.h"	/* D111: opt-in source x provider EWMA facts */
 #include "rotation.h"	/* TASK 1.6 instant rotation, used by srv-newcamd.c / loadbalance.c */
 #include "cachepref.h"	/* TASK 1.7 TRUSTED-CACHE-FIRST, used by clustredcache.c (included below) */
+#include "r22layers.h"
+#include "field-status.h"	/* operator-page snapshot of the field-trial state */	/* R22 candidate layers: hooks are no-ops unless built with -DR22_LAYERS (make-x64 release-r22) */
 
 #include "pipe.c"
 
@@ -551,7 +553,7 @@ static void cwentropy_note(struct trust_table *t,
 {
 	struct cwen_match near;
 	uint64_t ecmid = 0;
-	unsigned mask, scored;
+	unsigned mask, scored = 0; /* set only under report; read after unlock */
 	char what[64];
 	int report = 0, again = 0, why = 0;
 	int i;
@@ -1009,6 +1011,13 @@ static void cwn_note(int srctype, int srcid, const uint8_t *cw,
 		keyhex, srctype, (unsigned)srcid);
 	if (n > 0)
 		debugf(DBG_ERROR," !!! %s\n", line);
+
+	/* Band 45: the R22 cw_failed hook is wired here, and only here --
+	 * a fresh negative-memory mark is a definitive GR3 proof (ledger
+	 * dispute plus client failure, or a reuse proof), never a guess
+	 * at delivery time. In stock builds this compiles to nothing;
+	 * cwneg above already refuses the key in every flavour. */
+	r22_hook_cw_failed(caid, provid, sid, cw, srcid, ticks_now);
 }
 
 /*
@@ -1868,6 +1877,7 @@ struct ledger_delivery_snapshot {
 	uint8_t tag;
 	uint8_t cw[16];
 	int status;
+	char statusmsg[96];   /* band 80: ECM failure reason, copied (slot recycles) */
 	int period;
 	int cw1cycle;
 	int srctype;
@@ -1919,6 +1929,7 @@ static int ledger_delivery_snapshot_capture_locked(struct ledger_delivery_snapsh
 		out->server_flag[i] = (uint8_t)ecm->server[i].flag;
 	}
 	out->status = ecm->dcwstatus;
+	snprintf(out->statusmsg, sizeof(out->statusmsg), "%s", ecm->statusmsg ? ecm->statusmsg : ""); /* band 80 */
 	out->hash = ecm->hash;
 	out->caid = ecm->caid;
 	out->provid = ecm->provid;
@@ -2138,6 +2149,109 @@ char ecm_file[256];
 ///
 ///
 struct config_data cfg;
+int cfg_doublecheck_caids[64];
+int cfg_doublecheck_caid_count = 0;
+/* Field kill switch for the R22 candidate layers (only compiled in the
+ * release-r22 flavour): 1 = layers active (default), 0 = hooks return
+ * immediately. Set by the config line "R22 LAYERS: YES/NO" and applied
+ * live on config reload -- no rebuild needed to back out in the field. */
+int cfg_r22_layers_enabled = 1;
+int cfg_auto_recover_enabled = 0; /* AUTO RECOVER: ON|OFF, default OFF (band 47) */
+
+/* Field activation (2026-11-14): with no explicit "ECM DOUBLECHECK:"
+ * line, arm the observe-mode double check for the CAIDs the operator
+ * already declared on their own profiles. Nothing is invented: every
+ * CAID here came from the operator's config file. An explicit line
+ * always wins; "ECM DOUBLECHECK: OFF" (count = -1) disables for good. */
+
+/* Snapshot for httpserver.o (separate TU): the DoubleCheck ring and
+ * the R22 counters are statics of this TU, so the trace page reads
+ * this POD copy instead of including their headers and silently
+ * seeing zeros. Cheap relaxed loads; display data only. */
+void mcs_field_status_fill(struct mcs_field_status *st) {
+	memset(st, 0, sizeof(*st));
+	st->r22_enabled = cfg_r22_layers_enabled;
+#ifdef R22_LAYERS
+	st->r22_compiled = 1;
+	{
+		const struct r22stats *rs = r22stats_get();
+		st->r22_cache_total = __atomic_load_n(&rs->hook_cache_total, __ATOMIC_RELAXED);
+		st->r22_cache_accepted = __atomic_load_n(&rs->hook_cache_accepted, __ATOMIC_RELAXED);
+		st->r22_cache_rejected = __atomic_load_n(&rs->hook_cache_rejected, __ATOMIC_RELAXED);
+		st->r22_pattern_fake = __atomic_load_n(&rs->pattern_obvious_fake, __ATOMIC_RELAXED);
+		st->r22_cross_blocked = __atomic_load_n(&rs->crosschannel_blocked, __ATOMIC_RELAXED);
+		st->r22_propblock_hit = __atomic_load_n(&rs->propblock_hit, __ATOMIC_RELAXED);
+		st->r22_quarantine_held = __atomic_load_n(&rs->quarantine_held, __ATOMIC_RELAXED);
+		st->r22_server_total = __atomic_load_n(&rs->hook_server_total, __ATOMIC_RELAXED);
+	}
+#endif
+	st->dc_caids = cfg_doublecheck_caid_count > 0 ? cfg_doublecheck_caid_count : 0;
+	{
+		doublecheck_event_t ev[DOUBLECHECK_EVENT_MAX];
+		int i, n = ecm_doublecheck_recent_events(ev, DOUBLECHECK_EVENT_MAX,
+		                                         &st->dc_ok, &st->dc_fail,
+		                                         &st->dc_total, &st->dc_timeouts);
+		st->dc_event_count = n;
+		for (i = 0; i < n; i++) {
+			st->dc_events[i].timestamp = ev[i].timestamp;
+			st->dc_events[i].caid = ev[i].caid;
+			st->dc_events[i].provid = ev[i].provid;
+			st->dc_events[i].sid = ev[i].sid;
+			st->dc_events[i].kind = ev[i].kind;
+			st->dc_events[i].sources = ev[i].sources;
+		}
+	}
+	{
+		struct mcs_cwpair_pair pv[32];
+		int i, n = cwpair_snapshot(&st->cwpair_observed, &st->cwpair_matches,
+		                           &st->cwpair_served, &st->cwpair_stale,
+		                           &st->cwpair_strict_rejected, &st->cwpair_no_twin,
+		                           &st->cwpair_discover, pv, 32);
+		st->cwpair_pair_count = n;
+		nopushafter_snapshot(&st->nopush_checked, &st->nopush_blocked, &st->nopush_entries);
+		service_doubt_snapshot(&st->svc_checked, &st->svc_doubt, &st->svc_majority);
+		st->svc_armed = cfg.cache.service_doubt;
+		{ uint32_t ar_r = 0, ar_s = 0;
+		  autorecov_snapshot(&g_autorecov_table, &st->ar_enabled, &ar_r, &ar_s, &st->ar_active);
+		  st->ar_recoveries = ar_r; st->ar_successes = ar_s; }
+		st->gate_ci_global = cfg.cache.ci_validate;
+		st->gate_dd_global = cfg.cache.dropdiffs;
+		{ struct cardserver_data *cs2;
+		  for (cs2 = cfg.cardserver; cs2; cs2 = cs2->next) {
+		      if (cs2->option.service_doubt == 1) st->svc_profiles_on++;
+		      else if (cs2->option.service_doubt == 2) st->svc_profiles_off++;
+		      if (cs2->option.ci_validate == 1) st->gate_ci_on++;
+		      else if (cs2->option.ci_validate == 2) st->gate_ci_off++;
+		      if (cs2->option.dropdiffs == 1) st->gate_dd_on++;
+		      else if (cs2->option.dropdiffs == 2) st->gate_dd_off++;
+		      if (cs2->option.cache_evidence) st->gate_ev_profiles++;
+		      if (cs2->option.cw_checksum_exempt_active) st->gate_checksum_exempt_profiles++;
+		  } }
+		for (i = 0; i < n; i++) {
+			st->cwpair_pairs[i].caid_a = pv[i].caid_a;
+			st->cwpair_pairs[i].provid_a = pv[i].provid_a;
+			st->cwpair_pairs[i].sid_a = pv[i].sid_a;
+			st->cwpair_pairs[i].caid_b = pv[i].caid_b;
+			st->cwpair_pairs[i].provid_b = pv[i].provid_b;
+			st->cwpair_pairs[i].sid_b = pv[i].sid_b;
+			st->cwpair_pairs[i].matches = pv[i].matches;
+		}
+	}
+}
+
+static void doublecheck_autofill_from_profiles(void) {
+	struct cardserver_data *cs;
+	int i;
+	if (cfg_doublecheck_caid_count != 0) return;
+	for (cs = cfg.cardserver; cs; cs = cs->next) {
+		int dup = 0;
+		if (!cs->card.caid) continue;
+		for (i = 0; i < cfg_doublecheck_caid_count; i++)
+			if (cfg_doublecheck_caids[i] == (int)cs->card.caid) dup = 1;
+		if (!dup && cfg_doublecheck_caid_count < 64)
+			cfg_doublecheck_caids[cfg_doublecheck_caid_count++] = (int)cs->card.caid;
+	}
+}
 struct program_data prg;
 
 /* Track lock ownership on this thread so disconnect cleanup can reuse an
@@ -2196,6 +2310,26 @@ int ecm_setsrvflag_if_lifetime(ECM_DATA *request, unsigned int srvid, int flag,
 
 /* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT global configs */
 struct ssf_config ssf_cfg;
+/* Band 83: the one instance of all SuperSmartFilter state (declared
+ * extern in supersmartfilter.h; before band 83 each TU had a private
+ * static copy and the /smartfilter console read its own zeros). All
+ * of it is guarded by ssf_lock on every operative path. The header is
+ * included here so the table types are visible at the definitions. */
+#include "supersmartfilter.h"
+struct ssf_cw_history ssf_history[SSF_MAX_HISTORY];
+int ssf_history_index;
+struct ssf_peer_stats ssf_peers[SSF_MAX_PEERS];
+int ssf_peer_count;
+struct ssf_multicheck_entry ssf_mc_table[SSF_MAX_MC_ENTRIES];
+int ssf_mc_count;
+struct ssf_march_entry ssf_march_table[SSF_MAX_MARCH_ENTRIES];
+int ssf_march_index;
+struct ssf_dup_entry ssf_dup_table[SSF_MAX_DUP_ENTRIES];
+int ssf_dup_index;
+struct ssf_reuse_entry ssf_reuse_table[SSF_MAX_REUSE_ENTRIES];
+int ssf_reuse_index;
+struct ssf_stats ssf_stats;
+pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
 struct dcwstrict_config dcwstrict_cfg;
 
 uint32_t ecm_check_time = 0;
@@ -2402,7 +2536,7 @@ void sid_newecm(ECM_DATA *ecm)
 		for(i=0;i<MAX_SIDS;i++,sids++) {
 			if (!sids->sid) break;
 			if ( (sids->sid==ecm->sid)&&(!sids->chid||(sids->chid==ecm->chid))&&(!sids->ecmlen||(sids->ecmlen==ecm->ecmlen)) ) {
-				if (ecm->dcwstatus==STAT_DCW_SUCCESS) sids->ecmok++;
+				if (ecm->dcwstatus==STAT_DCW_SUCCESS) __atomic_fetch_add(&sids->ecmok, 1, __ATOMIC_RELAXED);
 				sids->ecmnb++;
 				break;
 			}
@@ -2599,6 +2733,17 @@ char *cs_accept_ecm(struct cardserver_data *cs, uint16_t caid, uint32_t provid, 
 	// check for viaccess
 	if (cs->option.checkecm) {
 		if (caid==0x0500) if ( !viaccess_checkECM( ecmdata, ecmlen ) ) return("Invalid viaccess ecm");
+	}
+	/* R48 ECM fingerprint (observe-only, opt-in OFF): learn the typical
+	 * ECM length per (CAID,SID); trace anomalies in /user-trace. Never
+	 * refuses -- a novel length is evidence, not a verdict. */
+	if (cs->option.ecm_fingerprint && ecmfp_note(caid, sid, (uint16_t)ecmlen)) {
+		char detail[96];
+		snprintf(detail, sizeof(detail),
+		         "ecm fingerprint anomaly: length %d outside established range ch %04x:%06x:%04x",
+		         ecmlen, caid, provid, sid);
+		user_trace_cache_observation(caid, provid, sid, 0, 0, detail, NULL);
+		debugf(getdbgflag(DBG_CONFIG,0,0), " %s\n", detail);
 	}
 	return NULL;
 }
@@ -3078,7 +3223,6 @@ void mainprocess()
 	cache_priority_init();
 	prefetch_init();
 	cw_prediction_init();
-	parallel_ecm_init();
 	auto_recovery_init();
 	predictive_warming_init();
 	caid_optimizations_init();
@@ -3094,6 +3238,16 @@ void mainprocess()
 
 
 #ifndef WIN32
+	/* Band 84: SuperSmartFilter defaults must exist BEFORE the
+	 * config is parsed. supersmartfilter_init() used to run after
+	 * start_thread_config(), wiping every CACHE SF key the parser
+	 * had just applied (and filter_level was then forced to 0),
+	 * so the documented global SF keys were dead on boot. The
+	 * filter stays OFF by default: init's internal level is
+	 * overridden to 0 here, and only an operator CACHE SF LEVEL
+	 * (or a per-profile FILTER) raises it. */
+	supersmartfilter_init();
+	ssf_cfg.filter_level = 0;
 	start_thread_config();
 	wait_config_ready();	/* TASK 4.1 — was a 100 ms hope */
 
@@ -3134,61 +3288,82 @@ void mainprocess()
 	debugf(0, " [CAID INTEGRATION] Using already initialized CAID settings\n");
 
 	/* Provider-level ECM configuration - from external research.
-	 * R48: init only fills the static table (no timeout path wired yet);
-	 * fallback_timeout values remain inactive until the fallback helper /
-	 * ECM deadline / Set-DCW gate interaction is tested. */
+	 * ENABLED 2026-11-13 per operator directive ("جلب السفرات"):
+	 * the 100 provider profiles are now loaded. The provider helpers
+	 * are wired in production (th-ecm.c timeout/cache-time via
+	 * ecm_get_effective_timeout, setdcw.c CRC/cycle via
+	 * provider_should_disable_crc/provider_cwcycle_enabled, cli-cccam.c
+	 * ECM-length whitelist via ecm_is_whitelisted). No segfault path
+	 * exists: provider_cfg_tab is a zero-initialized static global,
+	 * count=0 is safe, and every query helper is NULL-safe
+	 * (test_provider_config 14/14). An enable-experiment (init ON,
+	 * CAID 1884 in-table) passed cache-consensus-three-peers 4/4 and
+	 * cccam-trace-success modes. The operator accepts the behavior
+	 * change (shorter fallback timeouts, per-provider CRC/cycle gates)
+	 * as the cost of bringing the servers in; per-provider field
+	 * validation remains a follow-up, not a blocker. */
 	provider_config_init();
 	debugf(0, " [PROVIDER CONFIG] %d provider-specific ECM configurations loaded\n", provider_cfg_tab.count);
 
 	/* TASK BS (2026-10-26) -- Initialize Black Screen Prevention Systems */
 	bs_init();
 	blackanalytics_init();
-	autorecov_init(&g_autorecov_table, 1);  /* Auto-recovery enabled by default */
+	autorecov_init(&g_autorecov_table, 0);  /* band 47: enable is read live from AUTO RECOVER (default OFF); init only prepares the table+lock */
 	debugf(0, " [BLACKSCREEN] Detection, Analytics, and Auto-Recovery systems initialized\n");
 
-	/* R200 v2.5 Integration: SuperSmartFilter + DCW STRICT */
-	supersmartfilter_init();
+	/* R200 v2.5 Integration: DCW STRICT. SuperSmartFilter state was
+	 * initialised before config parsing (band 84, above), so this
+	 * block no longer re-initialises it. */
 	dcwstrict_init();
 	/* These heuristics are not reliable proof of a bad CW: the same valid
 	 * key can legitimately answer several ECMs or services. Until their
 	 * rejection rules are redesigned and explicitly configurable, keep both
 	 * off; the established DCW filters remain in the delivery path. */
 	dcwstrict_cfg.enabled = 0;
-	ssf_cfg.filter_level = 0;
 	debugf(0, " [R200 v2.5] Heuristic CW rejection disabled; standard DCW filters remain active\n");
 
 	/* Auto-Tuning System - Automatic profile optimization */
 	auto_tuning_init();
 	debugf(0, " [AUTO-TUNING] Automatic profile optimization system initialized\n");
 
-	/* Web Dashboard - DISABLED: conflicts with httpserver.c on port 8080
-	 * Use httpserver.c web interface instead (port 8080)
-	 * Access: http://<ip>:8080/log-viewer for live logs */
-	// web_dashboard_init();
-	// web_dashboard_start();
+	/* Web Dashboard: the standalone web-dashboard module was removed --
+	 * it bound a hardcoded port 8080 with no authentication and nothing
+	 * ever fed its statistics. Its overview data now renders inside the
+	 * CCcam Trace page (/user-trace) -- the operator's single page. */
 
 	/* Cache Speed Suite - 8 cache optimization systems */
+	r22_layers_init();	/* R22 candidate layers; no-op unless built -DR22_LAYERS */
+#ifdef R22_LAYERS
+	debugf(0, " [R22-LAYERS] candidate CW layers %s (config: R22 LAYERS: YES/NO)\n", cfg_r22_layers_enabled ? "ACTIVE" : "OFF by config");
+#endif
 	cache_speed_suite_init();
-	debugf(0, " [CACHE-SPEED] Cache Speed Optimization Suite initialized (8 systems)\n");
-	debugf(0, "   [EMM-CACHE] EMM cache system active (rewrite=3, TTL=3600s)\n");
+	doublecheck_autofill_from_profiles(); /* no explicit line -> operator's profile CAIDs */
+	{ int n_dbl = ecm_doublecheck_apply_config(); /* ECM DOUBLECHECK config line; 0 = inert */
+	  if (n_dbl) debugf(0, "   [ECM-DOUBLECHECK] observe-mode double check on for %d configured CAIDs\n", n_dbl); }
+	debugf(0, " [CACHE-SPEED] state initialized; its 8 advisory getters have no live consumer (real wait window is D111 in th-ecm)\n");
+	debugf(0, "   [EMM-CACHE] inert: no EMM ingress path in this flavour (no protocol handler receives EMM; cache_speed_on_emm has no caller)\n");
 	debugf(0, "   [CW-CACHE-SETTINGS] Per-CAID cache settings loaded\n");
 	debugf(0, "   [CACHEX-WAITTIME] Per-CAID wait times loaded\n");
-	debugf(0, "   [ECM-DOUBLECHECK] ECM double check active for 8 CAIDs\n");
-	debugf(0, "   [CACHEX-ADVANCED] DropDiffs + NoPushAfter + DoubleCheck active\n");
+	debugf(0, "   [CACHEX-ADVANCED] inert on the live path: DropDiffs/NoPushAfter run only in dead code; ECM DoubleCheck is the separate observe-only engine\n");
 
 	/* CW Post-Validation - Detect fake CWs after acceptance */
 	cwpostval_init();
-	debugf(0, " [CW-POSTVAL] Post-descramble CW validation system initialized\n");
-	debugf(0, "   [TS-VALIDATE] Transport Stream validation active (95%% accuracy)\n");
-	debugf(0, "   [CW-ENTROPY] Shannon entropy analysis active\n");
-	debugf(0, "   [FAKE-DB] Fake CW fingerprint database ready (max 2048)\n");
-	debugf(0, "   [PEER-TRUST] Peer trust scoring system active (128 peers)\n");
-	debugf(0, "   [PLAUSIBILITY] CW plausibility scoring active (0-12 scale)\n");
+	debugf(0, " [CW-POSTVAL] peer-trust state initialized (telemetry only on the live path)\n");
+	debugf(0, "   [TS-VALIDATE] inert: a proxy server never sees TS data; no confirm hook exists\n");
+	cwpair_set_discovery(cfg.cache.cwpair_discover, cfg.cache.cwpair_discover_caids, cfg.cache.cwpair_discover_n);
+	nopushafter_configure(cfg.cache.nopushafter_caids, cfg.cache.nopushafter_ms, cfg.cache.nopushafter_n);
+	if (cfg.cache.nopushafter_n) debugf(0, "   [CACHEEX NOPUSH AFTER] armed for %d CAIDs (late CWs delivered to the client, not pushed onward)\n", cfg.cache.nopushafter_n);
+	if (cfg.cache.cwpair_discover) debugf(0, "   [CWPAIR] discovery ON for %d CAIDs (learns simulcrypt pairs; serving is per-profile CWPAIR ACTIVE)\n", cfg.cache.cwpair_discover_n);
+	else debugf(0, "   [CWPAIR] OFF (CWDEDUP_CHECK: YES + CWPAIR DISCOVER CAID arms pair learning; per-profile CWPAIR ACTIVE serves)\n");
+	debugf(0, "   [CW-ENTROPY] live only via CACHE CI VALIDATE: ON (Cache Intelligence gate)\n");
+	debugf(0, "   [FAKE-DB] known-fake DB consulted only by the CI VALIDATE gate\n");
+	debugf(0, "   [PEER-TRUST] scoring recorded; no live consumer rejects on it\n");
+	debugf(0, "   [PLAUSIBILITY] inert on the live path (0-12 scoring runs only in dead code)\n");
 
 	/* ECM Pattern Analysis - Detect coordinated attacks */
 	ecmpat_init();
 	debugf(0, " [ECM-PATTERN] ECM Pattern Analysis system initialized\n");
-	debugf(0, "   [EMM-SHARED] EMM injection detection active (5s window)\n");
+	debugf(0, "   [EMM-SHARED] inert: the EMM pattern input is never fed (no EMM ingress in this flavour)\n");
 	debugf(0, "   [BURST] Burst fake CW detection active (3+ in 10s)\n");
 	debugf(0, "   [POISON] Cache poisoning storm detection active\n");
 	debugf(0, "   [PROVIDER] Provider punishment detection active\n");
@@ -3203,14 +3378,11 @@ void mainprocess()
 
 	/* Cache Intelligence — 7-level smart cache optimization */
 	ci_init();
-	debugf(0, " [CACHE-AI] Cache Intelligence System initialized (7 levels)\n");
-	debugf(0, "   [L1] Trust Scoring: Per-peer trust (0-100)\n");
-	debugf(0, "   [L2] Tiered Priority: A-Elite/B-Average/C-Unreliable\n");
-	debugf(0, "   [L3] Quick Validation: Fast CW check on arrival\n");
-	debugf(0, "   [L4] Channel Learning: Best peers per channel\n");
-	debugf(0, "   [L5] Reward & Penalty: Auto-adjust trust\n");
-	debugf(0, "   [L6] Smart Prediction: Predict good CW source\n");
-	debugf(0, "   [L7] Predictive Cache: Pre-fetch CW before needed\n");
+	debugf(0, " [CACHE-AI] Cache Intelligence state initialized\n");
+	debugf(0, "   [L1/L2/L4/L5] trust, tiers, channel learning: recorded; no live consumer\n");
+	debugf(0, "   [L3] Quick Validation: live only via CACHE CI VALIDATE: ON\n");
+	debugf(0, "   [L6] Smart Prediction: inert (no consumer)\n");
+	debugf(0, "   [L7] Predictive Cache: deliberately NOT revived (its dead-path fetch replaces candidate CWs)\n");
 
 // THREADS - detached
 	start_thread_dns();
@@ -3266,8 +3438,9 @@ void mainprocess()
 
 	start_thread_http();
 
-	// Auto-tuning: track time for periodic analysis
-	time_t last_auto_tuning = time(NULL);
+	// Auto-tuning: track time for periodic analysis (monotonic clock:
+	// a wall-clock jump must not delay or rush the 5-minute cadence)
+	unsigned int last_auto_tuning = getseconds();
 
 	while (!prg.restart) {
 		/* Auto recovery: check for servers that need recovery */
@@ -3286,7 +3459,7 @@ void mainprocess()
 		
 		/* Auto-tuning: analyze performance every 5 minutes */
 		{
-			time_t now = time(NULL);
+			unsigned int now = getseconds();
 			if (now - last_auto_tuning >= 300) {  // 300 seconds = 5 minutes
 				auto_tuning_analyze();
 				/* TASK BS (2026-10-26): Periodic blackscreen analysis */

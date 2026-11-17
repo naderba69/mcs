@@ -7,6 +7,7 @@
  */
 
 #include "auto-tuning.h"
+#include "tools.h" /* getseconds(): monotonic clock for interval checks */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,7 +43,7 @@ static auto_tuning_profile_t* find_or_create_profile(uint16_t caid, uint32_t pro
         profile->current_server_timeout = 800;  // Default
         profile->current_cache_timeout = 250;   // Default
         profile->current_valid_ecm_time = 800;  // Default
-        profile->stats.last_update = time(NULL);
+        profile->stats.last_update = getseconds();
         return profile;
     }
     
@@ -132,7 +133,7 @@ static void tune_profile(auto_tuning_profile_t *profile) {
     
     if (tuned) {
         profile->tuning_count++;
-        profile->last_tune_time = time(NULL);
+        profile->last_tune_time = getseconds();
         profile->needs_tuning = 0;
         
         // Log tuning operation
@@ -166,7 +167,7 @@ int auto_tuning_init(void) {
         return -1;
     }
     
-    auto_tuning_cfg.last_check_time = time(NULL);
+    auto_tuning_cfg.last_check_time = getseconds();
     auto_tuning_cfg.total_tuning_operations = 0;
     
     printf("[AUTO-TUNING] System initialized (interval: %dms, min samples: %d)\n",
@@ -195,7 +196,7 @@ void auto_tuning_record_cache_hit(uint16_t caid, uint32_t provid) {
     if (profile) {
         profile->stats.cache_hits++;
         profile->stats.total_requests++;
-        profile->stats.last_update = time(NULL);
+        profile->stats.last_update = getseconds();
     }
     pthread_mutex_unlock(&auto_tuning_mutex);
 }
@@ -208,7 +209,7 @@ void auto_tuning_record_cache_miss(uint16_t caid, uint32_t provid) {
     if (profile) {
         profile->stats.cache_misses++;
         profile->stats.total_requests++;
-        profile->stats.last_update = time(NULL);
+        profile->stats.last_update = getseconds();
     }
     pthread_mutex_unlock(&auto_tuning_mutex);
 }
@@ -221,7 +222,7 @@ void auto_tuning_record_timeout(uint16_t caid, uint32_t provid) {
     if (profile) {
         profile->stats.timeouts++;
         profile->stats.total_requests++;
-        profile->stats.last_update = time(NULL);
+        profile->stats.last_update = getseconds();
         profile->needs_tuning = 1;
     }
     pthread_mutex_unlock(&auto_tuning_mutex);
@@ -234,7 +235,7 @@ void auto_tuning_record_decode_success(uint16_t caid, uint32_t provid) {
     auto_tuning_profile_t *profile = find_or_create_profile(caid, provid);
     if (profile) {
         profile->stats.decode_success++;
-        profile->stats.last_update = time(NULL);
+        profile->stats.last_update = getseconds();
     }
     pthread_mutex_unlock(&auto_tuning_mutex);
 }
@@ -246,7 +247,7 @@ void auto_tuning_record_decode_failed(uint16_t caid, uint32_t provid) {
     auto_tuning_profile_t *profile = find_or_create_profile(caid, provid);
     if (profile) {
         profile->stats.decode_failed++;
-        profile->stats.last_update = time(NULL);
+        profile->stats.last_update = getseconds();
         profile->needs_tuning = 1;
     }
     pthread_mutex_unlock(&auto_tuning_mutex);
@@ -259,7 +260,7 @@ void auto_tuning_record_black_screen(uint16_t caid, uint32_t provid) {
     auto_tuning_profile_t *profile = find_or_create_profile(caid, provid);
     if (profile) {
         profile->stats.black_screens++;
-        profile->stats.last_update = time(NULL);
+        profile->stats.last_update = getseconds();
         profile->needs_tuning = 1;
     }
     pthread_mutex_unlock(&auto_tuning_mutex);
@@ -272,7 +273,7 @@ void auto_tuning_record_black_screen(uint16_t caid, uint32_t provid) {
 void auto_tuning_check_and_tune(void) {
     if (!auto_tuning_cfg.enabled) return;
     
-    time_t now = time(NULL);
+    time_t now = getseconds();
     if ((now - auto_tuning_cfg.last_check_time) * 1000 < auto_tuning_cfg.interval_ms) {
         return;  // Not time to check yet
     }

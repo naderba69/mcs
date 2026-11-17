@@ -1,9 +1,9 @@
-elapsed_s 1202
-ecms_sent 382
+elapsed_s 91
+ecms_sent 65
 connect_fail 0
-rss_max_kb 1652
-rss_end_kb 1652
-rss_base_kb 1652
+rss_max_kb 6148
+rss_end_kb 6148
+rss_base_kb 0
 rss_ceiling_kb 65536
 rss_growth_kb 16384
 result PASS

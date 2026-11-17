@@ -7,6 +7,8 @@
 #include "cafamily.h"	/* TASK R36 (D92) */
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include "cache-window.h"  /* R48 opt-in cache wait-window learning */
+#include "cw-fingerprint.h"  /* R48 CW fingerprint (observe-only) */
+#include "cw-timing.h"  /* R48 CW timing anomaly (observe-only) */
 #include "tick_math.h"
 #include <stdlib.h>
 
@@ -81,8 +83,8 @@ static void cache_peer_hit_update(struct cardserver_data *cs, uint32_t peer_id,
 		cs->hits.csp++;
 		if (instant) cs->hits.instant.csp++;
 	}
-	if (time_bucket < 99) cs->ttimecache[time_bucket]++;
-	else cs->ttimecache[99]++;
+	if (time_bucket < 99) __atomic_fetch_add(&cs->ttimecache[time_bucket], 1, __ATOMIC_RELAXED);
+	else __atomic_fetch_add(&cs->ttimecache[99], 1, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.lockcacheex);
 }
 
@@ -241,7 +243,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 #else
 			NULL,
 #endif
-			ecm->caid, ecm->provid, ecm->sid, (uint32_t)srcid, now_ms, &ssf_reason);
+			ecm->caid, ecm->provid, ecm->sid, (uint32_t)srcid, now_ms, &ssf_reason, 0, 0, 0, 0, 0, 0xFFFFFFFFu, 0, 0, 0);
 		if (ssf_rejected) {
 			char detail[96];
 			snprintf(detail, sizeof(detail),
@@ -358,10 +360,12 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 	 *
 	 * dcw_pattern_fake() detects these shapes with ~1e-12 false positive
 	 * rate on genuine keys (verified by TASK R28/D79). Armed here for
-	 * the three CAIDs most affected by provider fake-CW attacks.
+	 * the CAIDs most affected by provider fake-CW attacks.
 	 *
 	 * Source: LinuxSat-Support Thread #151206 (CAID 1810),
 	 *         EXTERNAL-RESEARCH-REPORT.md (all three CAIDs).
+	 * 1814 (MEO PT): added 2026-11-13 on operator field report of heavy
+	 * fake black-screen on this CAID (same attack shape as 1810/1883).
 	 */
 	if (srctype != DCW_SOURCE_CACHE || (srcid & PEER_ORIGIN_FLAGS)) {
 		/* Check non-cache sources and cache-exchange pushes */
@@ -371,6 +375,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 			case 0x1883:  /* Canal+ France */
 			case 0x1884:  /* NLS */
 			case 0x1811:  /* CanalSat NG */
+			case 0x1814:  /* MEO PT - operator field report 2026-11-13 */
 				check_fake = 1;
 				break;
 		}
@@ -625,6 +630,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 	ecm->waitserver = 0;
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
+	cwpair_observe(ecm->caid, ecm->provid, ecm->sid, dcw, GetTickCount()); /* band 38 */
 	cache_reply_len = pipe_cache_reply(ecm, cs, cache_reply_buf,
 	                                   sizeof(cache_reply_buf), source_origin_mask);
 	/* Keep the non-THREAD_DCW path's cache waiter lifetime bounded too. */
@@ -665,10 +671,10 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 	ibs_on_cw_sent(0, ecm->caid, ecm->provid, ecm->sid, (uint32_t)srcid, dcw, GetTickCount());
 
 	// Update Stat
-	cs->ecmok++;
-	cs->ecmoktime += ecmtime;
+	__atomic_fetch_add(&cs->ecmok, 1, __ATOMIC_RELAXED);
+	__atomic_fetch_add(&cs->ecmoktime, (ecmtime), __ATOMIC_RELAXED);
 	int time = (ecmtime+50)/100;
-	if (time<99) cs->ttime[time]++; else cs->ttime[99]++;
+	if (time<99) __atomic_fetch_add(&cs->ttime[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttime[99], 1, __ATOMIC_RELAXED);
 
 	if (srctype==DCW_SOURCE_CACHE) {
 		if (srcid&PEER_CSP) {
@@ -698,7 +704,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 
 #ifdef CAMD35_SRV
@@ -722,7 +728,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 #endif
 
@@ -747,7 +753,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 #endif
 
@@ -770,7 +776,7 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 					srv->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 			pthread_mutex_unlock(&prg.lockcacheex);
 		}
@@ -780,18 +786,18 @@ static void ecm_setdcw_origin(ECM_DATA *ecm, uint8_t dcw[16], int srctype,
 	else if (srctype==DCW_SOURCE_SERVER) {
 		struct server_data *srv = getsrvbyid( srcid&0xffff );
 		if (srv) srv->hits++;
-		if (time<99) cs->ttimecards[time]++; else cs->ttimecards[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimecards[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecards[99], 1, __ATOMIC_RELAXED);
 	}
 #ifdef SRV_CSCACHE
 	else if (srctype==DCW_SOURCE_CSCLIENT) {
 		/* cachedcw is updated by cs_check_sendcw() under the Newcamd
 		 * config/client locks, after lockecm has been released. */
-		if (time<99) cs->ttimeclients[time]++; else cs->ttimeclients[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimeclients[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimeclients[99], 1, __ATOMIC_RELAXED);
 	}
 	else if (srctype==DCW_SOURCE_MGCLIENT) {
 		struct mg_client_data *cli = getmgcamdclientbyid( srcid&0xffff );
 		if (cli) cli->cachedcw++;
-		if (time<99) cs->ttimeclients[time]++; else cs->ttimeclients[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimeclients[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimeclients[99], 1, __ATOMIC_RELAXED);
 	}
 #endif
 
@@ -957,6 +963,31 @@ static void cache_verify_setdcw_result_done(ECM_DATA *queued,
 	}
 	ecm_unlock();
 	if (wake) wakeup_sendecm();
+}
+
+/* ECM DOUBLECHECK feed (observe mode). One entry point for both the
+ * committed-CW feed below and the server-arrival feed from ecmdata.o
+ * (ecm_setsrvflagdcw), which is a separate translation unit and so
+ * reaches this TU's DoubleCheck state only through here. Finds the
+ * pending check by ECM hash and records this source's CW; decisions
+ * land in the ring the CCcam trace page renders. Never gates. */
+void mcs_doublecheck_feed(uint32_t ecm_hash, int reader_id, const uint8_t *cw, uint32_t response_ms)
+{
+	doublecheck_pending_t *dcp = ecm_doublecheck_find(ecm_hash);
+	if (dcp) {
+		int v = ecm_doublecheck_add_result(dcp, reader_id, cw, response_ms);
+		if (v==1) {
+			debugf(0, " [ECM-DBLCHK] verified: two sources agree ch %04x:%06x:%04x\n", dcp->caid, dcp->provid, dcp->sid);
+			/* Band 45: the R22 cw_verified hook is wired at this
+			 * corroboration verdict -- two independent sources
+			 * produced identical bytes. It is not, and must never
+			 * be read as, proof that a client decrypted: no
+			 * protocol message carries that fact. No-op in stock. */
+			r22_hook_cw_verified(dcp->caid, dcp->provid, dcp->sid, cw, reader_id, GetTickCount());
+		}
+		else if (dcp->result_count>=2)
+			debugf(DBG_ERROR, " !!! [ECM-DBLCHK] MISMATCH: sources disagree ch %04x:%06x:%04x (delivered key kept; observe mode)\n", dcp->caid, dcp->provid, dcp->sid);
+	}
 }
 
 void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
@@ -1126,6 +1157,30 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 		}
 	}
 
+    /*
+     * R48 CW timing anomaly (observe-only).
+     *
+     * A SERVER-sourced CW that returns implausibly fast (< 30ms from
+     * dispatch) likely came from a server with no card (fake). Cache
+     * sources are exempt -- they are legitimately fast. This never
+     * refuses; it traces the anomaly for /user-trace and aggregates
+     * per-peer fast counts for the operator's trust decisions.
+     */
+    if (srctype == DCW_SOURCE_SERVER) {
+        int k;
+        uint32_t now = GetTickCount();
+        for (k = 0; k < 20; k++) {
+            if (ecm->server[k].srvid && ecm->server[k].srvid == (uint32_t)srcid) {
+                uint32_t elapsed = tick32_elapsed(now, ecm->server[k].sendtime);
+                if (cwtime_anomaly_note((uint32_t)srcid, elapsed)) {
+                    debugf(0, "    ⚠️ [CW-TIMING] %04X:%06X:%04X server %d -- %ums < %dms (possible fake, no card)\n",
+                           ecm->caid, ecm->provid, ecm->sid, srcid, (unsigned)elapsed, CWTIME_ANOMALY_MS);
+                }
+                break;
+            }
+        }
+    }
+
 	{
         int reason = DCW_VALID;
         if (!acceptDCW_profile_ecm_reason(dcw, cs, ecm->caid, ecm->provid, ecm->sid, &reason)) {
@@ -1138,7 +1193,103 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
             case DCW_INVALID_PATTERN: why = "CW rejected by ECM worker profile validation: enabled pattern"; break;
             }
             trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, why);
+            diagnostics_record_rejection();
             newcamd_config_read_unlock(); return;
+        }
+    }
+
+    /*
+     * Fake-CW gate for the live (THREAD_DCW) path.
+     *
+     * The original check_fake() lives inside the #ifndef THREAD_DCW block
+     * above, which the production build (target=x64 defines THREAD_DCW)
+     * never compiles. This gate mirrors its semantics on the live path:
+     * Nagravision CAIDs (0x1800-0x1884) whose CW fails the structural
+     * checksum are rejected as fake. The checksum itself is the same
+     * checksumDCW() used by acceptDCW(), so a structurally valid key is
+     * never rejected here; only keys that would fail checksum anyway are
+     * dropped earlier, with a trace record instead of a silent timeout.
+     *
+     * 0x1814 (MEO PT) added 2026-11-13 per operator field report: the
+     * profile's fake-CW reports were previously invisible on this path
+     * because the gate was dead code.
+     *
+     * The gate must respect the operator's checksum policy: with
+     * DCWFILTER CHECKSUM: OFF (globally or per profile) a Nagravision
+     * bouquet may legitimately fail the structural checksum, and
+     * refusing its keys anyway silently overrides the explicit OFF
+     * (this broke tests/vl P3, whose forged-key flood is only
+     * deliverable with CHECKSUM: OFF). Armed profiles are already
+     * refused by the profile validation above; this stays as their
+     * traced backstop.
+     */
+    {
+        int global_checksum = 0;
+        int checksum_mode = cs ? cs->option.dcwfilter_checksum : DCWFILTER_INHERIT;
+        int checksum_armed;
+        dcw_filter_globals_snapshot(&global_checksum, NULL, NULL, NULL);
+        checksum_armed = (checksum_mode == DCWFILTER_ON) ||
+                         (checksum_mode == DCWFILTER_INHERIT && global_checksum);
+        if (checksum_armed && ecm->caid >= 0x1800 && ecm->caid <= 0x1884 &&
+            !dcw_checksum_exemption_applies(cs, ecm->caid, ecm->provid, ecm->sid)) {
+            if (!checksumDCW(dcw)) {
+                trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid,
+                                       "CW rejected by ECM worker: fake CW (Nagravision checksum)");
+                diagnostics_record_rejection();
+                debugf(0, "    ❌ [FAKE-CW] %04X:%06X:%04X -- Nagravision checksum failed\n",
+                       ecm->caid, ecm->provid, ecm->sid);
+                newcamd_config_read_unlock(); return;
+            }
+        }
+    }
+    /*
+     * R48 trusted-source fast-path.
+     *
+     * When the operator designates a peer/server as trusted
+     * (CACHE PEER ... { trusted=YES }), its CWs are delivered
+     * immediately after structural validation, bypassing consensus.
+     * Solution for majority-fake scenarios (100+ cache peers, 40+
+     * Newcamd lines, most sending fakes): operator knows which
+     * source is real, system trusts it. Structural checks still run.
+     */
+    {
+        int is_trusted = 0;
+        if (srctype == DCW_SOURCE_CACHE) {
+            struct cachepeer_data *peer = getpeerbyid(srcid);
+            if (peer && peer->trusted) is_trusted = 1;
+        } else if (srctype == DCW_SOURCE_SERVER) {
+            struct server_data *srv = getsrvbyid(srcid & 0xffff);
+            if (srv && srv->trusted) is_trusted = 1;
+        }
+        if (is_trusted) {
+            debugf(0, "    ✅ [TRUSTED] %04X:%06X:%04X from trusted source %d -- fast-path\n",
+                   ecm->caid, ecm->provid, ecm->sid, srcid);
+            ecm_lock();
+            ecm = queued_ecm;
+            if (ecm_request_lifetime_id_load(ecm) != lifetime_at_queue) {
+                ecm_unlock();
+                newcamd_config_read_unlock(); return;
+            }
+            goto trusted_deliver;
+        }
+    }
+
+
+    /*
+     * R48 CW fingerprint (observe-only, opt-in per profile).
+     *
+     * Learns the per-byte-position distribution of genuine CWs for
+     * this channel and traces statistical anomalies -- the XOR 0xF0
+     * last-byte fake and other biased generators that pass every
+     * structural gate. Never refuses; the anomaly is evidence for
+     * /user-trace and for the operator's source-trust decisions.
+     */
+    if (cs->option.cw_fingerprint) {
+        if (cwfp_note(ecm->caid, ecm->provid, ecm->sid, dcw)) {
+            debugf(0, "    ⚠️ [CW-FINGERPRINT] %04X:%06X:%04X -- statistical anomaly vs established baseline\n",
+                   ecm->caid, ecm->provid, ecm->sid);
+            trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid,
+                                   "CW fingerprint anomaly (observe-only, delivered)");
         }
     }
 
@@ -1188,6 +1339,10 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 	{
 		uint32_t now_ms = GetTickCount();
 		const char *dcwstrict_reason = NULL;
+		/* R48: DCW STRICT is opt-in via DCWFILTER STRICT: ON.
+		 * The snapshot is taken here (not in dcwstrict_init) so a
+		 * config reload arms/disarms it without a restart. */
+		dcwstrict_cfg.enabled = dcw_filter_strict_snapshot();
 		int dcwstrict_rejected = dcwstrict_check(dcw, ecm->caid, ecm->provid, ecm->sid, now_ms, &dcwstrict_reason);
 		
 		if (dcwstrict_rejected) {
@@ -1195,6 +1350,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
             snprintf(detail, sizeof(detail), "CW rejected by ECM worker: DCW STRICT; reason=%s",
                      dcwstrict_reason ? dcwstrict_reason : "unknown");
             trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, detail);
+            diagnostics_record_rejection();
 			debugf(0, "    ❌ [DCW-STRICT-REJECT] %04X:%06X:%04X -- %s\n",
 				ecm->caid, ecm->provid, ecm->sid, dcwstrict_reason ? dcwstrict_reason : "unknown");
 			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
@@ -1205,18 +1361,24 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 		debugf(0, "    ✅ [DCW-STRICT] OK\n");
 		
 		int ssf_reason = 0;
-		int ssf_rejected = supersmartfilter_check(dcw, 
+		int ssf_rejected = supersmartfilter_check(dcw,
 #ifdef CACHEEX
 			ecm->ecmd5,
 #else
 			NULL,
 #endif
-			ecm->caid, ecm->provid, ecm->sid, srcid, now_ms, &ssf_reason);
+			ecm->caid, ecm->provid, ecm->sid, srcid, now_ms, &ssf_reason,
+			cs->option.sf_filter_level, cs->option.sf_marchcheck,
+			cs->option.sf_cwdup, cs->option.sf_cwreuse,
+			cs->option.sf_latecw, tick32_elapsed(now_ms, ecm->recvtime),
+			cs->option.sf_latecw_ms, cs->option.sf_cwreuse_window_ms,
+			cs->option.sf_cwdup_rep);
 		
 		if (ssf_rejected) {
             char detail[96];
             snprintf(detail, sizeof(detail), "CW rejected by ECM worker: SuperSmartFilter reason code %d", ssf_reason);
             trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, detail);
+            diagnostics_record_rejection();
 			debugf(0, "    ❌ [SSF-v2-REJECT] %04X:%06X:%04X -- reason code %d\n",
 				ecm->caid, ecm->provid, ecm->sid, ssf_reason);
 			if (srctype == DCW_SOURCE_CACHE && srcid > 0) {
@@ -1232,6 +1394,47 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 	}
 
 
+	/* CI VALIDATE (audit band 25): ci_validate_cw alone, moved from the
+	 * dead #ifndef THREAD_DCW stack to this live path behind
+	 * CACHE CI VALIDATE: ON (default OFF = stock). Its structural checks
+	 * overlap the profile gate; the entropy and known-fake checks are
+	 * the new evidence. The rest of that stack stays dead on purpose:
+	 * its predictive fetch replaces candidate CWs and must not be
+	 * revived as-is. */
+	if (cs->option.ci_validate ? cs->option.ci_validate == 1 : cfg.cache.ci_validate) {
+		ci_cw_status_t ci_status = ci_validate_cw(dcw, ecm->caid, ecm->provid, ecm->sid);
+		if (ci_status != CI_CW_VALID) {
+			char detail[96];
+			snprintf(detail, sizeof(detail), "CW rejected by ECM worker: Cache Intelligence validation (%s)", ci_cw_status_name(ci_status));
+			trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, detail);
+			diagnostics_record_rejection();
+			debugf(0, "    \u274c [CACHE-AI-REJECT] %04X:%06X:%04X from src %d -- %s\n",
+			       ecm->caid, ecm->provid, ecm->sid, srcid, ci_cw_status_name(ci_status));
+			newcamd_config_read_unlock(); return;
+		}
+	}
+
+	/* DROPDIFFS (band 32): behind CACHE DROPDIFFS: ON (default OFF =
+	 * stock). If a known-good CW is already stored for this exact ECM
+	 * (ecmd5 identity, 60s TTL backstop), a differing candidate is
+	 * refused; the first arrival for an ECM is never judged here --
+	 * it cannot tell a first fake from a first truth, which is the
+	 * consensus/profile gates' job. */
+	if ((cs->option.dropdiffs ? cs->option.dropdiffs == 1 : cfg.cache.dropdiffs) &&
+#ifdef CACHEEX
+	    !cacheex_dropdiffs_check(ecm->caid, ecm->provid, ecm->sid, dcw, ecm->ecmd5)
+#else
+	    0 /* Band 85: no ecmd5 identity without CACHEEX; DropDiffs cannot judge */
+#endif
+	    ) {
+		char detail[96];
+		snprintf(detail, sizeof(detail), "CW rejected by ECM worker: DropDiffs (differs from known-good for this ECM)");
+		trace_queued_rejection(queued_ecm, lifetime_at_queue, trace_at_queue, srctype, srcid, detail);
+		diagnostics_record_rejection();
+		debugf(0, "    \u274c [DROPDIFFS-REJECT] %04X:%06X:%04X from src %d\n",
+		       ecm->caid, ecm->provid, ecm->sid, srcid);
+		newcamd_config_read_unlock(); return;
+	}
 
 	int cwpart = 2;
 	if (ecm->cw1cycle) {
@@ -1369,6 +1572,16 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 		queue_cache_reference = cache_verify_take_candidate_locked(
 		    ecm, cache_reference_cw, &cache_reference_peerid,
 		    &cache_reference_cwmark, &cache_reference_origin_mask);
+trusted_deliver:
+	/* Telemetry feed for /cache-analytics and /diagnostics (advisory only).
+	 * Both take only their own leaf locks; lockecm -> leaf is one-way, the
+	 * page readers never take lockecm, so no inversion is possible. */
+	{
+		uint32_t elapsed_ms = tick32_elapsed(GetTickCount(), ecm->recvtime);
+		cache_analytics_record_request(ecm->caid, ecm->provid, ecm->sid,
+		                               srctype == DCW_SOURCE_CACHE, elapsed_ms);
+		diagnostics_record_delivery(srctype == DCW_SOURCE_CACHE, elapsed_ms);
+	}
 	ecm->statusmsg = "Decode Success";
 	int instant = (ecm->dcwstatus==STAT_DCW_WAITCACHE);
 	ecm->dcwsrctype = srctype;
@@ -1378,6 +1591,21 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 	ecm->waitserver = 0;
 	sid_newecm(ecm);
 	memcpy( ecm->cw, dcw, 16 );
+	/* Band 82: this commit path (card/cacheex sources via the marked
+	 * queue) never fed pair learning -- only the older commit path
+	 * (above) and cache stores did, so CWPAIR discovery stayed blind
+	 * to card-produced CWs and pairs could not be confirmed from
+	 * /user-trace for card-fed profiles. Same observe call. */
+	cwpair_observe(ecm->caid, ecm->provid, ecm->sid, dcw, GetTickCount());
+	/* DROPDIFFS: this committed CW becomes the known-good reference
+	 * for any later differing candidate for the same ECM. */
+	if (cs->option.dropdiffs ? cs->option.dropdiffs == 1 : cfg.cache.dropdiffs)
+#ifdef CACHEEX
+		cacheex_dropdiffs_store_good(ecm->caid, ecm->provid, ecm->sid, dcw, ecm->ecmd5,
+		                             srctype == DCW_SOURCE_SERVER ? 10 : 5);
+#else
+		(void)0; /* Band 85: no ecmd5 identity without CACHEEX; nothing to store */
+#endif
 	cache_reply_len = pipe_cache_reply(ecm, cs, cache_reply_buf,
 	                                   sizeof(cache_reply_buf), source_origin_mask);
 	delivery_valid = ledger_delivery_snapshot_capture_locked(&delivery, ecm);
@@ -1481,6 +1709,28 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 	ibs_on_cw_sent(0, committed_caid, committed_provid, committed_sid,
 	               (uint32_t)srcid, committed_cw, GetTickCount());
 
+	/* ECM DOUBLECHECK (observe mode; armed per configured CAID in th-ecm.c):
+	 * feed this committed CW into its pending check. Server replies are
+	 * also fed at arrival (ecm_setsrvflagdcw in ecmdata.c, via
+	 * mcs_doublecheck_feed below) so a late second card's CW -- dropped
+	 * as a delivery because the ECM is already satisfied -- still counts
+	 * as the second source. add_result dedupes per reader, so the
+	 * winning CW fed twice (arrival + commit) is never two sources.
+	 * Delivery above already happened: this never gates or alters a CW. */
+	mcs_doublecheck_feed(committed_hash, (int)srcid, committed_cw, ecmtime);
+
+	/* R22 layers (opt-in build -DR22_LAYERS, no-op in stock): a committed
+	 * card-server CW is the ground truth the candidate layers learn from.
+	 * Recorded after delivery, like every observer here: it cannot reject,
+	 * delay or alter the CW. Hooks cw_failed/cw_verified are NOT called
+	 * here -- no protocol message tells this server a client actually
+	 * decrypted, and calling them at delivery would fabricate that
+	 * evidence. Band 45 wires them at the two honest evidence points
+	 * instead: cw_failed at a definitive negative-memory proof
+	 * (cwn_note in main.c), cw_verified at a DoubleCheck agreement. */
+	if (srctype==DCW_SOURCE_SERVER)
+		r22_hook_ecm_setsrvflagdcw(committed_caid, committed_provid, committed_sid, committed_cw, (unsigned int)srcid, GetTickCount());
+
 	/*
 	 * TASK 2.5 -- the cache hand-off, observed at the moment it happens (see
 	 * cwcycle.h). Only cache-sourced keys are watched, and srcid keeps every
@@ -1500,10 +1750,10 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 		         cwcy_observed(cwmark));
 
 	// Update Stat
-	cs->ecmok++;
-	cs->ecmoktime += ecmtime;
+	__atomic_fetch_add(&cs->ecmok, 1, __ATOMIC_RELAXED);
+	__atomic_fetch_add(&cs->ecmoktime, (ecmtime), __ATOMIC_RELAXED);
 	int time = (ecmtime+50)/100;
-	if (time<99) cs->ttime[time]++; else cs->ttime[99]++;
+	if (time<99) __atomic_fetch_add(&cs->ttime[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttime[99], 1, __ATOMIC_RELAXED);
 
 	if (srctype==DCW_SOURCE_CACHE) {
 		if (srcid&PEER_CSP) {
@@ -1533,7 +1783,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 
 #ifdef CAMD35_SRV
@@ -1557,7 +1807,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 #endif
 
@@ -1582,7 +1832,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 					cli->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 #endif
 
@@ -1605,7 +1855,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 					srv->cacheex.ihits++;
 				}
 			}
-			if (time<99) cs->ttimecacheex[time]++; else cs->ttimecacheex[99]++;
+			if (time<99) __atomic_fetch_add(&cs->ttimecacheex[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecacheex[99], 1, __ATOMIC_RELAXED);
 		}
 			pthread_mutex_unlock(&prg.lockcacheex);
 		}
@@ -1620,31 +1870,40 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 			srv->hits++;
 			pthread_mutex_unlock(&prg.locksrv);
 		}
-		if (time<99) cs->ttimecards[time]++; else cs->ttimecards[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimecards[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimecards[99], 1, __ATOMIC_RELAXED);
 	}
 #ifdef SRV_CSCACHE
 	else if (srctype==DCW_SOURCE_CSCLIENT) {
 		/* cachedcw is updated by cs_check_sendcw() under the Newcamd
 		 * config/client locks, after lockecm has been released. */
-		if (time<99) cs->ttimeclients[time]++; else cs->ttimeclients[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimeclients[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimeclients[99], 1, __ATOMIC_RELAXED);
 	}
 	else if (srctype==DCW_SOURCE_MGCLIENT) {
 		struct mg_client_data *cli = getmgcamdclientbyid( srcid&0xffff );
 		if (cli) cli->cachedcw++;
-		if (time<99) cs->ttimeclients[time]++; else cs->ttimeclients[99]++;
+		if (time<99) __atomic_fetch_add(&cs->ttimeclients[time], 1, __ATOMIC_RELAXED); else __atomic_fetch_add(&cs->ttimeclients[99], 1, __ATOMIC_RELAXED);
 	}
 #endif
 
+{
+	/* CACHEEX NOPUSH AFTER (band 41): a CW committed too late for
+	 * its CAID still serves the waiting client above, but is not
+	 * pushed onward to CacheEX servers or CSP peers. */
+	int nopush_blocked = nopushafter_blocked(ecm->caid, ecmtime);
+	if (nopush_blocked && ecm->trace_instance)
+		user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+		    0, 0, ecmtime, "CACHEEX NOPUSH AFTER: late CW delivered to client, not pushed");
 #ifdef CACHEEX
 	// Send DCW to CACHE-EX servers from the frozen successful snapshot.
 	if (delivery_valid && cs->option.fallowcacheex &&
-	    ecmtime<cs->option.cacheexvalidtime) {
+	    ecmtime<cs->option.cacheexvalidtime && !nopush_blocked) {
 		pipe_send_cacheex_push_out_snapshot(&delivery);
 	}
 #endif
 
 	// Send the cache reply serialized at the successful commit.
-	pipe_cache_reply_send(cache_reply_buf, cache_reply_len);
+	if (!nopush_blocked) pipe_cache_reply_send(cache_reply_buf, cache_reply_len);
+}
 
 #ifdef CLI_CSCACHE
 	// Send only to servers still waiting for this exact ECM generation. lockecm
@@ -1673,7 +1932,7 @@ void ecm_setdcwdata( ECM_DATA *ecm, uint8_t dcw[16], int srctype, int srcid,
 		buf[0] = committed_tag | 0x40; // 0xC0 | 0xC1
 		buf[2] = 0x10;
 		memcpy(&buf[3], committed_cw, sizeof(committed_cw));
-		if (!cs_message_send(srv->handle, &srvcd, buf, 19, srv->sessionkey))
+		if (!cs_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srvcd, buf, 19, srv->sessionkey))
 			disconnect_srv(srv);
 		pthread_mutex_unlock(&prg.locksrv);
 	}

@@ -192,6 +192,7 @@ int peer_doublecheck(struct cacheserver_data *cache, struct cachepeer_data *xpee
 #include "peerrep.h"		/* TASK R4 (D58): the persistent peer-reputation ladder */
 #include "cwconsensus.h"/* TASK R8 (D62): the per-request cw arbitrer */
 #include "cache-intelligence.h" /* CACHE-AI: 7-level smart cache optimization */
+#include "cwpair.h" /* band 38: observe cache-stored CWs for pairing */
 #ifdef MCS_DCWSTATS
 #include "cwlog.h"		/* TASK R11 (D65): the per-CW verdict ring */
 #endif
@@ -405,6 +406,7 @@ struct __attribute__ ((__packed__)) cache_data {
 	//
 	uint32_t provid;
 	cwcycle_t cwcycle; // ecmtag when cw1 cycle
+	uint8_t cw1cycle; // 0x80/0x81 from ECM (0 = unknown); for cycle estimation
 	uint8_t prevcw[16];
 #ifdef CACHEEX
 	uint8_t ecmd5[16];
@@ -719,6 +721,7 @@ struct cache_data *cache_new( struct cache_data *newdata )
 	pcache->hash = newdata->hash;
 	pcache->provid = newdata->provid;
 	pcache->provider_known = newdata->provider_known || newdata->provid != 0;
+	pcache->cw1cycle = newdata->cw1cycle;
 #ifdef CACHEEX
 	memcpy( pcache->ecmd5, newdata->ecmd5, 16);
 #endif
@@ -1152,7 +1155,7 @@ int get_cache2ecm_with_verify(uint8_t *buf, size_t len,
 	pcache->sid = (buf[2]<<8) | buf[3];
 	pcache->onid = (buf[4]<<8) | buf[5];
 	pcache->caid = (buf[6]<<8) | buf[7];
-	pcache->hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | buf[11];
+	pcache->hash = ((uint32_t)((uint32_t)buf[8]<<24)) | (buf[9]<<16) | (buf[10]<<8) | buf[11];
 	memcpy(&pcache->ecm, buf+index, sizeof(void*));
 	index += sizeof(void*);
 	memcpy(&ecm_lifetime_id, buf+index, sizeof(ecm_lifetime_id));
@@ -1160,7 +1163,7 @@ int get_cache2ecm_with_verify(uint8_t *buf, size_t len,
 	pcache->ecm_lifetime_id = ecm_lifetime_id;
 	index += sizeof(ecm_lifetime_id);
 	if (has_cw) {
-		uint32_t peerid = ((uint32_t)buf[index]<<24) | ((uint32_t)buf[index+1]<<16) |
+		uint32_t peerid = ((uint32_t)((uint32_t)buf[index]<<24)) | ((uint32_t)buf[index+1]<<16) |
 		                  ((uint32_t)buf[index+2]<<8) | buf[index+3];
 		index += CACHE_PIPE_FIND_SUCCESS_PEERID_LEN;
 		memcpy(cw, buf+index, CACHE_PIPE_FIND_SUCCESS_CW_LEN);
@@ -1411,7 +1414,7 @@ int get_ecm2cache(uint8_t *buf, int len, struct cache_data *pcache, uint8_t *cw)
 	pcache->sid = (buf[2]<<8) | buf[3];
 	pcache->onid = (buf[4]<<8) | buf[5];
 	pcache->caid = (buf[6]<<8) | buf[7];
-	pcache->hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) | (buf[11]);
+	pcache->hash = ((uint32_t)((uint32_t)buf[8]<<24)) | (buf[9]<<16) | (buf[10]<<8) | (buf[11]);
 	pcache->provid = (buf[12]<<16) | (buf[13]<<8) | (buf[14]);
 	pcache->provider_known = !!(buf[15] & 0x80) || pcache->provid != 0;
 	pcache->cwcycle = (cwcycle_t)(buf[15] & 0x7F);
@@ -2033,10 +2036,10 @@ static void save_sms_record(const struct sms_data *sms,
 	if (fhandle) {
 		char timebuf[80];
 		time_t rawtime;
-		struct tm time_storage;
+		union { struct tm tm; char slack[sizeof(struct tm) + 32]; } time_storage; /* tail slack: packed TU, libc writes native tm (ASan-proven) */
 		struct tm *timeinfo;
 		memcpy(&rawtime, PACKED_MPTR(sms, time_t, rawtime), sizeof(rawtime));
-		timeinfo = localtime_r(&rawtime, &time_storage);
+		timeinfo = localtime_r(&rawtime, &time_storage.tm);
 		if (timeinfo) strftime(timebuf, sizeof(timebuf), "%x %X", timeinfo);
 		else snprintf(timebuf, sizeof(timebuf), "unknown time");
 		if (sms->status & 1)
@@ -2515,22 +2518,46 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 				 * backwards mapping would misjudge the gate, so
 				 * this stays opt-in OFF until a field capture
 				 * confirms it per provider. */
-				if (cfg.cache.cycle_estimate && !isnullDCW(pcache->prevcw) &&
-				    pcache->cwcycle != NO_CYCLE) {
-					int first_same = dcwcmp8(cw, pcache->prevcw);
-					int second_same = dcwcmp8(cw+8, pcache->prevcw+8);
-					if (first_same && !second_same) {
-						cwcycle = CW1CYCLE;
-						cwdata->status |= DCW_CYCLE;
-						cwdata->cwcycle = cwcycle;
-						user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
-						    "cache cycle estimated temporally: CW1 (no marker)", cw);
-					} else if (!first_same && second_same) {
-						cwcycle = CW0CYCLE;
-						cwdata->status |= DCW_CYCLE;
-						cwdata->cwcycle = cwcycle;
-						user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
-						    "cache cycle estimated temporally: CW0 (no marker)", cw);
+				if (cfg.cache.cycle_estimate) {
+					if (!isnullDCW(pcache->prevcw) && pcache->cwcycle != NO_CYCLE) {
+						int first_same = dcwcmp8(cw, pcache->prevcw);
+						int second_same = dcwcmp8(cw+8, pcache->prevcw+8);
+						if (first_same && !second_same) {
+							cwcycle = CW1CYCLE;
+							cwdata->status |= DCW_CYCLE;
+							cwdata->cwcycle = cwcycle;
+							user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+							    "cache cycle estimated temporally: CW1 (no marker)", cw);
+						} else if (!first_same && second_same) {
+							cwcycle = CW0CYCLE;
+							cwdata->status |= DCW_CYCLE;
+							cwdata->cwcycle = cwcycle;
+							user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+							    "cache cycle estimated temporally: CW0 (no marker)", cw);
+						}
+					} else if (isnullDCW(pcache->prevcw)) {
+						/* First CW for this channel: no prevcw. Determine the
+						 * cycle from the entry's declared expectation when the
+						 * ECM carried one (pcache->cwcycle, set from the
+						 * channel's cw1cycle via put_ecm2cache), otherwise
+						 * estimate from ecmtag via cwcy_expect() using the
+						 * stored cw1cycle. If neither is known, the estimate
+						 * is NO_CYCLE and the key is refused as before. */
+						int est = (pcache->cwcycle != NO_CYCLE) ? (int)pcache->cwcycle
+						                                        : cwcy_expect(req->tag, pcache->cw1cycle);
+						if (est == CW1CYCLE) {
+							cwcycle = CW1CYCLE;
+							cwdata->status |= DCW_CYCLE;
+							cwdata->cwcycle = cwcycle;
+							user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+							    "cache cycle estimated from ecmtag: CW1 (first CW)", cw);
+						} else if (est == CW0CYCLE) {
+							cwcycle = CW0CYCLE;
+							cwdata->status |= DCW_CYCLE;
+							cwdata->cwcycle = cwcycle;
+							user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid,
+							    "cache cycle estimated from ecmtag: CW0 (first CW)", cw);
+						}
 					}
 				}
 				if (!(cwdata->status&DCW_CYCLE)) {
@@ -2930,6 +2957,12 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		return DCW_ERROR;
 	}
 
+	/* R22 layers (opt-in build -DR22_LAYERS, no-op in stock): learned-pattern
+	 * gates over the same arrival, after the proof gates above and before
+	 * the entry is stored. A reject here is a layer verdict, not a proof:
+	 * it never touches negative memory or any source's standing. */
+	if ( r22_hook_cache_setdcw(req->caid, req->provid, req->sid, cw, peerid, GetTickCount()) != 0 ) return DCW_ERROR;
+
 	/*
 	 * TASK R30 (D81) -- attestation gate. A key that independent clients
 	 * filed by re-asking too soon after the same delivered bytes gets
@@ -3006,6 +3039,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
         }
 		memset( cwdata, 0, sizeof(struct cw_cache_data) );
 		memcpy(cwdata->cw, cw, 16);
+		cwpair_observe(req->caid, req->provid, req->sid, cw, GetTickCount()); /* band 38 */
 		cwdata->status = 0;
 		cwdata->cwcycle = NO_CYCLE;
 		cwdata->peerid = peerid;
@@ -3409,7 +3443,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.sid = (buf[2]<<8) | buf[3];
 			req.onid = (buf[4]<<8) | buf[5];
 			req.caid = (buf[6]<<8) | buf[7];
-			req.hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
+			req.hash = ((uint32_t)((uint32_t)buf[8]<<24)) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
 			req.provid = 0;
 
 
@@ -3481,7 +3515,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.sid = (buf[2]<<8) | buf[3];
 			req.onid = (buf[4]<<8) | buf[5];
 			req.caid = (buf[6]<<8) | buf[7];
-			req.hash = ((uint32_t)buf[8]<<24) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
+			req.hash = ((uint32_t)((uint32_t)buf[8]<<24)) | (buf[9]<<16) | (buf[10]<<8) |buf[11];
 			req.provid = 0;
 
 
@@ -3547,7 +3581,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			req.sid = (buf[6]<<8) | buf[7];
 			req.onid = (buf[8]<<8) | buf[9];
 			req.caid = (buf[10]<<8) | buf[11];
-			req.hash = ((uint32_t)buf[12]<<24) | (buf[13]<<16) | (buf[14]<<8) | buf[15];
+			req.hash = ((uint32_t)((uint32_t)buf[12]<<24)) | (buf[13]<<16) | (buf[14]<<8) | buf[15];
 			req.provid = 0;
 			//
 			// Check Cache Request
@@ -3848,7 +3882,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			int totalcards = (received-2)/4;
 			int j=0;
 			while ( (j<totalcards)&&(idx<1024) ){
-				peer->cards[idx] = ((uint32_t)buf[2+j*4]<<24)|((uint32_t)buf[3+j*4]<<16)|((uint32_t)buf[4+j*4]<<8)|buf[5+j*4];
+				peer->cards[idx] = ((uint32_t)((uint32_t)buf[2+j*4]<<24))|((uint32_t)buf[3+j*4]<<16)|((uint32_t)buf[4+j*4]<<8)|buf[5+j*4];
 				j++; idx++;
 			}
 			peer->nbcards = idx;
@@ -3893,7 +3927,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			if (!peer) { cg_note_unknown( buf[0], recv_ip, recv_port ); break; }	/* TASK 2.9: counted, once said */
 			if (IS_DISABLED(peer->flags)) break;
 			if (received<6) break;
-			uint32_t hash = ((uint32_t)buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
+			uint32_t hash = ((uint32_t)((uint32_t)buf[1]<<24)) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
 			buf[received] = 0;
 			// Reject an oversized escaped message without storing it or sending ACK.
 			struct sms_data *sms = malloc( sizeof(struct sms_data) );
@@ -3932,7 +3966,7 @@ void cache_recvmsg(struct cacheserver_data *cache)
 			if (IS_DISABLED(peer->flags)) break;
 			if (received!=5) break;
 			if (!peer->sms) break;
-			hash = ((uint32_t)buf[1]<<24) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
+			hash = ((uint32_t)((uint32_t)buf[1]<<24)) | (buf[2]<<16) | (buf[3]<<8) | (buf[4]);
 			// Search for data
 			sms = peer->sms;
 			while (sms) {
@@ -4167,10 +4201,22 @@ static int cache_find_candidate_r48_precedes(const struct cw_cache_data *candida
     return memcmp(candidate->cw, best->cw, sizeof(candidate->cw)) < 0;
 }
 
+/* SERVICE DOUBT (band 42) counters: checked FIND selections with
+ * 2+ distinct eligible CWs, refusals for lack of a strict majority,
+ * and majority serves. */
+static unsigned long g_svc_checked, g_svc_doubt, g_svc_majority;
+void service_doubt_snapshot(unsigned long *checked, unsigned long *doubt, unsigned long *majority)
+{
+	if (checked) *checked = g_svc_checked;
+	if (doubt) *doubt = g_svc_doubt;
+	if (majority) *majority = g_svc_majority;
+}
+
 static struct cw_cache_data *cache_find_select_r48(struct cache_data *entry,
                                                     int *verify_line,
                                                     int *find_hold_noted,
-                                                    int *find_policy_noted)
+                                                    int *find_policy_noted,
+                                                    int service_doubt_armed)
 {
     struct cw_cache_data *candidate, *best = NULL;
     uint32_t now_ms = GetTickCount();
@@ -4197,6 +4243,48 @@ static struct cw_cache_data *cache_find_select_r48(struct cache_data *entry,
         }
     }
     if (verify_line) *verify_line = tied_at_best;
+    /* SERVICE DOUBT (band 42, OSCam cw_check mode-2 idea): when 2+
+     * distinct CWs are eligible for this exact entry and no CW holds
+     * a strict peer majority, serving any of them is a coin flip --
+     * refuse the cache serve and let the ECM fall through to the
+     * card servers. A strict majority serves the winner as usual. */
+    if (best && service_doubt_armed) {
+        struct cw_cache_data *c2;
+        uint8_t seen[8][16];
+        int peers[8];
+        int nd = 0, top = -1, second = -1, i2;
+        for (c2 = entry->cwdata; c2; c2 = c2->next) {
+            int found = -1;
+            if (!cache_find_candidate_eligible_r48(entry, c2, has_prevcw,
+                                                   find_hold_noted,
+                                                   find_policy_noted))
+                continue;
+            for (i2 = 0; i2 < nd; i2++)
+                if (!memcmp(seen[i2], c2->cw, 16)) { found = i2; break; }
+            if (found < 0 && nd < 8) {
+                memcpy(seen[nd], c2->cw, 16);
+                peers[nd] = (int)c2->nbpeers;
+                nd++;
+            } else if (found >= 0 && (int)c2->nbpeers > peers[found]) {
+                peers[found] = (int)c2->nbpeers;
+            }
+        }
+        if (nd >= 2) {
+            for (i2 = 0; i2 < nd; i2++) {
+                if (peers[i2] > top) { second = top; top = peers[i2]; }
+                else if (peers[i2] > second) { second = peers[i2]; }
+            }
+            g_svc_checked++;
+            if (top <= second) {
+                g_svc_doubt++;
+                user_trace_cache_observation(entry->caid, entry->provid, entry->sid,
+                    entry->hash, best->peerid,
+                    "cache service doubt: distinct CWs without strict majority; not served", best->cw);
+                return NULL;
+            }
+            g_svc_majority++;
+        }
+    }
     return best;
 }
 
@@ -4254,6 +4342,7 @@ void cache_pipe_recvmsg()
 			if (len != base_len && len != base_len + 16) break;
 			if (get_ecm2cache(buf, len, &req, req.prevcw) < 0) break;
 			if (!cache_ecm_snapshot_read_locked(req.ecm, req.ecm_lifetime_id, NULL, NULL, NULL)) break;
+			req.cw1cycle = req.ecm ? (uint8_t)req.ecm->cw1cycle : 0;
 			//debugf(0, " Get PIPE_CACHE_FIND: %04x:%06x:%04x:%08x\n", req.caid, req.provid, req.sid, req.hash);
 
 			pcache = cache_fetch( &req );
@@ -4294,6 +4383,7 @@ void cache_pipe_recvmsg()
 				cache_attach_local_provider(pcache, &req);
 				pcache->tag = req.tag; // set tag if not set (coming from cache)
 				pcache->cwcycle = req.cwcycle;
+				if (req.cw1cycle) pcache->cw1cycle = req.cw1cycle;
 #ifdef CACHEEX
 				if (len==base_len+16) memcpy( pcache->prevcw, req.prevcw, 16);
 				memcpy( pcache->ecmd5, req.ecmd5, 16 );
@@ -4309,8 +4399,13 @@ void cache_pipe_recvmsg()
 				 * OFF, retain the historical send path below byte-for-byte. */
 				find_profile = cache_entry_cardserver_current(pcache);
 				if (find_profile && find_profile->option.cache_evidence) {
+					/* Band 43: per-profile SERVICE DOUBT tri-state
+					 * (1=on, 2=off) overrides the global switch. */
+					int svc_armed = find_profile->option.service_doubt ?
+					    find_profile->option.service_doubt == 1 :
+					    cfg.cache.service_doubt;
 					selected_candidate = cache_find_select_r48(pcache, &verify_line,
-					    &find_hold_noted, &find_policy_noted);
+					    &find_hold_noted, &find_policy_noted, svc_armed);
 					if (selected_candidate) {
 						selected_candidate->status |= DCW_SENT;
 						pipe_cache2ecm_find_success_with_origin(
@@ -4637,7 +4732,10 @@ void cache_check_peers(struct cacheserver_data *cache)
 void *cache_thread(void *param)
 {
 	__atomic_store_n(&prg.pid_cache, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
-	prg.tid_cache = pthread_self();
+	/* Lock audit (D49): no prg.tid_cache self-write -- create_thread copies
+	 * the handle into the slot, and several cache threads are created into
+	 * the same slot, so self-writes raced the main thread's copies. The
+	 * slot is diagnostic-only and never read. */
 	prctl(PR_SET_NAME,"Cache RecvMSG Thread",0,0,0);
 
 	sleep(3);
@@ -4733,7 +4831,10 @@ void *cache_thread(void *param)
 void *cache_thread(void *param)
 {
 	__atomic_store_n(&prg.pid_cache, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
-	prg.tid_cache = pthread_self();
+	/* Lock audit (D49): no prg.tid_cache self-write -- create_thread copies
+	 * the handle into the slot, and several cache threads are created into
+	 * the same slot, so self-writes raced the main thread's copies. The
+	 * slot is diagnostic-only and never read. */
 	prctl(PR_SET_NAME,"Cache RecvMSG Thread",0,0,0);
 
 	uint32_t chkticks = 0;

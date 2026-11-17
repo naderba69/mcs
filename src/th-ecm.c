@@ -12,6 +12,15 @@
  * ============================================================================ */
 uint32_t ecm_get_effective_timeout(ECM_DATA *ecm, struct cardserver_data *cs, uint32_t default_timeout)
 {
+    /* Operator precedence (same rule as server.timeout_explicit, D111 A1):
+     * the provider table's fallback_timeout is a fallback -- it fills the
+     * gap only when the operator did not explicitly set DCW TIMEOUT. An
+     * explicit deadline (e.g. 9000 ms for a cache-waiting profile) must
+     * not be silently shortened to a 1000 ms table value. */
+    if (cs && cs->option.dcw.timeout_explicit &&
+        default_timeout == cs->option.dcw.timeout) {
+        return default_timeout;
+    }
     uint32_t provider_timeout = provider_get_fallback_timeout(ecm->caid, ecm->provid);
     if (provider_timeout > 0) {
         return provider_timeout;
@@ -150,6 +159,8 @@ int clients_check_sendcw_from_locked(ECM_DATA *ecm,
 #include "ecm-pattern-analysis.h"
 #include "implicit-bs-detect.h"
 #include "cache-intelligence.h"
+#include "cwpair.h" /* band 38: simulcrypt CW pairing */
+#include "nopushafter.h" /* band 41: per-CAID stale-push brake */
 #include "smart-server-select.h"
 #include "setdcw.c"
 
@@ -162,11 +173,20 @@ void wakeup_sendecm() // not needed in mono-thread
 	pipe_wakeup( prg.pipe.ecm[1] );
 }
 
-int ecm_faileddcw( ECM_DATA *ecm )
+/* Band 80: the shared engine's terminal failure used to trace one
+ * generic line ("ECM failed; reason may be unavailable") even though
+ * every caller knew exactly why it was failing -- and three callers
+ * additionally emitted their own specific FAILED first, so the trace
+ * showed a vague duplicate after the real reason. Now the caller
+ * passes its reason (and elapsed time), the FAILED event is emitted
+ * once, here, with that reason, and the same text reaches clients via
+ * the delivery snapshot's statusmsg (main.c). */
+int ecm_faileddcw( ECM_DATA *ecm, const char *trace_reason, uint32_t elapsed_ms )
 {
 	struct ledger_delivery_snapshot failed_delivery;
 	int dispatch_result;
-	if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, 0, "ECM failed; reason may be unavailable");
+	if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, elapsed_ms,
+		trace_reason ? trace_reason : "ECM failed; reason may be unavailable");
 	ecm_request_set_dcwstatus(ecm, STAT_DCW_FAILED);
 	ecm->checktime = 0;
 	ecm->waitserver = 0;
@@ -356,7 +376,7 @@ void check_ecm(ECM_DATA *ecm, uint32_t ticks)
 		struct cardserver_data *cs = ecm->cs;
 		if (!cs) {
 			ecm->statusmsg = "Invalid profile id";
-			if (!ecm_faileddcw(ecm)) return;
+			if (!ecm_faileddcw(ecm, "Invalid profile id", ticks - ecm->recvtime)) return;
 			return;
 		}
 		if (cs->option.fallowcache) {
@@ -411,7 +431,7 @@ send_ecm:
 		struct cardserver_data *cs = ecm->cs;
 		if (!cs) {
 			ecm->statusmsg = "Invalid profile id";
-			if (!ecm_faileddcw(ecm)) return;
+			if (!ecm_faileddcw(ecm, "Invalid profile id", ticks - ecm->recvtime)) return;
 			return;
 		}
 		//check for decode failed
@@ -420,8 +440,7 @@ send_ecm:
 			if (cache_verify_dispatch) return;
 			if (!ecm->server_totalwait) {
 				ecm->statusmsg = "Decode failed, max servers is reached and no more servers to wait";
-				if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, ticks - ecm->recvtime, "maximum servers reached");
-				if (!ecm_faileddcw(ecm)) return;
+				if (!ecm_faileddcw(ecm, "maximum servers reached", ticks - ecm->recvtime)) return;
 				// Send DCW to Cache if not sent
 				if ( cs->option.fallowcache && cs->option.cachesendrep && (ecm->cachestatus!=ECM_CACHE_REP) ) {
 					//pipe_send_cache_reply(ecm,cs); // Send failed Cache Reply
@@ -434,8 +453,47 @@ send_ecm:
 		else if ( (ticks-ecm->recvtime) >= ecm_get_effective_timeout(ecm, cs, cs->option.dcw.timeout)*ecm->period ) {
 			if (cache_verify_dispatch) return;
 			ecm->statusmsg = "Decode failed, dcw timeout";
-			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED, 0, 0, ticks - ecm->recvtime, "DCW timeout");
-			if (!ecm_faileddcw(ecm)) return;
+			/* CWPAIR (band 38): total miss -- try the simulcrypt
+			 * twin's fresh CW before failing the client. */
+			if (cs->option.cwpair_active && cs->option.cwpair_caid) {
+				int k, peer_sid = 0;
+				uint8_t paired_cw[16];
+				for (k = 0; k < cs->option.cwpair_sid_n; k++)
+					if (cs->option.cwpair_sid_local[k] == ecm->sid) { peer_sid = cs->option.cwpair_sid_peer[k]; break; }
+				if (peer_sid && cwpair_lookup(cs->option.cwpair_caid, (uint16_t)peer_sid,
+				        ecm->caid, ecm->provid, ecm->sid,
+				        cs->option.cwpair_maxage > 0 ? (uint32_t)cs->option.cwpair_maxage : 21000u,
+				        cs->option.cwpair_strictcycle, paired_cw, ticks)) {
+					/* Judge the twin bytes as a CW for THIS profile,
+					 * then commit synchronously: queueing to the
+					 * setdcw thread races the already-expired ECM
+					 * timeout and loses the client. */
+					if (acceptDCW_profile_ecm_reason(paired_cw, cs, ecm->caid, ecm->provid, ecm->sid, NULL)) {
+						struct ledger_delivery_snapshot pair_delivery;
+						int dispatched;
+						if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_CACHE,
+						    0, 0, ticks - ecm->recvtime, "CWPAIR: served simulcrypt twin CW");
+						debugf(0, "    [CWPAIR] %04X:%06X:%04X <- twin %04X:%04X served\n",
+						       ecm->caid, ecm->provid, ecm->sid, cs->option.cwpair_caid, peer_sid);
+						ecm->statusmsg = "Decode Success (CWPAIR)";
+						ecm->dcwsrctype = DCW_SOURCE_CACHE;
+						ecm->dcwsrcid = 0;
+						ecm_request_set_dcwstatus(ecm, STAT_DCW_SUCCESS);
+						ecm->checktime = 0;
+						ecm->waitserver = 0;
+						sid_newecm(ecm);
+						memcpy(ecm->cw, paired_cw, 16);
+						cwpair_observe(ecm->caid, ecm->provid, ecm->sid, paired_cw, ticks);
+						cache_clear_sendpipe(ecm);
+						dispatched = clients_check_sendcw_from_locked(ecm, &pair_delivery);
+						if (dispatched > 0) {
+							__atomic_fetch_add(&cs->ecmok, 1, __ATOMIC_RELAXED);
+							return;
+						}
+					}
+				}
+			}
+			if (!ecm_faileddcw(ecm, "DCW timeout", ticks - ecm->recvtime)) return;
 			// Send DCW to Cache if not sent
 			if ( cs->option.fallowcache && cs->option.cachesendrep && (ecm->cachestatus!=ECM_CACHE_REP) ) {
 				//pipe_send_cache_reply(ecm,cs); // Send failed Cache Reply
@@ -602,7 +660,7 @@ send_ecm:
 					if (!ecm->server_totalwait && !ecm->server_totalsent &&
 					    !cache_verify_dispatch) {
 						ecm->statusmsg = "Decode failed, no free server";
-						if (!ecm_faileddcw(ecm)) return;
+						if (!ecm_faileddcw(ecm, "no free server available", ticks - ecm->recvtime)) return;
 						cs->ecmbusysrv++;
 					}
 #endif
@@ -616,10 +674,8 @@ send_ecm:
 		}
 		else if (!ecm->server_totalwait) {
 			if (cache_verify_dispatch) return;
-			if (ecm->trace_instance) user_trace_shared_event(ecm->trace_instance, USER_TRACE_FAILED,
-			    0, 0, ticks - ecm->recvtime, "server dispatch window expired; no pending server");
 			ecm->statusmsg = "Decode failed, no server open this channel";
-			if (!ecm_faileddcw(ecm)) return;
+			if (!ecm_faileddcw(ecm, "server dispatch window expired; no pending server", ticks - ecm->recvtime)) return;
 			// Send DCW to Cache if not sent
 			if ( cs->option.fallowcache && cs->option.cachesendrep && (ecm->cachestatus!=ECM_CACHE_REP) ) {
 				//pipe_send_cache_reply(ecm,cs); //Send Failed Cache Reply
@@ -886,7 +942,7 @@ void recv_ecm_pipe()
 						newcamd_config_read_lock();
 						struct server_data *srv = find_main_server_id(server_id);
 						if (srv && srv->connect_generation == connect_generation &&
-						    srv->connection.status > 0 && srv->handle > 0) {
+						    srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0) {
 #ifdef EPOLL_ECM
 							struct epoll_event ev;
 							memset(&ev, 0, sizeof(ev));
@@ -894,9 +950,9 @@ void recv_ecm_pipe()
 								ev.data.u64 = connect_generation;
 								if (prg.epoll.ecm > 0 &&
 							    epoll_ctl(prg.epoll.ecm, EPOLL_CTL_ADD,
-							              srv->handle, &ev) == -1 && errno != EEXIST)
+							              __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &ev) == -1 && errno != EEXIST)
 								debugf(DBG_ERROR, "Err! EPOLL_CTL_ADD %s (%d)\n",
-								       srv->user, srv->handle);
+								       srv->user, __atomic_load_n(&srv->handle, __ATOMIC_RELAXED));
 #endif
 						}
 						newcamd_config_read_unlock();
@@ -916,7 +972,7 @@ void recv_ecm_pipe()
 						pthread_mutex_lock(&prg.locksrv);
 						struct server_data *srv = find_main_server_id(server_id);
 						if (srv && srv->type == TYPE_NEWCAMD && srv->cscached &&
-						    srv->busy && srv->connection.status > 0 && srv->handle > 0 &&
+						    srv->busy && srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0 &&
 						    srv->ecm.lifetime_id == request_lifetime_id) {
 							struct cs_custom_data srvcd;
 							uint8_t reply_buf[19];
@@ -929,7 +985,7 @@ void recv_ecm_pipe()
 							reply_buf[0] = ecm_tag | 0x40; /* C0/C1 cached DCW */
 							reply_buf[2] = 0x10;
 							memcpy(reply_buf + 3, reply_cw, sizeof(reply_cw));
-							if (!cs_message_send(srv->handle, &srvcd, reply_buf,
+							if (!cs_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srvcd, reply_buf,
 							                      sizeof(reply_buf), srv->sessionkey))
 								disconnect_srv(srv);
 						}
@@ -979,7 +1035,10 @@ inline void srv_recvmsg( struct server_data *srv )
 void *recv_msg_thread(void *param)
 {
 	__atomic_store_n(&prg.pid_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
-	prg.tid_msg = pthread_self();
+	/* Lock audit (D49): no prg.tid_msg self-write here -- create_thread
+	 * already copies the created handle into the slot, and this thread's
+	 * own write raced the main thread's copy for the NEXT thread created
+	 * into the same slot. The slot is diagnostic-only and never read. */
 	prctl(PR_SET_NAME,"ECM Thread",0,0,0);
 
 	struct epoll_event evlist[MAX_EPOLL_EVENTS]; // epoll recv events
@@ -1038,7 +1097,7 @@ void *recv_msg_thread(void *param)
 					if (!srv) continue; // event from a retired connection attempt
 					pthread_mutex_lock(&prg.locksrv);
 					if (srv->connect_generation == generation &&
-					    srv->connection.status > 0 && srv->handle > 0) {
+					    srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0) {
 						if (evlist[i].events & (EPOLLIN | EPOLLPRI)) srv_recvmsg(srv);
 						else if (evlist[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR))
 							disconnect_srv(srv);
@@ -1068,7 +1127,10 @@ void *recv_msg_thread(void *param)
 	int pfdcount;
 
 	__atomic_store_n(&prg.pid_msg, (pid_t)syscall(SYS_gettid), __ATOMIC_RELEASE);
-	prg.tid_msg = pthread_self();
+	/* Lock audit (D49): no prg.tid_msg self-write here -- create_thread
+	 * already copies the created handle into the slot, and this thread's
+	 * own write raced the main thread's copy for the NEXT thread created
+	 * into the same slot. The slot is diagnostic-only and never read. */
 	prctl(PR_SET_NAME,"ECM Thread",0,0,0);
 
 	while (!prg.restart) {
@@ -1091,11 +1153,16 @@ void *recv_msg_thread(void *param)
 
 		struct server_data *srv = cfg.server;
 		while (srv) {
+			/* Connect workers publish __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) with an atomic store
+			 * under prg.locksrv (cli-*.c); this poll build runs under the
+			 * config read gate only, so load it atomically too (TSan
+			 * proved the plain pair racing, th-ecm vs cli-newcamd). */
+			int srv_handle = __atomic_load_n(&srv->handle, __ATOMIC_RELAXED);
 			srv->ipoll = -1;
-			if (!IS_DISABLED(srv->flags) && srv->handle > 0 &&
+			if (!IS_DISABLED(srv->flags) && srv_handle > 0 &&
 			    pfdcount < SERVER_MAX_PFD && pfdcount < MAX_PFD) {
 				srv->ipoll = pfdcount;
-				pfd[pfdcount].fd = srv->handle;
+				pfd[pfdcount].fd = srv_handle;
 				pfd_generation[pfdcount] = srv->connect_generation;
 				pfd[pfdcount++].events = POLLIN | POLLPRI;
 			}
@@ -1114,9 +1181,9 @@ void *recv_msg_thread(void *param)
 				pthread_mutex_lock(&prg.locksrv);
 				srv = cfg.server;
 				while (srv) {
-					if (!IS_DISABLED(srv->flags) && srv->handle > 0 &&
+					if (!IS_DISABLED(srv->flags) && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) > 0 &&
 						    srv->ipoll >= 0 && srv->ipoll < pfdcount &&
-						    srv->handle == pfd[srv->ipoll].fd &&
+						    __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == pfd[srv->ipoll].fd &&
 						    srv->connect_generation == pfd_generation[srv->ipoll]) {
 						if (pfd[srv->ipoll].revents & (POLLHUP | POLLNVAL))
 							disconnect_srv(srv);
@@ -1172,7 +1239,7 @@ void *thread_keepalive(void *param)
 					if ( !srv->keepalive.status && tick32_elapsed(ticks, srv->keepalive.time) > 75000u ) {
 						srv->keepalive.status = 1; // Sent and waiting for reply
 						srv->keepalive.time = ticks;
-						if ( !cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_KEEPALIVE, 0, NULL) ) disconnect_srv( srv );
+						if ( !cc_msg_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_KEEPALIVE, 0, NULL) ) disconnect_srv( srv );
 					}
 				}
 
@@ -1207,7 +1274,7 @@ void *thread_keepalive(void *param)
 					if ( !srv->keepalive.status && tick32_elapsed(ticks, srv->keepalive.time) > 75000u ) {
 						srv->keepalive.status = 1; // Sent and waiting for reply
 						srv->keepalive.time = ticks;
-						if ( !cc_msg_send( srv->handle, &srv->sendblock, CC_MSG_KEEPALIVE, 0, NULL) ) disconnect_srv( srv );
+						if ( !cc_msg_send( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->sendblock, CC_MSG_KEEPALIVE, 0, NULL) ) disconnect_srv( srv );
 					}
 				}
 

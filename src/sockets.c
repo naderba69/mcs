@@ -68,8 +68,13 @@ char *iptoa(char *dest, unsigned int ip )
   return dest;
 }
 
-char ip_string[3][0x40];
-int ip_string_counter = 0;
+/* Live-TSan fix: this was a shared 3-slot rotation -- two threads could
+ * take the same slot and overwrite each other's string mid-use (mgcamd vs
+ * newcamd connect paths flagged it). Thread-local rotation keeps the
+ * exact call contract (callers may hold up to 3 recent results) with no
+ * sharing at all. */
+static __thread char ip_string[3][0x40];
+static __thread int ip_string_counter = 0;
 char *ip2string( unsigned int ip )
 {
 	ip_string_counter++; if (ip_string_counter>2) ip_string_counter = 0;

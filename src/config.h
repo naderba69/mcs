@@ -186,6 +186,7 @@ struct __attribute__ ((__packed__)) cachepeer_data
 	int csp;
 	int autoadd;
 	int fwd; // forward cache
+	int trusted; // R48: operator-designated trusted peer (fast-path CW)
 
 	//number of hits for each profile
 	struct {
@@ -697,6 +698,7 @@ struct cardserver_data
 
 		struct {
 			uint32_t timeout; // decode timeout in ms
+			uint8_t timeout_explicit; // operator set DCW TIMEOUT: wins over provider fallback table
 #ifdef CHECK_NEXTDCW
 			uint8_t check;
 			uint8_t halfnulled;
@@ -710,6 +712,16 @@ struct cardserver_data
 
 		uint8_t checkecm; // viaccess ecm
 		uint8_t checkecmlength; // length header
+		/* R48 ECM fingerprint (observe-only, default OFF): learn the
+		 * typical ECM length per (CAID,SID) and trace anomalies in
+		 * /user-trace. Never refuses an ECM. */
+		uint8_t ecm_fingerprint;
+		/* R48 CW fingerprint (observe-only, default OFF): learn the
+		 * per-byte-position distribution of genuine CWs per
+		 * (CAID,PROVID,SID) and trace statistical anomalies (XOR
+		 * fakes, biased generators) in /user-trace. Never refuses
+		 * a CW. */
+		uint8_t cw_fingerprint;
 
 		int maxfailedecm; // Max failed ecm per sid
 
@@ -779,6 +791,44 @@ struct cardserver_data
 		uint8_t dcwfilter_repeat;
 		uint8_t dcwfilter_cycle; /* TASK R2 (D56): the delivery-time cycle gate */
 		uint8_t dcwfilter_pattern; /* TASK R28 (D79): structural fake gate */
+		/* R48 SuperSmartFilter per-profile level (0=inherit global). */
+		uint8_t sf_filter_level;
+		/* Band 55 MARCHCHECK override: 0=inherit global, 1=off, 2=log-only, 3=reject. */
+		uint8_t sf_marchcheck;
+		/* Band 56 CW_DUP override: 0=inherit global, 1=off, 2=log-only, 3=reject. */
+		uint8_t sf_cwdup;
+		/* Band 58 CW_REUSE override: 0=inherit global, 1=off, 2=log-only, 3=reject. */
+		uint8_t sf_cwreuse;
+		/* Band 59 LATECW override: 0=inherit global, 1=off, 2=log-only, 3=reject. */
+		uint8_t sf_latecw;
+		/* Band 65: per-CAID numeric SSF thresholds (0 = inherit the
+		 * global CACHE SF value). Slow/fast sources differ per CAID,
+		 * so the ms thresholds must be specialisable per profile. */
+		int sf_latecw_ms;
+		int sf_cwreuse_window_ms;
+		int sf_cwdup_rep;
+		/* Per-CAID arming for the band 26/32 gates (0=inherit the
+		 * global CACHE CI VALIDATE / CACHE DROPDIFFS, 1=force on,
+		 * 2=force off) -- set with CI VALIDATE: / DROPDIFFS: in a
+		 * profile so one CAID can be armed or spared alone. */
+		uint8_t ci_validate;
+		uint8_t dropdiffs;
+		/* SERVICE DOUBT per profile (band 43): same tri-state
+		 * convention (0=inherit the global CACHE SERVICE DOUBT,
+		 * 1=force on, 2=force off), set with SERVICE DOUBT:
+		 * inside a profile section. */
+		uint8_t service_doubt;
+		/* CWPAIR (band 38): simulcrypt twin serving for this
+		 * profile. cwpair_caid 0 = no twin configured. SID map is
+		 * operator-pasted from discovery, never auto-filled. */
+		uint16_t cwpair_caid;
+		uint8_t  cwpair_active;
+		uint8_t  cwpair_skipcycle;
+		uint8_t  cwpair_strictcycle;
+		int      cwpair_maxage;
+		uint16_t cwpair_sid_local[16];
+		uint16_t cwpair_sid_peer[16];
+		int      cwpair_sid_n;
 		/* Explicit exact provider/SID exception; disabled unless parsed. */
 		uint8_t cw_checksum_exempt_active;
 		uint32_t cw_checksum_exempt_provider;
@@ -880,6 +930,7 @@ struct __attribute__ ((__packed__)) server_data
 	int port;
 	char user[64];
 	char pass[64];
+	int trusted; // R48: operator-designated trusted server (fast-path CW)
 #ifdef CACHEEX
 	int cacheex_mode; // only for CCcam Server
 	int cacheex_maxhop;
@@ -1364,6 +1415,8 @@ int acceptDCW_profile_ca_sid(uint8_t *data, struct cardserver_data *cs,
 int acceptDCW_profile_ca_sid_reason(uint8_t *data, struct cardserver_data *cs,
                                     uint16_t caid, uint16_t sid, int *reason);
 /* Scoped exception is only evaluated when an actual ECM supplies provider. */
+int dcw_checksum_exemption_applies(struct cardserver_data *cs,
+                                   uint16_t caid, uint32_t provid, uint16_t sid);
 int acceptDCW_profile_ecm_reason(uint8_t *data, struct cardserver_data *cs,
                                   uint16_t caid, uint32_t provid, uint16_t sid, int *reason);
 int acceptDCW_profile_ecm(uint8_t *data, struct cardserver_data *cs,
@@ -1373,6 +1426,7 @@ int acceptDCW_profile_ecm_trace_reason(uint8_t *data, struct cardserver_data *cs
                                        int *reason, int *checksum_exemption_used);
 void dcw_filter_globals_publish(const struct config_data *cfg);
 void dcw_filter_globals_snapshot(int *checksum, int *repeat, int *cycle, int *pattern);
+int dcw_filter_strict_snapshot(void);
 int dcw_profile_cycle_enabled(struct cardserver_data *cs);
 int acceptDCW_profile_ca(uint8_t *data, struct cardserver_data *cs,
 			 uint16_t caid);
@@ -1462,6 +1516,7 @@ struct config_data
 		int repeat;
 		int cycle;
 		int pattern;
+		int strict;
 	} dcw_filters;
 
 	struct {
@@ -1494,6 +1549,31 @@ struct config_data
 		 * corroboration window in ms (0 -> callers clamp to 400). */
 		int consensus;
 		int consensus_window;
+		/* CI VALIDATE (audit band 25): arms ci_validate_cw as a rejecting
+		 * gate on the live THREAD_DCW path. 0/absent = OFF (stock). */
+		int ci_validate;
+		/* DROPDIFFS (band 32): reject live-path candidates that differ
+		 * from the known-good CW stored for the same ecmd5.
+		 * 0/absent = OFF (stock). */
+		int dropdiffs;
+		/* CWPAIR discovery (band 38): CWDEDUP_CHECK + the CAIDs to
+		 * watch for simulcrypt pairs. 0/absent = OFF (stock). */
+		int cwpair_discover;
+		uint16_t cwpair_discover_caids[32];
+		int cwpair_discover_n;
+		/* CACHEEX LOGIN FAILS/BAN (band 78): protoban thresholds for
+		 * cacheex peer identities (PB_CACHEEX). 0 = OFF, stock. */
+		int loginfails;
+		int loginbansec;
+		/* CACHEEX NOPUSH AFTER (band 41): exact-CAID stale-push
+		 * brake. Empty (n=0) = OFF, stock pushes. */
+		uint16_t nopushafter_caids[32];
+		uint32_t nopushafter_ms[32];
+		int nopushafter_n;
+		/* SERVICE DOUBT (band 42): at FIND service time, distinct
+		 * CWs without a strict peer majority are not served.
+		 * 0/absent = OFF (stock selection). */
+		int service_doubt;
 		/* TASK R29 (D80): distinct voters required for the early
 		 * delivery (0/unset = the engine default 2; 2..8 armed). */
 		int consensus_sources;
@@ -1558,6 +1638,8 @@ struct config_data
 		int clientid;
 		int dcwcheck;
 		int keepalive;
+		int loginfails;               /* Band 61: protoban threshold, 0 = off */
+		int loginbansec;              /* Band 61: protoban duration (s) */
 	} newcamd;
 	struct server_data *server;
 	struct server_data *cacheexserver;
@@ -1582,6 +1664,8 @@ struct config_data
 		uint16_t csport[MAX_CSPORTS]; // default cards
 		int dcwcheck;
 		int keepalive;
+		int loginfails;               /* Band 60: protoban threshold (attempts), 0 = off */
+		int loginbansec;              /* Band 60: protoban duration (s) */
 		pid_t pid_recvmsg;
 		pthread_t tid_recvmsg;
 		pid_t pid_connect;
@@ -1618,6 +1702,8 @@ struct config_data
 		uint16_t csport[MAX_CSPORTS]; // default cards
 		int dcwcheck;
 		int keepalive;
+		int loginfails;               /* Band 63: protoban threshold, 0 = off */
+		int loginbansec;              /* Band 63: protoban duration (s) */
 		pid_t pid_recvmsg;
 		pthread_t tid_recvmsg;
 		pid_t pid_connect;
@@ -1632,6 +1718,8 @@ struct config_data
 		int totalservers;
 		int clientid;
 		int serverid;
+		int loginfails;               /* Band 76: protoban threshold, 0 = off */
+		int loginbansec;              /* Band 76: protoban duration (s) */
 		pid_t pid_recvmsg;
 		pthread_t tid_recvmsg;
 		pid_t pid_connect;
@@ -1645,6 +1733,8 @@ struct config_data
 		int clientid;
 		int serverid;
 		int keepalive;
+		int loginfails;               /* Band 61: protoban threshold, 0 = off */
+		int loginbansec;              /* Band 61: protoban duration (s) */
 		pid_t pid_recvmsg;
 		pthread_t tid_recvmsg;
 		pid_t pid_connect;
@@ -1677,6 +1767,8 @@ struct config_data
 		struct http_file_data *files;
 		int logindelay;               /* TASK R3 (D57): ms base, 0 = off */
 		struct login_allow allow;     /* TASK R3 (D57): optional allowlist */
+		int loginfails;               /* Band 57: failures before an IP ban, 0 = off */
+		int loginbansec;              /* Band 57: ban duration in seconds */
 		pid_t pid;
 		pthread_t tid;
 	} http;
@@ -1690,6 +1782,8 @@ struct config_data
 		char pass[64];
 		int logindelay;               /* TASK R3 (D57): ms base, 0 = off */
 		struct login_allow allow;     /* TASK R3 (D57): optional allowlist */
+		int loginfails;               /* Band 60: protoban threshold, 0 = off */
+		int loginbansec;              /* Band 60: protoban duration (s) */
 		pid_t pid;
 		pthread_t tid;
 	} telnet;

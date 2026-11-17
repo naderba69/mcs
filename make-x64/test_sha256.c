@@ -16,7 +16,7 @@ void debugf(unsigned int flag, char *format, ...) { (void)flag; (void)format; }
 
 /* advanced-optimizations.c owns these in the server; the test
  * supplies its own instances so no server object is needed. */
-struct parallel_ecm_table parallel_tab;
+/* parallel_tab removed with the dead parallel-ECM API (2026-11-14). */
 struct recovery_state recovery_sys;
 struct warming_table warming_tab;
 

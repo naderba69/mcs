@@ -1,0 +1,7 @@
+# TASK 4.1 memcheck: the config graph built by read_config (profiles,
+# servers, peers) is process-lifetime ownership -- production frees card
+# lists on reload and never tears the profile graph down outside process
+# exit, and the unit harness parses once and exits. LSan stacks rooted in
+# read_config are therefore retained-by-design, not lost. Any leak whose
+# stack does NOT pass through read_config still reports normally.
+leak:read_config

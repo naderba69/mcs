@@ -6,6 +6,7 @@
 #include "common.h"
 #include "debug.h"
 #include "diagnostics.h"
+#include "tools.h" /* getseconds(): monotonic uptime base */
 #include "httpserver.h"
 #include "server-health.h"
 #include "caid-optimizations.h"
@@ -28,6 +29,41 @@ extern void tcp_writestr(struct tcp_buffer_data *buf, int sock, const char *data
 // Global diagnostics report
 struct diagnostic_report diag_report;
 
+/* Writers run on ECM worker threads, the reader is the /diagnostics page.
+ * This lock is a leaf: holders never take another lock while holding it. */
+static pthread_mutex_t diag_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void diagnostics_record_delivery(int cache_hit, uint32_t response_ms)
+{
+    struct diagnostic_stats *st;
+    pthread_mutex_lock(&diag_lock);
+    st = &diag_report.stats;
+    st->total_ecm_requests++;
+    st->successful_ecm++;
+    st->total_cw_received++;
+    st->valid_cw++;
+    if (cache_hit) st->cache_hits++; else st->cache_misses++;
+    if (st->successful_ecm == 1) {
+        st->avg_response_time = response_ms;
+        st->min_response_time = response_ms;
+        st->max_response_time = response_ms;
+    } else {
+        st->avg_response_time = (uint32_t)(((uint64_t)st->avg_response_time * (st->successful_ecm - 1) + response_ms) / st->successful_ecm);
+        if (response_ms < st->min_response_time) st->min_response_time = response_ms;
+        if (response_ms > st->max_response_time) st->max_response_time = response_ms;
+    }
+    pthread_mutex_unlock(&diag_lock);
+}
+
+void diagnostics_record_rejection(void)
+{
+    pthread_mutex_lock(&diag_lock);
+    diag_report.stats.total_cw_received++;
+    diag_report.stats.invalid_cw++;
+    diag_report.stats.rejected_cw++;
+    pthread_mutex_unlock(&diag_lock);
+}
+
 // ============================================================================
 // INITIALIZATION
 // ============================================================================
@@ -35,7 +71,7 @@ struct diagnostic_report diag_report;
 void diagnostics_init(void)
 {
     memset(&diag_report, 0, sizeof(diag_report));
-    diag_report.stats.start_time = time(NULL);
+    diag_report.stats.start_time = (time_t)getseconds(); /* monotonic: uptime base */
     diag_report.stats.min_response_time = 999999;
     strcpy(diag_report.status, "Initializing");
     
@@ -48,21 +84,23 @@ void diagnostics_init(void)
 
 void diagnostics_update(void)
 {
-    time_t now = time(NULL);
+    time_t now = (time_t)getseconds();
+    pthread_mutex_lock(&diag_lock);
     diag_report.stats.last_update = now;
     diag_report.stats.uptime_seconds = now - diag_report.stats.start_time;
-    
+
     // Calculate rates
     diagnostics_calculate_rates(&diag_report.stats);
-    
+
     // Detect problems
     diagnostics_detect_problems(&diag_report);
-    
+
     // Generate recommendations
     diagnostics_generate_recommendations(&diag_report);
-    
+
     // Update health score
     diag_report.stats.system_health = diagnostics_get_health();
+    pthread_mutex_unlock(&diag_lock);
 }
 
 void diagnostics_calculate_rates(struct diagnostic_stats *stats)
@@ -314,7 +352,6 @@ void http_send_diagnostics(int sock, struct http_request *req)
 {
     struct tcp_buffer_data tcpbuf;
     char buf[8192];
-    char temp[1024];
     int i;
     
     tcp_init(&tcpbuf);

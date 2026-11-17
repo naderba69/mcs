@@ -30,7 +30,17 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <time.h>
 #include <pthread.h>
+
+/* Monotonic millisecond tick (tools.c GetTickCount, CLOCK_MONOTONIC).
+ * Pending-entry ages/timeouts must never use the wall clock: an NTP or
+ * DST jump would otherwise expire live checks or pin stale ones.
+ * tools.h has no include guard, so declare the tick here instead. */
+#if !defined(WIN32)
+uint32_t GetTickCount(void);
+#endif
+#define DC_NOW_MS() ((uint32_t)GetTickCount())
 
 #define DOUBLECHECK_MAX_CAIDS 64
 #define DOUBLECHECK_MAX_READERS 4
@@ -51,9 +61,24 @@ typedef struct {
     uint32_t start_time;
     int verified;               /* 1 if CWs match */
     uint8_t verified_cw[16];    /* The matching CW */
-    
+
     uint8_t active;
+    uint8_t event_flags;        /* bit0: verified event logged, bit1: mismatch logged */
 } doublecheck_pending_t;
+
+/* One decided comparison, kept for the operator pages (CCcam trace).
+ * Until now the only trace of a decision was a debugf() log line; the
+ * field operator asked for everything on the trace page instead of
+ * hunting logs, so the last decisions live in this ring. */
+#define DOUBLECHECK_EVENT_MAX 32
+typedef struct {
+    uint32_t timestamp;         /* wall-clock seconds, display only */
+    uint16_t caid;
+    uint32_t provid;
+    uint16_t sid;
+    int kind;                   /* 1 = two sources agree, 2 = sources disagree */
+    int sources;                /* results seen when the decision was made */
+} doublecheck_event_t;
 
 /* Double check CAID list */
 typedef struct {
@@ -75,9 +100,47 @@ typedef struct {
     uint64_t verified_ok;
     uint64_t verified_fail;
     uint64_t timeouts;
+
+    /* Recent decisions ring (for the trace page) */
+    doublecheck_event_t events[DOUBLECHECK_EVENT_MAX];
+    uint32_t event_seq;         /* total events recorded; slot = seq % MAX */
 } doublecheck_state_t;
 
 static doublecheck_state_t g_doublecheck = {0};
+
+/* Caller holds g_doublecheck.lock. */
+static inline void doublecheck_record_event(doublecheck_pending_t *p, int kind) {
+    doublecheck_event_t *e = &g_doublecheck.events[g_doublecheck.event_seq % DOUBLECHECK_EVENT_MAX];
+    e->timestamp = (uint32_t)time(NULL);
+    e->caid = p->caid;
+    e->provid = p->provid;
+    e->sid = p->sid;
+    e->kind = kind;
+    e->sources = p->result_count;
+    g_doublecheck.event_seq++;
+}
+
+/* Copy the newest decisions (newest first) plus the counters, for
+ * display. Returns the number of events copied. */
+static inline int ecm_doublecheck_recent_events(doublecheck_event_t *out, int max,
+                                                uint64_t *ok, uint64_t *fail,
+                                                uint64_t *total, uint64_t *timeouts) {
+    int n = 0;
+    uint32_t i, avail;
+    pthread_mutex_lock(&g_doublecheck.lock);
+    if (ok) *ok = g_doublecheck.verified_ok;
+    if (fail) *fail = g_doublecheck.verified_fail;
+    if (total) *total = g_doublecheck.total_checks;
+    if (timeouts) *timeouts = g_doublecheck.timeouts;
+    avail = g_doublecheck.event_seq < DOUBLECHECK_EVENT_MAX
+          ? g_doublecheck.event_seq : DOUBLECHECK_EVENT_MAX;
+    for (i = 0; i < avail && n < max; i++) {
+        uint32_t seq = g_doublecheck.event_seq - 1 - i;
+        out[n++] = g_doublecheck.events[seq % DOUBLECHECK_EVENT_MAX];
+    }
+    pthread_mutex_unlock(&g_doublecheck.lock);
+    return n;
+}
 
 /* Initialize double check system */
 static inline void ecm_doublecheck_init(void) {
@@ -118,9 +181,35 @@ static inline doublecheck_pending_t *ecm_doublecheck_start(uint32_t ecm_hash,
                                                             uint32_t provid,
                                                             uint16_t sid) {
     int i;
-    
+    uint32_t now = DC_NOW_MS();
+
     pthread_mutex_lock(&g_doublecheck.lock);
-    
+
+    /* Reclaim expired slots first. Nothing in the tree calls
+     * ecm_doublecheck_cleanup() periodically, so without this sweep the
+     * 256 slots filled once and every later start silently failed. */
+    for (i = 0; i < 256; i++) {
+        doublecheck_pending_t *p = &g_doublecheck.pending[i];
+        if (p->active &&
+            (uint32_t)(now - p->start_time) > DOUBLECHECK_TIMEOUT_MS * 2) {
+            p->active = 0;
+            g_doublecheck.timeouts++;
+        }
+    }
+
+    /* One ECM, one check: a second dispatch of the same ECM (server
+     * interval resend to another card) must join the existing pending
+     * entry, not open a competing one -- its CW is the second source
+     * this check exists to compare. */
+    for (i = 0; i < 256; i++) {
+        if (g_doublecheck.pending[i].active &&
+            g_doublecheck.pending[i].ecm_hash == ecm_hash) {
+            doublecheck_pending_t *p = &g_doublecheck.pending[i];
+            pthread_mutex_unlock(&g_doublecheck.lock);
+            return p;
+        }
+    }
+
     /* Find empty slot */
     for (i = 0; i < 256; i++) {
         if (!g_doublecheck.pending[i].active) {
@@ -131,8 +220,9 @@ static inline doublecheck_pending_t *ecm_doublecheck_start(uint32_t ecm_hash,
             p->sid = sid;
             p->result_count = 0;
             p->verified = 0;
+            p->event_flags = 0;
             p->active = 1;
-            p->start_time = (uint32_t)time(NULL) * 1000;
+            p->start_time = now;
             memset(p->cw_results, 0, sizeof(p->cw_results));
             
             g_doublecheck.total_checks++;
@@ -152,9 +242,20 @@ static inline int ecm_doublecheck_add_result(doublecheck_pending_t *p,
                                               uint32_t response_time_ms) {
     if (!p || !p->active) return -1;
     if (p->result_count >= DOUBLECHECK_MAX_READERS) return -1;
-    
+
     pthread_mutex_lock(&g_doublecheck.lock);
-    
+
+    {
+        int j;
+        for (j = 0; j < p->result_count; j++) {
+            if (p->reader_ids[j] == reader_id) {
+                int v = p->verified ? 1 : 0;
+                pthread_mutex_unlock(&g_doublecheck.lock);
+                return v;
+            }
+        }
+    }
+
     int idx = p->result_count;
     memcpy(p->cw_results[idx], cw, 16);
     p->reader_ids[idx] = reader_id;
@@ -189,6 +290,15 @@ static inline int ecm_doublecheck_add_result(doublecheck_pending_t *p,
         }
     }
     
+    /* Keep the decision for the trace page (once per kind per ECM). */
+    if (p->verified && !(p->event_flags & 1)) {
+        p->event_flags |= 1;
+        doublecheck_record_event(p, 1);
+    } else if (!p->verified && p->result_count >= 2 && !(p->event_flags & 2)) {
+        p->event_flags |= 2;
+        doublecheck_record_event(p, 2);
+    }
+
     pthread_mutex_unlock(&g_doublecheck.lock);
     return p->verified ? 1 : 0;
 }
@@ -209,7 +319,7 @@ static inline int ecm_doublecheck_is_verified(doublecheck_pending_t *p,
 static inline int ecm_doublecheck_is_timeout(doublecheck_pending_t *p) {
     if (!p || !p->active) return 1;
     
-    uint32_t now = (uint32_t)time(NULL) * 1000;
+    uint32_t now = DC_NOW_MS();
     if ((now - p->start_time) > DOUBLECHECK_TIMEOUT_MS) {
         g_doublecheck.timeouts++;
         return 1;
@@ -220,7 +330,7 @@ static inline int ecm_doublecheck_is_timeout(doublecheck_pending_t *p) {
 /* Cleanup completed/timeout entries */
 static inline void ecm_doublecheck_cleanup(void) {
     int i;
-    uint32_t now = (uint32_t)time(NULL) * 1000;
+    uint32_t now = DC_NOW_MS();
     
     pthread_mutex_lock(&g_doublecheck.lock);
     
@@ -236,21 +346,56 @@ static inline void ecm_doublecheck_cleanup(void) {
     pthread_mutex_unlock(&g_doublecheck.lock);
 }
 
-/* Load default CAIDs that benefit from double check */
+/* The CAID list comes from the operator's config only
+ * ("ECM DOUBLECHECK: 1884 0500 ..." in the global section). This
+ * function used to hardcode eight CAIDs; invented defaults meant the
+ * feature claimed to guard channels nobody asked it to guard. It is
+ * kept (cache-speed-suite calls it) as the explicit no-defaults marker:
+ * no config line = the feature stays completely inert. */
 static inline void ecm_doublecheck_load_defaults(void) {
-    /* NAGRA - frequent fake CWs */
-    ecm_doublecheck_add_caid(0x1810);
-    ecm_doublecheck_add_caid(0x1830);
-    ecm_doublecheck_add_caid(0x1843);
-    ecm_doublecheck_add_caid(0x1884);
-    
-    /* VIDEOGUARD - targeted by fake CW attacks */
-    ecm_doublecheck_add_caid(0x09C4);
-    ecm_doublecheck_add_caid(0x098C);
-    ecm_doublecheck_add_caid(0x098D);
-    
-    /* VIACCESS - occasional issues */
-    ecm_doublecheck_add_caid(0x0500);
+}
+
+/* Find the active pending entry for an ECM hash, or NULL. Observe-mode
+ * callers feed results through ecm_doublecheck_add_result(); the entry
+ * lives in the static table and ages out by the start() sweep. */
+static inline doublecheck_pending_t *ecm_doublecheck_find(uint32_t ecm_hash) {
+    int i;
+    doublecheck_pending_t *found = NULL;
+    pthread_mutex_lock(&g_doublecheck.lock);
+    for (i = 0; i < 256; i++) {
+        if (g_doublecheck.pending[i].active &&
+            g_doublecheck.pending[i].ecm_hash == ecm_hash) {
+            found = &g_doublecheck.pending[i];
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_doublecheck.lock);
+    return found;
+}
+
+/* Replace the CAID list (config (re)applied at startup and on reload). */
+static inline void ecm_doublecheck_reset_caids(void) {
+    pthread_mutex_lock(&g_doublecheck.lock);
+    g_doublecheck.caid_count = 0;
+    pthread_mutex_unlock(&g_doublecheck.lock);
+}
+
+/* Parsed by config.c (separate TU); applied here in the main TU. */
+extern int cfg_doublecheck_caids[64];
+extern int cfg_doublecheck_caid_count;
+
+static inline int ecm_doublecheck_apply_caids(const int *list, int count) {
+    int i, n = 0;
+    ecm_doublecheck_reset_caids();
+    for (i = 0; i < count && i < 64; i++) {
+        if (list[i] > 0 && ecm_doublecheck_add_caid((uint16_t)list[i]) == 0) n++;
+    }
+    return n;
+}
+
+static inline int ecm_doublecheck_apply_config(void) {
+    return ecm_doublecheck_apply_caids(cfg_doublecheck_caids,
+                                       cfg_doublecheck_caid_count);
 }
 
 #endif /* ECM_DOUBLECHECK_H */

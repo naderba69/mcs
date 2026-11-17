@@ -140,7 +140,7 @@ inline void doIp(byte data[])
 {
   unsigned char j, k;
   byte val;
-  byte buf[8];
+  byte buf[8] = {0}; /* zero-init: every bit is shifted in by the loop below */
   byte *p;
   byte i = 8;
 
@@ -368,7 +368,6 @@ static inline void desRound(byte left[], byte right[], byte data[], byte mode, b
 
 inline void des(byte key[], byte mode, byte data[])
 {    
-  byte i; 
   byte left[8];
   byte right[8];
   byte *p = left;
@@ -455,7 +454,7 @@ inline byte getmask(byte *OutData, byte *Mask, byte I, byte J)
 
 inline void v2mask(byte *cw, byte *mask) 
 {
-	register int i, j;
+	register int i;
 
 	for(i = 7; i >= 0; i--) {
 		cw[i] ^= getmask(cw, mask, i, 7);
@@ -532,7 +531,7 @@ void EuroDes(byte key1[], byte key2[], byte desMode, byte operatingMode, byte da
 /*------------------------------------------------------------------------*/
 inline void des_key_parity_adjust(byte *key, byte len)
 {
-  register byte i, j, parity;
+  register byte i, parity;
 
   for (i = 0; i < len; i++)
   {
@@ -606,7 +605,6 @@ int des_encrypt(byte *buffer, int len, byte *deskey)
   memcpy(buffer+len, ivec, 8);
   for (i = 2; i < len; i += 8)
   {
-    byte j;
     const byte flags = (1 << F_EURO_S2) | (1 << F_TRIPLE_DES);
 
 //    for(j=0; j<8; j++) buffer[i+j] ^= ivec[j];

@@ -98,7 +98,12 @@ with tempfile.TemporaryDirectory(prefix='mcs-cache-trace-') as folder:
                 assert 'أحداث الكاش المصنفة' in summary, name
                 assert verdict not in summary, (name, 'channel verdict attributed to client')
                 if name == 'static':
-                    assert 'cache wait policy: ECM thread timeout=500 ms; profile=900 ms; static=YES' in page, name
+                    # D111 A1 (cache-window.h, unit-tested in
+                    # test_cache_evidence_config): an explicit profile
+                    # CACHE TIMEOUT overrides the CAID preset, so the ECM
+                    # thread waits the configured 900 ms here. This used
+                    # to assert the preset (500), contradicting A1.
+                    assert 'cache wait policy: ECM thread timeout=900 ms; profile=900 ms; static=YES' in page, name
                 assert 'قناة فقط، ليس ربط عميل' in page, name
                 assert peer_cw in page, name
                 if name == 'short8':

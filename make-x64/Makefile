@@ -56,6 +56,7 @@ STATSFLAGS = $(PORTFLAGS) -DMCS_DCWSTATS
 # byte-identical to the pre-R6 releases (proven by fingerprint).
 # ---------------------------------------------------------------------------
 QUEUEFLAGS = $(PORTFLAGS) -DCACHE_QUEUE
+R22FLAGS = $(PORTFLAGS) -DR22_LAYERS
 
 # dev build with the bounded cache queue (result stays in x64/multics)
 .PHONY: queue
@@ -81,6 +82,15 @@ release-queue-stats:
 	@mkdir -p ../bin && cp $(DIST)/multics-r82a-queue-stats-x64 ../bin/
 	@echo "persistent copy: ../bin/multics-r82a-queue-stats-x64"
 	@nm x64/multics | grep -c cq_ | sed 's/^/  cachequeue symbols (expect 7+): /'
+	@rm -rf x64
+
+release-r22:
+	@rm -rf x64 && $(MAKE) --no-print-directory link PORTFLAGS="$(R22FLAGS)"
+	@mkdir -p $(DIST)
+	@strip -o $(DIST)/multics-r82a-r22-x64 x64/multics
+	@echo "built $(DIST)/multics-r82a-r22-x64 (R22_LAYERS: candidate CW layers at the cache/card hooks)"
+	@mkdir -p ../bin && cp $(DIST)/multics-r82a-r22-x64 ../bin/
+	@echo "persistent copy: ../bin/multics-r82a-r22-x64"
 	@rm -rf x64
 
 # ---------------------------------------------------------------------------
@@ -129,7 +139,7 @@ release-stats:
 # NULL and the first fprintf crashed. The test now mkdirs its directory and
 # guards its fixtures (xopen), so running it right after test_monjson is kept
 # as the standing regression for exactly that folklore.
-test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwconsensus_d4 x64/test_cwconsensus_sybil x64/test_cwconsensus_bounds x64/test_cwconsensus_load x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_ptguard x64/test_chanhealth x64/test_cexvis x64/test_smart_retry_ticks x64/test_ecm_pattern_ticks x64/test_cwpredict_ticks x64/test_cw_timing_layers x64/test_udpfast_ticks x64/test_dcwstrict_ticks x64/test_implicit_bs_ticks x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_tick_math x64/test_cache_intelligence_ticks x64/test_cache_pipe_codec x64/test_pipe_messages x64/test_pipe_server_send x64/test_cs378x_frame x64/test_cache_pipe_queue x64/test_newcamd_lifetime x64/test_radegast_frame x64/test_cache_prefetch_ticks x64/test_cachewarm_ticks x64/test_cache_turbo_ticks x64/test_blackscreen_ticks x64/test_fastretx_ticks x64/test_pipeline_parquery_ticks x64/test_r22_candidate_ticks x64/test_emm_cache x64/test_supersmartfilter_ticks x64/test_cw_quarantine_clientbuf_ticks x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_thread_create x64/test_scoped_checksum_policy x64/test_cache_window x64/test_cache_evidence_config x64/test_r48_source_reputation x64/test_cccam_session x64/test_cccam_peekmsg x64/test_provider_config x64/test_cccam_backpressure
+test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwconsensus_d4 x64/test_cwconsensus_sybil x64/test_cwconsensus_bounds x64/test_cwconsensus_load x64/test_cwattest x64/test_monjson x64/test_peerrep x64/test_cwlog x64/test_loginthrottle x64/test_dcw x64/test_dcwstats x64/test_cache_relay x64/test_dcwfilter x64/test_dcwstruct x64/test_cwentropy x64/test_cwtime x64/test_cwplaus x64/test_cwcycle x64/test_cwneg x64/test_cwcm x64/test_trustagg x64/test_cacheguard x64/test_ptguard x64/test_chanhealth x64/test_cexvis x64/test_smart_retry_ticks x64/test_ecm_pattern_ticks x64/test_cwpredict_ticks x64/test_cw_timing_layers x64/test_udpfast_ticks x64/test_dcwstrict_ticks x64/test_implicit_bs_ticks x64/test_trustlife x64/test_htmlesc x64/test_debugcore x64/test_phase1cfg x64/test_ledger x64/test_peer_origin x64/test_cache_threshold x64/test_peercard x64/test_retry_detect x64/test_tick_math x64/test_cache_intelligence_ticks x64/test_cache_pipe_codec x64/test_pipe_messages x64/test_pipe_server_send x64/test_cs378x_frame x64/test_cache_pipe_queue x64/test_newcamd_lifetime x64/test_radegast_frame x64/test_cache_prefetch_ticks x64/test_cachewarm_ticks x64/test_cache_turbo_ticks x64/test_blackscreen_ticks x64/test_fastretx_ticks x64/test_pipeline_parquery_ticks x64/test_r22_candidate_ticks x64/test_emm_cache x64/test_supersmartfilter_ticks x64/test_cw_quarantine_clientbuf_ticks x64/test_cw_reuse x64/test_trust x64/test_cache_purge x64/test_rotation x64/test_cachepref x64/test_parser x64/test_cfgfield x64/test_cacheex_gates x64/test_casystem x64/test_sha256 x64/test_cwfake x64/test_skipcwc x64/test_thread_create x64/test_scoped_checksum_policy x64/test_cache_window x64/test_cache_evidence_config x64/test_r48_source_reputation x64/test_cccam_session x64/test_cccam_peekmsg x64/test_provider_config x64/test_ecm_fingerprint x64/test_cw_fingerprint x64/test_cw_timing x64/test_cccam_backpressure x64/test_ecm_doublecheck
 	./x64/test_cachequeue
 	@echo
 	./x64/test_cwconsensus
@@ -223,7 +233,11 @@ test: x64/test_cafamily x64/test_cachequeue x64/test_cwconsensus x64/test_cwcons
 	./x64/test_cccam_session
 	./x64/test_cccam_peekmsg
 	./x64/test_provider_config
+	./x64/test_ecm_fingerprint
+	./x64/test_cw_fingerprint
+	./x64/test_cw_timing
 	./x64/test_cccam_backpressure
+	./x64/test_ecm_doublecheck
 	./x64/test_newcamd_lifetime
 	./x64/test_radegast_frame
 	./x64/test_cache_prefetch_ticks
@@ -479,6 +493,22 @@ x64/test_provider_config: test_provider_config.c ../src/ecm-provider-config.h ..
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -I../src -pthread -o $@ test_provider_config.c ../src/ecm-provider-config.c
 
+x64/test_ecm_fingerprint: test_ecm_fingerprint.c ../src/ecm-fingerprint.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -I../src -pthread -o $@ test_ecm_fingerprint.c
+
+x64/test_cw_fingerprint: test_cw_fingerprint.c ../src/cw-fingerprint.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -I../src -pthread -o $@ test_cw_fingerprint.c
+
+x64/test_cw_timing: test_cw_timing.c ../src/cw-timing.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -I../src -pthread -o $@ test_cw_timing.c
+
+x64/test_ecm_doublecheck: test_ecm_doublecheck.c ../src/ecm-doublecheck.h
+	@mkdir -p x64
+	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -I../src -pthread -o $@ test_ecm_doublecheck.c
+
 x64/test_cccam_backpressure: test_cccam_backpressure.c ../src/msg-cccam.c ../src/msg-cccam.h
 	@mkdir -p x64
 	$(CC) -O2 -m64 -Wall -Wextra -std=gnu89 -I../src -pthread -o $@ test_cccam_backpressure.c
@@ -648,7 +678,7 @@ x64/test_ledger: test_ledger.c ../src/ledger.h ../src/r48-source-reputation.h ..
 ASAN_LIBS = $(filter-out $(OUTPUT)/main.o,$(filter-out $(OUTPUT)/parser.o,$(filter-out $(OUTPUT)/config.o,$(OBJECTS))))
 x64/multics-asan: ../src/main.c ../src/parser.c ../src/config.c $(ASAN_LIBS)
 	@mkdir -p x64
-	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -o $@ ../src/main.c ../src/parser.c ../src/config.c $(ASAN_LIBS) -lpthread
+	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -o $@ ../src/main.c ../src/parser.c ../src/config.c $(ASAN_LIBS) -lpthread -lm
 
 # TASK 3.9: direct ASan probe for xmlescape's frame. Links the REAL
 # httpserver TU (ASan-instrumented, its xmlescape renamed real_xmlescape)
@@ -660,7 +690,7 @@ x64/probe_xmlescape: ../src/httpserver.c ../src/main.c probe_xmlescape.c $(XE_PR
 	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -Dxmlescape=real_xmlescape -c ../src/httpserver.c -o x64/httpserver-xe.o
 	$(CC) -O1 -g -m64 -fsanitize=address -fsanitize-recover=address -o x64/probe-xe-main.o -c probe_xmlescape.c
 	$(CC) -O1 -g -m64 -I../src -I. -fpack-struct -include port_gnu89.h -std=gnu89 -fpermissive -fcommon -fno-strict-aliasing -w $(OPTS) -fsanitize=address -fsanitize-recover=address -Dmain=multics_main -c ../src/main.c -o x64/main-xe.o
-	$(CC) -fsanitize=address -fsanitize-recover=address -o $@ x64/probe-xe-main.o x64/httpserver-xe.o x64/main-xe.o $(XE_PROBE_LIBS) -lpthread
+	$(CC) -fsanitize=address -fsanitize-recover=address -o $@ x64/probe-xe-main.o x64/httpserver-xe.o x64/main-xe.o $(XE_PROBE_LIBS) -lpthread -lm
 
 # TASK 3.13: call the REAL cardsids_update. Production main.c, main()
 # renamed, linked against the normal objects. The live `fl` target runs it.
@@ -669,7 +699,7 @@ x64/probe_cardsids: ../src/main.c probe_cardsids.c $(FL_PROBE_LIBS)
 	@mkdir -p x64
 	$(CC) $(CFLAGS) -Dmain=multics_main -c ../src/main.c -o x64/main-fl.o
 	$(CC) $(CFLAGS) -o x64/probe-fl-main.o -c probe_cardsids.c
-	$(CC) $(LFLAGS) -o $@ x64/probe-fl-main.o x64/main-fl.o $(FL_PROBE_LIBS) -lpthread
+	$(CC) $(LFLAGS) -o $@ x64/probe-fl-main.o x64/main-fl.o $(FL_PROBE_LIBS) -lpthread -lm
 
 x64/test_cfgfield: test_cfgfield.c ../src/cfgfield.h
 	@mkdir -p x64
@@ -736,4 +766,4 @@ x64/test_sha256: test_sha256.c ../src/advanced-optimizations.h ../src/aes.c ../s
 
 # These two standalone dashboard modules use C99 loop declarations. Keep the
 # rest of the legacy tree in gnu89; preserve GNU89 inline semantics in both.
-x64/auto-tuning.o x64/web-dashboard.o: CFLAGS += -std=gnu99 -fgnu89-inline
+x64/auto-tuning.o: CFLAGS += -std=gnu99 -fgnu89-inline

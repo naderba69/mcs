@@ -73,7 +73,6 @@ void *reread_config_thread(void *param)
 	read_config(&cfg);
 	dcw_filter_globals_publish(&cfg);
 	dcw_badlist_commit(cfg.bad_dcw);	/* TASK 3.14 — the list is committed */
-	mark_config_ready();			/* TASK 4.1 — main may now look */
 
 	/*
 	 * The missing-profile check happens HERE, not in main(), and that is the
@@ -92,18 +91,30 @@ void *reread_config_thread(void *param)
 	 */
 	if ( !cfg.cardserver ) {
 		fprintf( stderr, "\nError: no profile configured.\n"
-		                 "  Add at least one profile to %s, for example:\n\n"
-		                 "    [ myprofile ]\n"
-		                 "    CAID: 1884\n"
-		                 "    PORT: 15001\n"
-		                 "    USER: user pass\n\n",
-		                 config_file );
+				 "  Add at least one profile to %s, for example:\n\n"
+				 "    [ myprofile ]\n"
+				 "    CAID: 1884\n"
+				 "    PORT: 15001\n"
+				 "    USER: user pass\n\n",
+				 config_file );
 		exit(1);
 	}
 
-	usleep(100000);
-	check_config(&cfg);
+	/*
+	 * Lock audit (D49) -- complete TASK 4.1's cfg_ready instead of stopping
+	 * halfway. mark_config_ready() used to be published right after parsing,
+	 * with check_config() (which opens every listener handle) and
+	 * cfg_set_id_counters() running ~100 ms later on this thread while main
+	 * had already started the HTTP/server/ECM threads: TSan showed those
+	 * threads reading cfg handles and profile ids mid-initialization (12
+	 * reports, all in this startup window; the SIGHUP reload path already
+	 * does counters+check under the exclusive config lock). Run the same
+	 * order as reload -- ids, then listeners -- BEFORE publishing ready.
+	 * No thread can observe a half-initialized cfg now, and the 100 ms
+	 * "hope" sleep is gone.
+	 */
 	cfg_set_id_counters(&cfg);
+	check_config(&cfg);
 
 	/*
 	 * TASK 2.10 -- restore the trust lifecycle snapshot exactly once, here:
@@ -112,6 +123,8 @@ void *reread_config_thread(void *param)
 	 * on while the state is being read back. A SIGHUP reread skips this.
 	 */
 	lifecycle_load();
+
+	mark_config_ready();			/* TASK 4.1 — main may now look */
 
 	int fd = inotify_init(); //1(IN_NONBLOCK);
 	while (1) {
@@ -136,6 +149,14 @@ void *reread_config_thread(void *param)
 					if (!fs->nowatch)
 					if (event->wd==fs->wd) {
 						if (event->mask & IN_CLOSE_WRITE) changed = 1;
+						/* Band 77: an atomic save (temp file + rename over
+						 * the config, as the web editor now does) never
+						 * raises IN_CLOSE_WRITE on the watched inode; it
+						 * surfaces as IN_IGNORED/IN_DELETE_SELF. That is a
+						 * change too. Stale IN_IGNORED events produced by
+						 * our own inotify_rm_watch below are drained after
+						 * the reload, so this cannot self-trigger. */
+						if (event->mask & (IN_IGNORED|IN_DELETE_SELF)) changed = 1;
 			            if (event->mask & IN_IGNORED) {
 							inotify_rm_watch(fd, fs->wd);
 							fs->wd = inotify_add_watch(fd,fs->name, IN_CLOSE_WRITE|IN_IGNORED);
@@ -151,6 +172,11 @@ void *reread_config_thread(void *param)
 
 		if (changed) {
 			debugf(getdbgflag(DBG_CONFIG,0,0)," Config file Changed...\n");
+			/* Band 77: shield every login door's failure counters for
+			 * the reload and a short grace after it (see
+			 * loginthrottle.h): reconnect churn caused by the reload
+			 * itself must never ban the operator's own IP. */
+			login_reload_shield_begin();
 			struct filename_data *fs = cfg.files;
 			while (fs) {
 				if (!fs->nowatch) inotify_rm_watch(fd, fs->wd);
@@ -160,6 +186,8 @@ void *reread_config_thread(void *param)
 			user_trace_stop_active();
 			free_filenames( &cfg );
 				reread_config(&cfg);
+				doublecheck_autofill_from_profiles();
+				ecm_doublecheck_apply_config(); /* ECM DOUBLECHECK list follows the file, like the rest */
 				/*
 				 * Graceful degradation on a reload that lost the profile section:
 				 * say so loudly instead of quietly serving nothing. Editors that
@@ -168,6 +196,18 @@ void *reread_config_thread(void *param)
 				if ( !cfg.cardserver )
 					debugf( DBG_ERROR, " !!! CONFIG: reloaded config has no profile section -- the server is serving nothing until it is fixed\n" );
 			user_trace_config_unlock();
+			login_reload_shield_end();
+			/* Band 77: drop events queued by our own rm_watch/re-add
+			 * dance above so they are not read as a fresh change. */
+			{
+				struct pollfd pfd;
+				pfd.fd = fd; pfd.events = POLLIN; pfd.revents = 0;
+				while (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
+					char drainbuf[1024];
+					if (read(fd, drainbuf, sizeof(drainbuf)) <= 0) break;
+					pfd.revents = 0;
+				}
+			}
 		}
 	}
 	return NULL;

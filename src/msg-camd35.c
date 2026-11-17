@@ -52,6 +52,9 @@ inline int camd35_padding( int len )
 // for connected udp sockets
 void camd35_send( int handle, AES_KEY *encryptkey, uint32_t ucrc, unsigned char *buf, int len)
 {
+	/* Length guard: sbuf is 1024 bytes and crc32 reads buf[20..len);
+	 * an oversized/undersized frame would overflow the stack buffer. */
+	if (!buf || len < 20 || len > 1000) return;
 	uint8_t sbuf[1024];
 	sbuf[0] = ucrc>>24;
 	sbuf[1] = ucrc>>16;
@@ -79,6 +82,7 @@ void camd35_send( int handle, AES_KEY *encryptkey, uint32_t ucrc, unsigned char 
 
 int camd35_sendto( int handle, uint32_t ip, int port, AES_KEY *encryptkey, uint32_t ucrc, unsigned char *buf, int len)
 {
+	if (!buf || len < 20 || len > 1000) return 0;
 	uint8_t sbuf[1024];
 	sbuf[0] = ucrc>>24;
 	sbuf[1] = ucrc>>16;
@@ -113,6 +117,7 @@ int camd35_sendto( int handle, uint32_t ip, int port, AES_KEY *encryptkey, uint3
 
 int cs378x_send( int handle, AES_KEY *encryptkey, uint32_t ucrc, unsigned char *buf, int len)
 {
+	if (!buf || len < 20 || len > 1000) return 0;
 	uint8_t sbuf[1024];
 	sbuf[0] = ucrc>>24;
 	sbuf[1] = ucrc>>16;
@@ -141,7 +146,10 @@ int cs378x_recv(int handle, uint32_t ucrc, AES_KEY *decryptkey,
 	received = recv_nonb( handle, buf, 32+4, 1000); // Get minimum packet size
 	if (received<=0) return received; // Disconnect
 	if (received < 36 || received > capacity) return -3;
-	uint32_t ucrc1 = (buf[0]<<24)|(buf[1]<<16)|(buf[2]<<8)|buf[3];
+	/* uint32_t casts: shifting a promoted uint8_t by 24 on a signed
+	 * int is UB for values >= 0x80; caught by UBSan via
+	 * tests/cs378xclient.c in band 74, swept tree-wide in band 75. */
+	uint32_t ucrc1 = ((uint32_t)buf[0]<<24)|((uint32_t)buf[1]<<16)|((uint32_t)buf[2]<<8)|buf[3];
 	if (ucrc!=ucrc1) return -2; // wrong ucrc
 	aes_decrypt( decryptkey, buf+4, received-4);
 	newlen = cs378x_frame_length(buf, received, capacity, 0);

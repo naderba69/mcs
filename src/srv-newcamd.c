@@ -177,6 +177,13 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		close(sock);
 		return NULL;
 	}
+	/* Band 61: newcamd's own protoban door (inner runs under the
+	 * config read gate, so the knob read is safe here). */
+	if ( cfg.newcamd.loginfails>0 && protoban_banned(ip, PB_NEWCAMD) ) {
+		debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," newcamd: connection from %s closed, ip banned for newcamd (band 61)\n", ip2string(ip));
+		close(sock);
+		return NULL;
+	}
 	memcpy(login_key, cs->newcamd.key, sizeof(login_key));
 	// Create random deskey
 	for (i=0; i<14; i++) keymod[i] = 0xff & rand();
@@ -294,7 +301,14 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		{ char uname[80]; int ul = (int)strlen((char*)&buf[3]);
 		  if (ul > 63) ul = 63;
 		  memcpy(uname, &buf[3], ul); uname[ul] = 0;
-		  debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," %s: unknown user '%s' (%s)\n", cs->name, uname, ip2string(ip)); }
+		  debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," %s: unknown user '%s' (%s)\n", cs->name, uname, ip2string(ip));
+		  loginaudit_note(PB_NEWCAMD, ip, uname, 0); /* Band 63: uname is in scope only inside this block */ }
+		{
+			int pb_banned = 0;
+			protoban_note_failure(ip, PB_NEWCAMD, (uint32_t)(cfg.newcamd.loginfails>0?cfg.newcamd.loginfails:0),
+			                      (uint32_t)(cfg.newcamd.loginbansec>0?cfg.newcamd.loginbansec:0), &pb_banned);
+			if (pb_banned) debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," newcamd: %s reached the failure threshold, banned for newcamd\n", ip2string(ip));
+		}
 		close(sock);
 		return NULL;
 	}
@@ -397,6 +411,8 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		cli->lastecmtime = 0;
 		cli->chkrecvtime = 0;
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: client '%s' connected (%s)\n", cs->name, cli->user, ip2string(ip));
+		protoban_note_success(ip, PB_NEWCAMD); /* Band 61 */
+		loginaudit_note(PB_NEWCAMD, ip, cli->user, 1); /* Band 63 */
 		connected_client_id = cli->id;
 		cs_mark_client_poll_update(cli);
 		newcamd_client_state_unlock(cli);
@@ -415,7 +431,14 @@ static void *cs_connect_cli_inner(struct newcamd_connect_cli_data *param)
 		buf[2] = 0;
 		//cs_message_send(sock, NULL, buf, 3, sessionkey);
 		debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," %s: client '%s' wrong password (%s)\n", cs->name, cli->user, ip2string(ip));
+		loginaudit_note(PB_NEWCAMD, ip, cli->user, 0); /* Band 63 */
 		cli->nbloginerror++;
+		{
+			int pb_banned = 0;
+			protoban_note_failure(ip, PB_NEWCAMD, (uint32_t)(cfg.newcamd.loginfails>0?cfg.newcamd.loginfails:0),
+			                      (uint32_t)(cfg.newcamd.loginbansec>0?cfg.newcamd.loginbansec:0), &pb_banned);
+			if (pb_banned) debugf(getdbgflag(DBG_NEWCAMD,cs->id,0)," newcamd: %s reached the failure threshold, banned for newcamd\n", ip2string(ip));
+		}
 		newcamd_client_state_unlock(cli);
 		pthread_mutex_unlock(&prg.lockcli);
 		close(sock);
@@ -743,7 +766,22 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 					uint32_t provid = ecm_getprovid( data, len, clicd.caid );
 					if (provid!=0) clicd.provid = provid;
 
+					/* Band 72: mirror the CCcam ingress trace so a
+					 * newcamd client's ECM - above all a rejection
+					 * before any ECM_DATA exists - is visible on
+					 * /user-trace with its reason, not only in the
+					 * debug log. Opt-in: all calls no-op unless a
+					 * trace session targets this client/channel. */
+					uint64_t trace_session = 0, trace_attempt = 0;
+					uint32_t trace_hash = 0;
+					if (len > 3 && user_trace_matches(cli->id, clicd.caid, clicd.provid, clicd.sid)) {
+						trace_hash = hashCode(data + 3, len - 3);
+						trace_attempt = user_trace_begin(cli->id, clicd.caid, clicd.provid, clicd.sid,
+						                                 trace_hash, &trace_session);
+					}
+
 					if (cli->ecm.busy) {
+						if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, "too many ecm requests");
 						cli->ecmdenied++;
 						// send decode failed
 						buf[1] = 0; buf[2] = 0;
@@ -754,7 +792,8 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 					uint8_t cw1cycle;
 					char *error = cs_accept_ecm(cs,clicd.caid,clicd.provid,clicd.sid,ecm_getchid(data,len,clicd.caid), len, data, &cw1cycle);
 					if (error) {
-						cs->ecmdenied++;
+						if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, error);
+						__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 						cli->ecmdenied++;
 						buf[1] = 0; buf[2] = 0;
 						if (cs_message_send_client_locked(cli, &clicd, buf, 3, client_state_locked) > 0) debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <|> decode failed to client '%s' ch %04x:%06x:%04x, %s\n",cli->user, clicd.caid,clicd.provid,clicd.sid, error);
@@ -1027,9 +1066,18 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 					}
 
 					if (ecm) {
+						if (trace_attempt) {
+							if (!ecm->trace_instance) ecm->trace_instance = user_trace_next_instance();
+							if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
+								user_trace_add(trace_session, trace_attempt, USER_TRACE_JOINED, trace_hash, 0, 0, 0, "joined existing ECM; earlier events unavailable");
+						}
 						ecm->lastrecvtime = ticks;
 						if (ecm->dcwstatus==STAT_DCW_FAILED) {
 							if (ecm->period > cs->option.dcw.retry) {
+								if (trace_attempt) {
+									user_trace_add(trace_session, trace_attempt, USER_TRACE_FAILED, trace_hash, 0, 0, 0, "existing ECM already failed");
+									user_trace_unbind_shared(trace_session, trace_attempt);
+								}
 								buf[1] = 0; buf[2] = 0;
 								ecm_unlock();
 								ecm_lock_held = 0;
@@ -1089,7 +1137,7 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 						// Setup ECM Request for Server(s)
 						ecm = store_ecmdata(cs, data, len, clicd.sid, clicd.caid, clicd.provid);
 						if (!ecm) {
-							cs->ecmdenied++;
+							__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 							cli->ecmdenied++;
 							uint8_t failure[3] = { data[0], 0, 0 };
 							ecm_unlock();
@@ -1097,7 +1145,11 @@ static void *cs_cli_recvmsg_locked(struct cs_client_data *cli,
 							cs_message_send_client_locked(cli, &clicd, failure, sizeof(failure), client_state_locked);
 							break;
 						}
-						cs->ecmaccepted++;
+						if (trace_attempt) {
+							ecm->trace_instance = user_trace_next_instance();
+							user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance);
+						}
+						__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 						cs_store_ecmclient(cs, ecm, cli, clicd.msgid);
 						debugf(getdbgflag(DBG_NEWCAMD,cli->pid,cli->id)," <- ecm from client '%s' ch %04x:%06x:%04x:%08x\n",cli->user,clicd.caid,clicd.provid,clicd.sid,ecm->hash);
 						cli->ecm.busy=1;
@@ -1370,6 +1422,10 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli,
 		return;
 	}
 	if (send_result <= 0) {
+		if (delivery->trace_instance)
+			user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
+			                         USER_TRACE_SEND_FAILED, 0, 0,
+			                         sent_at - response_recvtime, "CW/failure send failed");
 		cs_disconnect_cli_unlocked(cli);
 		return;
 	}
@@ -1402,8 +1458,13 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli,
 #endif
 		cli->lastecm.status = 1;
 		cli->lastdcwtime = sent_at;
-		cli->ecmok++;
-		cli->ecmoktime += sent_at-response_recvtime;
+		if (delivery->trace_instance)
+			user_trace_client_cw(cli->id, delivery->trace_instance, delivery->hash,
+			                     delivery->srctype, delivery->srcid,
+			                     sent_at - response_recvtime,
+			                     "CW response sent; picture not verified", delivery->cw);
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at-response_recvtime), __ATOMIC_RELAXED);
 #ifdef CACHEEX
 		ledger_note_delivered(delivery, sent_at);
 #endif
@@ -1412,6 +1473,14 @@ static void cs_senddcw_cli_locked(struct cs_client_data *cli,
 		cli->lastecm.status = 0;
 		cli->lastecm.dcwsrctype = DCW_SOURCE_NONE;
 		cli->lastecm.dcwsrcid = 0;
+		if (delivery->trace_instance) {
+			char fail_detail[128];   /* band 80 */
+			snprintf(fail_detail, sizeof(fail_detail), "decode failed (%s)",
+			         delivery->statusmsg[0] ? delivery->statusmsg : "reason unavailable");
+			user_trace_client_result(cli->id, delivery->trace_instance, delivery->hash,
+			                         USER_TRACE_FAILED, 0, 0,
+			                         sent_at - response_recvtime, fail_detail);
+		}
 		memset(cli->lastecm.dcw, 0, 16);
 #ifdef CACHEEX
 		memset(cli->lastecm.ecmd5, 0, sizeof(cli->lastecm.ecmd5));
@@ -1483,7 +1552,6 @@ void cs_recv_pipe()
 {
 	uint8_t buf[1024];
 	struct pollfd pfd[2];
-	struct cs_client_data *cli;
 
 	do {
 		int len = pipe_recv( prg.pipe.newcamd[0], buf, sizeof(buf));
@@ -1503,7 +1571,11 @@ void cs_recv_pipe()
 						if (!pipe_decode_u32_message(buf, (size_t)len,
 						                            PIPE_CLI_CONNECTED, &client_id) ||
 						    !client_id) break;
-						cli = getnewcamdclientbyid(client_id);
+						/* Band 85: cli was used undeclared in this
+						 * EPOLL_NEWCAMD branch (production builds
+						 * take the #else thread, so only test
+						 * harnesses defining EPOLL_NEWCAMD saw it). */
+						struct cs_client_data *cli = getnewcamdclientbyid(client_id);
 						if (!cli || newcamd_client_state_lock(cli) != 0) break;
 						handle = cli->handle;
 						session_generation = cs_client_session_generation(cli);
@@ -1573,8 +1645,7 @@ void *cs_recvmsg_thread(void *param)
 			uint32_t client_id = 0;
 			uint32_t event_generation_low = 0;
 			uint32_t events = evlist[i].events;
-			struct cs_client_data *cli;
-			if (evlist[i].data.u64 &&
+				if (evlist[i].data.u64 &&
 			    !newcamd_epoll_client_token_decode(evlist[i].data.u64,
 			                                      &client_id,
 			                                      &event_generation_low))
@@ -1585,7 +1656,7 @@ void *cs_recvmsg_thread(void *param)
 					debugf(DBG_ERROR, "Err! epoll_wait() pipe\n");
 				continue;
 			}
-			cli = getnewcamdclientbyid(client_id);
+			struct cs_client_data *cli = getnewcamdclientbyid(client_id); /* Band 85: was undeclared */
 			if (cli)
 				cs_cli_process_epoll_event(cli, event_generation_low, events);
 		}

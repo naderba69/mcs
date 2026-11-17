@@ -43,6 +43,7 @@ extern uint32_t flagdebug;
 #define MAX_DBGLINES 70
 extern char dbgline[MAX_DBGLINES][512];
 extern int idbgline;
+void dbg_copy_line(int slot, char *out, int outsz); /* locked snapshot of one ring slot */
 
 uint32_t getdbgflag( int i, int j, int k);
 uint32_t getdbgflagpro( int i, int j, int k, int csid );

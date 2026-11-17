@@ -16,7 +16,7 @@ build_and_run() {
     -DFREECCCAM_SRV -DEXPIREDATE -DDCWSWAP -DTHREAD_DCW \
     -DMONOTHREAD_ACCEPT -DDEBUG_NETWORK -DEPOLL_NEWCAMD -DEPOLL_ECM \
     "$@" tests/cache-cross-provider.c src/sockets.c src/cache-window.c src/newcamd-lifetime.c src/ecm-provider-config.c src/ecmdata.c src/ecm-optimizations.c src/advanced-optimizations.c src/biss.c src/caid-optimizations.c -Wl,--gc-sections -Wl,--wrap=clock_gettime \
-    -Wl,--wrap=poll -Wl,--wrap=send -o "$tmp/test-$name"
+    -Wl,--wrap=poll -Wl,--wrap=send -lm -o "$tmp/test-$name"
   "$tmp/test-$name"
 }
 

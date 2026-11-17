@@ -5,6 +5,6 @@
 #include "advanced-optimizations.h"
 
 /* Global tables */
-struct parallel_ecm_table parallel_tab;
+/* parallel_tab removed with its dead API (advanced-optimizations.h). */
 struct recovery_state recovery_sys;
 struct warming_table warming_tab;

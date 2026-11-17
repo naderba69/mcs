@@ -31,6 +31,12 @@
 
 #define DROPDIFFS_MAX_CAIDS 128
 
+
+/* A reference only judges arrivals for the same ECM (ecmd5); the TTL
+ * is a backstop so a stale reference can never judge a later cycle
+ * whose hash somehow repeats. */
+#define DROPDIFFS_TTL_SEC 60
+
 /* Known-good CW entry */
 typedef struct {
     uint16_t caid;
@@ -127,6 +133,7 @@ static inline int cacheex_dropdiffs_check(uint16_t caid, uint32_t provid,
             e->provid == provid &&
             e->sid == sid &&
             e->timestamp > 0 &&
+            (time(NULL) - e->timestamp) <= DROPDIFFS_TTL_SEC &&
             memcmp(e->ecm_hash, ecm_hash, 16) == 0) {
             
             /* Found reference — compare CWs */

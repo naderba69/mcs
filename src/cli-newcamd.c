@@ -189,7 +189,7 @@ int cs_connect_srv(struct server_data *srv, int fd)
 #ifdef CLI_CSCACHE
 	srv->cscached = 0;
 #endif
-	srv->handle = fd;
+	__atomic_store_n(&srv->handle, fd, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&prg.locksrv);
 	server_publish_connection_ready(srv, fd);
 	return 0;
@@ -212,7 +212,7 @@ int cs_sendecm_srv(struct cardserver_data *cs, struct server_data *srv, ECM_DATA
 	srvcd.provid = ecm->provid;
 
 	memcpy( &buf[0], &ecm->ecm[0], ecm->ecmlen );
-	return cs_message_send(  srv->handle, &srvcd, buf, ecm->ecmlen, srv->sessionkey);
+	return cs_message_send(  __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srvcd, buf, ecm->ecmlen, srv->sessionkey);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -226,9 +226,9 @@ void cs_srv_recvmsg(struct server_data *srv)
 	ECM_DATA *ecm;
 	unsigned char buf[CWS_NETMSGSIZE];
 
-	if ( (srv->handle<=0)||(srv->type!=TYPE_NEWCAMD) ) return;
+	if ( (__atomic_load_n(&srv->handle, __ATOMIC_RELAXED)<=0)||(srv->type!=TYPE_NEWCAMD) ) return;
 
-	len = cs_peekmsg( srv->handle, &srv->msg, srv->sessionkey, &srvcd, buf );
+	len = cs_peekmsg( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &srv->msg, srv->sessionkey, &srvcd, buf );
 	if (len==0) {
 		debugf(getdbgflag(DBG_SERVER,0,srv->id)," newcamd: server (%s:%d) read failed %d\n", srv->host->name, srv->port, len);
 		disconnect_srv(srv);
@@ -337,9 +337,9 @@ void cs_srv_recvmsg(struct server_data *srv)
 						    checksum_exemption_used
 						        ? "Newcamd CW passed initial checks under scoped checksum exemption; validity and picture unknown"
 						        : "Newcamd CW passed initial validation; further gates remain");
-						srv->ecmok++;
+						__atomic_fetch_add(&srv->ecmok, 1, __ATOMIC_RELAXED);
 						srv->lastecmoktime = GetTickCount()-srv->lastecmtime;
-						srv->ecmoktime += srv->lastecmoktime;
+						__atomic_fetch_add(&srv->ecmoktime, (srv->lastecmoktime), __ATOMIC_RELAXED);
 
 						/*
 						 * TASK 2.3 -- the latency this source just took, offered to the
@@ -374,7 +374,7 @@ void cs_srv_recvmsg(struct server_data *srv)
 							// Store ECM Answer
 							ecm_setdcw( ecm, buf+3, DCW_SOURCE_SERVER, srv->id );
 						}
-						else if (ecm->dcwsrctype == DCW_SOURCE_CACHE) {
+						else if (ecm->dcwsrctype == DCW_SOURCE_CACHE || (cfg.cache.dropdiffs || (ecm->cs && ecm->cs->option.dropdiffs==1))) { /* DROPDIFFS (band 32/33): queue the late reply for validation so it can be refused against the known-good; OFF = stock drop */
 							/* D111 D-1: queue a late line reply for validation/reference;
 							 * the Set-DCW worker will not reapply it to clients. */
 							ecm_setdcw( ecm, buf+3, DCW_SOURCE_SERVER, srv->id );
@@ -513,7 +513,7 @@ void cs_check_keepalive(struct server_data *srv)
 	unsigned char buf[CWS_NETMSGSIZE];
 	uint32_t ticks;
 
-	if (!srv || srv->handle <= 0 || srv->type != TYPE_NEWCAMD) return;
+	if (!srv || __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) <= 0 || srv->type != TYPE_NEWCAMD) return;
 	ticks = GetTickCount();
 
 	// Check for sending keep alive
@@ -524,7 +524,7 @@ void cs_check_keepalive(struct server_data *srv)
 			buf[1] = 0;
 			buf[2] = 0;
 			//debugf(getdbgflag(DBG_SERVER,0,srv->id)," -> keepalive to server (%s:%d)\n",srv->host->name,srv->port);
-			if (!cs_message_send(srv->handle, NULL, buf, 3, srv->sessionkey)) {
+			if (!cs_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), NULL, buf, 3, srv->sessionkey)) {
 				disconnect_srv(srv);
 			} else {
 				srv->keepalive.time = ticks;
@@ -541,7 +541,7 @@ void cs_check_keepalive(struct server_data *srv)
 		buf[0] = MSG_KEEPALIVE;
 		buf[1] = 0;
 		buf[2] = 0;
-		if (!cs_message_send(srv->handle, &clicd, buf, 3, srv->sessionkey)) {
+		if (!cs_message_send(__atomic_load_n(&srv->handle, __ATOMIC_RELAXED), &clicd, buf, 3, srv->sessionkey)) {
 			disconnect_srv(srv);
 		} else {
 			/* status remains a pending-response flag; time is the deadline base. */

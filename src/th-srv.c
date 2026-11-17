@@ -121,7 +121,7 @@ static int server_receive_connection_active(
 	int active = 0;
 	newcamd_config_read_lock_mutex(&prg.locksrv);
 	srv = server_receive_find_locked(job);
-	if (srv && srv->connection.status > 0 && srv->handle == job->fd &&
+	if (srv && srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == job->fd &&
 	    !IS_DISABLED(srv->flags)) {
 		active = 1;
 		if (publish_thread_id) srv->pid = thread_id;
@@ -173,7 +173,7 @@ static int server_receive_process_event(
 	int keep_running = 0;
 	newcamd_config_read_lock_mutex(&prg.locksrv);
 	srv = server_receive_find_locked(job);
-	if (srv && srv->connection.status > 0 && srv->handle == job->fd &&
+	if (srv && srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == job->fd &&
 	    !IS_DISABLED(srv->flags)) {
 		if (poll_result < 0) {
 			if (poll_error == EAGAIN || poll_error == ENOMEM) {
@@ -203,7 +203,7 @@ static int server_receive_process_event(
 					/* poll is level-triggered. Drain any buffered final frames before
 					 * retiring HUP/ERR; disconnect once the terminal event remains
 					 * without readable data. */
-					if (srv->connection.status > 0 && srv->handle == job->fd &&
+					if (srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == job->fd &&
 					    !input_ready && (revents & (POLLERR | POLLHUP))) {
 						if (revents & POLLERR) {
 							int socket_error = server_receive_socket_error(job->fd);
@@ -220,7 +220,7 @@ static int server_receive_process_event(
 				}
 			}
 		}
-		keep_running = srv->connection.status > 0 && srv->handle == job->fd &&
+		keep_running = srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == job->fd &&
 		               srv->connect_generation == job->generation;
 		if (!keep_running && srv->pid == thread_id) srv->pid = 0;
 	}
@@ -271,7 +271,7 @@ int server_receive_thread_start(struct server_data *srv)
 	if (!job) return 0;
 	pthread_mutex_lock(&prg.locksrv);
 	if (srv->cacheex_mode != 2 || srv->connection.status <= 0 ||
-	    srv->handle <= 0 || !srv->connect_generation ||
+	    __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) <= 0 || !srv->connect_generation ||
 	    IS_DISABLED(srv->flags)) {
 		pthread_mutex_unlock(&prg.locksrv);
 		free(job);
@@ -279,7 +279,7 @@ int server_receive_thread_start(struct server_data *srv)
 	}
 	job->server_id = srv->id;
 	job->generation = srv->connect_generation;
-	job->fd = srv->handle;
+	job->fd = __atomic_load_n(&srv->handle, __ATOMIC_RELAXED);
 	job->cacheex_server = cacheex_server;
 	job->type = srv->type;
 	pthread_mutex_unlock(&prg.locksrv);
@@ -509,7 +509,7 @@ int server_connection_is_enabled(struct server_data *srv, int fd)
 	int active, enabled;
 	if (!srv || fd <= 0) return 0;
 	pthread_mutex_lock(&prg.locksrv);
-	active = srv->connection.status > 0 && srv->handle == fd;
+	active = srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == fd;
 	enabled = active && srv->connect_generation && !IS_DISABLED(srv->flags);
 	if (active && !enabled) disconnect_srv(srv);
 	pthread_mutex_unlock(&prg.locksrv);
@@ -527,7 +527,7 @@ int server_publish_connection_ready(struct server_data *srv, int fd)
 	if (!srv || fd <= 0) return 0;
 	pthread_mutex_lock(&prg.locksrv);
 	generation = srv->connect_generation;
-	active = srv->connection.status > 0 && srv->handle == fd;
+	active = srv->connection.status > 0 && __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == fd;
 	ready = active && generation && !IS_DISABLED(srv->flags);
 	if (active && !ready) disconnect_srv(srv);
 	pthread_mutex_unlock(&prg.locksrv);
@@ -539,7 +539,7 @@ int server_publish_connection_ready(struct server_data *srv, int fd)
 	       (unsigned)srv->id);
 	pthread_mutex_lock(&prg.locksrv);
 	if (srv->connect_generation == generation && srv->connection.status > 0 &&
-	    srv->handle == fd)
+	    __atomic_load_n(&srv->handle, __ATOMIC_RELAXED) == fd)
 		disconnect_srv(srv);
 	pthread_mutex_unlock(&prg.locksrv);
 	return 0;

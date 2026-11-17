@@ -79,6 +79,18 @@ struct cc_client_data *getcccamclientbyid(uint32_t id)
 		}
 		cccam = cccam->next;
 	}
+#ifdef FREECCCAM_SRV
+	/* FreeCCcam clients are cc_client_data on the embedded freecccam
+	 * server; id lookups (trace start, client pages) must find them. */
+	if (!(cfg.freecccam.server.flags&FLAG_DELETE)) {
+		struct cc_client_data *cli = cfg.freecccam.server.client;
+		while (cli) {
+			if (!(cli->flags&FLAG_DELETE))
+				if (cli->id==id) return cli;
+			cli = cli->next;
+		}
+	}
+#endif
 	return NULL;
 }
 
@@ -130,7 +142,9 @@ static void cc_disconnect_cli_unlocked(struct cc_client_data *cli)
 	cli->connection.lastseen = ticks; // Last Seen
 	if (cli->handle > 0) close(cli->handle);
 	cli->handle = -1;
-	cli->pid = 0;
+#ifdef CACHEEX
+	cli->pid = 0; /* pid member exists only in CACHEEX builds */
+#endif
 	if (cli->parent) cli->parent->clipfd.update = 1;
 	debugf(0," CCcam: client '%s' disconnected \n", cli->user);
 }
@@ -365,7 +379,37 @@ struct cc_cli_recv_session_args {
 void *cacheex_cc_cli_recvmsg(void *param);
 #endif
 
-static void *cc_connect_cli_inner(struct connect_cli_data *param)
+/* Band 77: count one REAL CCcam credential failure (unknown user, wrong
+ * password, wrong nodeid). Band 60 counted every connection ATTEMPT at
+ * accept time -- IPLIST semantics -- which made ordinary client churn
+ * indistinguishable from brute force: a receiver dropped by a config
+ * reload reconnected into the duplicate-login guard, every reject was
+ * counted, none could succeed to clear the count, and the shared IP
+ * was banned. Attempts that never present credentials, policy refusals
+ * (disabled client, host list) and duplicate-session rejects (valid
+ * credentials, old session still being cleaned up) are NOT counted;
+ * a duplicate reject clears the count instead, like any verified
+ * credential presentation. Brute force still presents credentials and
+ * still fails here, so the gate keeps its teeth. */
+static void cccam_protoban_fail(struct cccam_server_data *cccam, uint32_t ip, int proto, int lf, int lb)
+{
+	int banned = 0;
+	protoban_note_failure(ip, proto, (uint32_t)(lf>0?lf:0),
+	                      (uint32_t)(lb>0?lb:0), &banned);
+	if (banned) debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: %s reached the login failure threshold, banned for %s\n", cccam->id, ip2string(ip), protoban_name(proto));
+}
+
+/* Band 60: is the CCcam protoban armed? Snapshot under the config gate. */
+static int protoban_cccam_armed(void)
+{
+	int armed;
+	newcamd_config_read_lock();
+	armed = cfg.cccam.loginfails;
+	newcamd_config_read_unlock();
+	return armed > 0;
+}
+
+void *cc_connect_cli_inner(struct connect_cli_data *param)
 {
 	uint8_t buf[CC_MAXMSGSIZE];
 	uint8_t data[64];
@@ -380,6 +424,9 @@ static void *cc_connect_cli_inner(struct connect_cli_data *param)
 	uint32_t connected_session_generation = 0;
 	char usr[64];
 	char pwd[255];
+	int pb_lf = 0, pb_lb = 0;   /* Band 77: protoban snapshot, counted only on real failure */
+	int pbx_lf = 0, pbx_lb = 0; /* Band 78: cacheex-identity thresholds (PB_CACHEEX) */
+	int is_cx = 0;              /* Band 78: identity matched the cacheex client list */
 	// Store data from param
 	struct cccam_server_data *cccam = param->server;
 	int sock = param->sock;
@@ -390,6 +437,18 @@ static void *cc_connect_cli_inner(struct connect_cli_data *param)
 	struct ip_hacker_data *ipdata = iplist_find( cccam->iplist, ip );
 	if (ipdata) iplist_newlogin( ipdata );
 #endif
+
+	/* Band 60/77: snapshot the CCcam protoban thresholds now; the count
+	 * itself is noted only at the real credential-failure exits below
+	 * (cccam_protoban_fail). Threshold 0 = off. */
+	{
+		newcamd_config_read_lock();
+		pb_lf = cfg.cccam.loginfails;
+		pb_lb = cfg.cccam.loginbansec;
+		pbx_lf = cfg.cache.loginfails;
+		pbx_lb = cfg.cache.loginbansec;
+		newcamd_config_read_unlock();
+	}
 
 	//
 	struct cc_client_data tmpcli;
@@ -532,6 +591,7 @@ static void *cc_connect_cli_inner(struct connect_cli_data *param)
 					return NULL;
 				}
 				found = 1;
+				is_cx = 1;   /* Band 78 */
 				break;
 			}
 			cli = cli->next;
@@ -539,8 +599,18 @@ static void *cc_connect_cli_inner(struct connect_cli_data *param)
 	}
 	///pthread_mutex_unlock(&prg.lockcccli);
 
+	/* Band 78: a cacheex peer identity under a PB_CACHEEX ban is refused
+	 * here, at the first point its identity is known (the shared CCcam
+	 * port cannot be filtered per-identity at accept time). */
+	if (found && is_cx && pbx_lf>0 && protoban_banned(ip, PB_CACHEEX)) {
+		debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: cacheex client '%s' (%s) refused, ip banned for cacheex (band 78)\n", cccam->id, usr, ip2string(ip));
+		close(sock);
+		return NULL;
+	}
+
 	if (!found) {
 		debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: Unknown Client '%s' (%s)\n", cccam->id, usr, ip2string(ip));
+		cccam_protoban_fail(cccam, ip, is_cx?PB_CACHEEX:PB_CCCAM, is_cx?pbx_lf:pb_lf, is_cx?pbx_lb:pb_lb); /* Band 77/78 */
 		close(sock);
 		return NULL;
 	}
@@ -566,6 +636,7 @@ static void *cc_connect_cli_inner(struct connect_cli_data *param)
 		cc_decrypt(&recvblock, buf, 6);
 		if ( memcmp(buf,"CCcam\0",6) ) {
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: login failed from client '%s'\n", cccam->id, usr);
+			cccam_protoban_fail(cccam, ip, is_cx?PB_CACHEEX:PB_CCCAM, is_cx?pbx_lf:pb_lf, is_cx?pbx_lb:pb_lb); /* Band 77/78 */
 			cli->nbloginerror++;
 			close(sock);
 			return NULL;
@@ -573,6 +644,7 @@ static void *cc_connect_cli_inner(struct connect_cli_data *param)
 	}
 	else {
 		debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: login failed from client '%s', error receiving crypted password\n", cccam->id, usr);
+		cccam_protoban_fail(cccam, ip, is_cx?PB_CACHEEX:PB_CCCAM, is_cx?pbx_lf:pb_lf, is_cx?pbx_lb:pb_lb); /* Band 77/78 */
 		cli->nbloginerror++;
 		close(sock);
 		return NULL;
@@ -613,6 +685,7 @@ static void *cc_connect_cli_inner(struct connect_cli_data *param)
 	if (cli->option.nodeid[0] && cli->option.nodeid[7]) {
 		if (memcmp(cli->option.nodeid, tmpcli.nodeid, 8)) { // diff nodeid
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: login failed from client '%s' (%s), wrong nodeid\n", cccam->id, usr, ip2string(ip));
+			cccam_protoban_fail(cccam, ip, is_cx?PB_CACHEEX:PB_CCCAM, is_cx?pbx_lf:pb_lf, is_cx?pbx_lb:pb_lb); /* Band 77/78 */
 			cli->nbloginerror++;
 			close(sock);
 			return NULL;
@@ -674,6 +747,11 @@ static void *cc_connect_cli_inner(struct connect_cli_data *param)
 	client_state_unlock(cli);
 	client_io_unlock(cli);
 	if (reject_login) {
+		/* Band 77: credentials were verified above; this is a duplicate
+		 * session (or the same user from another IP), not a failure.
+		 * Clear the door count instead of letting reload/reconnect
+		 * churn accumulate toward a ban of a legitimate IP. */
+		protoban_note_success(ip, is_cx?PB_CACHEEX:PB_CCCAM); /* Band 78 */
 		if (reject_different_ip)
 			debugf(getdbgflag(DBG_CCCAM,cli->parent->id,cli->id)," CCcam%d: Client '%s' (%s) already connected with different ip, Connection closed.\n", cccam->id, usr, ip2string(ip));
 		else
@@ -686,6 +764,8 @@ static void *cc_connect_cli_inner(struct connect_cli_data *param)
 #ifdef IPLIST
 	if (ipdata) iplist_goodlogin(ipdata);
 #endif
+	protoban_note_success(ip, is_cx?PB_CACHEEX:PB_CCCAM); /* Band 60/78 */
+	loginaudit_note(PB_CCCAM, ip, usr, 1); /* Band 63: usr is parsed by here */
 
 	// send cli data ack without holding client state across the TCP write
 	if (client_io_lock(cli) == 0) {
@@ -801,7 +881,7 @@ void cccam_srv_accept(struct cccam_server_data *srv)
 {
 	struct sockaddr_in newaddr;
 	socklen_t socklen = sizeof(struct sockaddr);
-	int newfd = accept( srv->handle, (struct sockaddr*)&newaddr, /*(socklen_t*)*/&socklen);
+	int newfd = accept( __atomic_load_n(&srv->handle, __ATOMIC_RELAXED), (struct sockaddr*)&newaddr, /*(socklen_t*)*/&socklen);
 	if ( newfd<=0 ) {
 		if ( (errno!=EAGAIN) && (errno!=EINTR) ) debugf( getdbgflag(DBG_CCCAM,srv->id,0)," CCcam%d: Accept failed (errno=%d)\n", srv->id,errno);
 	}
@@ -817,7 +897,11 @@ void cccam_srv_accept(struct cccam_server_data *srv)
 			srv->iplist = ipdata;
 		}
 #endif
-		if ( isblockedip(newip) ) {
+		if ( protoban_cccam_armed() && protoban_banned(newip, PB_CCCAM) ) {
+			debugf(getdbgflag(DBG_CCCAM,srv->id,0)," CCcam%d: New Connection (%s) closed, ip banned for cccam (band 60)\n", srv->id, ip2string(newip) );
+			close(newfd);
+		}
+		else if ( isblockedip(newip) ) {
 			debugf(getdbgflag(DBG_CCCAM,srv->id,0)," CCcam%d: New Connection (%s) closed, ip blocked\n", srv->id, ip2string(newip) );
 			close(newfd);
 		}
@@ -943,6 +1027,7 @@ int cc_send_cacheex_push_cli(struct cc_client_data *cli, uint8_t *buf, int len)
 		return 0;
 	}
 	client_state_locked = 1;
+#ifdef CACHEEX
 	if (cli->cacheex_mode == 2 && cli->handle > 0 &&
 	    cli->connection.status > 0) {
 		attempted = 1;
@@ -951,6 +1036,7 @@ int cc_send_cacheex_push_cli(struct cc_client_data *cli, uint8_t *buf, int len)
 		if (!result && cli->handle > 0 && cli->connection.status > 0)
 			cc_disconnect_cli_unlocked(cli);
 	}
+#endif /* CACHEEX: without it there is no cache-push to attempt */
 	if (client_state_locked) client_state_unlock(cli);
 	client_io_unlock(cli);
 	return attempted;
@@ -1043,9 +1129,9 @@ static void cc_senddcw_cli_locked(struct cc_client_data *cli,
 		memcpy(cli->lastecm.dcw, delivery->cw, sizeof(cli->lastecm.dcw));
 #endif
 		cli->lastecm.status = 1;
-		cli->ecmok++;
+		__atomic_fetch_add(&cli->ecmok, 1, __ATOMIC_RELAXED);
 		cli->lastdcwtime = sent_at;
-		cli->ecmoktime += sent_at - response_recvtime;
+		__atomic_fetch_add(&cli->ecmoktime, (sent_at - response_recvtime), __ATOMIC_RELAXED);
 		if (delivery->trace_instance)
 			user_trace_client_cw(cli->id, delivery->trace_instance, delivery->hash,
 			                     delivery->srctype, delivery->srcid,
@@ -1087,11 +1173,14 @@ static void cc_senddcw_cli_locked(struct cc_client_data *cli,
 		memset(cli->lastecm.ecmd5, 0, sizeof(cli->lastecm.ecmd5));
 		cli->lastecm.ecmlen = 0;
 #endif
-		if (delivery->trace_instance)
+		if (delivery->trace_instance) {
+			char fail_detail[128];   /* band 80 */
+			snprintf(fail_detail, sizeof(fail_detail), "decode failed (%s)",
+			         delivery->statusmsg[0] ? delivery->statusmsg : "reason unavailable");
 			user_trace_client_result(cli->id, delivery->trace_instance,
 			                        delivery->hash, USER_TRACE_FAILED, 0, 0,
-			                        ticks - response_recvtime,
-			                        "decode failed; detailed reason unavailable");
+			                        ticks - response_recvtime, fail_detail);
+		}
 		debugf(getdbgflagpro(DBG_CCCAM,cli->parent->id,cli->id,response_profile),
 		       " |> decode failed to CCcam client '%s' ch %04x:%06x:%04x (%dms)\n",
 		       cli->user, response_caid, response_provid, response_sid,
@@ -1227,11 +1316,11 @@ static void cc_cli_parsemsg_locked(struct cc_client_data *cli, uint8_t *buf, int
 			cli->ecm.busy = 0;
 			//Check for card availability
 			memcpy( data, buf+17, len-17);
-			cardid = buf[10]<<24 | buf[11]<<16 | buf[12]<<8 | buf[13];
+			cardid = ((uint32_t)buf[10]<<24) | buf[11]<<16 | buf[12]<<8 | buf[13];
 			uint16_t caid = buf[4]<<8 | buf[5];
 			uint16_t sid = buf[14]<<8 | buf[15];
 			uint32_t provid = ecm_getprovid( data, len-17, caid );
-			if (provid==0) provid = buf[6]<<24 | buf[7]<<16 | buf[8]<<8 | buf[9];
+			if (provid==0) provid = ((uint32_t)buf[6]<<24) | buf[7]<<16 | buf[8]<<8 | buf[9];
 
 			uint64_t trace_session = 0, trace_attempt = 0;
 			uint32_t trace_hash = 0;
@@ -1277,7 +1366,7 @@ static void cc_cli_parsemsg_locked(struct cc_client_data *cli, uint8_t *buf, int
 			char *error = cs_accept_ecm(cs,caid,provid,sid,ecm_getchid(data,len-17,caid), len-17, data, &cw1cycle);
 			if (error) {
 				if (trace_attempt) user_trace_add(trace_session, trace_attempt, USER_TRACE_DENIED, trace_hash, 0, 0, 0, error);
-				cs->ecmdenied++;
+				__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 				cli->ecmdenied++;
 				if (!cc_msg_send_client_locked(cli, CC_MSG_ECM_NOK1, 0, NULL, NULL, 0,
 							      client_state_locked)) {
@@ -1389,7 +1478,7 @@ static void cc_cli_parsemsg_locked(struct cc_client_data *cli, uint8_t *buf, int
 				// Setup ECM Request for Server(s)
 				ecm = store_ecmdata(cs, data, len-17, sid, caid, provid);
 				if (!ecm) {
-					cs->ecmdenied++;
+					__atomic_fetch_add(&cs->ecmdenied, 1, __ATOMIC_RELAXED);
 					cli->ecmdenied++;
 					if (trace_attempt) {
 						user_trace_add(trace_session, trace_attempt, USER_TRACE_FAILED, trace_hash, 0, 0, 0, "ECM allocation failed; request not queued");
@@ -1400,7 +1489,7 @@ static void cc_cli_parsemsg_locked(struct cc_client_data *cli, uint8_t *buf, int
 						      client_state_locked)) cc_disconnect_cli_unlocked(cli);
 					break;
 				}
-				cs->ecmaccepted++;
+				__atomic_fetch_add(&cs->ecmaccepted, 1, __ATOMIC_RELAXED);
 				if (trace_attempt) {
 					ecm->trace_instance = user_trace_next_instance();
 					if (user_trace_bind_shared(trace_session, trace_attempt, trace_hash, ecm->trace_instance))
@@ -1476,7 +1565,7 @@ static void cc_cli_parsemsg_locked(struct cc_client_data *cli, uint8_t *buf, int
 			memset(&cacheex, 0, sizeof(cacheex));
 			cacheex.provider_known = 1; /* fixed-width packet has provider, even when zero */
 			cacheex.caid = (buf[4]<<8) | buf[5];
-			cacheex.provid = (buf[6]<<24) | (buf[7]<<16) | (buf[8]<<8) | buf[9];
+			cacheex.provid = (((uint32_t)buf[6]<<24)) | (buf[7]<<16) | (buf[8]<<8) | buf[9];
 			cacheex.sid = (buf[14]<<8) | buf[15];
 			// Look for cardserver
 			cs = getcsbycaprovid(cacheex.caid, cacheex.provid);
@@ -1489,7 +1578,7 @@ static void cc_cli_parsemsg_locked(struct cc_client_data *cli, uint8_t *buf, int
 			if ((buf[23]&0xFE)==0x80) cacheex.tag = buf[23]; else cacheex.tag = 0;
 			memcpy( cacheex.ecmd5, buf+24, 16);
 			//if ( !checkECMD5(cacheex.ecmd5) ) cli->cacheex.totalcsp++;
-			cacheex.hash = (buf[43]<<24) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
+			cacheex.hash = (((uint32_t)buf[43]<<24)) | (buf[42]<<16) | (buf[41]<<8) | buf[40];
 			if (!cacheex_check(&cacheex)) break;
 			pthread_mutex_lock(&prg.lockcacheex);
 			cli->cacheex.got[0]++;
@@ -1785,7 +1874,6 @@ void cc_recv_pipe()
 	struct cardserver_data *cs;
 	struct cardserver_data card_event;
 
-	struct cc_client_data *cli;
 
 	//debugf(getdbgflag(DBG_CCCAM,0,0)," CCcam: recv_msg from pipe\n");
 
@@ -2054,7 +2142,6 @@ void *cc_recvmsg_thread(void *param)
 
 int start_thread_cccam()
 {
-	pthread_t tid;
 #ifndef MONOTHREAD_ACCEPT
 	create_thread(&tid, cccam_accept_thread,NULL);
 #endif

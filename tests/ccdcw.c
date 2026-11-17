@@ -291,10 +291,21 @@ int main(int argc, char **argv)
 	/* CC_MSG_CLI_INFO: user20 + nodeid8 + wantemus1 + version32 + who3 + build32 */
 	memset(buf, 0, 128);
 	memcpy(buf, argv[3], strlen(argv[3]) > 20 ? 20 : strlen(argv[3]));
-	memcpy(buf + 20, nodeid, 8);
-	buf[28] = 0;
-	memcpy(buf + 29, "2.3.2", 5);
-	if (cc_msg_send(fd, &sendblock, CC_MSG_CLI_INFO, 64, buf) < 0) goto connfail;
+	if (getenv("CCDCW_CLIINFO97")) {
+		/* FreeCCcam's handshake requires cc_msg_recv() == 97 including
+		 * the 4-byte header, i.e. a 93-byte CLI_INFO payload with the
+		 * usual layout plus the build field at +61 (srv-freecccam.c
+		 * reads nodeid/version/build at buf+24/+33/+65). */
+		memcpy(buf + 20, nodeid, 8);
+		buf[28] = 0;
+		memcpy(buf + 29, "2.3.2", 5);
+		if (cc_msg_send(fd, &sendblock, CC_MSG_CLI_INFO, 93, buf) < 0) goto connfail;
+	} else {
+		memcpy(buf + 20, nodeid, 8);
+		buf[28] = 0;
+		memcpy(buf + 29, "2.3.2", 5);
+		if (cc_msg_send(fd, &sendblock, CC_MSG_CLI_INFO, 64, buf) < 0) goto connfail;
+	}
 
 	for (ecmno = 7; ecmno < argc; ecmno++) {
 		/* Let web-trace tests attach after login but before the first ECM. */
@@ -323,6 +334,16 @@ int main(int argc, char **argv)
 		payload[1] = caid & 0xff;
 		/* Default provider remains zero; tests can supply a 24-bit provider.
 		 * cardid remains zero (profile lookup by caid:provider). */
+		if (getenv("CCDCW_CARDID")) {
+			/* FreeCCcam's ECM handler resolves the profile by card id
+			 * (getcsbyid); real clients learn it from the card list the
+			 * server sends after login. Default stays zero. */
+			unsigned long cardid = strtoul(getenv("CCDCW_CARDID"), NULL, 0);
+			payload[6] = (cardid >> 24) & 0xff;
+			payload[7] = (cardid >> 16) & 0xff;
+			payload[8] = (cardid >> 8) & 0xff;
+			payload[9] = cardid & 0xff;
+		}
 		if (getenv("CCDCW_PROVID")) {
 			unsigned long provid = strtoul(getenv("CCDCW_PROVID"), NULL, 16);
 			if (provid > 0xffffffUL) { fprintf(stderr, "invalid CCDCW_PROVID\n"); return 2; }
