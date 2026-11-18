@@ -8809,10 +8809,15 @@ static void invalidate_retired_profile_ecms(const struct config_data *newcfg)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+/* Band 96: phase breakdown of the last reread_config, published for
+ * the reload journal. Written by the config thread only. */
+char cfg_reload_phases[96] = "";
+
 void reread_config( struct config_data *cfg )
 {
 	void *pointer; // temp use
 	struct config_data newcfg;
+	unsigned int ph_t0 = GetTickCount(), ph_drain = 0, ph_parse = 0;
 
 	/* A reload mutates and later reclaims cardserver/client nodes borrowed by
 	 * Newcamd workers, ECM delivery, and the status UI. Wait for those readers
@@ -8822,6 +8827,7 @@ void reread_config( struct config_data *cfg )
 	 * their handshake completes. The write gate prevents new workers starting;
 	 * drain existing ones before changing or freeing those records. */
 	server_connect_wait_idle();
+	ph_drain = GetTickCount();
 	/* ECM_DATA retains cardserver pointers; serialize profile replacement and
 	 * reclamation with the ECM worker/response critical section. */
 	ecm_lock_config_exclusive();
@@ -8838,6 +8844,7 @@ void reread_config( struct config_data *cfg )
 	//usleep( 100000 );
 
 	read_config( &newcfg );
+	ph_parse = GetTickCount();
 
 	/* DNS owns host-list traversal under lockdnsth; publish the reloaded head
 	 * under the same lock so it cannot observe a torn list pointer. */
@@ -9144,6 +9151,14 @@ void reread_config( struct config_data *cfg )
 	if (!cfg->cache.generation) cfg->cache.generation = 1;
 	ecm_unlock_config_exclusive();
 	newcamd_config_write_unlock();
+	/* Band 96: publish the phase breakdown (drain = waiting for outbound
+	 * connect workers, parse = reading the file under the ECM lock,
+	 * apply = swaps, frees, check_config). */
+	snprintf(cfg_reload_phases, sizeof(cfg_reload_phases),
+		"drain %ums, parse %ums, apply %ums",
+		ph_drain ? ph_drain - ph_t0 : 0,
+		ph_parse ? ph_parse - ph_drain : 0,
+		GetTickCount() - ph_parse);
 }
 
 

@@ -154,7 +154,7 @@ struct reload_journal_entry {
 	char proto[12];         /* newcamd / mgcamd / cccam / config / outbound */
 	char user[24];          /* client user or profile name */
 	uint32_t ip;            /* client ip, 0 when not applicable */
-	char detail[48];        /* flag/reason detail */
+	char detail[96];        /* flag/reason detail */
 };
 void reload_journal_note(const char *kind, const char *proto, const char *user,
                          uint32_t ip, const char *detail);

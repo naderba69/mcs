@@ -212,8 +212,11 @@ void *reread_config_thread(void *param)
 					printf("[config] reload #%d took %ld ms\n",
 						__atomic_load_n(&cfg_reload_count, __ATOMIC_RELAXED), reload_ms);
 					fflush(stdout);
-					snprintf(detail, sizeof(detail), "took %ld ms", reload_ms);
-					reload_journal_note("reload-end", "config", "", 0, detail);
+					{
+						extern char cfg_reload_phases[96];
+						snprintf(detail, sizeof(detail), "took %ld ms (%s)", reload_ms, cfg_reload_phases);
+						reload_journal_note("reload-end", "config", "", 0, detail);
+					}
 				}
 				doublecheck_autofill_from_profiles();
 				ecm_doublecheck_apply_config(); /* ECM DOUBLECHECK list follows the file, like the rest */

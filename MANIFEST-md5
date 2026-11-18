@@ -53,14 +53,14 @@ dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 5392840310182c115bf07767de740867  bin/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  bin/multics-r82a-r22-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-3d9cb1077fe9893a8a22f1b90222bd7b  bin/multics-r82a-stats-x64
+4e7659f35ebb885c98e46e5f635f251c  bin/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  bin/multics-r82a-stock-x64
 fbfef2a162b03fed8d56aca7babd3ef3  bin/multics-r82a-x64
-3d9cb1077fe9893a8a22f1b90222bd7b  bin/multics.x64
+4e7659f35ebb885c98e46e5f635f251c  bin/multics.x64
 9d212081c5d435e4166a24fd6a48d666  dist/multics-r82a-queue-stats-x64
 4a574b9f126f88809cbbe56f4ceaa633  dist/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  dist/multics-r82a-r22-x64
-3d9cb1077fe9893a8a22f1b90222bd7b  dist/multics-r82a-stats-x64
+4e7659f35ebb885c98e46e5f635f251c  dist/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
@@ -152,7 +152,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-c302f08f95a3af211b38d755dc5c9b17  docs/REPORT-R48-ar.md
+af27fea2dbdd4ab70f55259b2ddd8836  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -487,7 +487,7 @@ aee7bf15b72c60d902cf2dc7c11ba01e  src/cli-cs378x.c
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
 bfdeb5ee4b6c6ec251862779968b8300  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-9ee6d3f4905104e2000fd6cd6b156da1  src/config.c
+3b71a5d7aa9cd7b3d55236b32f06ad8e  src/config.c
 58978da6c98d008ca3ac3f894072be49  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
@@ -598,7 +598,7 @@ a8751c551e7c8a7a52f7d9fdf0fd21f9  src/ipdata.c
 01262d7bbdd7bce66fd9c45f7c557b7d  src/log-viewer.c
 c7e6fdad95760a74355a4dfc10f32c38  src/log-viewer.h
 678d8f8d061a834b21380a9bbdaaa709  src/loginthrottle.c
-d5123381ad995cbf1f5607288cf795a0  src/loginthrottle.h
+9f97aac5952685fbceafc5503c35e316  src/loginthrottle.h
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
 d96280090f7eaa39ecf084b68f567f0d  src/main.c
 cad8295c0e073cc695a0f79d689bea2f  src/main.h
@@ -671,7 +671,7 @@ e1dd36053481d6f4abd4a1cd15030109  src/srv-radegast.c
 fa9299cc3f10cb25ca87bb13e36e0138  src/supersmartfilter.h
 7a70fd0cb8fa58b8b4d070506f4e53ca  src/telnet.c
 e79043a4563b3f9a8cf0acacc292f691  src/telnet.h
-a6ece011a4ae624688da716473a0412d  src/th-cfg.c
+7a45b4b6a1742995d61561730fbf464d  src/th-cfg.c
 2e000e6634987a18d5de8559fd456fcc  src/th-date.c
 58dc79b3bb6c43fe2e5eeccd5f8588bd  src/th-dns.c
 2b68260ff8df6b9ec6a366cf70bf111d  src/th-ecm.c
