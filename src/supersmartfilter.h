@@ -242,6 +242,12 @@ extern uint64_t ssf_cwdup_event_total;
 extern struct ssf_cwdup_event ssf_cwreuse_events[SSF_CWREUSE_EVENT_MAX];
 extern int ssf_cwreuse_event_head;
 extern uint64_t ssf_cwreuse_event_total;
+/* Band 106: same treatment for MARCHCHECK (check 10) -- same event
+ * shape; `rep` carries the parked slot (0 = first half, 1 = second) */
+#define SSF_MARCHCHECK_EVENT_MAX 12
+extern struct ssf_cwdup_event ssf_marchcheck_events[SSF_MARCHCHECK_EVENT_MAX];
+extern int ssf_marchcheck_event_head;
+extern uint64_t ssf_marchcheck_event_total;
 /* Declared here to keep this header free of user-trace.h: records a
  * channel-level observation in the active trace session, if any. */
 extern void user_trace_cache_observation(uint16_t caid, uint32_t provider,
@@ -649,6 +655,11 @@ static inline int ssf_backdepth(int level)
  * and is left to the duplicate checks. Updates the remembered CW unless
  * `update` is 0 (mode-2 reject: a rejected CW was never accepted, so it
  * must not become the reference for the next comparison). */
+/* Band 106: firing evidence of the most recent ssf_check_marchcheck
+ * flag -- which slot the half parked in (0 = first, 1 = second). Read
+ * by check 10 immediately after the call, like ssf_cwdup_last_rep. */
+static int ssf_marchcheck_last_slot;
+
 static int ssf_check_marchcheck(const uint8_t cw[16], uint16_t caid,
                                 uint32_t provid, uint16_t sid, int update)
 {
@@ -672,9 +683,15 @@ static int ssf_check_marchcheck(const uint8_t cw[16], uint16_t caid,
         return 0;
     }
     int parked = 0;
-    if (memcmp(cw, entry->prev, 16) &&
-        (!memcmp(cw, entry->prev, 8) || !memcmp(cw + 8, entry->prev + 8, 8)))
-        parked = 1;
+    if (memcmp(cw, entry->prev, 16)) {
+        if (!memcmp(cw, entry->prev, 8)) {
+            parked = 1;
+            ssf_marchcheck_last_slot = 0;   /* first half parked */
+        } else if (!memcmp(cw + 8, entry->prev + 8, 8)) {
+            parked = 1;
+            ssf_marchcheck_last_slot = 1;   /* second half parked */
+        }
+    }
     /* A clean CW always becomes the new reference; a parked CW only
      * replaces it when the caller accepts it anyway (log-only mode). */
     if (!parked || update) memcpy(entry->prev, cw, 16);
@@ -926,6 +943,36 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
             int parked = ssf_check_marchcheck(cw, caid, provid, sid, mc_mode == 1);
             if (parked) {
                 ssf_stats.marchcheck_flagged++;
+                /* Band 106: ring + trace-session event (under ssf_lock) */
+                {
+                    struct ssf_cwdup_event *ev =
+                        &ssf_marchcheck_events[ssf_marchcheck_event_head];
+                    ev->timestamp = (uint32_t)time(NULL);
+                    ev->caid = caid; ev->provid = provid; ev->sid = sid;
+                    ev->rep = ssf_marchcheck_last_slot; ev->rep_needed = 0;
+                    ev->mode = mc_mode;
+                    ev->rejected = (mc_mode == 2);
+                    ev->peer_id = peer_id;
+                    ev->competitor_age_ms = 0;
+                    ssf_marchcheck_event_head =
+                        (ssf_marchcheck_event_head + 1) % SSF_MARCHCHECK_EVENT_MAX;
+                    ssf_marchcheck_event_total++;
+                    {
+                        char detail[192];
+                        uint32_t fh = 0;
+                        if (ecm_hash) memcpy(&fh, ecm_hash, sizeof(fh));
+                        snprintf(detail, sizeof(detail),
+                                 "MARCHCHECK %s: half of this CW parked in the same "
+                                 "slot (%s half) while the other half changed; "
+                                 "mode=%s; source id=%u",
+                                 mc_mode == 2 ? "REJECTED" : "flagged (log-only, delivered)",
+                                 ssf_marchcheck_last_slot ? "second" : "first",
+                                 mc_mode == 2 ? "reject" : "log-only",
+                                 (unsigned)peer_id);
+                        user_trace_cache_observation(caid, provid, sid, fh,
+                                                     (int)peer_id, detail, cw);
+                    }
+                }
                 if (mc_mode == 2) {
                     ssf_stats.rejected_marchcheck++;
                     rejected = 1;

@@ -113,6 +113,14 @@ struct mcs_field_status {
     uint64_t cwreuse_event_total;
     int cwreuse_event_count;
     struct mcs_cwdup_event cwreuse_events[MCS_CWDUP_EVENT_MAX];
+    /* MARCHCHECK (band 106): same shape, third detector; in events,
+     * rep carries the parked slot (0 = first half, 1 = second half) */
+    int marchcheck_global_mode; /* CACHE SF MARCHCHECK: 0 off, 1 log-only, 2 reject */
+    uint64_t marchcheck_flagged;
+    uint64_t marchcheck_rejected;
+    uint64_t marchcheck_event_total;
+    int marchcheck_event_count;
+    struct mcs_cwdup_event marchcheck_events[MCS_CWDUP_EVENT_MAX];
 };
 
 void mcs_field_status_fill(struct mcs_field_status *st);

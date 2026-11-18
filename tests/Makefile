@@ -10,7 +10,7 @@
 #                               verify ACK backpressure and the follow-up login
 #   make -C tests newcamd-config-reload
 #                               verify reload progress during pre-LOGIN receive
-BIN     ?= ../make-x64/x64/multics
+BIN     ?= ../bin/multics.x64
 CFG      = multics-live.cfg
 HTTPPORT = 15500
 R48_STATS_BIN ?= ../bin/multics-r82a-stats-x64

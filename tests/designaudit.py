@@ -185,6 +185,9 @@ def main():
             assert 'CW_REUSE' in trace and 'Cache Consensus' in trace, \
                 'CW_REUSE / consensus arming missing from the trace overview'
             print('designaudit: CW_REUSE + consensus trace sections hold')
+            assert 'MARCHCHECK' in trace and 'ركن النصف' in trace, \
+                'MARCHCHECK is not embedded in the CCcam trace overview'
+            print('designaudit: MARCHCHECK trace section holds')
 
             # --- BISS add/list/delete --------------------------------------
             st, _ = cl.get('/biss?action=add&caid=2600&sid=0001&provid=000000&key=0123456789ABCDEF')

@@ -9715,6 +9715,58 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                      over[0] ? over : "—");
             tcp_writestr(tcpbuf, sock, out);
         }
+        /* Band 106: MARCHCHECK inside CCcam Trace -- same shape as
+         * CW_DUP/CW_REUSE, so all three fake-CW detectors are tuned
+         * from this page alone (DCW MARCHCHECK per profile). */
+        {
+            const char *mmode = st.marchcheck_global_mode == 2 ? "رفض" :
+                                st.marchcheck_global_mode == 1 ? "تسجيل فقط" : "مطفأ";
+            char armed_reject[900] = "";
+            char armed_log[900] = "";
+            struct cardserver_data *pcs;
+            for (pcs = cfg.cardserver; pcs; pcs = pcs->next) {
+                char et2[1024];
+                char entry[300];
+                if (pcs->option.sf_marchcheck == 3) {
+                    snprintf(entry, sizeof(entry), "%s%s",
+                             armed_reject[0] ? "، " : "", escf(et2, pcs->name));
+                    if (strlen(armed_reject) + strlen(entry) < sizeof(armed_reject) - 1)
+                        strcat(armed_reject, entry);
+                } else if (pcs->option.sf_marchcheck == 2) {
+                    snprintf(entry, sizeof(entry), "%s%s",
+                             armed_log[0] ? "، " : "", escf(et2, pcs->name));
+                    if (strlen(armed_log) + strlen(entry) < sizeof(armed_log) - 1)
+                        strcat(armed_log, entry);
+                }
+            }
+            snprintf(out, sizeof(out), "<p><b>ركن النصف (MARCHCHECK — نصف CW بقي في نفس الخانة بينما تغيّر النصف الآخر):</b> الوضع العام: %s | أعلام: %llu | رُفضت: %llu | أحداث مسجلة: %llu</p>",
+                     mmode,
+                     (unsigned long long)st.marchcheck_flagged,
+                     (unsigned long long)st.marchcheck_rejected,
+                     (unsigned long long)st.marchcheck_event_total);
+            tcp_writestr(tcpbuf, sock, out);
+            snprintf(out, sizeof(out), "<p>مسلّح بالرفض في: %s<br>مسلّح بالتسجيل فقط في: %s<br><small>الضبط لكل بروفايل من ملف الإعدادات: ‏DCW MARCHCHECK: 1 (تسجيل) ثم ‏2 (رفض) بعد ثبوت الأعلام هنا. العلم وحده لا يرفض في وضع التسجيل.</small></p>",
+                     armed_reject[0] ? armed_reject : "—",
+                     armed_log[0] ? armed_log : "—");
+            tcp_writestr(tcpbuf, sock, out);
+            if (st.marchcheck_event_count) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>القناة</th><th>النصف المركون</th><th>الوضع</th><th>الإجراء</th><th>المصدر</th></tr>");
+                for (i = 0; i < st.marchcheck_event_count; i++) {
+                    char timestr[32];
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)st.marchcheck_events[i].timestamp, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td><code>%04X:%06X:%04X</code></td><td>%s</td><td>%s</td><td>%s</td><td>%u</td></tr>",
+                             timestr, st.marchcheck_events[i].caid, st.marchcheck_events[i].provid, st.marchcheck_events[i].sid,
+                             st.marchcheck_events[i].rep == 0 ? "الأول" : "الثاني",
+                             st.marchcheck_events[i].mode == 2 ? "رفض" : "تسجيل فقط",
+                             st.marchcheck_events[i].rejected ? "⛔ رُفضت" : "✅ سُلّمت",
+                             (unsigned)st.marchcheck_events[i].peer_id);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else {
+                tcp_writestr(tcpbuf, sock, "<p>لا أعلام MARCHCHECK بعد في هذه الجلسة (تظهر هنا فور حدوثها، وتدخل أيضًا جدول أحداث الجلسة أسفل الصفحة عند مطابقة قناة العميل).</p>");
+            }
+        }
         /* Band 104: CW_DUP inside CCcam Trace -- the detector's mode,
          * its counters and its most recent flags with the evidence, so
          * arming/tuning (DCW CWDUP: 1|2, DCW CWDUPREP) is driven from

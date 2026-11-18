@@ -34,6 +34,27 @@ struct ssf_reuse_entry ssf_reuse_table[SSF_MAX_REUSE_ENTRIES];
 int ssf_reuse_index;
 struct ssf_stats ssf_stats;
 pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
+/* Bands 104-106: trace rings + session hook (stubs for the unit test) */
+struct ssf_cwdup_event ssf_cwdup_events[SSF_CWDUP_EVENT_MAX];
+int ssf_cwdup_event_head;
+uint64_t ssf_cwdup_event_total;
+struct ssf_cwdup_event ssf_cwreuse_events[SSF_CWREUSE_EVENT_MAX];
+int ssf_cwreuse_event_head;
+uint64_t ssf_cwreuse_event_total;
+struct ssf_cwdup_event ssf_marchcheck_events[SSF_MARCHCHECK_EVENT_MAX];
+int ssf_marchcheck_event_head;
+uint64_t ssf_marchcheck_event_total;
+static int trace_hook_calls;
+static char trace_hook_detail[192];
+void user_trace_cache_observation(uint16_t caid, uint32_t provider,
+                                  uint16_t sid, uint32_t hash,
+                                  int peerid, const char *detail,
+                                  const uint8_t cw[16])
+{
+    (void)caid; (void)provider; (void)sid; (void)hash; (void)peerid; (void)cw;
+    trace_hook_calls++;
+    snprintf(trace_hook_detail, sizeof(trace_hook_detail), "%s", detail ? detail : "");
+}
 
 static int fails = 0;
 #define EXPECT(cond, msg) do { if (!(cond)) { printf("FAIL: %s\n", msg); fails++; } } while (0)
@@ -83,6 +104,18 @@ int main(void)
     supersmartfilter_get_stats(&st);
     EXPECT(st.marchcheck_flagged == 1, "log: parked C flagged once");
     EXPECT(st.rejected_marchcheck == 0, "log: nothing rejected in log mode");
+    /* Band 106: the flag landed in the /user-trace ring + session hook.
+     * CW_C parks B's first half in the same slot -> rep (slot) == 0. */
+    EXPECT(ssf_marchcheck_event_total == 1, "log: one marchcheck ring event");
+    {
+        const struct ssf_cwdup_event *ev =
+            &ssf_marchcheck_events[(ssf_marchcheck_event_head - 1 + SSF_MARCHCHECK_EVENT_MAX) % SSF_MARCHCHECK_EVENT_MAX];
+        EXPECT(ev->caid == 0x183D && ev->sid == 0x1001, "log: ring event channel");
+        EXPECT(ev->rep == 0, "log: ring event parked slot = first half");
+        EXPECT(ev->mode == 1 && ev->rejected == 0, "log: ring event log-only, delivered");
+    }
+    EXPECT(trace_hook_calls == 1, "log: trace hook fired once");
+    EXPECT(strstr(trace_hook_detail, "MARCHCHECK") != NULL, "log: hook detail names MARCHCHECK");
 
     /* --- Reject mode: parked rejects with reason 10, reference stays B --- */
     setup(2);
@@ -96,6 +129,13 @@ int main(void)
     EXPECT(check(CW_D, 0x1002, 130000, 0, &reason) == 0, "reject: D marching from B accepted");
     supersmartfilter_get_stats(&st);
     EXPECT(st.rejected_marchcheck == 1, "reject: exactly one march rejection");
+    EXPECT(ssf_marchcheck_event_total == 2, "reject: second ring event recorded");
+    {
+        const struct ssf_cwdup_event *ev =
+            &ssf_marchcheck_events[(ssf_marchcheck_event_head - 1 + SSF_MARCHCHECK_EVENT_MAX) % SSF_MARCHCHECK_EVENT_MAX];
+        EXPECT(ev->mode == 2 && ev->rejected == 1, "reject: ring event marked rejected");
+    }
+    EXPECT(trace_hook_calls == 2, "reject: trace hook fired again");
 
     /* --- Exemptions: half-nulled and identical CWs --- */
     setup(2);

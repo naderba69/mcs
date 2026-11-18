@@ -2339,6 +2339,10 @@ uint64_t ssf_cwdup_event_total;
 struct ssf_cwdup_event ssf_cwreuse_events[SSF_CWREUSE_EVENT_MAX];
 int ssf_cwreuse_event_head;
 uint64_t ssf_cwreuse_event_total;
+/* Band 106: MARCHCHECK recent-events ring for /user-trace */
+struct ssf_cwdup_event ssf_marchcheck_events[SSF_MARCHCHECK_EVENT_MAX];
+int ssf_marchcheck_event_head;
+uint64_t ssf_marchcheck_event_total;
 
 static void mcs_cwdup_status_fill(struct mcs_field_status *st)
 {
@@ -2391,6 +2395,30 @@ static void mcs_cwdup_status_fill(struct mcs_field_status *st)
 			n++;
 		}
 		st->cwreuse_event_count = n;
+	}
+	st->marchcheck_global_mode = ssf_cfg.sf_marchcheck;
+	st->marchcheck_flagged = ssf_stats.marchcheck_flagged;
+	st->marchcheck_rejected = ssf_stats.rejected_marchcheck;
+	st->marchcheck_event_total = ssf_marchcheck_event_total;
+	{
+		int i, n = 0;
+		for (i = 1; i <= SSF_MARCHCHECK_EVENT_MAX && n < MCS_CWDUP_EVENT_MAX; i++) {
+			int midx = (ssf_marchcheck_event_head - i + 2 * SSF_MARCHCHECK_EVENT_MAX) % SSF_MARCHCHECK_EVENT_MAX;
+			const struct ssf_cwdup_event *ev = &ssf_marchcheck_events[midx];
+			if (!ev->timestamp) continue;
+			st->marchcheck_events[n].timestamp = ev->timestamp;
+			st->marchcheck_events[n].caid = ev->caid;
+			st->marchcheck_events[n].provid = ev->provid;
+			st->marchcheck_events[n].sid = ev->sid;
+			st->marchcheck_events[n].rep = ev->rep;
+			st->marchcheck_events[n].rep_needed = ev->rep_needed;
+			st->marchcheck_events[n].mode = ev->mode;
+			st->marchcheck_events[n].rejected = ev->rejected;
+			st->marchcheck_events[n].peer_id = ev->peer_id;
+			st->marchcheck_events[n].competitor_age_ms = ev->competitor_age_ms;
+			n++;
+		}
+		st->marchcheck_event_count = n;
 	}
 pthread_mutex_unlock(&ssf_lock);
 }
