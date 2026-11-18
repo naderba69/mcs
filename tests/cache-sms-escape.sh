@@ -10,5 +10,5 @@ ${CC:-cc} -std=gnu99 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=a
   -DTELNET -DMGCAMD_SRV -DCCCAM_SRV -DCAMD35_SRV -DCS378X_SRV \
   -DFREECCCAM_SRV -DEXPIREDATE -DDCWSWAP -DCACHEEX -DTHREAD_DCW \
   -DMONOTHREAD_ACCEPT -DDEBUG_NETWORK -DEPOLL_NEWCAMD -DEPOLL_ECM \
-  tests/cache-sms-escape.c -Wl,--gc-sections -o "$tmp/test"
+  tests/cache-sms-escape.c -Wl,--gc-sections -o "$tmp/test" -lm
 "$tmp/test"

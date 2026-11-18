@@ -25,6 +25,7 @@ struct tcp_buffer_data
 
 extern void tcp_init(struct tcp_buffer_data *buf);
 extern void tcp_writestr(struct tcp_buffer_data *buf, int sock, const char *data);
+extern void tcp_flush(struct tcp_buffer_data *buf, int sock);
 
 // Global diagnostics report
 struct diagnostic_report diag_report;
@@ -370,22 +371,23 @@ void http_send_diagnostics(int sock, struct http_request *req)
     // Page title
     snprintf(buf, sizeof(buf),
         "<!DOCTYPE html>\n"
-        "<html>\n"
+        "<html lang='ar' dir='rtl'>\n"
         "<head>\n"
         "<meta charset='utf-8'>\n"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>\n"
         "<title>التحليلات والتشخيص - MultiCS</title>\n"
+        "<script>(function(){try{var t=localStorage.getItem('mcs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>\n"
         "<style>\n"
-        "body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }\n"
-        ".container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }\n"
-        "h1 { color: #333; border-bottom: 3px solid #007bff; padding-bottom: 10px; }\n"
+        "body { font-family: system-ui,'Segoe UI',Tahoma,Arial,sans-serif; margin: 0; padding: 22px; background: linear-gradient(180deg,#f2f6fa,#e9eef3); color: #182635; }\n"
+        ".container { max-width: 1200px; margin: 0 auto; background: #fff; padding: 24px; border-radius: 14px; border-top: 3px solid #0f5f8a; box-shadow: 0 4px 18px rgba(16,35,55,.10); }\n"
+        "h1 { color: #0f5f8a; border-bottom: 3px solid #12838f; padding-bottom: 10px; font-size: 22px; }\n"
         "h2 { color: #555; margin-top: 30px; }\n"
         ".health-score { font-size: 48px; font-weight: bold; text-align: center; margin: 20px 0; }\n"
         ".health-good { color: #28a745; }\n"
         ".health-warning { color: #ffc107; }\n"
         ".health-critical { color: #dc3545; }\n"
         ".stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }\n"
-        ".stat-card { background: #f8f9fa; padding: 15px; border-radius: 6px; border-left: 4px solid #007bff; }\n"
+        ".stat-card { background: #f6f9fb; padding: 15px; border-radius: 10px; border-left: 4px solid #0f5f8a; box-shadow: 0 2px 6px rgba(16,35,55,.06); }\n"
         ".stat-value { font-size: 24px; font-weight: bold; color: #333; }\n"
         ".stat-label { color: #666; font-size: 14px; margin-top: 5px; }\n"
         ".issue { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 10px 0; border-radius: 4px; }\n"
@@ -397,9 +399,10 @@ void http_send_diagnostics(int sock, struct http_request *req)
         ".progress-fill { height: 100%%; transition: width 0.3s; }\n"
         ".btn { display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }\n"
         ".btn:hover { background: #0056b3; }\n"
-        "</style>\n"
+        "\n/* Band 91: professional components */\nh2{font-size:15px;color:#0f5f8a;border-bottom:2px solid #d3dce4;padding-bottom:5px;margin:20px 0 8px;}\n.stats-grid,.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;}\n.stat-card{border-top:3px solid #12838f !important;transition:transform .18s,box-shadow .18s;}\n.stat-card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(16,35,55,.16) !important;}\n.stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#5b6b7b;font-weight:700;}\ntable{border-radius:10px;overflow:hidden;box-shadow:0 2px 10px rgba(16,35,55,.09);}\ntd{font-variant-numeric:tabular-nums;}\n.btn,.button,button,input[type=submit]{background:linear-gradient(135deg,#0f5f8a,#12838f);color:#fff;border:0;border-radius:8px;padding:7px 15px;font-weight:700;cursor:pointer;}\npre{background:#0d1520;color:#d7e6f5;border-radius:10px;padding:12px;overflow:auto;}\n.mcs-nav{background:linear-gradient(135deg,#0b2f47,#0f5f8a 60%,#12838f);margin:-22px -22px 18px;padding:10px 22px;border-radius:0;}.mcs-nav a{color:#dcebf5;margin-right:14px;font-size:13px;font-weight:600;text-decoration:none;}.mcs-nav a:hover{color:#fff;text-decoration:underline;}\n/* Band 98: unified theme bridge (httpstyle.c tokens) + responsive */\n:root{--p:#ffffff;--p2:#f6f9fb;--ink:#182635;--mut:#5b6b7b;--line:#d3dce4;--bg1:#f2f6fa;--bg2:#e9eef3;--acc:#0f5f8a;}\n[data-theme=dark]{--p:#18222d;--p2:#141d28;--ink:#e6edf3;--mut:#8b9bb4;--line:#2b3949;--bg1:#111a23;--bg2:#0d1319;--acc:#6cb6e8;}\n@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--p:#18222d;--p2:#141d28;--ink:#e6edf3;--mut:#8b9bb4;--line:#2b3949;--bg1:#111a23;--bg2:#0d1319;--acc:#6cb6e8;}}\nbody{background:linear-gradient(180deg,var(--bg1),var(--bg2));color:var(--ink);}\n.container{background:var(--p);border-color:var(--line);color:var(--ink);}\nh1,h2{color:var(--acc);}\n.stat-card{background:var(--p2);}\n.stat-value{color:var(--ink);}\n.stat-label{color:var(--mut);}\ntable{background:var(--p);color:var(--ink);}\ntd{border-color:var(--line);}\ninput,select,textarea{background:var(--p);color:var(--ink);border-color:var(--line);}\n.health-warning{color:#96690d;}\n[data-theme=dark] .health-warning{color:#d29922;}\n@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .health-warning{color:#d29922;}}\n.health-good{color:#177245;}\n.health-critical{color:#c0392b;}\n*{box-sizing:border-box;}img{max-width:100%;}\n@media (max-width:760px){body{padding:10px;}.container{padding:14px;}table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}.stat-grid,.stats-grid,.stats{grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px;}.health-score{font-size:34px;}h1{font-size:19px;}}\n</style>\n"
         "</head>\n"
         "<body>\n"
+        "<div class='mcs-nav'><a href='/'>\U0001F3E0 Home</a><a href='/servers'>Servers</a><a href='/profiles'>Profiles</a><a href='/cache'>Cache</a><a href='/newcamd'>Newcamd</a><a href='/smartfilter'>SmartFilter</a><a href='/editor'>Editor</a></div>\n"
         "<div class='container'>\n"
         "<h1>🔍 التحليلات والتشخيص المتقدم</h1>\n"
     );
@@ -411,7 +414,7 @@ void http_send_diagnostics(int sock, struct http_request *req)
     
     snprintf(buf, sizeof(buf),
         "<div class='health-score %s'>%d%%</div>\n"
-        "<p style='text-align: center; font-size: 18px; color: #666;'>حالة النظام: <strong>%s</strong></p>\n"
+        "<p style='text-align: center; font-size: 18px;'>حالة النظام: <strong>%s</strong></p>\n"
         "<div class='progress-bar'>\n"
         "<div class='progress-fill %s' style='width: %d%%; background: %s;'></div>\n"
         "</div>\n",
@@ -460,7 +463,7 @@ void http_send_diagnostics(int sock, struct http_request *req)
                 "<div class='issue %s'>\n"
                 "<div class='issue-title'>%s [%s]</div>\n"
                 "<div>%s</div>\n"
-                "<div style='margin-top: 10px; color: #666;'><strong>التوصية:</strong> %s</div>\n"
+                "<div style='margin-top: 10px;'><strong>التوصية:</strong> %s</div>\n"
                 "</div>\n",
                 issue_class,
                 issue->description,
@@ -501,4 +504,8 @@ void http_send_diagnostics(int sock, struct http_request *req)
         "</html>\n"
     );
     tcp_writestr(&tcpbuf, sock, buf);
+    /* Band 100: without this flush the buffered tail of the page
+     * (up to 499 bytes) never left the process -- every one of
+     * these pages arrived cut off mid-tag. */
+    tcp_flush(&tcpbuf, sock);
 }

@@ -35,6 +35,30 @@ int ssf_dup_index;
 struct ssf_reuse_entry ssf_reuse_table[SSF_MAX_REUSE_ENTRIES];
 int ssf_reuse_index;
 struct ssf_stats ssf_stats;
+/* Band 104/105: CW_DUP + CW_REUSE trace rings and the session hook */
+struct ssf_cwdup_event ssf_cwdup_events[SSF_CWDUP_EVENT_MAX];
+int ssf_cwdup_event_head;
+uint64_t ssf_cwdup_event_total;
+struct ssf_cwdup_event ssf_cwreuse_events[SSF_CWREUSE_EVENT_MAX];
+int ssf_cwreuse_event_head;
+uint64_t ssf_cwreuse_event_total;
+/* Band 106: MARCHCHECK trace ring (stub for the unit test) */
+struct ssf_cwdup_event ssf_marchcheck_events[SSF_MARCHCHECK_EVENT_MAX];
+int ssf_marchcheck_event_head;
+uint64_t ssf_marchcheck_event_total;
+/* Band 107: LATECW trace ring (stub for the unit test) */
+struct ssf_cwdup_event ssf_latecw_events[SSF_LATECW_EVENT_MAX];
+int ssf_latecw_event_head;
+uint64_t ssf_latecw_event_total;
+static int trace_hook_calls;
+void user_trace_cache_observation(uint16_t caid, uint32_t provider,
+                                  uint16_t sid, uint32_t hash,
+                                  int peerid, const char *detail,
+                                  const uint8_t cw[16])
+{
+    (void)caid; (void)provider; (void)sid; (void)hash; (void)peerid; (void)detail; (void)cw;
+    trace_hook_calls++;
+}
 pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static int fails = 0;
@@ -92,6 +116,8 @@ int main(void)
     EXPECT(check(y, 0x183D, 0x3002, 102000, 0, &reason) == 0, "log: Y accepted (log mode)");
     supersmartfilter_get_stats(&st);
     EXPECT(st.cwreuse_flagged == 1, "log: half on another channel flagged");
+    EXPECT(trace_hook_calls >= 1, "log: reuse flag reached the trace hook (band 105)");
+    EXPECT(ssf_cwreuse_event_total >= 1, "log: reuse flag recorded in the trace ring (band 105)");
     EXPECT(st.rejected_cwreuse == 0, "log: nothing rejected");
 
     setup(2, 120000);

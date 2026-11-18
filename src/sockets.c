@@ -349,6 +349,19 @@ int CreateClientSockTcp(uint32_t netip, int port)
 
 int CreateClientSockTcp_nonb(unsigned int netip, int port)
 {
+	return CreateClientSockTcp_timeout(netip, port, 1000);
+}
+
+/* Band 97: bounded connect for outbound server workers. The plain
+ * CreateClientSockTcp above is a blocking connect() with no timeout:
+ * to a firewalled/dead host it waits the kernel's full SYN retry
+ * budget (~127s), and because a config reload drains these workers
+ * (server_connect_wait_idle) under the config write lock, ONE dead
+ * server froze ECM and web for the whole drain (field data: drain
+ * 121886ms of a 122116ms reload). Same shape as the nonb variant,
+ * with an operator-scale timeout and the blocking flags restored. */
+int CreateClientSockTcp_timeout(unsigned int netip, int port, int timeout_ms)
+{
 	int ret, flags, error;
 	socklen_t len;
 	int sockfd;
@@ -383,7 +396,7 @@ int CreateClientSockTcp_nonb(unsigned int netip, int port)
 			pfd.events = POLLOUT;
 			errno = 0;
 			do {
-				ret = poll(&pfd, 1, 1000);
+				ret = poll(&pfd, 1, timeout_ms);
 			} while (ret < 0 && errno == EINTR);
 			if (ret < 0) {
 				close(sockfd);

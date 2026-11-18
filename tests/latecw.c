@@ -32,6 +32,30 @@ struct ssf_reuse_entry ssf_reuse_table[SSF_MAX_REUSE_ENTRIES];
 int ssf_reuse_index;
 struct ssf_stats ssf_stats;
 pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
+/* Bands 104-107: trace rings + session hook (stubs for the unit test) */
+struct ssf_cwdup_event ssf_cwdup_events[SSF_CWDUP_EVENT_MAX];
+int ssf_cwdup_event_head;
+uint64_t ssf_cwdup_event_total;
+struct ssf_cwdup_event ssf_cwreuse_events[SSF_CWREUSE_EVENT_MAX];
+int ssf_cwreuse_event_head;
+uint64_t ssf_cwreuse_event_total;
+struct ssf_cwdup_event ssf_marchcheck_events[SSF_MARCHCHECK_EVENT_MAX];
+int ssf_marchcheck_event_head;
+uint64_t ssf_marchcheck_event_total;
+struct ssf_cwdup_event ssf_latecw_events[SSF_LATECW_EVENT_MAX];
+int ssf_latecw_event_head;
+uint64_t ssf_latecw_event_total;
+static int trace_hook_calls;
+static char trace_hook_detail[192];
+void user_trace_cache_observation(uint16_t caid, uint32_t provider,
+                                  uint16_t sid, uint32_t hash,
+                                  int peerid, const char *detail,
+                                  const uint8_t cw[16])
+{
+    (void)caid; (void)provider; (void)sid; (void)hash; (void)peerid; (void)cw;
+    trace_hook_calls++;
+    snprintf(trace_hook_detail, sizeof(trace_hook_detail), "%s", detail ? detail : "");
+}
 
 static int fails = 0;
 #define EXPECT(cond, msg) do { if (!(cond)) { printf("FAIL: %s\n", msg); fails++; } } while (0)
@@ -84,6 +108,18 @@ int main(void)
     supersmartfilter_get_stats(&st);
     EXPECT(st.latecw_flagged == 1, "log: flagged once");
     EXPECT(st.rejected_latecw == 0, "log: nothing rejected");
+    /* Band 107: the flag landed in the /user-trace ring + session hook
+     * with its evidence (age 9000 over threshold 8000). */
+    EXPECT(ssf_latecw_event_total == 1, "log: one latecw ring event");
+    {
+        const struct ssf_cwdup_event *ev =
+            &ssf_latecw_events[(ssf_latecw_event_head - 1 + SSF_LATECW_EVENT_MAX) % SSF_LATECW_EVENT_MAX];
+        EXPECT(ev->caid == 0x183D && ev->sid == 0x4001, "log: ring event channel");
+        EXPECT(ev->rep == 9000 && ev->rep_needed == 8000, "log: ring event age/threshold");
+        EXPECT(ev->mode == 1 && ev->rejected == 0, "log: ring event log-only, delivered");
+    }
+    EXPECT(trace_hook_calls == 1, "log: trace hook fired once");
+    EXPECT(strstr(trace_hook_detail, "LATECW") != NULL, "log: hook detail names LATECW");
 
     /* reject mode: reason 13 */
     setup(2, 8000);
@@ -92,6 +128,13 @@ int main(void)
     EXPECT(reason == 13, "reject: reason code 13");
     supersmartfilter_get_stats(&st);
     EXPECT(st.rejected_latecw == 1, "reject: one late rejection");
+    EXPECT(ssf_latecw_event_total == 2, "reject: second ring event recorded");
+    {
+        const struct ssf_cwdup_event *ev =
+            &ssf_latecw_events[(ssf_latecw_event_head - 1 + SSF_LATECW_EVENT_MAX) % SSF_LATECW_EVENT_MAX];
+        EXPECT(ev->rep == 60000 && ev->mode == 2 && ev->rejected == 1, "reject: ring event age + rejected mark");
+    }
+    EXPECT(trace_hook_calls == 2, "reject: trace hook fired again");
 
     /* unknown age: fail-open */
     setup(2, 100);

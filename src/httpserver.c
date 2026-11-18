@@ -620,7 +620,7 @@ void total_cache_peers( int *total, int *active )
 //color: #000000; background-color: #FFFFFF;
 char http_replyok[] = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n";
 
-char http_html[] = "<HTML>\n";
+char http_html[] = "<HTML lang=\"en\">\n";
 char http_html_[] = "</HTML>\n";
 
 char http_head[] = "<HEAD>\n";
@@ -920,7 +920,7 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	sprintf( buf, "<li><a href='/logout'>%s</a></li>", mlabel("Logout","خروج"));
 	tcp_writestr(tcpbuf, sock, buf);
 	tcp_writestr(tcpbuf, sock, "<script>\nfunction toggleTheme(){var t=document.documentElement.getAttribute('data-theme');var n=t==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',n);try{localStorage.setItem('mcs-theme',n);}catch(e){}}\n(function(){try{var t=localStorage.getItem('mcs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();\n</script>\n");
-	tcp_writestr(tcpbuf, sock, "</ul><span style='float:right;'>Multi Card Server r"REVISION_STR"</span></div>\n");
+	tcp_writestr(tcpbuf, sock, "</ul><span class='brand'>&#128225; Multi Card Server r"REVISION_STR"</span></div>\n");
 
 	//
 	if ( (selected!=PAGE_RESTART)&&(selected!=PAGE_EDITOR) ) {
@@ -950,10 +950,10 @@ void tcp_writeecmdata(struct tcp_buffer_data *tcpbuf, int sock, int ecmok, int e
 	if (ecmnb) {
 		int n;
 		if (ecmnb>9999999) n = (ecmok*10)/(ecmnb/10); else n = (ecmok*100)/ecmnb;
-		sprintf( http_buf, "<td>%d<span style=\"float: right;\">%d%%</span></td>", ecmok, n );
+		sprintf( http_buf, "<td>%d<span class=\"pct\">%d%%</span></td>", ecmok, n );
 	}
 	else
-		sprintf( http_buf, "<td><span style=\"float: right;\">0%%</span></td>" );
+		sprintf( http_buf, "<td><span class=\"pct\">0%%</span></td>" );
 	tcp_write(tcpbuf, sock, http_buf, strlen(http_buf) );
 }
 
@@ -963,10 +963,10 @@ void tcp_writeecmdata2(struct tcp_buffer_data *tcpbuf, int sock, int ecmok, int 
 	if (ecmnb) {
 		int n;
 		if (ecmnb>9999999) n = (ecmok*10)/(ecmnb/10); else n = (ecmok*100)/ecmnb;
-		sprintf( http_buf, "<td>%d / %d<span style=\"float: right;\">%d%%</span></td>", ecmok, ecmnb, n );
+		sprintf( http_buf, "<td>%d / %d<span class=\"pct\">%d%%</span></td>", ecmok, ecmnb, n );
 	}
 	else
-		sprintf( http_buf, "<td><span style=\"float: right;\">0%%</span></td>" );
+		sprintf( http_buf, "<td><span class=\"pct\">0%%</span></td>" );
 	tcp_write(tcpbuf, sock, http_buf, strlen(http_buf) );
 }
 
@@ -975,9 +975,9 @@ void getstatcell(int ecmok, int ecmnb, char *dest)
 	if (ecmnb) {
 		int n;
 		if (ecmnb>9999999) n = (ecmok*10)/(ecmnb/10); else n = (ecmok*100)/ecmnb;
-		sprintf( dest, "%d<span style=\"float: right;\">%d%%</span>", ecmok, n );
+		sprintf( dest, "%d<span class=\"pct\">%d%%</span>", ecmok, n );
 	}
-	else sprintf( dest, "<span style=\"float: right;\">0%%</span>" );
+	else sprintf( dest, "<span class=\"pct\">0%%</span>" );
 }
 
 void getstatcell2(int ecmok, int ecmnb, char *dest)
@@ -985,10 +985,210 @@ void getstatcell2(int ecmok, int ecmnb, char *dest)
 	if (ecmnb) {
 		int n;
 		if (ecmnb>9999999) n = (ecmok*10)/(ecmnb/10); else n = (ecmok*100)/ecmnb;
-		sprintf( dest, "%d / %d<span style=\"float: right;\">%d%%</span>", ecmok, ecmnb, n );
+		sprintf( dest, "%d / %d<span class=\"pct\">%d%%</span>", ecmok, ecmnb, n );
 	}
-	else sprintf( dest, "<span style=\"float: right;\">0%%</span>" );
+	else sprintf( dest, "<span class=\"pct\">0%%</span>" );
 }
+
+/* ---- Band 102: health classification -----------------------------------
+ * Every line (outbound server), cache peer and profile is graded from
+ * ITS OWN counters only -- the same numbers its detail page shows:
+ *   success%  = ecmok / ecmnb          (profile: ecmok / ecmaccepted)
+ *   avg ms    = ecmoktime / ecmok
+ *   timeout%  = ecmtimeout / ecmnb     (lines & cache peers)
+ *   badcw%    = bad-CW / ecmnb         (ecmerrdcw; cacheex.badcw)
+ * Score = success% minus penalties (avg: -5/-12/-20 over 300/600/1000ms;
+ * timeouts: -10/-20 over 5%%/15%%; bad CW: -15/-30 over 0%%/2%%).
+ * STRONG: online, success>=90%%, avg<=500ms, no bad CW, timeouts<=5%%.
+ * MEDIUM: online, success>=70%%, avg<=1000ms, bad CW<=2%%.
+ * BAD:    everything else with data (incl. offline with history).
+ * No grade below 20 ECM samples -- a new line is "no data", not bad. */
+#define MCS_GRADE_NONE   0
+#define MCS_GRADE_BAD    1
+#define MCS_GRADE_MEDIUM 2
+#define MCS_GRADE_STRONG 3
+
+static int mcs_grade_stats(int connected, int ecmnb, int ecmok, int avgms,
+			   int timeouts, int badcw, int *score_out,
+			   char *reason, size_t reason_len)
+{
+	int success = ecmnb > 0 ? (ecmok * 100) / ecmnb : 0;
+	int timeoutpct = ecmnb > 0 ? (timeouts * 100) / ecmnb : 0;
+	int badcwpct = ecmnb > 0 ? (badcw * 100) / ecmnb : 0;
+	int score = success;
+	if (avgms > 1000) score -= 20; else if (avgms > 600) score -= 12; else if (avgms > 300) score -= 5;
+	if (timeoutpct > 15) score -= 20; else if (timeoutpct > 5) score -= 10;
+	if (badcwpct > 2) score -= 30; else if (badcw > 0) score -= 15;
+	if (score < 0) score = 0;
+	if (score_out) *score_out = score;
+	if (ecmnb < 20) {
+		if (reason) snprintf(reason, reason_len, connected ? "no data yet (%d ECM)" : "offline · no data yet", ecmnb);
+		return MCS_GRADE_NONE;
+	}
+	if (!connected) {
+		if (reason) snprintf(reason, reason_len, "offline · last success %d%%", success);
+		return MCS_GRADE_BAD;
+	}
+	/* dominant problem first, so the operator sees WHY */
+	if (badcwpct > 2) { if (reason) snprintf(reason, reason_len, "%d%% bad CW", badcwpct); }
+	else if (success < 70) { if (reason) snprintf(reason, reason_len, "success only %d%%", success); }
+	else if (timeoutpct > 15) { if (reason) snprintf(reason, reason_len, "%d%% timeouts", timeoutpct); }
+	else if (avgms > 1000) { if (reason) snprintf(reason, reason_len, "slow · %d ms avg", avgms); }
+	else if (badcw > 0) { if (reason) snprintf(reason, reason_len, "%d bad CW seen", badcw); }
+	else if (success < 90) { if (reason) snprintf(reason, reason_len, "success %d%%", success); }
+	else if (avgms > 500) { if (reason) snprintf(reason, reason_len, "%d ms avg", avgms); }
+	else if (reason) snprintf(reason, reason_len, "success %d%% · %d ms", success, avgms);
+	if (success >= 90 && avgms <= 500 && badcw == 0 && timeoutpct <= 5) return MCS_GRADE_STRONG;
+	if (success >= 70 && avgms <= 1000 && badcwpct <= 2) return MCS_GRADE_MEDIUM;
+	return MCS_GRADE_BAD;
+}
+
+static const char *mcs_grade_name(int grade)
+{
+	switch (grade) {
+	case MCS_GRADE_STRONG: return "STRONG";
+	case MCS_GRADE_MEDIUM: return "MEDIUM";
+	case MCS_GRADE_BAD: return "BAD";
+	default: return "NO DATA";
+	}
+}
+
+static void mcs_grade_badge(char *dest, size_t destlen, int grade, int score, const char *reason)
+{
+	char esc[256];
+	html_esc(esc, (int)sizeof(esc), reason ? reason : "");
+	if (grade == MCS_GRADE_NONE)
+		snprintf(dest, destlen, "<span class='grade g0' title=\"%s\">NO DATA</span>", esc);
+	else
+		snprintf(dest, destlen, "<span class='grade g%d' title=\"%s\">%s %d</span>", grade, esc, mcs_grade_name(grade), score);
+}
+
+/* grade one outbound/cache line from an already-taken stats snapshot */
+static int mcs_grade_server_fields(int connected, int ecmnb, int ecmok, int ecmoktime,
+				   int ecmtimeout, int badcw, int *score,
+				   char *reason, size_t reason_len)
+{
+	int avgms = ecmok > 0 ? ecmoktime / ecmok : 0;
+	return mcs_grade_stats(connected, ecmnb, ecmok, avgms, ecmtimeout, badcw, score, reason, reason_len);
+}
+
+struct mcs_rank_entry {
+	char name[280];
+	char link[96];
+	char reason[96];
+	int grade;
+	int score;
+};
+
+struct mcs_class_summary {
+	int counts[4]; /* by MCS_GRADE_* */
+	struct mcs_rank_entry worst[3]; /* BAD/MEDIUM, lowest score first */
+	int worst_n;
+	struct mcs_rank_entry best[3]; /* STRONG, highest score first */
+	int best_n;
+};
+
+static void mcs_class_add(struct mcs_class_summary *sum, const char *name, const char *link,
+			  int grade, int score, const char *reason)
+{
+	sum->counts[grade]++;
+	if (grade == MCS_GRADE_BAD || grade == MCS_GRADE_MEDIUM) {
+		struct mcs_rank_entry e;
+		int i;
+		memset(&e, 0, sizeof(e));
+		snprintf(e.name, sizeof(e.name), "%s", name);
+		snprintf(e.link, sizeof(e.link), "%s", link);
+		snprintf(e.reason, sizeof(e.reason), "%s", reason);
+		e.grade = grade; e.score = score;
+		for (i = sum->worst_n; i > 0 && sum->worst[i-1].score > score; i--) {
+			if (i < 3) sum->worst[i] = sum->worst[i-1];
+		}
+		if (i < 3) { sum->worst[i] = e; if (sum->worst_n < 3) sum->worst_n++; }
+	} else if (grade == MCS_GRADE_STRONG) {
+		struct mcs_rank_entry e;
+		int i;
+		memset(&e, 0, sizeof(e));
+		snprintf(e.name, sizeof(e.name), "%s", name);
+		snprintf(e.link, sizeof(e.link), "%s", link);
+		snprintf(e.reason, sizeof(e.reason), "%s", reason);
+		e.grade = grade; e.score = score;
+		for (i = sum->best_n; i > 0 && sum->best[i-1].score < score; i--) {
+			if (i < 3) sum->best[i] = sum->best[i-1];
+		}
+		if (i < 3) { sum->best[i] = e; if (sum->best_n < 3) sum->best_n++; }
+	}
+}
+
+static void mcs_render_class_panel(struct tcp_buffer_data *tcpbuf, int sock, char *http_buf,
+				   const char *title, const char *morelink,
+				   const struct mcs_class_summary *sum)
+{
+	int total = sum->counts[0] + sum->counts[1] + sum->counts[2] + sum->counts[3];
+	int i;
+	char esc[1200], esc2[512];
+	snprintf(http_buf, 2048,
+		"<div class='class-panel'><h3>%s<a href='%s'>view all &rarr;</a></h3>"
+		"<div class='class-counts'>"
+		"<span class='grade g3'>STRONG %d</span>"
+		"<span class='grade g2'>MEDIUM %d</span>"
+		"<span class='grade g1'>BAD %d</span>"
+		"<span class='grade g0'>NO DATA %d</span></div>",
+		title, morelink, sum->counts[3], sum->counts[2], sum->counts[1], sum->counts[0]);
+	tcp_write(tcpbuf, sock, http_buf, strlen(http_buf));
+	if (total > 0) {
+		snprintf(http_buf, 2048,
+			"<div class='class-meter'>"
+			"<i class='m3' style='width:%d%%'></i><i class='m2' style='width:%d%%'></i>"
+			"<i class='m1' style='width:%d%%'></i><i class='m0' style='width:%d%%'></i></div>",
+			sum->counts[3]*100/total, sum->counts[2]*100/total,
+			sum->counts[1]*100/total, sum->counts[0]*100/total);
+		tcp_write(tcpbuf, sock, http_buf, strlen(http_buf));
+	}
+	if (sum->worst_n) {
+		tcp_writestr(tcpbuf, sock, "<div class='home-sec'>Needs attention</div>");
+		for (i = 0; i < sum->worst_n; i++) {
+			const struct mcs_rank_entry *e = &sum->worst[i];
+			char badge[512];
+			mcs_grade_badge(badge, sizeof(badge), e->grade, e->score, e->reason);
+			/* html_esc returns the escaped LENGTH (int), not the buffer:
+			 * passing its return as %s reads address <length> (band 108
+			 * segfault on the home page once any entity was graded). */
+			html_esc(esc, (int)sizeof(esc), e->name);
+			html_esc(esc2, (int)sizeof(esc2), e->reason);
+			snprintf(http_buf, 2048, "<div class='rank-row'>%s<a class='nm' href='%s'>%s</a><span class='rs'>%s</span><span class='sc'>%d</span></div>",
+				badge, e->link, esc, esc2, e->score);
+			tcp_write(tcpbuf, sock, http_buf, strlen(http_buf));
+		}
+	}
+	if (sum->best_n) {
+		tcp_writestr(tcpbuf, sock, "<div class='home-sec'>Top performers</div>");
+		for (i = 0; i < sum->best_n; i++) {
+			const struct mcs_rank_entry *e = &sum->best[i];
+			char badge[512];
+			mcs_grade_badge(badge, sizeof(badge), e->grade, e->score, e->reason);
+			/* html_esc returns the escaped LENGTH (int), not the buffer:
+			 * passing its return as %s reads address <length> (band 108
+			 * segfault on the home page once any entity was graded). */
+			html_esc(esc, (int)sizeof(esc), e->name);
+			html_esc(esc2, (int)sizeof(esc2), e->reason);
+			snprintf(http_buf, 2048, "<div class='rank-row'>%s<a class='nm' href='%s'>%s</a><span class='rs'>%s</span><span class='sc'>%d</span></div>",
+				badge, e->link, esc, esc2, e->score);
+			tcp_write(tcpbuf, sock, http_buf, strlen(http_buf));
+		}
+	}
+	if (!sum->worst_n && !sum->best_n) {
+		if (total == 0)
+			tcp_writestr(tcpbuf, sock, "<div class='rank-none'>No entries configured.</div>");
+		else if (sum->counts[0] == total)
+			tcp_writestr(tcpbuf, sock, "<div class='rank-none'>Not enough ECM data yet to grade — counters start after the first ECM.</div>");
+		else
+			tcp_writestr(tcpbuf, sock, "<div class='rank-none'>Nothing graded yet.</div>");
+	}
+	tcp_writestr(tcpbuf, sock, "</div>");
+}
+
+/* filled in after the cache-peer snapshot machinery (same file) */
+static void mcs_cache_class_summary(struct mcs_class_summary *sum);
 
 #include <sys/stat.h>
 
@@ -1061,6 +1261,38 @@ void http_send_ok(int sock)
 	struct tcp_buffer_data tcpbuf;
 	tcp_init(&tcpbuf);
 	sprintf( http_buf, "HTTP/1.1 200 OK\r\n\r\n");
+	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	tcp_flush(&tcpbuf, sock);
+}
+
+/* Band 89: detail pages (server/profile/client/cache-peer) used to
+ * `return` without writing a single byte when the id was missing
+ * or unknown -- the browser got an empty, closed connection
+ * (ERR_EMPTY_RESPONSE) instead of an answer. Always respond. */
+static void http_send_not_found(int sock, const char *what)
+{
+	char http_buf[2048];
+	struct tcp_buffer_data tcpbuf;
+	tcp_init(&tcpbuf);
+	/* Band 100: was one line of bare text/plain -- a dead end with no
+	 * way back. Same design tokens as the rest of the UI, with links
+	 * home and a hint that ids come from the list pages. */
+	snprintf( http_buf, sizeof(http_buf),
+		"HTTP/1.1 404 Not Found\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
+		"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+		"<meta name='viewport' content='width=device-width, initial-scale=1'>"
+		"<title>404 - %s not found</title><style>"
+		"body{font-family:system-ui,'Segoe UI',Tahoma,Arial,sans-serif;margin:0;padding:26px;background:linear-gradient(180deg,#f4f7fa,#e8edf2);color:#16222f;}"
+		".card{max-width:560px;margin:8vh auto;background:#fff;border:1px solid #d3dce4;border-top:3px solid #c0392b;border-radius:12px;padding:26px 28px;box-shadow:0 4px 18px rgba(16,35,55,.10);}"
+		"h1{font-size:21px;margin:0 0 8px;color:#c0392b;}p{line-height:1.6;}"
+		"a{display:inline-block;margin-top:10px;margin-right:8px;background:linear-gradient(135deg,#0f5f8a,#12838f);color:#fff;font-weight:700;text-decoration:none;border-radius:8px;padding:8px 16px;}"
+		"a.alt{background:#fff;color:#0f5f8a;border:1px solid #b9c7d4;}"
+		"@media (prefers-color-scheme:dark){body{background:linear-gradient(180deg,#111a23,#0d1319);color:#e6edf3;}.card{background:#18222d;border-color:#2b3949;}}"
+		"</style></head><body><div class='card'><h1>404 - %s not found</h1>"
+		"<p>The requested item does not exist (any more). Ids are assigned by the list pages; "
+		"a config reload may have renumbered them.</p>"
+		"<a href='/'>Home</a><a class='alt' href='/profiles'>Profiles</a><a class='alt' href='/servers'>Servers</a></div></body></html>",
+		what, what);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	tcp_flush(&tcpbuf, sock);
 }
@@ -1261,6 +1493,14 @@ static char *escf( char *buf, const char *src );	/* defined below; used by the t
  * asked for one single page instead of navigating between pages
  * and log files. Its data now renders there, auto-refreshed. */
 
+/* Band 99: client counters live further down this file; the home
+ * dashboard aggregates them for its live KPI row. */
+void cs_allclients( int *total, int *connected, int *active );
+void total_cccam_clients( struct config_data *cfg, int *total, int *connected, int *active );
+void total_cs378x_clients( int *total, int *connected, int *active );
+void total_camd35_clients( int *total, int *connected, int *active );
+void total_mgcamd_clients( int *total, int *connected, int *active );
+
 void http_send_index(int sock, http_request *req)
 {
 	char http_buf[2048];
@@ -1277,6 +1517,12 @@ void http_send_index(int sock, http_request *req)
 	if (!str_action) str_action = "page";
 	//
 	tcp_init(&tcpbuf);
+	/* Band 99: the action=div fragment used to go out with no HTTP
+	 * status line at all (an HTTP/0.9-style reply modern browsers
+	 * reject), which silently killed every XHR refresh -- the new
+	 * live poller included. Send proper headers for fragments. */
+	if (get_action==1) http_replyok_write(req, &tcpbuf, sock);
+	if (get_action==1) http_replyok_write(req, &tcpbuf, sock); /* Band 100: fragments need a real HTTP reply */
 	if (get_action==0) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -1296,6 +1542,32 @@ void http_send_index(int sock, http_request *req)
 		//
 		tcp_writestr(&tcpbuf, sock, "\nfunction start()\n{\n	 setautorefresh(autorefresh);\n}");
 		tcp_writestr(&tcpbuf, sock, "\n</script>\n");
+		/* Band 99: the home page is LIVE by default -- a 5 s poll of
+		 * the same action=div fragment (paused while the tab is
+		 * hidden, and yielding to the legacy autorefresh toolbar
+		 * when the operator picks an interval there), a 1 s clock,
+		 * and an ECM/min rate derived from successive Total ECM
+		 * samples so no server-side rate state is needed. */
+		tcp_writestr(&tcpbuf, sock, "<script type='text/javascript'>\n"
+			"var mcsPrevEcm=-1,mcsPrevT=0;\n"
+			"function mcsClock(){var el=document.getElementById('liveClock');if(el){el.textContent=new Date().toLocaleTimeString();}}\n"
+			"function mcsLive(){\n"
+			" if(document.hidden) return;\n"
+			" if(typeof autorefresh!=='undefined'&&autorefresh>0) return;\n"
+			" var x=new XMLHttpRequest();\n"
+			" x.onreadystatechange=function(){\n"
+			"  if(x.readyState==4&&x.status==200){\n"
+			"   document.getElementById('mainDiv').innerHTML=x.responseText;\n"
+			"   var t=document.getElementById('kpiTotalEcm'),r=document.getElementById('kpiRate');\n"
+			"   if(t){var v=parseInt((t.textContent||'').replace(/[^0-9]/g,''),10)||0,now=Date.now();\n"
+			"    if(mcsPrevEcm>=0&&r&&now>mcsPrevT) r.textContent=(''+Math.round((v-mcsPrevEcm)*60000/(now-mcsPrevT)));\n"
+			"    mcsPrevEcm=v;mcsPrevT=now;}\n"
+			"   mcsClock();\n"
+			"  }};\n"
+			" x.open('GET','/?action=div',true);x.send(null);\n"
+			"}\n"
+			"setInterval(mcsClock,1000);mcsClock();setInterval(mcsLive,5000);\n"
+			"</script>\n");
 		tcp_write(&tcpbuf, sock, http_head_, strlen(http_head_) );
 		tcp_writestr(&tcpbuf, sock, "<body onload=\"start();\">");
 		tcp_write_menu(&tcpbuf, sock,PAGE_HOME);
@@ -1306,13 +1578,97 @@ void http_send_index(int sock, http_request *req)
 	tcp_writestr(&tcpbuf, sock, "<div style=\"margin-left:10px;\">");
 
 	unsigned int d= GetTickCount()/1000;
-	sprintf( http_buf,"Uptime: %02dd %02d:%02d:%02d", d/(3600*24), (d/3600)%24, (d/60)%60, d%60); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	/* Band 99: live aggregates for the control-center hero/KPIs.
+	 * Server link states are written under prg.locksrv; the client
+	 * counters reuse the same helpers the protocol pages poll. */
+	int srv_online = 0, srv_total = 0, ports_open = 0;
+	{
+		struct server_data *s;
+		pthread_mutex_lock(&prg.locksrv);
+		for (s = cfg.server; s; s = s->next) { srv_total++; if (s->connection.status > 0) srv_online++; }
+		for (s = cfg.cacheexserver; s; s = s->next) { srv_total++; if (s->connection.status > 0) srv_online++; }
+		pthread_mutex_unlock(&prg.locksrv);
+	}
+	{
+		struct cardserver_data *cs;
+		for (cs = cfg.cardserver; cs; cs = cs->next) if (cs->newcamd.handle > 0) ports_open++;
+	}
+	int cli_connected = 0, cli_active = 0;
+	{
+		int t, c, a;
+		cs_allclients(&t, &c, &a); cli_connected += c; cli_active += a;
+		total_cccam_clients(&cfg, &t, &c, &a); cli_connected += c; cli_active += a;
+		total_mgcamd_clients(&t, &c, &a); cli_connected += c; cli_active += a;
+		total_cs378x_clients(&t, &c, &a); cli_connected += c; cli_active += a;
+		total_camd35_clients(&t, &c, &a); cli_connected += c; cli_active += a;
+	}
+	/* Band 102: grade lines, cache peers and profiles from their own stats */
+	struct mcs_class_summary line_sum, cache_sum, profile_sum;
+	int badcw_sources = 0;
+	memset(&line_sum, 0, sizeof(line_sum));
+	memset(&profile_sum, 0, sizeof(profile_sum));
+	{
+		struct server_data *s;
+		pthread_mutex_lock(&prg.locksrv);
+		int pass;
+		for (pass = 0; pass < 2; pass++) {
+			for (s = pass ? cfg.cacheexserver : cfg.server; s; s = s->next) {
+				char name[320], link[96], reason[96];
+				int ok = __atomic_load_n(&s->ecmok, __ATOMIC_RELAXED);
+				int oktime = __atomic_load_n(&s->ecmoktime, __ATOMIC_RELAXED);
+				int badcw = s->ecmerrdcw;
+#ifdef CACHEEX
+				badcw += (int)s->cacheex.badcw;
+#endif
+				int score = 0;
+				int grade = mcs_grade_server_fields(s->connection.status > 0, s->ecmnb, ok, oktime, s->ecmtimeout, badcw, &score, reason, sizeof(reason));
+				if (badcw > 0) badcw_sources++;
+				snprintf(name, sizeof(name), "%s:%d", s->host ? s->host->name : "?", s->port);
+				snprintf(link, sizeof(link), "/server?id=%d", s->id);
+				mcs_class_add(&line_sum, name, link, grade, score, reason);
+			}
+		}
+		pthread_mutex_unlock(&prg.locksrv);
+	}
+	mcs_cache_class_summary(&cache_sum);
+	{
+		struct cardserver_data *cs;
+		for (cs = cfg.cardserver; cs; cs = cs->next) {
+			char link[96], reason[96];
+			int accepted = __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED);
+			int ok = __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
+			int avgms = ok > 0 ? __atomic_load_n(&cs->ecmoktime, __ATOMIC_RELAXED) / ok : 0;
+			int score = 0;
+			int grade = mcs_grade_stats(cs->newcamd.handle > 0, accepted, ok, avgms, 0, 0, &score, reason, sizeof(reason));
+			snprintf(link, sizeof(link), "/profile?id=%d", cs->id);
+			mcs_class_add(&profile_sum, cs->name, link, grade, score, reason);
+		}
+	}
+	{
+		char et[1024];
+		snprintf( http_buf, sizeof(http_buf),
+			"<div class='home-hero'><div><div class='hero-title'>🛰️ %s</div>"
+			"<div class='hero-sub'>Multi CardServer · uptime %02dd %02d:%02d:%02d</div>"
+			"<div class='hero-chips'><span class='hero-chip'>🗄️ Servers %d/%d online</span>"
+			"<span class='hero-chip'>👥 Clients %d connected · %d active</span>"
+			"<span class='hero-chip'>🔌 Ports %d/%d listening</span>"
+			"<span class='hero-chip'>⚡ Strong %d</span>"
+			"<span class='hero-chip'>⚠️ Needs attention %d</span></div></div>"
+			"<div class='live-badge'><span class='live-dot'></span>LIVE&nbsp;<span id='liveClock'>--:--:--</span></div></div>",
+			escf(et, cfg.http.title), d/(3600*24), (d/3600)%24, (d/60)%60, d%60,
+			srv_online, srv_total, cli_connected, cli_active, ports_open, cfg.totalprofiles,
+			line_sum.counts[3] + cache_sum.counts[3] + profile_sum.counts[3],
+			line_sum.counts[1] + cache_sum.counts[1] + profile_sum.counts[1] );
+		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	}
+	tcp_writestr(&tcpbuf, sock, "<div class='perf-cards sys'>");
+	sprintf( http_buf,"<div class='perf-card'><div class='label'>Uptime</div><div class='value'>%02dd %02d:%02d:%02d</div></div>", d/(3600*24), (d/3600)%24, (d/60)%60, d%60); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
 	FILE *fp = fopen ("/proc/loadavg", "r");
 	if (fp) {
 		float avg;
 		(void)fscanf(fp, "%f", &avg);
-		sprintf( http_buf,"<br>Load Average: %01.2f", avg); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf,"<div class='perf-card'><div class='label'>Load Average</div><div class='value'>%01.2f</div></div>", avg); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		fclose(fp);
 	}
 
@@ -1320,16 +1676,34 @@ void http_send_index(int sock, http_request *req)
 	if (fp) {
 		int memfree;
 		(void)fscanf (fp, "MemTotal: %*d kB MemFree: %d kB", &memfree);
-		sprintf( http_buf,"<br>Free Memory: %d kB", memfree); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf,"<div class='perf-card'><div class='label'>Free Memory</div><div class='value'>%d kB</div></div>", memfree); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		fclose(fp);
 	}
-	sprintf( http_buf, "<br>Total Profiles: %d", cfg.totalprofiles ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total Servers: %d", cfg.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total Cache Servers: %d", cfg.cache.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total CCcam Servers: %d", cfg.cccam.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total Mgcamd Servers: %d", cfg.mgcamd.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total Camd35 Servers: %d", cfg.camd35.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total cs378x Servers: %d", cfg.cs378x.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card %s'><div class='label'>Servers Online</div><div class='value'>%d/%d</div><div class='sub'>outbound links up</div></div>", srv_total && srv_online == srv_total ? "good" : (srv_online ? "warn" : ""), srv_online, srv_total ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>Clients Online</div><div class='value'>%d</div><div class='sub'>%d active (ECM &lt;20s)</div></div>", cli_connected, cli_active ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>Total Profiles</div><div class='value'>%d</div></div>", cfg.totalprofiles ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>Total Servers</div><div class='value'>%d</div></div>", cfg.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>Cache Servers</div><div class='value'>%d</div></div>", cfg.cache.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>CCcam Servers</div><div class='value'>%d</div></div>", cfg.cccam.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>Mgcamd Servers</div><div class='value'>%d</div></div>", cfg.mgcamd.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>Camd35 Servers</div><div class='value'>%d</div></div>", cfg.camd35.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>cs378x Servers</div><div class='value'>%d</div></div>", cfg.cs378x.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	/* Band 94: what the last config reload cost -- the number behind
+	 * "the web froze after I saved". -1 means no reload yet. */
+	{
+		extern long cfg_reload_last_ms, cfg_reload_max_ms;
+		extern int cfg_reload_count;
+		long last = __atomic_load_n(&cfg_reload_last_ms, __ATOMIC_RELAXED);
+		long max = __atomic_load_n(&cfg_reload_max_ms, __ATOMIC_RELAXED);
+		int cnt = __atomic_load_n(&cfg_reload_count, __ATOMIC_RELAXED);
+		const char *cls = last < 0 ? "" : (last < 1000 ? "good" : (last < 5000 ? "warn" : "bad"));
+		if (last < 0)
+			sprintf( http_buf, "<div class='perf-card'><div class='label'>Last Reload</div><div class='value'>—</div><div class='sub'>no reload yet</div></div>" );
+		else
+			sprintf( http_buf, "<div class='perf-card %s'><div class='label'>Last Reload</div><div class='value'>%ld ms</div><div class='sub'>max %ld ms · %d reloads</div></div>", cls, last, max, cnt );
+		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	}
+	tcp_writestr(&tcpbuf, sock, "</div>");
 	/* R48: ECM performance cards */
 	{
 		int total_ecm = 0, accepted_ecm = 0, ok_ecm = 0;
@@ -1341,8 +1715,36 @@ void http_send_index(int sock, http_request *req)
 		}
 		int success_rate = total_ecm > 0 ? (ok_ecm * 100 / total_ecm) : 100;
 		const char *rate_class = success_rate >= 90 ? "good" : (success_rate >= 70 ? "warn" : "bad");
-		sprintf(http_buf, "<div class='perf-cards'><div class='perf-card'><div class='label'>Total ECM</div><div class='value'>%d</div><div class='sub'>all profiles</div></div><div class='perf-card'><div class='label'>Accepted</div><div class='value'>%d</div><div class='sub'>passed validation</div></div><div class='perf-card %s'><div class='label'>Success Rate</div><div class='value'>%d%%</div><div class='sub'>ECM OK / Total</div></div><div class='perf-card'><div class='label'>Profiles</div><div class='value'>%d</div><div class='sub'>active bouquets</div></div></div>", total_ecm, accepted_ecm, rate_class, success_rate, cfg.totalprofiles);
+		sprintf(http_buf, "<div class='perf-cards'><div class='perf-card'><div class='label'>Total ECM</div><div class='value' id='kpiTotalEcm'>%d</div><div class='sub'>all profiles</div></div><div class='perf-card'><div class='label'>ECM / min</div><div class='value' id='kpiRate'>—</div><div class='sub'>live rate (browser-sampled)</div></div><div class='perf-card'><div class='label'>Accepted</div><div class='value'>%d</div><div class='sub'>passed validation</div></div><div class='perf-card %s'><div class='label'>Success Rate</div><div class='value'>%d%%</div><div class='sub'>ECM OK / Total</div></div><div class='perf-card'><div class='label'>Profiles</div><div class='value'>%d</div><div class='sub'>active bouquets</div></div></div>", total_ecm, accepted_ecm, rate_class, success_rate, cfg.totalprofiles);
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+	}
+	/* Band 102: live classification panels (inside the 5s fragment) */
+	tcp_writestr(&tcpbuf, sock, "<div class='home-sec'>Health classification — graded from each entity's own stats</div><div class='class-grid'>");
+	mcs_render_class_panel(&tcpbuf, sock, http_buf, "🛰️ Lines (Servers)", "/servers", &line_sum);
+	mcs_render_class_panel(&tcpbuf, sock, http_buf, "🗄️ Cache Peers", "/cache", &cache_sum);
+	mcs_render_class_panel(&tcpbuf, sock, http_buf, "📺 Profiles", "/profiles", &profile_sum);
+	tcp_writestr(&tcpbuf, sock, "</div>");
+	{
+		int totok = 0, tothits = 0, totihits = 0;
+		struct cardserver_data *cs;
+		for (cs = cfg.cardserver; cs; cs = cs->next)
+			totok += __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
+		pthread_mutex_lock(&prg.lockcacheex);
+		for (cs = cfg.cardserver; cs; cs = cs->next) {
+			tothits += cs->hits.csp;
+			totihits += cs->hits.instant.csp;
+#ifdef CACHEEX
+			tothits += cs->hits.cacheex;
+			totihits += cs->hits.instant.cacheex;
+#endif
+		}
+		pthread_mutex_unlock(&prg.lockcacheex);
+		{
+			int hitpct = totok > 0 ? (tothits * 100) / totok : 0;
+			const char *bcw_cls = badcw_sources ? "bad" : "good";
+			snprintf(http_buf, sizeof(http_buf), "<div class='perf-cards'><div class='perf-card good'><div class='label'>Cache Hits</div><div class='value'>%d</div><div class='sub'>%d%% of ECM OK served from cache</div></div><div class='perf-card'><div class='label'>Instant Hits</div><div class='value'>%d</div><div class='sub'>zero-wait cache replies</div></div><div class='perf-card %s'><div class='label'>Bad-CW Sources</div><div class='value'>%d</div><div class='sub'>lines/peers that returned a bad CW</div></div></div>", tothits, hitpct, totihits, bcw_cls, badcw_sources);
+			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+		}
 	}
 	/*
 	 * TASK 3.12 -- DCW stats on the home page, inside the refreshed div.
@@ -1360,7 +1762,7 @@ void http_send_index(int sock, http_request *req)
 		char hesc[64];
 		int i;
 		html_esc(hesc, (int)sizeof(hesc), dcwstats_on ? "ON" : "OFF");
-		sprintf(http_buf, "<br><br><b>DCW stats</b> %s<table class=option border=1px cellspacing=0><tr><th>Reason</th><th>Count</th></tr>", hesc);
+		sprintf(http_buf, "<div class='home-sec'>DCW stats — %s</div><table class=maintable cellspacing=0><tr><th>Reason</th><th>Count</th></tr>", hesc);
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
 		for (i = 0; i < DCW_REJ_COUNT; i++) {
 			html_esc(hesc, (int)sizeof(hesc), dcwstats_reason_name(i));
@@ -1428,6 +1830,7 @@ void http_send_debug(int sock, http_request *req)
 	if (!str_action) str_action = "page";
 	//
 	tcp_init(&tcpbuf);
+	if (get_action==1) http_replyok_write(req, &tcpbuf, sock); /* Band 100: fragments need a real HTTP reply */
 	if (get_action==0) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -1478,7 +1881,7 @@ void http_send_debug(int sock, http_request *req)
 #endif
 		if (sel==DBG_ERROR) tcp_writestr(&tcpbuf, sock, "<option value='ERROR' selected>ERROR</option>"); else tcp_writestr(&tcpbuf, sock, "<option value='ERROR'>ERROR</option>");
 		tcp_writestr(&tcpbuf, sock, "</select></legend>\n");
-		sprintf( http_buf, "<pre style=\"font-size:10; color:#004455;\">"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<pre style=\"font-size:10px;\">"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		int current = __atomic_load_n(&idbgline, __ATOMIC_RELAXED);
 		int i = current - 35;
 		if (i<0) i += 70;
@@ -1793,6 +2196,20 @@ void getservercells(struct server_data *srv, char cell[8][2048] )
 
 	// CELL1
 	sprintf( cell[1],"<a href=\"/server?id=%d\">%s:%d</a><br>", srv->id,escf(et1,srv->host->name),srv->port);
+	/* Band 102: the line's own health grade next to its address */
+	{
+		int ok = __atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED);
+		int oktime = __atomic_load_n(&srv->ecmoktime, __ATOMIC_RELAXED);
+		int badcw = srv->ecmerrdcw;
+#ifdef CACHEEX
+		badcw += (int)srv->cacheex.badcw;
+#endif
+		int score = 0; char reason[96]; char badge[512];
+		int grade = mcs_grade_server_fields(srv->connection.status > 0, srv->ecmnb, ok, oktime, srv->ecmtimeout, badcw, &score, reason, sizeof(reason));
+		mcs_grade_badge(badge, sizeof(badge), grade, score, reason);
+		strcat( cell[1], " " );
+		strcat( cell[1], badge );
+	}
 	if (!host_ip && host_clip)
 		sprintf(temp, "0.0.0.0 (%s)", (char *)ip2string(host_ip));
 	else {
@@ -1857,9 +2274,9 @@ void getservercells(struct server_data *srv, char cell[8][2048] )
 	{
 		// CELL4
 		if (srv->ecmnb)
-			sprintf( cell[4],"%d / %d<span style=\"float: right;\">%d%%</span><br>Hits = %d",__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED) ,srv->ecmnb, (__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED)*100)/srv->ecmnb, srv->hits);
+			sprintf( cell[4],"%d / %d<span class=\"pct\">%d%%</span><br>Hits = %d",__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED) ,srv->ecmnb, (__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED)*100)/srv->ecmnb, srv->hits);
 		else
-			sprintf( cell[4],"<span style=\"float: right;\">0%%</span>");
+			sprintf( cell[4],"<span class=\"pct\">0%%</span>");
 		// CELL5
 		if (__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED))
 			sprintf( cell[5],"%d ms",(__atomic_load_n(&srv->ecmoktime, __ATOMIC_RELAXED)/__atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED)) ); //, srv->hits );
@@ -1908,7 +2325,7 @@ void getservercells(struct server_data *srv, char cell[8][2048] )
 		}
 	}
 
-	strcat( cell[6], "<span style='float:right;'>");
+	strcat( cell[6], "<span class='pct'>");
 	if ( !(srv->flags&(FLAG_DELETE|FLAG_EXPIRED)) ) {
 		if (srv->flags&FLAG_DISABLE) {
 			sprintf( temp," <img title='Enable' src='enable.png' OnClick=\"imgrequest('/server?id=%d&action=enable',this);\">",srv->id);
@@ -2055,6 +2472,7 @@ void http_send_servers(int sock, http_request *req)
 	}
 
 	tcp_init(&tcpbuf);
+	if (get_action==1) http_replyok_write(req, &tcpbuf, sock); /* Band 100: fragments need a real HTTP reply */
 	if (get_action==0) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -2199,15 +2617,12 @@ void http_send_server(int sock, http_request *req)
 	//
 	int get_id;
 	char *str_id = isset_get( req, "id");
-	if (str_id)	get_id = atoi(str_id); else return;
+	if (str_id)	get_id = atoi(str_id); else { http_send_not_found(sock, "Server"); return; }
 
 	//look for server
 	struct server_data *srv = getsrvbyid( get_id );
 	if (!srv) {
-		tcp_init(&tcpbuf);
-		http_replyok_write(req, &tcpbuf, sock);
-		sprintf( http_buf, "<br>Server not found (id=%d)<br>", get_id);
-		tcp_flush(&tcpbuf, sock);
+		http_send_not_found(sock, "Server"); /* Band 89: the composed message was never written (200, empty body) */
 		return;
 	}
 	//
@@ -2615,6 +3030,26 @@ static size_t http_cache_peer_list_snapshot(
 	return copied;
 }
 
+/* Band 102: grade every CSP cache peer from its own reply ratio */
+static void mcs_cache_class_summary(struct mcs_class_summary *sum)
+{
+	struct http_cache_peer_row_snapshot *rows = (struct http_cache_peer_row_snapshot *)malloc(256 * sizeof(*rows));
+	size_t total = 0, active = 0, n = 0, i;
+	memset(sum, 0, sizeof(*sum));
+	if (!rows) return;
+	n = http_cache_peer_list_snapshot(NULL, rows, 256, &total, &active);
+	(void)total; (void)active;
+	for (i = 0; i < n; i++) {
+		char name[320], link[96], reason[96];
+		int score = 0;
+		int grade = mcs_grade_stats(rows[i].ping > 0, rows[i].reqnb, rows[i].repok, 0, 0, 0, &score, reason, sizeof(reason));
+		snprintf(name, sizeof(name), "%s:%u", rows[i].host_name, rows[i].port);
+		snprintf(link, sizeof(link), "/cachepeer?id=%u", rows[i].id);
+		mcs_class_add(sum, name, link, grade, score, reason);
+	}
+	free(rows);
+}
+
 static int http_cache_peer_row_by_id(
 	uint32_t id, struct http_cache_peer_row_snapshot *snapshot)
 {
@@ -2697,6 +3132,14 @@ void getcachecells(const struct http_cache_peer_row_snapshot *peer,
 	} else
 #endif
 		sprintf(cell[0], "%s:%u", escf(et1, peer->host_name), peer->port);
+	/* Band 102: cache peer grade from its own reply ratio */
+	{
+		int score = 0; char reason[96]; char badge[512];
+		int grade = mcs_grade_stats(peer->ping > 0, peer->reqnb, peer->repok, 0, 0, 0, &score, reason, sizeof(reason));
+		mcs_grade_badge(badge, sizeof(badge), grade, score, reason);
+		strcat( cell[0], "<br>" );
+		strcat( cell[0], badge );
+	}
 	{
 		char *country = getcountrycodebyip(peer->ip);
 		if (country)
@@ -2743,7 +3186,7 @@ void getcachecells(const struct http_cache_peer_row_snapshot *peer,
 		sprintf(cell[11], "ch %s (%dms)", getchname(peer->lastcaid, peer->lastprov, peer->lastsid), peer->lastdecodetime);
 	else
 		strcpy(cell[11], " ");
-	strcat(cell[11], "<span style='float:right;'>");
+	strcat(cell[11], "<span class='pct'>");
 	if (!(peer->flags & (FLAG_DELETE | FLAG_EXPIRED))) {
 		if (peer->flags & FLAG_DISABLE)
 			sprintf(temp, " <img title='Enable' src='enable.png' OnClick=\"imgrequest('/cachepeer?id=%u&action=enable',this);\">", peer->id);
@@ -2938,6 +3381,7 @@ void http_send_cache(int sock, http_request *req)
 	peer_rows_truncated = peer_total_count > peer_row_count;
 
 	tcp_init(&tcpbuf);
+	if (get_action==1) http_replyok_write(req, &tcpbuf, sock); /* Band 100: fragments need a real HTTP reply */
 	if (get_action==0) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -3151,9 +3595,9 @@ void http_send_cache_peer(int sock, http_request *req)
 	struct http_cache_peer_detail_snapshot detail;
 	struct http_cache_peer_row_snapshot status_row;
 	struct http_cache_peer_row_snapshot *peer;
-	if (!str_id) return;
+	if (!str_id) { http_send_not_found(sock, "Cache peer"); return; }
 	parsed_id = strtol(str_id, &id_end, 10);
-	if (id_end == str_id || *id_end || parsed_id < 0 || parsed_id > 0xffff) return;
+	if (id_end == str_id || *id_end || parsed_id < 0 || parsed_id > 0xffff) { http_send_not_found(sock, "Cache peer"); return; }
 	get_id = (int)parsed_id;
 
 	str_action = isset_get(req, "action");
@@ -3220,7 +3664,7 @@ void http_send_cache_peer(int sock, http_request *req)
 		return;
 	}
 
-	if (!http_cache_peer_detail_by_id((uint32_t)get_id, &detail)) return;
+	if (!http_cache_peer_detail_by_id((uint32_t)get_id, &detail)) { http_send_not_found(sock, "Cache peer"); return; }
 	peer = &detail.row;
 
 
@@ -3228,6 +3672,7 @@ void http_send_cache_peer(int sock, http_request *req)
 	struct tcp_buffer_data tcpbuf;
 
 	tcp_init(&tcpbuf);
+	if (get_action==1) http_replyok_write(req, &tcpbuf, sock); /* Band 100 */
 	if (!get_action) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -3401,6 +3846,17 @@ void getprofilecells(struct cardserver_data *cs, char cell[11][2048])
 	char et1[1024];	/* R35 text-field scratch */
 	// CELL0 # Profile name
 	sprintf( cell[0],"<a href=\"/profile?id=%d\">%s</a>", cs->id, escf(et1,cs->name));
+	/* Band 102: the profile's own health grade next to its name */
+	{
+		int accepted = __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED);
+		int ok = __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
+		int avgms = ok > 0 ? __atomic_load_n(&cs->ecmoktime, __ATOMIC_RELAXED) / ok : 0;
+		int score = 0; char reason[96]; char badge[512];
+		int grade = mcs_grade_stats(cs->newcamd.handle > 0, accepted, ok, avgms, 0, 0, &score, reason, sizeof(reason));
+		mcs_grade_badge(badge, sizeof(badge), grade, score, reason);
+		strcat( cell[0], " " );
+		strcat( cell[0], badge );
+	}
 	// CELL1 # Port
 	sprintf( cell[1],"<a href=\"/newcamd?pid=%d\">%d</a>", cs->id, cs->newcamd.port); 
 	if (cs->newcamd.handle>0) sprintf( cell[10],"online"); else sprintf( cell[10],"offline"); 
@@ -3462,7 +3918,7 @@ void getprofilecells(struct cardserver_data *cs, char cell[11][2048])
 		strcat( cell[9], temp );
 	}
 
-	strcat( cell[9], "<span style='float:right;'>");
+	strcat( cell[9], "<span class='pct'>");
 	sprintf( temp," <img title='Debug' src='debug.png' OnClick=\"imgrequest('/profile?id=%d&action=debug',this);\">",cs->id);
 	strcat( cell[9], temp );
 	strcat( cell[9], "</span>");
@@ -3543,6 +3999,7 @@ static void http_send_profiles_inner(int sock, http_request *req)
 
 	tcp_init(&tcpbuf);
 
+	if (get_action==ACTION_DIV) http_replyok_write(req, &tcpbuf, sock); /* Band 100 */
 	if (get_action==ACTION_PAGE) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -3858,7 +4315,7 @@ void getnewcamdclientcells(struct cs_client_data *cli, char cell[10][2048])
 	}
 	else strcpy( cell[8], " ");
 
-	strcat( cell[8], "<span style='float:right;'>");
+	strcat( cell[8], "<span class='pct'>");
 	if ( !(cli->flags&(FLAG_DELETE|FLAG_EXPIRED)) ) {
 		if (cli->flags&FLAG_DISABLE) {
 			sprintf( temp," <img title='Enable' src='enable.png' OnClick=\"imgrequest('/newcamdclient?id=%d&action=enable',this);\">",cli->id);
@@ -3978,6 +4435,7 @@ static void http_send_newcamd_inner(int sock, http_request *req) // page, div, r
 	}
 
 	tcp_init(&tcpbuf);
+	if (get_action==ACTION_DIV) http_replyok_write(req, &tcpbuf, sock); /* Band 100 */
 	if (get_action==ACTION_PAGE) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -4166,11 +4624,11 @@ static void http_send_newcamd_client_inner(int sock, http_request *req)
 	int have_lastecm_snapshot = 0;
 	int have_current_ecm_snapshot = 0;
 	char *str_id = isset_get( req, "id");
-	if (!str_id) return; //error
+	if (!str_id) { http_send_not_found(sock, "Client"); return; } //error
 	int get_id = atoi(str_id);
 	//
 	struct cs_client_data *cli = getnewcamdclientbyid( get_id );
-	if (!cli) return;
+	if (!cli) { http_send_not_found(sock, "Client"); return; }
 	// Action
 	char *str_action = isset_get( req, "action");
 	int get_action = 0;
@@ -4240,6 +4698,7 @@ static void http_send_newcamd_client_inner(int sock, http_request *req)
 	cli->lastecm.request = have_lastecm_snapshot ? &lastecm_snapshot : NULL;
 	cli->ecm.request = have_current_ecm_snapshot ? &current_ecm_snapshot : NULL;
 	tcp_init(&tcpbuf);
+	if (get_action==1) http_replyok_write(req, &tcpbuf, sock); /* Band 100: fragments need a real HTTP reply */
 	if (get_action==0) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -4472,7 +4931,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 	char *str_id = isset_get( req, "id");
 	if (str_id)	get_id = atoi(str_id);
 	struct cardserver_data *cs = getcsbyid(get_id);
-	if (!cs) return;
+	if (!cs) { http_send_not_found(sock, "Profile"); return; }
 	// Action
 	char *str_action = isset_get( req, "action");
 	int get_action = 0;
@@ -4665,14 +5124,14 @@ static void http_send_profile_inner(int sock, http_request *req)
 */
 
 	// Send Stat
-	sprintf( http_buf, "<style type=\"text/css\">\n.mainborder\n{ background: #d2d2d2; border: 1px solid #0B198C; border-spacing: 0px; font: 10px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; padding: 1 2; }\n.redborder { background: #d25555; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n.greenborder { background: #55d255; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n.cacheborder { background: #5555e2; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n</style>\n");
+	sprintf( http_buf, "<style type=\"text/css\">\n.mainborder\n{ background: #eef3f7; border: 1px solid #0f5f8a; border-radius: 8px; border-spacing: 0px; font: 10px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; padding: 1 2; }\n.redborder { background: #e0655f; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n.greenborder { background: #4fbf72; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n.cacheborder { background: #5b6ee0; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n</style>\n");
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 #ifdef SRV_CSCACHE
-	sprintf( http_buf, "<style type=\"text/css\">\n.clientsborder { background: goldenrod; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n</style>\n");
+	sprintf( http_buf, "<style type=\"text/css\">\n.clientsborder { background: #d9a521; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n</style>\n");
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 #endif
 #ifdef CACHEEX
-	sprintf( http_buf, "<style type=\"text/css\">\n.cacheexborder { background: darkblue; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n</style>\n");
+	sprintf( http_buf, "<style type=\"text/css\">\n.cacheexborder { background: #14406e; border-left: 1px solid #eee; border-right: 1px solid #eee; border-bottom: 1px solid #eee; border-spacing: 0px; font: 9px verdana, geneva, lucida, 'lucida grande', arial, helvetica, sans-serif; }\n</style>\n");
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 #endif
 	if (__atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED)) {
@@ -4689,7 +5148,7 @@ static void http_send_profile_inner(int sock, http_request *req)
 			// RED
 			int width = cs->ttime[i]*100/max;
 			if (width>10)
-				sprintf( http_buf, "<div class=redborder style='height:3px; width:%d%%'><span style=\"float: right;\">%d</span></div>", width, cs->ttime[i] );
+				sprintf( http_buf, "<div class=redborder style='height:3px; width:%d%%'><span class=\"pct\">%d</span></div>", width, cs->ttime[i] );
 			else {
 				if (!width && cs->ttime[i])
 					sprintf( http_buf, "<div class=redborder style='height:2px; width:1px;'></div>");
@@ -4946,7 +5405,7 @@ void getcccamcells(struct cc_client_data *cli, char cell[10][2048])
 		strcat( cell[8], "</span>" );
 	}
 	else strcpy( cell[8], " ");
-	strcat( cell[8], "<span style='float:right;'>");
+	strcat( cell[8], "<span class='pct'>");
 	if ( !(cli->flags&(FLAG_DELETE|FLAG_EXPIRED)) ) {
 		if (cli->flags&FLAG_DISABLE) {
 			sprintf( temp," <img title='Enable' src='enable.png' OnClick=\"imgrequest('/cccamclient?action=enable&id=%d',this);\">",cli->id);
@@ -5359,7 +5818,7 @@ void getcs378xcells(struct camd35_client_data *cli, char cell[10][2048])
 	}
 	else strcpy( cell[8], " ");
 
-	strcat( cell[8], "<span style='float:right;'>");
+	strcat( cell[8], "<span class='pct'>");
 	if ( !(cli->flags&(FLAG_DELETE|FLAG_EXPIRED)) ) {
 		if (cli->flags&FLAG_DISABLE) {
 			sprintf( temp," <img title='Enable' src='enable.png' OnClick=\"imgrequest('/mgcamdclient?id=%d&action=enable',this);\">",cli->id);
@@ -5483,6 +5942,7 @@ void http_send_cs378x(int sock, http_request *req)
 	}
 	//
 	tcp_init(&tcpbuf);
+	if (get_action==ACTION_DIV) http_replyok_write(req, &tcpbuf, sock); /* Band 100 */
 	if (get_action==ACTION_PAGE) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -5762,7 +6222,7 @@ void getcamd35cells(struct camd35_client_data *cli, char cell[10][2048])
 	}
 	else strcpy( cell[8], " ");
 
-	strcat( cell[8], "<span style='float:right;'>");
+	strcat( cell[8], "<span class='pct'>");
 	if ( !(cli->flags&(FLAG_DELETE|FLAG_EXPIRED)) ) {
 		if (cli->flags&FLAG_DISABLE) {
 			sprintf( temp," <img title='Enable' src='enable.png' OnClick=\"imgrequest('/mgcamdclient?id=%d&action=enable',this);\">",cli->id);
@@ -5887,6 +6347,7 @@ void http_send_camd35(int sock, http_request *req)
 	}
 	//
 	tcp_init(&tcpbuf);
+	if (get_action==ACTION_DIV) http_replyok_write(req, &tcpbuf, sock); /* Band 100 */
 	if (get_action==ACTION_PAGE) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -6739,7 +7200,7 @@ void http_send_cccam_client(int sock, http_request *req)
 		struct cccam_server_data *cccam = getcccamserverbyid( atoi(str_srvid) );
 		if (cccam) cli = getcccamclientbyname( cccam, str_name );
 	}
-	if (!cli) return;
+	if (!cli) { http_send_not_found(sock, "Client"); return; }
 	//
 
 	if (get_action==ACTION_XML) {
@@ -6800,6 +7261,7 @@ void http_send_cccam_client(int sock, http_request *req)
 	}
 
 	tcp_init(&tcpbuf);
+	if (get_action==1) http_replyok_write(req, &tcpbuf, sock); /* Band 100: fragments need a real HTTP reply */
 	if (get_action==0) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -7214,7 +7676,7 @@ void getmgcamdcells(struct mg_client_data *cli, char cell[10][2048])
 	}
 	else strcpy( cell[8], " ");
 
-	strcat( cell[8], "<span style='float:right;'>");
+	strcat( cell[8], "<span class='pct'>");
 	if ( !(cli->flags&(FLAG_DELETE|FLAG_EXPIRED)) ) {
 		if (cli->flags&FLAG_DISABLE) {
 			sprintf( temp," <img title='Enable' src='enable.png' OnClick=\"imgrequest('/mgcamdclient?id=%d&action=enable',this);\">",cli->id);
@@ -7398,6 +7860,7 @@ void http_send_mgcamd(int sock, http_request *req)
 	}
 
 	tcp_init(&tcpbuf);
+	if (get_action==ACTION_DIV) http_replyok_write(req, &tcpbuf, sock); /* Band 100 */
 	if (get_action==ACTION_PAGE) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -7599,10 +8062,10 @@ void http_send_mgcamd_client(int sock, http_request *req)
 	struct tcp_buffer_data tcpbuf;
 	// Get Client ID
 	char *str_id = isset_get( req, "id");
-	if (!str_id) return; //error
+	if (!str_id) { http_send_not_found(sock, "Client"); return; } //error
 	int get_id = atoi(str_id);
 	struct mg_client_data *cli = getmgcamdclientbyid(get_id);
-	if (!cli) return;
+	if (!cli) { http_send_not_found(sock, "Client"); return; }
 	// Action
 	char *str_action = isset_get( req, "action");
 	int get_action = 0;
@@ -7640,6 +8103,7 @@ void http_send_mgcamd_client(int sock, http_request *req)
 	}
 	//
 	tcp_init(&tcpbuf);
+	if (get_action==1) http_replyok_write(req, &tcpbuf, sock); /* Band 100: fragments need a real HTTP reply */
 	if (get_action==0) {
 		http_replyok_write(req, &tcpbuf, sock);
 		http_html_write(req, &tcpbuf, sock);
@@ -8030,7 +8494,7 @@ void http_send_threads(int sock, http_request *req)
 		tcp_write_menu(&tcpbuf, sock,0);
 
 
-		tcp_writestr(&tcpbuf, sock, "<br>Load Average = ");
+		tcp_writestr(&tcpbuf, sock, "<div class='home-sec'>System</div><table class='maintable'><tr><th>Metric</th><th>Value</th></tr><tr><td>Load Average</td><td>");
 		FILE *fp = fopen("/proc/loadavg", "r");
 		if (fp) {
 			if (fgets(http_buf, sizeof(http_buf), fp)) tcp_writestr(&tcpbuf, sock, http_buf);
@@ -8038,6 +8502,7 @@ void http_send_threads(int sock, http_request *req)
 			fclose(fp);
 		} else tcp_writestr(&tcpbuf, sock, "unavailable");
 
+		tcp_writestr(&tcpbuf, sock, "</td></tr><tr><td>Memory</td><td>");
 		// /proc/meminfo
 		fp = fopen("/proc/meminfo", "r");
 		if (fp) {
@@ -8046,25 +8511,26 @@ void http_send_threads(int sock, http_request *req)
 			fclose(fp);
 		} else tcp_writestr(&tcpbuf, sock, "Memory information unavailable.<br>");
 
-		sprintf( http_buf, "<br>THREADID Main = %d",pid_main ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br>THREADID Config = %d",pid_config ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID DNS = %d",pid_dns ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID Servers Connections = %d",pid_srv ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID Recv Messages = %d",pid_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID SET DCW = %d",pid_setdcw ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID Cache = %d",pid_cache ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID Date = %d",pid_date ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		tcp_writestr(&tcpbuf, sock, "</td></tr></table><div class='home-sec'>Threads</div><table class='maintable'><tr><th>Thread</th><th>TID</th></tr>");
+		sprintf( http_buf, "<tr><td>Main</td><td>%d</td></tr>",pid_main ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>Config</td><td>%d</td></tr>",pid_config ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>DNS</td><td>%d</td></tr>",pid_dns ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>Servers Connections</td><td>%d</td></tr>",pid_srv ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>Recv Messages</td><td>%d</td></tr>",pid_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>SET DCW</td><td>%d</td></tr>",pid_setdcw ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>Cache</td><td>%d</td></tr>",pid_cache ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>Date</td><td>%d</td></tr>",pid_date ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
-		sprintf( http_buf, "<br> THREADID Connect Clients = %d",pid_connect ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>Connect Clients</td><td>%d</td></tr>",pid_connect ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
-		sprintf( http_buf, "<br> THREADID Newcamd messages = %d",pid_cs_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID Mgcamd messages = %d",pid_mgcamd ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-		sprintf( http_buf, "<br> THREADID CCcam messages = %d",pid_cccam ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>Newcamd messages</td><td>%d</td></tr>",pid_cs_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>Mgcamd messages</td><td>%d</td></tr>",pid_mgcamd ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>CCcam messages</td><td>%d</td></tr>",pid_cccam ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 #ifdef CS378X_SRV
-		sprintf( http_buf, "<br> THREADID CS378X messages = %d",pid_cs378x ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<tr><td>CS378X messages</td><td>%d</td></tr>",pid_cs378x ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 #endif
 #ifdef CACHEEX
-        sprintf( http_buf, "<br> THREADID Ccacheex messages = %d",pid_ccex_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+        sprintf( http_buf, "<tr><td>Cacheex messages</td><td>%d</td></tr>",pid_ccex_msg ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 #endif
 
 		// CACHEEX Servers (render a value-only snapshot; no config/list locks here)
@@ -8075,20 +8541,21 @@ void http_send_threads(int sock, http_request *req)
                 html_esc(escaped_host, (int)sizeof(escaped_host),
                          server_rows[server_index].host);
                 snprintf(http_buf, sizeof(http_buf),
-                         "<br> THREADID Cacheex Server (%s:%d) =  %d",
+                         "<tr><td>Cacheex Server (%s:%d)</td><td>%d</td></tr>",
                          escaped_host, server_rows[server_index].port,
                          (int)server_rows[server_index].pid);
                 tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
         }
         if (server_rows_unavailable)
                 tcp_writestr(&tcpbuf, sock,
-                             "<br>CacheEx server thread snapshot is temporarily unavailable.");
+                             "<tr><td colspan=2>CacheEx server thread snapshot is temporarily unavailable.</td></tr>");
         else if (server_rows_truncated)
                 tcp_writestr(&tcpbuf, sock,
-                             "<br>CacheEx server thread list truncated at the safe snapshot limit.");
+                             "<tr><td colspan=2>CacheEx server thread list truncated at the safe snapshot limit.</td></tr>");
         free(server_rows);
 #endif
-		sprintf( http_buf, "<br><br> TOTAL ECM REQUESTS = %d",total_ecm_snapshot ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		tcp_writestr(&tcpbuf, sock, "</table>");
+		sprintf( http_buf, "<div class='perf-cards'><div class='perf-card'><div class='label'>Total ECM Requests</div><div class='value'>%d</div></div></div>",total_ecm_snapshot ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		tcp_flush(&tcpbuf, sock);
 }
 
@@ -8099,6 +8566,18 @@ void http_send_editor(int sock, http_request *req, int index)
 {
 	char http_buf[2048];
 	struct tcp_buffer_data tcpbuf;
+	/* Band 101: resolve the file first. The stock order wrote the
+	 * header/menu into the buffer and then returned on a bad index,
+	 * so the client got a truncated shell (or nothing). */
+	{
+		struct filename_data *probe = cfg.files;
+		int pi;
+		for( pi = 0; pi < index; pi++) {
+			if (!probe) break;
+			probe = probe->next;
+		}
+		if ( (pi!=index)||(!probe) ) { http_send_not_found(sock, "Editor file"); return; }
+	}
 	tcp_init(&tcpbuf);
 	http_replyok_write(req, &tcpbuf, sock);
 	http_html_write(req, &tcpbuf, sock);
@@ -8125,18 +8604,18 @@ void http_send_editor(int sock, http_request *req, int index)
 		char *content = isset_header(req, "Content-Type");
 		if (!content) {
 			debugf(getdbgflag(DBG_HTTP,0,0)," Invalid form\n");
-			return;
+			tcp_writestr(&tcpbuf, sock, "<p><b>Invalid form submission.</b></p></body></html>"); tcp_flush(&tcpbuf, sock); return;
 		}
 		// Parse Content-type
 		if ( memcmp(content,"multipart/form-data",19) ) {
 			debugf(getdbgflag(DBG_HTTP,0,0)," Invalid Content-type\n");
-			return;
+			tcp_writestr(&tcpbuf, sock, "<p><b>Invalid form submission.</b></p></body></html>"); tcp_flush(&tcpbuf, sock); return;
 		}
 		// Get ';'
 		while (*content!=';') {
 			if (*content==0)  {
 				debugf(getdbgflag(DBG_HTTP,0,0)," Invalid header data\n");
-				return;
+				tcp_writestr(&tcpbuf, sock, "<p><b>Invalid form submission.</b></p></body></html>"); tcp_flush(&tcpbuf, sock); return;
 			}
 			content++;
 		}
@@ -8146,13 +8625,13 @@ void http_send_editor(int sock, http_request *req, int index)
 		// Get Boundry
 		if ( memcmp(content,"boundary",8) ) {
 			debugf(getdbgflag(DBG_HTTP,0,0)," Invalid Content-type\n");
-			return;
+			tcp_writestr(&tcpbuf, sock, "<p><b>Invalid form submission.</b></p></body></html>"); tcp_flush(&tcpbuf, sock); return;
 		}
 		// Get '='
 		while (*content!='=') {
 			if (*content==0)  {
 				debugf(getdbgflag(DBG_HTTP,0,0)," Invalid header data\n");
-				return;
+				tcp_writestr(&tcpbuf, sock, "<p><b>Invalid form submission.</b></p></body></html>"); tcp_flush(&tcpbuf, sock); return;
 			}
 			content++;
 		}
@@ -8166,23 +8645,27 @@ void http_send_editor(int sock, http_request *req, int index)
 
 		// search for boundary in file
 		content = req->dbf.data;
+		char *dataend = (char*)req->dbf.data + req->dbf.datasize;
+		int saved = 0;
 
 		while (content) {
 			content = (char*) boyermoore_horspool_memmem( (uint8_t*)content, req->dbf.datasize-(content-(char*)req->dbf.data), (uint8_t*)boundary, strlen(boundary) );
 			if (content) {
 				content += strlen(boundary);
-				if ( *content=='\r' && *(content+1)=='\n' ) {
+				if ( content+1 < dataend && *content=='\r' && *(content+1)=='\n' ) {
 					content+=2;
 					// Get Content-Disposition
 					// Content-Disposition: form-data; name="textedit"
 					char *p = content;
-					while (*p!='\r') p++;
+					while (p < dataend && *p!='\r') p++;
+					if (p+3 >= dataend) { tcp_writestr(&tcpbuf, sock, "<p><b>Invalid form submission.</b></p></body></html>"); tcp_flush(&tcpbuf, sock); return; }
 					if ( *p=='\r' && *(p+1)=='\n' && *(p+2)=='\r' && *(p+3)=='\n' ) { // Good
 						*p=0;
 						//printf(" Content: '%s'\n", content);
 						char *pdata = p+4;
 						// search for newt boundary
 						content = (char*)boyermoore_horspool_memmem( (uint8_t*)content, req->dbf.datasize-(content-(char*)req->dbf.data), (uint8_t*)boundary, strlen(boundary) );
+						if (!content) { tcp_writestr(&tcpbuf, sock, "<p><b>Invalid form submission.</b></p></body></html>"); tcp_flush(&tcpbuf, sock); return; }
 						*content = 0;
 						//printf(" the file is:\n-------------\n%s\n-------------\n", pdata); 
 						// save
@@ -8211,7 +8694,7 @@ void http_send_editor(int sock, http_request *req, int index)
 									if (stat(fname, &st)==0) chmod(tmpname, st.st_mode);
 									if (rename(tmpname, fname)!=0) save_ok = 0;
 								}
-								if (save_ok) sprintf( http_buf, "<script type=\"text/JavaScript\"><!--\nsetTimeout(\"location.href = '/editor%d';\",5000);\n--></script>\n<h3><center>file '%s' is Successfully Saved</center></h3>", index, fname);
+								if (save_ok) sprintf( http_buf, "<script type=\"text/JavaScript\"><!--\nsetTimeout(\"location.href = '/editor%d';\",5000);\n--></script>\n<h3><center>file '%s' is Successfully Saved</center></h3><p><center>The configuration is now reloading. The web interface and ECM service may pause briefly while the new settings are applied (the cost of the last reload is shown as 'Last Reload' on the Home page).</center></p>", index, fname);
 								else {
 									if (atomic_ok) unlink(tmpname);
 									sprintf( http_buf, "<h2>Error saving file '%s'</h2>", fname);
@@ -8219,10 +8702,12 @@ void http_send_editor(int sock, http_request *req, int index)
 							}
 						}
 						tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+						saved = 1;
 					}
 				}
 			}
 		}
+		if (!saved) tcp_writestr(&tcpbuf, sock, "<p><b>Invalid form submission.</b></p></body></html>");
 		tcp_flush(&tcpbuf, sock);
 	}
 	else {
@@ -9220,6 +9705,214 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         } else {
             tcp_writestr(tcpbuf, sock, "<p>لا قرارات DoubleCheck بعد في هذه الجلسة (تظهر هنا فور حدوثها، بدل سجلات [ECM-DBLCHK]).</p>");
         }
+        /* Band 105: cache-consensus arming at a glance (global default
+         * + per-profile CACHE CONSENSUS SOURCES overrides) */
+        {
+            char over[700] = "";
+            struct cardserver_data *pcs;
+            for (pcs = cfg.cardserver; pcs; pcs = pcs->next) {
+                if (pcs->option.consensus_sources >= 2) {
+                    char et3[1024]; char entry[220];
+                    snprintf(entry, sizeof(entry), "%s%s=%d",
+                             over[0] ? "، " : "", escf(et3, pcs->name),
+                             pcs->option.consensus_sources);
+                    if (strlen(over) + strlen(entry) < sizeof(over) - 1)
+                        strcat(over, entry);
+                }
+            }
+            snprintf(out, sizeof(out), "<p><b>إجماع الكاش (Cache Consensus):</b> مصادر التصديق المطلوبة عالميًا: %d | تجاوزات لكل بروفايل: %s<br><small>‏CACHE CONSENSUS SOURCES داخل كتلة البروفايل يخصّص العتبة لقنواته وحدها (2..8)؛ الرفض الموزون ضد المفاتيح المتعارضة لا يتأثر.</small></p>",
+                     cfg.cache.consensus_sources >= 2 ? cfg.cache.consensus_sources : 2,
+                     over[0] ? over : "—");
+            tcp_writestr(tcpbuf, sock, out);
+        }
+        /* Band 106: MARCHCHECK inside CCcam Trace -- same shape as
+         * CW_DUP/CW_REUSE, so all three fake-CW detectors are tuned
+         * from this page alone (DCW MARCHCHECK per profile). */
+        {
+            const char *mmode = st.marchcheck_global_mode == 2 ? "رفض" :
+                                st.marchcheck_global_mode == 1 ? "تسجيل فقط" : "مطفأ";
+            char armed_reject[900] = "";
+            char armed_log[900] = "";
+            struct cardserver_data *pcs;
+            for (pcs = cfg.cardserver; pcs; pcs = pcs->next) {
+                char et2[1024];
+                char entry[300];
+                if (pcs->option.sf_marchcheck == 3) {
+                    snprintf(entry, sizeof(entry), "%s%s",
+                             armed_reject[0] ? "، " : "", escf(et2, pcs->name));
+                    if (strlen(armed_reject) + strlen(entry) < sizeof(armed_reject) - 1)
+                        strcat(armed_reject, entry);
+                } else if (pcs->option.sf_marchcheck == 2) {
+                    snprintf(entry, sizeof(entry), "%s%s",
+                             armed_log[0] ? "، " : "", escf(et2, pcs->name));
+                    if (strlen(armed_log) + strlen(entry) < sizeof(armed_log) - 1)
+                        strcat(armed_log, entry);
+                }
+            }
+            snprintf(out, sizeof(out), "<p><b>ركن النصف (MARCHCHECK — نصف CW بقي في نفس الخانة بينما تغيّر النصف الآخر):</b> الوضع العام: %s | أعلام: %llu | رُفضت: %llu | أحداث مسجلة: %llu</p>",
+                     mmode,
+                     (unsigned long long)st.marchcheck_flagged,
+                     (unsigned long long)st.marchcheck_rejected,
+                     (unsigned long long)st.marchcheck_event_total);
+            tcp_writestr(tcpbuf, sock, out);
+            snprintf(out, sizeof(out), "<p>مسلّح بالرفض في: %s<br>مسلّح بالتسجيل فقط في: %s<br><small>الضبط لكل بروفايل من ملف الإعدادات: ‏DCW MARCHCHECK: 1 (تسجيل) ثم ‏2 (رفض) بعد ثبوت الأعلام هنا. العلم وحده لا يرفض في وضع التسجيل.</small></p>",
+                     armed_reject[0] ? armed_reject : "—",
+                     armed_log[0] ? armed_log : "—");
+            tcp_writestr(tcpbuf, sock, out);
+            if (st.marchcheck_event_count) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>القناة</th><th>النصف المركون</th><th>الوضع</th><th>الإجراء</th><th>المصدر</th></tr>");
+                for (i = 0; i < st.marchcheck_event_count; i++) {
+                    char timestr[32];
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)st.marchcheck_events[i].timestamp, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td><code>%04X:%06X:%04X</code></td><td>%s</td><td>%s</td><td>%s</td><td>%u</td></tr>",
+                             timestr, st.marchcheck_events[i].caid, st.marchcheck_events[i].provid, st.marchcheck_events[i].sid,
+                             st.marchcheck_events[i].rep == 0 ? "الأول" : "الثاني",
+                             st.marchcheck_events[i].mode == 2 ? "رفض" : "تسجيل فقط",
+                             st.marchcheck_events[i].rejected ? "⛔ رُفضت" : "✅ سُلّمت",
+                             (unsigned)st.marchcheck_events[i].peer_id);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else {
+                tcp_writestr(tcpbuf, sock, "<p>لا أعلام MARCHCHECK بعد في هذه الجلسة (تظهر هنا فور حدوثها، وتدخل أيضًا جدول أحداث الجلسة أسفل الصفحة عند مطابقة قناة العميل).</p>");
+            }
+        }
+        /* Band 104: CW_DUP inside CCcam Trace -- the detector's mode,
+         * its counters and its most recent flags with the evidence, so
+         * arming/tuning (DCW CWDUP: 1|2, DCW CWDUPREP) is driven from
+         * this page alone. */
+        {
+            const char *gmode = st.cwdup_global_mode == 2 ? "رفض" :
+                                st.cwdup_global_mode == 1 ? "تسجيل فقط" : "مطفأ";
+            char armed_reject[900] = "";
+            char armed_log[900] = "";
+            struct cardserver_data *pcs;
+            for (pcs = cfg.cardserver; pcs; pcs = pcs->next) {
+                char et2[1024];
+                char entry[300];
+                if (pcs->option.sf_cwdup == 3) {
+                    snprintf(entry, sizeof(entry), "%s%s (rep>=%d)",
+                             armed_reject[0] ? "، " : "", escf(et2, pcs->name),
+                             pcs->option.sf_cwdup_rep > 0 ? pcs->option.sf_cwdup_rep : ssf_cfg.sf_cwdup_rep);
+                    if (strlen(armed_reject) + strlen(entry) < sizeof(armed_reject) - 1)
+                        strcat(armed_reject, entry);
+                } else if (pcs->option.sf_cwdup == 2) {
+                    snprintf(entry, sizeof(entry), "%s%s",
+                             armed_log[0] ? "، " : "", escf(et2, pcs->name));
+                    if (strlen(armed_log) + strlen(entry) < sizeof(armed_log) - 1)
+                        strcat(armed_log, entry);
+                }
+            }
+            snprintf(out, sizeof(out), "<p><b>تكرار الشفرة (CW_DUP — نفس CW عبر دورات ECM جديدة مع وجود منافس):</b> الوضع العام: %s | أعلام: %llu | رُفضت: %llu | أحداث مسجلة: %llu</p>",
+                     gmode,
+                     (unsigned long long)st.cwdup_flagged,
+                     (unsigned long long)st.cwdup_rejected,
+                     (unsigned long long)st.cwdup_event_total);
+            tcp_writestr(tcpbuf, sock, out);
+            snprintf(out, sizeof(out), "<p>مسلّح بالرفض في: %s<br>مسلّح بالتسجيل فقط في: %s<br><small>الضبط لكل بروفايل من ملف الإعدادات: ‏DCW CWDUP: 1 (تسجيل) ثم ‏2 (رفض) بعد ثبوت الأعلام هنا، وDCW CWDUPREP لعتبة التكرار. العلم وحده لا يرفض في وضع التسجيل.</small></p>",
+                     armed_reject[0] ? armed_reject : "—",
+                     armed_log[0] ? armed_log : "—");
+            tcp_writestr(tcpbuf, sock, out);
+            if (st.cwdup_event_count) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>القناة</th><th>تكرار/عتبة</th><th>المنافس قبل</th><th>الوضع</th><th>الإجراء</th><th>المصدر</th></tr>");
+                for (i = 0; i < st.cwdup_event_count; i++) {
+                    char timestr[32];
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)st.cwdup_events[i].timestamp, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td><code>%04X:%06X:%04X</code></td><td>%d/%d</td><td>%u ms</td><td>%s</td><td>%s</td><td>%u</td></tr>",
+                             timestr, st.cwdup_events[i].caid, st.cwdup_events[i].provid, st.cwdup_events[i].sid,
+                             st.cwdup_events[i].rep, st.cwdup_events[i].rep_needed,
+                             (unsigned)st.cwdup_events[i].competitor_age_ms,
+                             st.cwdup_events[i].mode == 2 ? "رفض" : "تسجيل فقط",
+                             st.cwdup_events[i].rejected ? "⛔ رُفضت" : "✅ سُلّمت",
+                             (unsigned)st.cwdup_events[i].peer_id);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else {
+                tcp_writestr(tcpbuf, sock, "<p>لا أعلام CW_DUP بعد في هذه الجلسة (تظهر هنا فور حدوثها، وتدخل أيضًا جدول أحداث الجلسة أسفل الصفحة عند مطابقة قناة العميل).</p>");
+            }
+        }
+        /* Band 105: CW_REUSE inside CCcam Trace, same shape as CW_DUP */
+        {
+            const char *rmode = st.cwreuse_global_mode == 2 ? "رفض" :
+                                st.cwreuse_global_mode == 1 ? "تسجيل فقط" : "مطفأ";
+            snprintf(out, sizeof(out), "<p><b>إعادة تدوير النصف (CW_REUSE — نصف CW ظهر على قناة أخرى داخل النافذة):</b> الوضع العام: %s | أعلام: %llu | رُفضت: %llu | أحداث مسجلة: %llu</p>",
+                     rmode,
+                     (unsigned long long)st.cwreuse_flagged,
+                     (unsigned long long)st.cwreuse_rejected,
+                     (unsigned long long)st.cwreuse_event_total);
+            tcp_writestr(tcpbuf, sock, out);
+            if (st.cwreuse_event_count) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>القناة</th><th>نافذة إعادة التدوير</th><th>الوضع</th><th>الإجراء</th><th>المصدر</th></tr>");
+                for (i = 0; i < st.cwreuse_event_count; i++) {
+                    char timestr[32];
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)st.cwreuse_events[i].timestamp, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td><code>%04X:%06X:%04X</code></td><td>%u ms</td><td>%s</td><td>%s</td><td>%u</td></tr>",
+                             timestr, st.cwreuse_events[i].caid, st.cwreuse_events[i].provid, st.cwreuse_events[i].sid,
+                             (unsigned)st.cwreuse_events[i].competitor_age_ms,
+                             st.cwreuse_events[i].mode == 2 ? "رفض" : "تسجيل فقط",
+                             st.cwreuse_events[i].rejected ? "⛔ رُفضت" : "✅ سُلّمت",
+                             (unsigned)st.cwreuse_events[i].peer_id);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else {
+                tcp_writestr(tcpbuf, sock, "<p>لا أعلام CW_REUSE بعد في هذه الجلسة.</p>");
+            }
+        }
+        /* Band 107: LATECW inside CCcam Trace -- the fourth and last
+         * per-profile SSF detector joins MARCHCHECK/CW_DUP/CW_REUSE,
+         * so the whole family tunes from this page alone. */
+        {
+            const char *lmode = st.latecw_global_mode == 2 ? "رفض" :
+                                st.latecw_global_mode == 1 ? "تسجيل فقط" : "مطفأ";
+            char armed_reject[900] = "";
+            char armed_log[900] = "";
+            struct cardserver_data *pcs;
+            for (pcs = cfg.cardserver; pcs; pcs = pcs->next) {
+                char et2[1024];
+                char entry[300];
+                if (pcs->option.sf_latecw == 3) {
+                    snprintf(entry, sizeof(entry), "%s%s (>%dms)",
+                             armed_reject[0] ? "، " : "", escf(et2, pcs->name),
+                             pcs->option.sf_latecw_ms > 0 ? pcs->option.sf_latecw_ms : ssf_cfg.sf_latecw_ms);
+                    if (strlen(armed_reject) + strlen(entry) < sizeof(armed_reject) - 1)
+                        strcat(armed_reject, entry);
+                } else if (pcs->option.sf_latecw == 2) {
+                    snprintf(entry, sizeof(entry), "%s%s",
+                             armed_log[0] ? "، " : "", escf(et2, pcs->name));
+                    if (strlen(armed_log) + strlen(entry) < sizeof(armed_log) - 1)
+                        strcat(armed_log, entry);
+                }
+            }
+            snprintf(out, sizeof(out), "<p><b>الشفرة المتأخرة (LATECW — وصلت CW بعد انتظار ECM أطول من العتبة):</b> الوضع العام: %s | العتبة العامة: %d ms | أعلام: %llu | رُفضت: %llu | أحداث مسجلة: %llu</p>",
+                     lmode, st.latecw_global_ms,
+                     (unsigned long long)st.latecw_flagged,
+                     (unsigned long long)st.latecw_rejected,
+                     (unsigned long long)st.latecw_event_total);
+            tcp_writestr(tcpbuf, sock, out);
+            snprintf(out, sizeof(out), "<p>مسلّح بالرفض في: %s<br>مسلّح بالتسجيل فقط في: %s<br><small>الضبط لكل بروفايل من ملف الإعدادات: ‏DCW LATECW: 1 (تسجيل) ثم ‏2 (رفض) بعد ثبوت الأعلام هنا، وDCW LATECWMS لعتبة كل بروفايل. <b>تحذير:</b> لا تُسلّح بالرفض بروفايلات المصادر البطيئة (بطاقات تجيب بعشرات الثواني) — العلم وحده لا يرفض في وضع التسجيل.</small></p>",
+                     armed_reject[0] ? armed_reject : "—",
+                     armed_log[0] ? armed_log : "—");
+            tcp_writestr(tcpbuf, sock, out);
+            if (st.latecw_event_count) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>القناة</th><th>انتظار/عتبة</th><th>الوضع</th><th>الإجراء</th><th>المصدر</th></tr>");
+                for (i = 0; i < st.latecw_event_count; i++) {
+                    char timestr[32];
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)st.latecw_events[i].timestamp, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td><code>%04X:%06X:%04X</code></td><td>%d/%d ms</td><td>%s</td><td>%s</td><td>%u</td></tr>",
+                             timestr, st.latecw_events[i].caid, st.latecw_events[i].provid, st.latecw_events[i].sid,
+                             st.latecw_events[i].rep, st.latecw_events[i].rep_needed,
+                             st.latecw_events[i].mode == 2 ? "رفض" : "تسجيل فقط",
+                             st.latecw_events[i].rejected ? "⛔ رُفضت" : "✅ سُلّمت",
+                             (unsigned)st.latecw_events[i].peer_id);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else {
+                tcp_writestr(tcpbuf, sock, "<p>لا أعلام LATECW بعد في هذه الجلسة (تظهر هنا فور حدوثها، وتدخل أيضًا جدول أحداث الجلسة أسفل الصفحة عند مطابقة قناة العميل).</p>");
+            }
+        }
         /* CWPAIR (band 38): discovery counters + ready-to-paste pairs */
         snprintf(out, sizeof(out), "<p><b>اقتران الشفرات (CWPAIR — SimulCrypt):</b> %s | شفرات ملاحظة: %lu | تطابقات توأم: %lu | قُدّمت من التوأم: %lu | رُفضت للقدم: %lu | رفض STRICTCYCLE: %lu | لا توأم معروف: %lu</p>",
                  st.cwpair_discover ? "اكتشاف مفعّل" : "اكتشاف مطفأ (CWDEDUP_CHECK: YES لتفعيله)",
@@ -9283,6 +9976,36 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                 tcp_writestr(tcpbuf, sock, "</table>");
             } else {
                 tcp_writestr(tcpbuf, sock, "<p>لا محاولات دخول موثّقة بعد في هذه الجلسة (تُسجَّل محاولات الويب والتلنت الحقيقية فقط، لا طلبات الجلسات).</p>");
+            }
+        }
+        /* Band 95: reload journal -- who the last save/reload dropped, and why */
+        {
+            struct reload_journal_entry rj[24];
+            int rn = reload_journal_snapshot(rj, 24);
+            int ri;
+            extern long cfg_reload_last_ms;
+            long last = __atomic_load_n(&cfg_reload_last_ms, __ATOMIC_RELAXED);
+            if (last >= 0)
+                snprintf(out, sizeof(out), "<h3>سجلّ أحداث الحفظ / إعادة تحميل الإعدادات</h3><p>آخر إعادة تحميل استغرقت <b>%ld ms</b>. كل فصلٍ تسبّب فيه الحفظ/إعادة التحميل مُسجَّل هنا بسببه:</p>", last);
+            else
+                snprintf(out, sizeof(out), "<h3>سجلّ أحداث الحفظ / إعادة تحميل الإعدادات</h3><p>لم تحدث إعادة تحميل بعد في هذه الجلسة.</p>");
+            tcp_writestr(tcpbuf, sock, out);
+            if (rn) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>الحدث</th><th>الباب</th><th>المستخدم/البروفايل</th><th>من</th><th>التفصيل</th></tr>");
+                for (ri = 0; ri < rn; ri++) {
+                    char timestr[32];
+                    char escuser[96], escdetail[160];
+                    html_esc(escuser, sizeof(escuser), rj[ri].user);
+                    html_esc(escdetail, sizeof(escdetail), rj[ri].detail);
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)rj[ri].when, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+                             timestr, rj[ri].kind, rj[ri].proto, escuser,
+                             rj[ri].ip ? ip2string(rj[ri].ip) : "—", escdetail);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else if (last >= 0) {
+                tcp_writestr(tcpbuf, sock, "<p>إعادة التحميل الأخيرة لم تفصل أي عميل أو خادم.</p>");
             }
         }
         snprintf(out, sizeof(out), "<p><b>حسم الخدمة عند الشك (CACHE SERVICE DOUBT):</b> %s | انتقادات ذات مرشحين مختلفين: %lu | رُفضت الخدمة للشك: %lu | خُدمت بأغلبية صارمة: %lu</p>",
@@ -9436,7 +10159,7 @@ static void http_send_user_trace(int sock, http_request *req)
     tcp_writestr(&tcpbuf, sock, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\n");
     if (req->setcookie[0]) { tcp_writestr(&tcpbuf, sock, "Set-Cookie: "); tcp_writestr(&tcpbuf, sock, req->setcookie); tcp_writestr(&tcpbuf, sock, "\r\n"); }
     tcp_writestr(&tcpbuf, sock, "\r\n");
-    tcp_writestr(&tcpbuf, sock, "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><title>متابعة عميل</title><style>body{background:#151b22;color:#ddd;font:16px sans-serif;margin:2em}input,select,button{padding:.5em;margin:.3em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #555;padding:.5em;text-align:right}code{direction:ltr;display:inline-block}</style></head><body><h1>متابعة CCcam</h1><p>جلسة واحدة مشتركة للمشرفين؛ البدء يستبدل الجلسة السابقة، وإعادة تحميل الإعدادات توقفها. تبدأ المتابعة للطلبات الجديدة فقط. اختيار العميل يملأ آخر قناة مسجلة إن توفرت، وقد لا تكون القناة الحالية؛ يمكن تعديلها يدوياً. بعض أسباب الرفض غير مسجلة في هذه النسخة. أحداث الكاش على مستوى القناة فقط، وقد تخص طلبات عملاء آخرين؛ تطابق CAID وSID لا يثبت تطابق الطلب أو Provider، و000000 قد تعني أن المصدر لم يرسله. الأحداث المشتركة تخص ECM وقد يشارك فيه عملاء آخرون؛ إرسال CW لا يثبت ظهور الصورة.</p>");
+    tcp_writestr(&tcpbuf, sock, "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>متابعة عميل</title><script>(function(){try{var t=localStorage.getItem('mcs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>body{background:linear-gradient(180deg,#111a23,#0d1319);color:#e6edf3;font:15px/1.55 system-ui,'Segoe UI',Tahoma,sans-serif;margin:0;padding:26px}h1{color:#6cb6e8;font-size:22px;border-bottom:2px solid #3b93c9;padding-bottom:8px}input,select,button{padding:.45em .7em;margin:.3em;border-radius:8px;border:1px solid #3a4d63;background:#18222d;color:#e6edf3;font:inherit}button{background:linear-gradient(135deg,#1d6fa5,#0f766e);border:0;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.35)}button:hover{filter:brightness(1.15)}table{border-collapse:separate;border-spacing:0;width:100%;background:#18222d;border:1px solid #2b3949;border-radius:10px;overflow:hidden}td,th{border-bottom:1px solid #2b3949;padding:.45em .6em;text-align:right;font-size:13.5px}th{background:linear-gradient(135deg,#1d6fa5,#0f766e);color:#fff}tr:hover td{background:#1b2c40}code{direction:ltr;display:inline-block;background:#1b2c40;padding:1px 6px;border-radius:5px}h2{color:#6cb6e8;font-size:16px;border-bottom:2px solid #2b3949;padding-bottom:5px;margin-top:22px}th{position:sticky;top:0}td{font-variant-numeric:tabular-nums}tr:nth-child(even) td{background:#151f2a}input:focus,select:focus{outline:none;border-color:#3b93c9;box-shadow:0 0 0 3px rgba(59,147,201,.25)}button:active{transform:translateY(1px)}fieldset{border:1px solid #2b3949;border-radius:10px;background:#18222d}::selection{background:#1d6fa5}.mcs-nav{background:linear-gradient(135deg,#0a1826,#123c5c 60%,#0d4f4a);margin:-26px -26px 18px;padding:10px 26px}.mcs-nav a{color:#dcebf5;margin-left:14px;font-size:13px;font-weight:600;text-decoration:none}.mcs-nav a:hover{color:#fff;text-decoration:underline}[data-theme=light] body{background:linear-gradient(180deg,#f2f6fa,#e9eef3);color:#182635}[data-theme=light] h1,[data-theme=light] h2{color:#0f5f8a;border-color:#0f5f8a}[data-theme=light] table,[data-theme=light] fieldset{background:#ffffff;border-color:#d3dce4}[data-theme=light] td,[data-theme=light] th{border-color:#d3dce4}[data-theme=light] tr:nth-child(even) td{background:#f4f7fa}[data-theme=light] tr:hover td{background:#e2eef5}[data-theme=light] input,[data-theme=light] select{background:#ffffff;color:#182635;border-color:#b9c7d4}[data-theme=light] code{background:#e2eef5}@media (prefers-color-scheme:light){:root:not([data-theme=dark]) body{background:linear-gradient(180deg,#f2f6fa,#e9eef3);color:#182635}:root:not([data-theme=dark]) h1,:root:not([data-theme=dark]) h2{color:#0f5f8a}:root:not([data-theme=dark]) table,:root:not([data-theme=dark]) fieldset{background:#ffffff;border-color:#d3dce4}:root:not([data-theme=dark]) td,:root:not([data-theme=dark]) th{border-color:#d3dce4}:root:not([data-theme=dark]) tr:nth-child(even) td{background:#f4f7fa}:root:not([data-theme=dark]) tr:hover td{background:#e2eef5}:root:not([data-theme=dark]) input,:root:not([data-theme=dark]) select{background:#ffffff;color:#182635;border-color:#b9c7d4}:root:not([data-theme=dark]) code{background:#e2eef5}}@media (max-width:760px){body{padding:12px}.mcs-nav{margin:-12px -12px 12px;padding:8px 12px}table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}td,th{font-size:12px;padding:.35em .45em}h1{font-size:19px}input,select,button{max-width:100%}}</style></head><body><div class='mcs-nav'><a href='/'>🏠 الرئيسية</a><a href='/servers'>الخوادم</a><a href='/profiles'>البروفايلات</a><a href='/smartfilter'>SmartFilter</a><a href='/editor'>المحرر</a></div><h1>متابعة CCcam</h1><p>جلسة واحدة مشتركة للمشرفين؛ البدء يستبدل الجلسة السابقة، وإعادة تحميل الإعدادات توقفها. تبدأ المتابعة للطلبات الجديدة فقط. اختيار العميل يملأ آخر قناة مسجلة إن توفرت، وقد لا تكون القناة الحالية؛ يمكن تعديلها يدوياً. بعض أسباب الرفض غير مسجلة في هذه النسخة. أحداث الكاش على مستوى القناة فقط، وقد تخص طلبات عملاء آخرين؛ تطابق CAID وSID لا يثبت تطابق الطلب أو Provider، و000000 قد تعني أن المصدر لم يرسله. الأحداث المشتركة تخص ECM وقد يشارك فيه عملاء آخرون؛ إرسال CW لا يثبت ظهور الصورة.</p>");
     snprintf(out, sizeof(out), "<form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='start'><label>العميل <select name='client' required onchange='traceChoose(this)'><option value='' disabled%s>اختر عميلاً</option>", trace_csrf, snap->active ? "" : " selected");
     tcp_writestr(&tcpbuf, sock, out);
     {
@@ -9802,41 +10525,41 @@ void *gererClient(struct connect_data *param)
 				req.ip = ip;
 				if (strcmp(req.path,"/")==0) http_send_index(sock,&req);
 				else if (strcmp(req.path,"/debug")==0) {
-					if (!cfg.http.show.nodebug) http_send_debug(sock,&req);
+					if (!cfg.http.show.nodebug) http_send_debug(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/profiles")==0) {
-					if (!cfg.http.show.noprofiles) http_send_profiles(sock,&req);
+					if (!cfg.http.show.noprofiles) http_send_profiles(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/profile")==0) {
-					if (!cfg.http.show.noprofiles) http_send_profile(sock,&req);
+					if (!cfg.http.show.noprofiles) http_send_profile(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/newcamd")==0) {
-					if (!cfg.http.show.nonewcamd) http_send_newcamd(sock,&req);
+					if (!cfg.http.show.nonewcamd) http_send_newcamd(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/newcamdclient")==0) {
-					if (!cfg.http.show.nonewcamd) http_send_newcamd_client(sock,&req);
+					if (!cfg.http.show.nonewcamd) http_send_newcamd_client(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/servers")==0) {
-					if (!cfg.http.show.noservers) http_send_servers(sock,&req);
+					if (!cfg.http.show.noservers) http_send_servers(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/server")==0) {
-					if (!cfg.http.show.noservers) http_send_server(sock,&req);
+					if (!cfg.http.show.noservers) http_send_server(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/cache")==0) {
-					if (!cfg.http.show.nocache) http_send_cache(sock,&req);
+					if (!cfg.http.show.nocache) http_send_cache(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/cachepeer")==0) {
-					if (!cfg.http.show.nocache) http_send_cache_peer(sock,&req);
+					if (!cfg.http.show.nocache) http_send_cache_peer(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/biss")==0) {
 					http_send_biss(sock,&req);
 				}
 #ifdef CCCAM_SRV
 				else if (strcmp(req.path,"/cccam")==0) {
-					if (!cfg.http.show.nocccam) http_send_cccam(sock,&req);
+					if (!cfg.http.show.nocccam) http_send_cccam(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/cccamclient")==0) {
-					if (!cfg.http.show.nocccam) http_send_cccam_client(sock,&req);
+					if (!cfg.http.show.nocccam) http_send_cccam_client(sock,&req); else http_send_not_found(sock, "Page");
 				}
 #endif
 #ifdef CS378X_SRV
@@ -9861,14 +10584,14 @@ void *gererClient(struct connect_data *param)
 #endif
 #ifdef MGCAMD_SRV
 				else if (strcmp(req.path,"/mgcamd")==0) {
-					if (!cfg.http.show.nomgcamd) http_send_mgcamd(sock,&req);
+					if (!cfg.http.show.nomgcamd) http_send_mgcamd(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/mgcamdclient")==0) {
-					if (!cfg.http.show.nomgcamd) http_send_mgcamd_client(sock,&req);
+					if (!cfg.http.show.nomgcamd) http_send_mgcamd_client(sock,&req); else http_send_not_found(sock, "Page");
 				}
 #endif
 				else if (strcmp(req.path,"/restart")==0) {
-					if (!cfg.http.show.norestart) http_send_restart(sock,&req);
+					if (!cfg.http.show.norestart) http_send_restart(sock,&req); else http_send_not_found(sock, "Page");
 				}
 				else if (strcmp(req.path,"/diagnostics")==0) {
 					http_send_diagnostics(sock,&req);
@@ -9888,7 +10611,7 @@ void *gererClient(struct connect_data *param)
 					tcp_flush(&tcpbuf, sock);
 				}
 				else if (strcmp(req.path,"/user-trace")==0) {
-					if (!cfg.http.show.nocccam) http_send_user_trace(sock,&req);
+					if (!cfg.http.show.nocccam) http_send_user_trace(sock,&req); else http_send_not_found(sock, "Page");
 				}
 #endif
 				else if (strcmp(req.path,"/log-viewer")==0) {
@@ -9981,13 +10704,18 @@ void *gererClient(struct connect_data *param)
 
 				else {
 					struct http_file_data *file = cfg.http.files;
+					int served = 0;
 					while (file) {
 						if ( !strcmp(req.path,file->url) ) {
 							http_send_file( sock, &req, file->mime, file->path);
+							served = 1;
 							break;
 						}
 						file = file->next;
 					}
+					/* Band 101: an unknown path used to close the
+					 * connection with no response at all. */
+					if (!served) http_send_not_found(sock, "Page");
 				}
 				if (config_read_pinned) newcamd_config_read_unlock();
 				}
@@ -10128,23 +10856,46 @@ void http_send_biss(int sock, struct http_request *req)
 		"HTTP/1.1 200 OK\r\n"
 		"Content-Type: text/html\r\n"
 		"Connection: close\r\n\r\n"
-		"<html><head><title>BISS Keys</title>"
+		"<html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>BISS Keys</title>"
+		"<script>(function(){try{var t=localStorage.getItem('mcs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>"
 		"<style>"
-		"body { font-family: Arial; margin: 20px; }"
-		"h1 { color: #333; }"
-		"table { border-collapse: collapse; width: 100%%; margin-top: 20px; }"
-		"th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }"
-		"th { background-color: #4CAF50; color: white; }"
-		"tr:nth-child(even) { background-color: #f2f2f2; }"
-		".form-box { background: #f9f9f9; padding: 20px; margin: 20px 0; border-radius: 5px; }"
-		"input[type=text] { padding: 8px; margin: 5px; width: 150px; }"
-		"input[type=submit] { padding: 10px 20px; background: #4CAF50; color: white; border: none; cursor: pointer; }"
-		"input[type=submit]:hover { background: #45a049; }"
-		".delete-btn { background: #f44336; color: white; padding: 5px 10px; text-decoration: none; border-radius: 3px; }"
-		".delete-btn:hover { background: #da190b; }"
+		/* Band 93: this page had a private 2010-era green skin, off-system
+		 * and unreadable next to every other page. Same design tokens
+		 * as httpstyle.c now, with an OS-dark variant. */
+		"body { font-family: system-ui,'Segoe UI',Tahoma,Arial,sans-serif; margin: 0; padding: 22px; background: linear-gradient(180deg,#f4f7fa,#e8edf2); color: #16222f; }"
+		"h1 { color: #0f5f8a; font-size: 22px; border-bottom: 3px solid #12838f; padding-bottom: 8px; }"
+		"h2 { color: #0f5f8a; font-size: 15px; }"
+		"a { color: #0f5f8a; font-weight: 600; text-decoration: none; }"
+		"a:hover { text-decoration: underline; }"
+		"nav { background: linear-gradient(135deg,#0b2f47,#0f5f8a 60%,#12838f); margin: -22px -22px 18px; padding: 10px 22px; }"
+		"nav a { color: #dcebf5; margin-right: 14px; font-size: 13px; }"
+		"nav a:hover { color: #fff; }"
+		"table { border-collapse: separate; border-spacing: 0; width: 100%%; margin-top: 16px; background: #fff; border: 1px solid #d3dce4; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(16,35,55,.09); }"
+		"th, td { padding: 8px 10px; text-align: left; font-size: 13px; font-variant-numeric: tabular-nums; }"
+		"th { background: linear-gradient(135deg,#0f5f8a,#12838f); color: white; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }"
+		"td { border-bottom: 1px solid #e3eaf0; }"
+		"tr:nth-child(even) { background-color: #f4f7fa; }"
+		"tr:hover { background-color: #e2eef5; }"
+		".form-box { background: #fff; padding: 18px 20px; margin: 16px 0; border: 1px solid #d3dce4; border-top: 3px solid #12838f; border-radius: 10px; box-shadow: 0 2px 10px rgba(16,35,55,.09); }"
+		"input[type=text] { padding: 7px 9px; margin: 5px; width: 150px; border: 1px solid #b9c7d4; border-radius: 8px; font: inherit; font-size: 13px; }"
+		"input[type=text]:focus { outline: none; border-color: #0f5f8a; box-shadow: 0 0 0 3px #e2eef5; }"
+		"input[type=submit] { padding: 8px 18px; background: linear-gradient(135deg,#0f5f8a,#12838f); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 6px rgba(15,95,138,.25); }"
+		"input[type=submit]:hover { filter: brightness(1.12); }"
+		".delete-btn { background: #c0392b; color: white; padding: 5px 12px; text-decoration: none; border-radius: 999px; font-size: 12px; font-weight: 700; }"
+		".delete-btn:hover { background: #a93226; text-decoration: none; }"
+		"@media (prefers-color-scheme: dark) { body { background: linear-gradient(180deg,#111a23,#0d1319); color: #e6edf3; } h1, h2 { color: #6cb6e8; } table, .form-box { background: #18222d; border-color: #2b3949; } td { border-bottom-color: #2b3949; } tr:nth-child(even) { background-color: #141d28; } tr:hover { background-color: #1b2c40; } input[type=text] { background: #18222d; color: #e6edf3; border-color: #3a4d63; } }"
+		"[data-theme=dark] body { background: linear-gradient(180deg,#111a23,#0d1319); color: #e6edf3; }"
+		"[data-theme=dark] h1, [data-theme=dark] h2 { color: #6cb6e8; }"
+		"[data-theme=dark] table, [data-theme=dark] .form-box { background: #18222d; border-color: #2b3949; }"
+		"[data-theme=dark] td { border-bottom-color: #2b3949; }"
+		"[data-theme=dark] tr:nth-child(even) { background-color: #141d28; }"
+		"[data-theme=dark] tr:hover { background-color: #1b2c40; }"
+		"[data-theme=dark] input[type=text] { background: #18222d; color: #e6edf3; border-color: #3a4d63; }"
+		"[data-theme=dark] a { color: #6cb6e8; }"
+		"@media (max-width: 760px) { body { padding: 12px; } nav { margin: -12px -12px 12px; padding: 8px 12px; } table { display: block; overflow-x: auto; } input[type=text] { width: 46%; } h1 { font-size: 19px; } }"
 		"</style></head><body>"
+		"<nav><a href='/'>🏠 Home</a><a href='/servers'>🗄️ Servers</a><a href='/profiles'>📂 Profiles</a><a href='/cache'>💾 Cache</a><a href='/editor'>✏️ Editor</a></nav>"
 		"<h1>🔐 BISS Key Management</h1>"
-		"<p><a href='/'>← Back to Home</a></p>"
 	);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
 
@@ -10261,7 +11012,7 @@ void http_send_biss(int sock, struct http_request *req)
 	// Close table and page
 	sprintf(http_buf,
 		"</table>"
-		"<p style='margin-top: 20px; color: #666;'>"
+		"<p style='margin-top: 20px;'>"
 		"💡 <strong>Tip:</strong> BISS keys are used automatically when ECM requests match the CAID/SID/PROVID."
 		"</p>"
 		"</body></html>"

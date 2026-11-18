@@ -35,6 +35,32 @@ struct ssf_reuse_entry ssf_reuse_table[SSF_MAX_REUSE_ENTRIES];
 int ssf_reuse_index;
 struct ssf_stats ssf_stats;
 pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
+/* Band 104: CW_DUP trace ring + session hook (stubs for the unit test) */
+struct ssf_cwdup_event ssf_cwdup_events[SSF_CWDUP_EVENT_MAX];
+int ssf_cwdup_event_head;
+uint64_t ssf_cwdup_event_total;
+struct ssf_cwdup_event ssf_cwreuse_events[SSF_CWREUSE_EVENT_MAX];
+int ssf_cwreuse_event_head;
+uint64_t ssf_cwreuse_event_total;
+/* Band 106: MARCHCHECK trace ring (stub for the unit test) */
+struct ssf_cwdup_event ssf_marchcheck_events[SSF_MARCHCHECK_EVENT_MAX];
+int ssf_marchcheck_event_head;
+uint64_t ssf_marchcheck_event_total;
+/* Band 107: LATECW trace ring (stub for the unit test) */
+struct ssf_cwdup_event ssf_latecw_events[SSF_LATECW_EVENT_MAX];
+int ssf_latecw_event_head;
+uint64_t ssf_latecw_event_total;
+static int trace_hook_calls;
+static char trace_hook_detail[192];
+void user_trace_cache_observation(uint16_t caid, uint32_t provider,
+                                  uint16_t sid, uint32_t hash,
+                                  int peerid, const char *detail,
+                                  const uint8_t cw[16])
+{
+    (void)caid; (void)provider; (void)sid; (void)hash; (void)peerid; (void)cw;
+    trace_hook_calls++;
+    snprintf(trace_hook_detail, sizeof(trace_hook_detail), "%s", detail ? detail : "");
+}
 
 static int fails = 0;
 #define EXPECT(cond, msg) do { if (!(cond)) { printf("FAIL: %s\n", msg); fails++; } } while (0)
@@ -121,6 +147,9 @@ int main(void)
     hash_of(h, 6); EXPECT(check(CW_A, h, 0x2004, 150000, 0, &reason) == 0, "log: A rep3 accepted (log)");
     supersmartfilter_get_stats(&st);
     EXPECT(st.cwdup_flagged >= 1, "log: flagged at REP");
+    EXPECT(trace_hook_calls >= 1, "log: flag reached the trace hook (band 104)");
+    EXPECT(strstr(trace_hook_detail, "CW_DUP") != NULL, "log: trace detail names CW_DUP (band 104)");
+    EXPECT(ssf_cwdup_event_total >= 1, "log: flag recorded in the trace ring (band 104)");
     EXPECT(st.rejected_cwdup == 0, "log: nothing rejected");
 
     /* --- Same sequence, mode 2: rejects with reason 11 at REP --- */

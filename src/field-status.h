@@ -30,6 +30,21 @@ int cwpair_snapshot(unsigned long *observed, unsigned long *pair_matches,
                     unsigned long *strict_rejected, unsigned long *no_twin,
                     int *discover, struct mcs_cwpair_pair *pairs, int maxpairs);
 
+/* CW_DUP recent flag (band 104), newest-first copy for /user-trace */
+#define MCS_CWDUP_EVENT_MAX 12
+struct mcs_cwdup_event {
+    uint32_t timestamp;
+    uint16_t caid;
+    uint32_t provid;
+    uint16_t sid;
+    int rep;
+    int rep_needed;
+    int mode;                   /* 1 = log-only, 2 = reject */
+    int rejected;
+    uint32_t peer_id;
+    uint32_t competitor_age_ms;
+};
+
 struct mcs_field_status {
     int r22_compiled;           /* built with -DR22_LAYERS */
     int r22_enabled;            /* R22 LAYERS config switch */
@@ -84,6 +99,37 @@ struct mcs_field_status {
     unsigned long svc_checked;
     unsigned long svc_doubt;
     unsigned long svc_majority;
+    /* CW_DUP (band 104): global mode + counters + recent flags */
+    int cwdup_global_mode;      /* CACHE SF CWDUP: 0 off, 1 log-only, 2 reject */
+    uint64_t cwdup_flagged;
+    uint64_t cwdup_rejected;
+    uint64_t cwdup_event_total;
+    int cwdup_event_count;
+    struct mcs_cwdup_event cwdup_events[MCS_CWDUP_EVENT_MAX];
+    /* CW_REUSE (band 105): same shape, second detector */
+    int cwreuse_global_mode;    /* CACHE SF CWREUSE: 0 off, 1 log-only, 2 reject */
+    uint64_t cwreuse_flagged;
+    uint64_t cwreuse_rejected;
+    uint64_t cwreuse_event_total;
+    int cwreuse_event_count;
+    struct mcs_cwdup_event cwreuse_events[MCS_CWDUP_EVENT_MAX];
+    /* MARCHCHECK (band 106): same shape, third detector; in events,
+     * rep carries the parked slot (0 = first half, 1 = second half) */
+    int marchcheck_global_mode; /* CACHE SF MARCHCHECK: 0 off, 1 log-only, 2 reject */
+    uint64_t marchcheck_flagged;
+    uint64_t marchcheck_rejected;
+    uint64_t marchcheck_event_total;
+    int marchcheck_event_count;
+    struct mcs_cwdup_event marchcheck_events[MCS_CWDUP_EVENT_MAX];
+    /* LATECW (band 107): same shape, fourth detector; in events,
+     * rep = ECM age at arrival (ms), rep_needed = threshold (ms) */
+    int latecw_global_mode;     /* CACHE SF LATECW: 0 off, 1 log-only, 2 reject */
+    int latecw_global_ms;       /* CACHE SF LATECWMS */
+    uint64_t latecw_flagged;
+    uint64_t latecw_rejected;
+    uint64_t latecw_event_total;
+    int latecw_event_count;
+    struct mcs_cwdup_event latecw_events[MCS_CWDUP_EVENT_MAX];
 };
 
 void mcs_field_status_fill(struct mcs_field_status *st);

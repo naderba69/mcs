@@ -1108,12 +1108,18 @@ void *recv_msg_thread(void *param)
 			newcamd_config_read_unlock();
 		}
 
-		pthread_mutex_lock(&prg.locksrv);
+		/* Band 97: pin+locksrv via the pairing helper, never locksrv first.
+		 * Holding locksrv while ecm_lock() waits for the config read gate
+		 * deadlocked a reload: the writer waited in server_connect_wait_idle
+		 * for a connect worker, and the worker waited for locksrv to publish
+		 * its result (proven live: locksrv owner = this thread, futex cycle
+		 * Config->worker->locksrv->gate). */
+		newcamd_config_read_lock_mutex(&prg.locksrv);
 		ecm_lock();
 		check_sendecm(newserver);
 		ecm_check_time = getecmwakeuptime();
 		ecm_unlock();
-		pthread_mutex_unlock(&prg.locksrv);
+		newcamd_config_read_unlock_mutex(&prg.locksrv);
 	}
 	return NULL;
 }
@@ -1200,12 +1206,14 @@ void *recv_msg_thread(void *param)
 			usleep(91000);
 		}
 
-		pthread_mutex_lock(&prg.locksrv);
+		/* Band 97: same pairing helper as the epoll variant above --
+		 * locksrv-then-gate is the proven reload deadlock cycle. */
+		newcamd_config_read_lock_mutex(&prg.locksrv);
 		ecm_lock();
 		check_sendecm(newserver);
 		ecm_check_time = getecmwakeuptime();
 		ecm_unlock();
-		pthread_mutex_unlock(&prg.locksrv);
+		newcamd_config_read_unlock_mutex(&prg.locksrv);
 
 		newcamd_config_read_lock();
 		uint32_t delay = cfg.delay.thread;

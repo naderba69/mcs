@@ -10,7 +10,7 @@
 #                               verify ACK backpressure and the follow-up login
 #   make -C tests newcamd-config-reload
 #                               verify reload progress during pre-LOGIN receive
-BIN     ?= ../make-x64/x64/multics
+BIN     ?= ../bin/multics.x64
 CFG      = multics-live.cfg
 HTTPPORT = 15500
 R48_STATS_BIN ?= ../bin/multics-r82a-stats-x64
@@ -270,6 +270,22 @@ cwreuse-half:
 latecw:
 	sh ./latecw.sh
 
+# Band 108: every fast unit harness in one loud target. Bands 104-107
+# silently broke the marchcheck/latecw links (header grew trace-ring
+# externs; the harnesses were outside the usual run set) -- a harness
+# that is not run does not exist. Keep this list complete: any new
+# tests/*.sh unit harness joins here in the same band that adds it.
+.PHONY: unit
+unit:
+	@for t in marchcheck cwdup cwreuse latecw cache-hash-invariants \
+	    cache-sms-escape ecmdata-allocation camd35-send-guard \
+	    loginaudit loginban protoban ecm-radegast-identity \
+	    cache-check-characterization cache-cross-gates \
+	    cache-cross-provider; do \
+	  echo "== $$t"; sh ./$$t.sh || { echo "unit: $$t FAILED"; exit 1; }; \
+	done
+	@echo "unit: ALL PASS"
+
 # Band 60: per-protocol IP bans (isolation/threshold/lapse/unban/
 # snapshot) against the production loginthrottle.c, injected clock.
 protoban:
@@ -373,3 +389,23 @@ ssfconsole: .ncclient.bin .ncserver.bin
 # Band 86: shipped 30W-52E config, booted; declared settings in effect.
 readycfg:
 	@python3 readycfg-audit.py $(BIN)
+
+# Operator report: whole-file editor save must not kick clients.
+savekick: .ncclient.bin .ncserver.bin
+	@python3 savekick-live.py $(BIN)
+
+# Band 89: every web route answered and sane (virtual browser sweep).
+pageaudit:
+	@python3 pageaudit.py $(BIN)
+
+# Band 93: every page styled/navigable/clash-free + full-size editor save.
+designaudit:
+	@python3 designaudit.py $(BIN)
+
+# Band 95: the reload journal on /user-trace names save/reload drops.
+reloadjournal: .ncclient.bin .ncserver.bin
+	@python3 reloadjournal-live.py $(BIN)
+
+# Band 97: a dead outbound server must not freeze a save (drain bound).
+deaddrain:
+	@python3 deaddrain-live.py $(BIN)

@@ -138,6 +138,27 @@ struct login_audit_entry {
 };
 void loginaudit_note(int proto, uint32_t ip, const char *user, int success);
 int  loginaudit_snapshot(struct login_audit_entry *out, int max); /* newest first */
+
+/* --- reload journal (band 95) ------------------------------------------------
+ * The login audit shows attempts; it cannot say WHO dropped an
+ * established session when a config reload ran, or why. Every
+ * reload-driven disconnect (check_config's flag loops, share
+ * withdrawals, outbound server drops) and the reload boundaries
+ * themselves are journaled here, newest first, and rendered on
+ * /user-trace next to the audit: one browser save on the real
+ * server produces the evidence that names the door. RAM only. */
+#define RELOAD_JOURNAL_MAX 96
+struct reload_journal_entry {
+	uint32_t when;          /* time() of the event */
+	char kind[16];          /* reload-start / reload-end / drop-client / drop-server / share-del */
+	char proto[12];         /* newcamd / mgcamd / cccam / config / outbound */
+	char user[24];          /* client user or profile name */
+	uint32_t ip;            /* client ip, 0 when not applicable */
+	char detail[96];        /* flag/reason detail */
+};
+void reload_journal_note(const char *kind, const char *proto, const char *user,
+                         uint32_t ip, const char *detail);
+int  reload_journal_snapshot(struct reload_journal_entry *out, int max); /* newest first */
 uint64_t protoban_total_proto(int proto);  /* band 79: bans ever, one protocol */
 int      protoban_active(int proto);       /* band 79: bans in force, one protocol */
 int      protoban_snapshot(struct protoban_view *out, int max); /* active bans */

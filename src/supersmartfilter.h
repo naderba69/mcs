@@ -215,6 +215,52 @@ extern int ssf_reuse_index;   /* band 83: single instance */
 extern struct ssf_stats ssf_stats;
 extern pthread_mutex_t ssf_lock;
 
+/* Band 104: CW_DUP lives in CCcam Trace (/user-trace). The last flags
+ * are kept in a small ring (written under ssf_lock from check 11,
+ * read through mcs_field_status) and every flag also becomes a
+ * channel-level trace observation with the full evidence, so the
+ * detector can be tuned (mode / CWDUPREP per profile) from the one
+ * diagnostic page instead of /smartfilter counters alone. */
+#define SSF_CWDUP_EVENT_MAX 12
+struct ssf_cwdup_event {
+    uint32_t timestamp;      /* wall-clock seconds, display only */
+    uint16_t caid;
+    uint32_t provid;
+    uint16_t sid;
+    int rep;                 /* new-cycle repeats seen at flag time */
+    int rep_needed;          /* threshold that fired */
+    int mode;                /* effective mode: 1 = log-only, 2 = reject */
+    int rejected;            /* this sighting was dropped */
+    uint32_t peer_id;        /* candidate source id at the call site */
+    uint32_t competitor_age_ms;
+};
+extern struct ssf_cwdup_event ssf_cwdup_events[SSF_CWDUP_EVENT_MAX];
+extern int ssf_cwdup_event_head; /* next write slot */
+extern uint64_t ssf_cwdup_event_total;
+/* Band 105: same treatment for CW_REUSE (check 12) -- same event shape */
+#define SSF_CWREUSE_EVENT_MAX 12
+extern struct ssf_cwdup_event ssf_cwreuse_events[SSF_CWREUSE_EVENT_MAX];
+extern int ssf_cwreuse_event_head;
+extern uint64_t ssf_cwreuse_event_total;
+/* Band 106: same treatment for MARCHCHECK (check 10) -- same event
+ * shape; `rep` carries the parked slot (0 = first half, 1 = second) */
+#define SSF_MARCHCHECK_EVENT_MAX 12
+extern struct ssf_cwdup_event ssf_marchcheck_events[SSF_MARCHCHECK_EVENT_MAX];
+extern int ssf_marchcheck_event_head;
+extern uint64_t ssf_marchcheck_event_total;
+/* Band 107: same treatment for LATECW (check 13) -- same event shape;
+ * `rep` = ECM age at CW arrival (ms), `rep_needed` = threshold (ms) */
+#define SSF_LATECW_EVENT_MAX 12
+extern struct ssf_cwdup_event ssf_latecw_events[SSF_LATECW_EVENT_MAX];
+extern int ssf_latecw_event_head;
+extern uint64_t ssf_latecw_event_total;
+/* Declared here to keep this header free of user-trace.h: records a
+ * channel-level observation in the active trace session, if any. */
+extern void user_trace_cache_observation(uint16_t caid, uint32_t provider,
+                                         uint16_t sid, uint32_t hash,
+                                         int peerid, const char *detail,
+                                         const uint8_t cw[16]);
+
 // ============================================================================
 // Check Functions
 // ============================================================================
@@ -615,6 +661,11 @@ static inline int ssf_backdepth(int level)
  * and is left to the duplicate checks. Updates the remembered CW unless
  * `update` is 0 (mode-2 reject: a rejected CW was never accepted, so it
  * must not become the reference for the next comparison). */
+/* Band 106: firing evidence of the most recent ssf_check_marchcheck
+ * flag -- which slot the half parked in (0 = first, 1 = second). Read
+ * by check 10 immediately after the call, like ssf_cwdup_last_rep. */
+static int ssf_marchcheck_last_slot;
+
 static int ssf_check_marchcheck(const uint8_t cw[16], uint16_t caid,
                                 uint32_t provid, uint16_t sid, int update)
 {
@@ -638,9 +689,15 @@ static int ssf_check_marchcheck(const uint8_t cw[16], uint16_t caid,
         return 0;
     }
     int parked = 0;
-    if (memcmp(cw, entry->prev, 16) &&
-        (!memcmp(cw, entry->prev, 8) || !memcmp(cw + 8, entry->prev + 8, 8)))
-        parked = 1;
+    if (memcmp(cw, entry->prev, 16)) {
+        if (!memcmp(cw, entry->prev, 8)) {
+            parked = 1;
+            ssf_marchcheck_last_slot = 0;   /* first half parked */
+        } else if (!memcmp(cw + 8, entry->prev + 8, 8)) {
+            parked = 1;
+            ssf_marchcheck_last_slot = 1;   /* second half parked */
+        }
+    }
     /* A clean CW always becomes the new reference; a parked CW only
      * replaces it when the caller accepts it anyway (log-only mode). */
     if (!parked || update) memcpy(entry->prev, cw, 16);
@@ -654,6 +711,12 @@ static int ssf_check_marchcheck(const uint8_t cw[16], uint16_t caid,
  * (fail-open). Observation state is updated on every sighting --
  * including a mode-2 rejection -- so a stuck fake keeps being counted
  * (and rejected) instead of silently becoming the new reference. */
+/* Band 104: firing evidence of the most recent ssf_check_cwdup flag
+ * (same TU as the check itself; read by check 11 immediately after). */
+static int ssf_cwdup_last_rep;
+static int ssf_cwdup_last_rep_needed;
+static uint32_t ssf_cwdup_last_competitor_age;
+
 static int ssf_check_cwdup(const uint8_t cw[16], const uint8_t ecm_hash[16],
                            uint16_t caid, uint32_t provid, uint16_t sid,
                            uint32_t now_ms, int rep_needed)
@@ -690,8 +753,17 @@ static int ssf_check_cwdup(const uint8_t cw[16], const uint8_t ecm_hash[16],
         memcpy(entry->last_hash, ecm_hash, 16);
         entry->rep = 0;
     }
-    return entry->rep >= rep_needed && entry->other_ms &&
-           (uint32_t)(now_ms - entry->other_ms) <= SSF_CWDUP_COMPETITOR_WINDOW_MS;
+    {
+        int flagged = entry->rep >= rep_needed && entry->other_ms &&
+                      (uint32_t)(now_ms - entry->other_ms) <= SSF_CWDUP_COMPETITOR_WINDOW_MS;
+        if (flagged) {
+            /* Band 104: evidence for the trace event recorded by check 11 */
+            ssf_cwdup_last_rep = entry->rep;
+            ssf_cwdup_last_rep_needed = rep_needed;
+            ssf_cwdup_last_competitor_age = (uint32_t)(now_ms - entry->other_ms);
+        }
+        return flagged;
+    }
 }
 
 /* Band 58: returns 1 when either non-zero half of `cw` was seen inside
@@ -877,6 +949,36 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
             int parked = ssf_check_marchcheck(cw, caid, provid, sid, mc_mode == 1);
             if (parked) {
                 ssf_stats.marchcheck_flagged++;
+                /* Band 106: ring + trace-session event (under ssf_lock) */
+                {
+                    struct ssf_cwdup_event *ev =
+                        &ssf_marchcheck_events[ssf_marchcheck_event_head];
+                    ev->timestamp = (uint32_t)time(NULL);
+                    ev->caid = caid; ev->provid = provid; ev->sid = sid;
+                    ev->rep = ssf_marchcheck_last_slot; ev->rep_needed = 0;
+                    ev->mode = mc_mode;
+                    ev->rejected = (mc_mode == 2);
+                    ev->peer_id = peer_id;
+                    ev->competitor_age_ms = 0;
+                    ssf_marchcheck_event_head =
+                        (ssf_marchcheck_event_head + 1) % SSF_MARCHCHECK_EVENT_MAX;
+                    ssf_marchcheck_event_total++;
+                    {
+                        char detail[192];
+                        uint32_t fh = 0;
+                        if (ecm_hash) memcpy(&fh, ecm_hash, sizeof(fh));
+                        snprintf(detail, sizeof(detail),
+                                 "MARCHCHECK %s: half of this CW parked in the same "
+                                 "slot (%s half) while the other half changed; "
+                                 "mode=%s; source id=%u",
+                                 mc_mode == 2 ? "REJECTED" : "flagged (log-only, delivered)",
+                                 ssf_marchcheck_last_slot ? "second" : "first",
+                                 mc_mode == 2 ? "reject" : "log-only",
+                                 (unsigned)peer_id);
+                        user_trace_cache_observation(caid, provid, sid, fh,
+                                                     (int)peer_id, detail, cw);
+                    }
+                }
                 if (mc_mode == 2) {
                     ssf_stats.rejected_marchcheck++;
                     rejected = 1;
@@ -900,6 +1002,38 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
                             profile_cwdup_rep > 0 ? profile_cwdup_rep
                                                   : ssf_cfg.sf_cwdup_rep)) {
             ssf_stats.cwdup_flagged++;
+            /* Band 104: ring + trace-session event (under ssf_lock) */
+            {
+                struct ssf_cwdup_event *ev =
+                    &ssf_cwdup_events[ssf_cwdup_event_head];
+                ev->timestamp = (uint32_t)time(NULL);
+                ev->caid = caid; ev->provid = provid; ev->sid = sid;
+                ev->rep = ssf_cwdup_last_rep;
+                ev->rep_needed = ssf_cwdup_last_rep_needed;
+                ev->mode = dup_mode;
+                ev->rejected = (dup_mode == 2);
+                ev->peer_id = peer_id;
+                ev->competitor_age_ms = ssf_cwdup_last_competitor_age;
+                ssf_cwdup_event_head =
+                    (ssf_cwdup_event_head + 1) % SSF_CWDUP_EVENT_MAX;
+                ssf_cwdup_event_total++;
+                {
+                    char detail[192];
+                    uint32_t fh = 0;
+                    if (ecm_hash) memcpy(&fh, ecm_hash, sizeof(fh));
+                    snprintf(detail, sizeof(detail),
+                             "CW_DUP %s: same CW across %d new ECM cycles "
+                             "(threshold %d), competitor seen %u ms ago; "
+                             "mode=%s; source id=%u",
+                             dup_mode == 2 ? "REJECTED" : "flagged (log-only, delivered)",
+                             ev->rep, ev->rep_needed,
+                             (unsigned)ev->competitor_age_ms,
+                             dup_mode == 2 ? "reject" : "log-only",
+                             (unsigned)peer_id);
+                    user_trace_cache_observation(caid, provid, sid, fh,
+                                                 (int)peer_id, detail, cw);
+                }
+            }
             if (dup_mode == 2) {
                 ssf_stats.rejected_cwdup++;
                 rejected = 1;
@@ -923,6 +1057,37 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
                                   ? profile_cwreuse_window_ms
                                   : ssf_cfg.sf_cwreuse_window_ms)) {
             ssf_stats.cwreuse_flagged++;
+            /* Band 105: ring + trace-session event (under ssf_lock) */
+            {
+                struct ssf_cwdup_event *ev =
+                    &ssf_cwreuse_events[ssf_cwreuse_event_head];
+                ev->timestamp = (uint32_t)time(NULL);
+                ev->caid = caid; ev->provid = provid; ev->sid = sid;
+                ev->rep = 0; ev->rep_needed = 0;
+                ev->mode = reuse_mode;
+                ev->rejected = (reuse_mode == 2);
+                ev->peer_id = peer_id;
+                ev->competitor_age_ms = (uint32_t)(profile_cwreuse_window_ms > 0
+                                  ? profile_cwreuse_window_ms
+                                  : ssf_cfg.sf_cwreuse_window_ms);
+                ssf_cwreuse_event_head =
+                    (ssf_cwreuse_event_head + 1) % SSF_CWREUSE_EVENT_MAX;
+                ssf_cwreuse_event_total++;
+                {
+                    char detail[192];
+                    uint32_t fh = 0;
+                    if (ecm_hash) memcpy(&fh, ecm_hash, sizeof(fh));
+                    snprintf(detail, sizeof(detail),
+                             "CW_REUSE %s: half of this CW recycled on another "
+                             "channel within %u ms window; mode=%s; source id=%u",
+                             reuse_mode == 2 ? "REJECTED" : "flagged (log-only, delivered)",
+                             (unsigned)ev->competitor_age_ms,
+                             reuse_mode == 2 ? "reject" : "log-only",
+                             (unsigned)peer_id);
+                    user_trace_cache_observation(caid, provid, sid, fh,
+                                                 (int)peer_id, detail, cw);
+                }
+            }
             if (reuse_mode == 2) {
                 ssf_stats.rejected_cwreuse++;
                 rejected = 1;
@@ -951,6 +1116,35 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
                 ecm_age_ms != 0xFFFFFFFFu &&
                 ecm_age_ms > (uint32_t)late_ms) {
             ssf_stats.latecw_flagged++;
+            /* Band 107: ring + trace-session event (under ssf_lock) */
+            {
+                struct ssf_cwdup_event *ev =
+                    &ssf_latecw_events[ssf_latecw_event_head];
+                ev->timestamp = (uint32_t)time(NULL);
+                ev->caid = caid; ev->provid = provid; ev->sid = sid;
+                ev->rep = (int)ecm_age_ms; ev->rep_needed = late_ms;
+                ev->mode = late_mode;
+                ev->rejected = (late_mode == 2);
+                ev->peer_id = peer_id;
+                ev->competitor_age_ms = ecm_age_ms;
+                ssf_latecw_event_head =
+                    (ssf_latecw_event_head + 1) % SSF_LATECW_EVENT_MAX;
+                ssf_latecw_event_total++;
+                {
+                    char detail[192];
+                    uint32_t fh = 0;
+                    if (ecm_hash) memcpy(&fh, ecm_hash, sizeof(fh));
+                    snprintf(detail, sizeof(detail),
+                             "LATECW %s: CW arrived after the ECM waited %u ms "
+                             "(threshold %d ms); mode=%s; source id=%u",
+                             late_mode == 2 ? "REJECTED" : "flagged (log-only, delivered)",
+                             (unsigned)ecm_age_ms, late_ms,
+                             late_mode == 2 ? "reject" : "log-only",
+                             (unsigned)peer_id);
+                    user_trace_cache_observation(caid, provid, sid, fh,
+                                                 (int)peer_id, detail, cw);
+                }
+            }
             if (late_mode == 2) {
                 ssf_stats.rejected_latecw++;
                 rejected = 1;

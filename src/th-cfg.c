@@ -47,6 +47,13 @@ static void displayInotifyEvent(struct inotify_event *i)
  * and not a change to how the ECM threads share state. */
 static int cfg_ready;
 
+/* Band 94: last/max reload durations (ms) + reload count, published
+ * for the home page. Written only by the config thread (atomics for
+ * the lock-free web readers). -1 = no reload yet. */
+long cfg_reload_last_ms = -1;
+long cfg_reload_max_ms = 0;
+int cfg_reload_count = 0;
+
 static void mark_config_ready(void)
 {
 	__atomic_store_n(&cfg_ready, 1, __ATOMIC_RELEASE);
@@ -185,7 +192,35 @@ void *reread_config_thread(void *param)
 			user_trace_config_lock();
 			user_trace_stop_active();
 			free_filenames( &cfg );
-				reread_config(&cfg);
+				/* Band 94: a reload holds the ECM lock for its whole
+				 * duration, so on a server whose config resolves many
+				 * hostnames or drains slow outbound handshakes the
+				 * operator feels it as a freeze ("long load", clients
+				 * starved) with no number attached anywhere. Time every
+				 * reload, log it, and publish it for the home page so
+				 * the cost is diagnosable from the web UI itself. */
+				{
+					unsigned int reload_t0 = GetTickCount();
+					/* Band 97: was 48, which silently truncated the
+					 * Band 96 phase string ("...apply 0m") in the
+					 * journal; the trace detail field holds 128. */
+					char detail[128];
+					reload_journal_note("reload-start", "config", "", 0, "config file changed");
+					reread_config(&cfg);
+					long reload_ms = (long)(GetTickCount() - reload_t0);
+					__atomic_store_n(&cfg_reload_last_ms, reload_ms, __ATOMIC_RELAXED);
+					if (reload_ms > __atomic_load_n(&cfg_reload_max_ms, __ATOMIC_RELAXED))
+						__atomic_store_n(&cfg_reload_max_ms, reload_ms, __ATOMIC_RELAXED);
+					__atomic_add_fetch(&cfg_reload_count, 1, __ATOMIC_RELAXED);
+					printf("[config] reload #%d took %ld ms\n",
+						__atomic_load_n(&cfg_reload_count, __ATOMIC_RELAXED), reload_ms);
+					fflush(stdout);
+					{
+						extern char cfg_reload_phases[96];
+						snprintf(detail, sizeof(detail), "took %ld ms (%s)", reload_ms, cfg_reload_phases);
+						reload_journal_note("reload-end", "config", "", 0, detail);
+					}
+				}
 				doublecheck_autofill_from_profiles();
 				ecm_doublecheck_apply_config(); /* ECM DOUBLECHECK list follows the file, like the rest */
 				/*

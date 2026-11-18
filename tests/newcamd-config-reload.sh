@@ -5,7 +5,7 @@
 set -eu
 cd "$(dirname "$0")"
 
-BIN=${BIN:-../make-x64/x64/multics}
+BIN=${BIN:-../bin/multics.x64}
 CC=${CC:-cc}
 [ -x "$BIN" ] || { echo "build first: make -C ../make-x64"; exit 1; }
 command -v curl >/dev/null || { echo "curl required"; exit 1; }

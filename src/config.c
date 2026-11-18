@@ -4393,10 +4393,20 @@ link_mgcamd_user:
 						continue;
 					} else iparser++;
 					parse_int(str);
-					cfg->cache.consensus_sources = atoi(str);
-					if (cfg->cache.consensus_sources<2) cfg->cache.consensus_sources = 2;
-					else if (cfg->cache.consensus_sources>8) cfg->cache.consensus_sources = 8;
-					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CONSENSUS SOURCES: %d\n",file->nbline,iparser-currentline, cfg->cache.consensus_sources);
+					{
+						int v = atoi(str);
+						if (v<2) v = 2; else if (v>8) v = 8;
+						/* Band 105: inside a profile this is that
+						 * profile's override; globally it is the
+						 * default for every profile (0 = inherit). */
+						if (cardserver) {
+							cardserver->option.consensus_sources = (uint8_t)v;
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CONSENSUS SOURCES: %d (profile %s)\n",file->nbline,iparser-currentline, v, cardserver->name);
+						} else {
+							cfg->cache.consensus_sources = v;
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CONSENSUS SOURCES: %d\n",file->nbline,iparser-currentline, cfg->cache.consensus_sources);
+						}
+					}
 				}
 				else if (!strcmp(str,"WINDOW")) {
 					parse_spaces();
@@ -8231,6 +8241,7 @@ void update_cardserver(struct config_data *cfg, struct config_data *newcfg)
 	cs = newcfg->cardserver;
 	while (cs) {
 		if (cs->flags&FLAG_DISCONNECT) {
+				reload_journal_note("share-del", "cccam/mgcamd", cs->name, 0, "card share withdrawn+readded at reload");
 				// SEND DEL SHARE TO CCCAM/MGCAMD CLIENTS using a stable card snapshot.
 				debugf(0, " DEL share [%s] id:%d  caid:%04x\n", cs->name, cs->id, cs->card.caid);
 				if (cs->option.fsharecccam) pipe_send_card_snapshot(prg.pipe.cccam[1], PIPE_CARD_DEL, cs);
@@ -8808,10 +8819,15 @@ static void invalidate_retired_profile_ecms(const struct config_data *newcfg)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+/* Band 96: phase breakdown of the last reread_config, published for
+ * the reload journal. Written by the config thread only. */
+char cfg_reload_phases[96] = "";
+
 void reread_config( struct config_data *cfg )
 {
 	void *pointer; // temp use
 	struct config_data newcfg;
+	unsigned int ph_t0 = GetTickCount(), ph_drain = 0, ph_parse = 0;
 
 	/* A reload mutates and later reclaims cardserver/client nodes borrowed by
 	 * Newcamd workers, ECM delivery, and the status UI. Wait for those readers
@@ -8821,6 +8837,7 @@ void reread_config( struct config_data *cfg )
 	 * their handshake completes. The write gate prevents new workers starting;
 	 * drain existing ones before changing or freeing those records. */
 	server_connect_wait_idle();
+	ph_drain = GetTickCount();
 	/* ECM_DATA retains cardserver pointers; serialize profile replacement and
 	 * reclamation with the ECM worker/response critical section. */
 	ecm_lock_config_exclusive();
@@ -8837,6 +8854,7 @@ void reread_config( struct config_data *cfg )
 	//usleep( 100000 );
 
 	read_config( &newcfg );
+	ph_parse = GetTickCount();
 
 	/* DNS owns host-list traversal under lockdnsth; publish the reloaded head
 	 * under the same lock so it cannot observe a torn list pointer. */
@@ -9072,7 +9090,7 @@ void reread_config( struct config_data *cfg )
 	while (cs) {
 		struct cs_client_data *cli = cs->newcamd.client;
 		while (cli) {
-			if ( (cs->flags&FLAG_DISCONNECT)||(cs->newcamd.flags&FLAG_DISCONNECT)||(cli->flags&FLAG_DISCONNECT) ) if (cli->connection.status>0) cs_disconnect_cli( cli );
+			if ( (cs->flags&FLAG_DISCONNECT)||(cs->newcamd.flags&FLAG_DISCONNECT)||(cli->flags&FLAG_DISCONNECT) ) if (cli->connection.status>0) { reload_journal_note("drop-client", "newcamd", cli->user, cli->ip, (cs->flags&FLAG_DISCONNECT) ? "profile flag" : (cs->newcamd.flags&FLAG_DISCONNECT) ? "key/server flag" : "user flag (pass/removed)"); cs_disconnect_cli( cli ); }
 			cli->flags &= ~FLAG_DISCONNECT;
 			cli = cli->next;
 		}
@@ -9099,7 +9117,7 @@ void reread_config( struct config_data *cfg )
 	while (mgcamd) {
 		struct mg_client_data *cli = mgcamd->client;
 		while (cli) {
-			if ( (mgcamd->flags&FLAG_DISCONNECT)||(cli->flags&FLAG_DISCONNECT) ) if (cli->connection.status>0) mg_disconnect_cli( cli );
+			if ( (mgcamd->flags&FLAG_DISCONNECT)||(cli->flags&FLAG_DISCONNECT) ) if (cli->connection.status>0) { reload_journal_note("drop-client", "mgcamd", cli->user, cli->ip, (mgcamd->flags&FLAG_DISCONNECT) ? "server flag" : "user flag (pass/removed)"); mg_disconnect_cli( cli ); }
 			cli->flags &= ~FLAG_DISCONNECT;
 			cli = cli->next;
 		}
@@ -9110,7 +9128,7 @@ void reread_config( struct config_data *cfg )
 	// Servers
 	struct server_data *srv = cfg->server;
 	while (srv) {
-		if (srv->flags&FLAG_DISCONNECT) if (srv->connection.status>0) disconnect_srv( srv );
+		if (srv->flags&FLAG_DISCONNECT) if (srv->connection.status>0) { char dbuf[48]; snprintf(dbuf, sizeof(dbuf), "%s:%d changed/removed", srv->host ? srv->host->name : "?", srv->port); reload_journal_note("drop-server", "outbound", "", 0, dbuf); disconnect_srv( srv ); }
 		srv->flags &= ~FLAG_DISCONNECT;
 		srv = srv->next;
 	}
@@ -9143,6 +9161,14 @@ void reread_config( struct config_data *cfg )
 	if (!cfg->cache.generation) cfg->cache.generation = 1;
 	ecm_unlock_config_exclusive();
 	newcamd_config_write_unlock();
+	/* Band 96: publish the phase breakdown (drain = waiting for outbound
+	 * connect workers, parse = reading the file under the ECM lock,
+	 * apply = swaps, frees, check_config). */
+	snprintf(cfg_reload_phases, sizeof(cfg_reload_phases),
+		"drain %ums, parse %ums, apply %ums",
+		ph_drain ? ph_drain - ph_t0 : 0,
+		ph_parse ? ph_parse - ph_drain : 0,
+		GetTickCount() - ph_parse);
 }
 
 

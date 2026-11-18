@@ -441,11 +441,36 @@ struct http_request;
 void http_send_auto_tuning(int sock, struct http_request *req) {
     char buffer[16384];
     int len = auto_tuning_generate_report(buffer, sizeof(buffer));
-    
-    // Send HTTP response
-    const char *header = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n";
+    if (len < 0) len = 0;
+    if (len > (int)sizeof(buffer) - 1) len = (int)sizeof(buffer) - 1;
+    buffer[len] = '\0';
+
+    /* Band 98: was raw text/plain -- the only unstyled page in the UI.
+     * Same design tokens as httpstyle.c, report kept as <pre>. */
+    const char *header =
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+        "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Auto-Tuning - MultiCS</title>"
+        "<script>(function(){try{var t=localStorage.getItem('mcs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>"
+        "<style>"
+        "body{font-family:system-ui,'Segoe UI',Tahoma,Arial,sans-serif;margin:0;padding:22px;background:linear-gradient(180deg,#f2f6fa,#e9eef3);color:#182635;}"
+        "h1{color:#0f5f8a;font-size:22px;border-bottom:3px solid #12838f;padding-bottom:8px;}"
+        "pre{background:#0d1520;color:#d7e6f5;border:1px solid #22344c;border-radius:10px;padding:14px 16px;overflow:auto;font:12.5px/1.6 ui-monospace,Consolas,monospace;direction:ltr;text-align:left;}"
+        ".mcs-nav{background:linear-gradient(135deg,#0b2f47,#0f5f8a 60%,#12838f);margin:-22px -22px 18px;padding:10px 22px;}"
+        ".mcs-nav a{color:#dcebf5;margin-left:14px;font-size:13px;font-weight:600;text-decoration:none;}"
+        ".mcs-nav a:hover{color:#fff;text-decoration:underline;}"
+        "[data-theme=dark] body{background:linear-gradient(180deg,#111a23,#0d1319);color:#e6edf3;}"
+        "[data-theme=dark] h1{color:#6cb6e8;}"
+        "@media (prefers-color-scheme:dark){:root:not([data-theme=light]) body{background:linear-gradient(180deg,#111a23,#0d1319);color:#e6edf3;}:root:not([data-theme=light]) h1{color:#6cb6e8;}}"
+        "@media (max-width:760px){body{padding:12px}.mcs-nav{margin:-12px -12px 12px;padding:8px 12px}h1{font-size:19px}}"
+        "</style></head><body>"
+        "<div class='mcs-nav'><a href='/'>Home</a><a href='/servers'>Servers</a><a href='/profiles'>Profiles</a><a href='/diagnostics'>Diagnostics</a><a href='/editor'>Editor</a></div>"
+        "<h1>Auto-Tuning</h1><pre>";
+    const char *footer = "</pre></body></html>";
     send(sock, header, strlen(header), 0);
     if (len > 0) {
         send(sock, buffer, len, 0);
     }
+    send(sock, footer, strlen(footer), 0);
 }

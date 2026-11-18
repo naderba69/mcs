@@ -2168,6 +2168,7 @@ int cfg_auto_recover_enabled = 0; /* AUTO RECOVER: ON|OFF, default OFF (band 47)
  * the R22 counters are statics of this TU, so the trace page reads
  * this POD copy instead of including their headers and silently
  * seeing zeros. Cheap relaxed loads; display data only. */
+static void mcs_cwdup_status_fill(struct mcs_field_status *st);
 void mcs_field_status_fill(struct mcs_field_status *st) {
 	memset(st, 0, sizeof(*st));
 	st->r22_enabled = cfg_r22_layers_enabled;
@@ -2210,6 +2211,7 @@ void mcs_field_status_fill(struct mcs_field_status *st) {
 		st->cwpair_pair_count = n;
 		nopushafter_snapshot(&st->nopush_checked, &st->nopush_blocked, &st->nopush_entries);
 		service_doubt_snapshot(&st->svc_checked, &st->svc_doubt, &st->svc_majority);
+	mcs_cwdup_status_fill(st);
 		st->svc_armed = cfg.cache.service_doubt;
 		{ uint32_t ar_r = 0, ar_s = 0;
 		  autorecov_snapshot(&g_autorecov_table, &st->ar_enabled, &ar_r, &ar_s, &st->ar_active);
@@ -2329,6 +2331,126 @@ int ssf_dup_index;
 struct ssf_reuse_entry ssf_reuse_table[SSF_MAX_REUSE_ENTRIES];
 int ssf_reuse_index;
 struct ssf_stats ssf_stats;
+/* Band 104: CW_DUP recent-events ring for /user-trace (supersmartfilter.h) */
+struct ssf_cwdup_event ssf_cwdup_events[SSF_CWDUP_EVENT_MAX];
+int ssf_cwdup_event_head;
+uint64_t ssf_cwdup_event_total;
+/* Band 105: CW_REUSE recent-events ring for /user-trace */
+struct ssf_cwdup_event ssf_cwreuse_events[SSF_CWREUSE_EVENT_MAX];
+int ssf_cwreuse_event_head;
+uint64_t ssf_cwreuse_event_total;
+/* Band 106: MARCHCHECK recent-events ring for /user-trace */
+struct ssf_cwdup_event ssf_marchcheck_events[SSF_MARCHCHECK_EVENT_MAX];
+int ssf_marchcheck_event_head;
+uint64_t ssf_marchcheck_event_total;
+/* Band 107: LATECW recent-events ring for /user-trace */
+struct ssf_cwdup_event ssf_latecw_events[SSF_LATECW_EVENT_MAX];
+int ssf_latecw_event_head;
+uint64_t ssf_latecw_event_total;
+
+static void mcs_cwdup_status_fill(struct mcs_field_status *st)
+{
+/* Band 104: CW_DUP state for the trace overview */
+	st->cwdup_global_mode = ssf_cfg.sf_cwdup;
+	st->cwdup_flagged = ssf_stats.cwdup_flagged;
+	st->cwdup_rejected = ssf_stats.rejected_cwdup;
+	pthread_mutex_lock(&ssf_lock);
+	st->cwdup_event_total = ssf_cwdup_event_total;
+	{
+		int i, n = 0;
+		for (i = 1; i <= SSF_CWDUP_EVENT_MAX && n < MCS_CWDUP_EVENT_MAX; i++) {
+			int idx = (ssf_cwdup_event_head - i + 2 * SSF_CWDUP_EVENT_MAX) % SSF_CWDUP_EVENT_MAX;
+			const struct ssf_cwdup_event *ev = &ssf_cwdup_events[idx];
+			if (!ev->timestamp) continue;
+			st->cwdup_events[n].timestamp = ev->timestamp;
+			st->cwdup_events[n].caid = ev->caid;
+			st->cwdup_events[n].provid = ev->provid;
+			st->cwdup_events[n].sid = ev->sid;
+			st->cwdup_events[n].rep = ev->rep;
+			st->cwdup_events[n].rep_needed = ev->rep_needed;
+			st->cwdup_events[n].mode = ev->mode;
+			st->cwdup_events[n].rejected = ev->rejected;
+			st->cwdup_events[n].peer_id = ev->peer_id;
+			st->cwdup_events[n].competitor_age_ms = ev->competitor_age_ms;
+			n++;
+		}
+		st->cwdup_event_count = n;
+	}
+		st->cwreuse_global_mode = ssf_cfg.sf_cwreuse;
+	st->cwreuse_flagged = ssf_stats.cwreuse_flagged;
+	st->cwreuse_rejected = ssf_stats.rejected_cwreuse;
+	st->cwreuse_event_total = ssf_cwreuse_event_total;
+	{
+		int i, n = 0;
+		for (i = 1; i <= SSF_CWREUSE_EVENT_MAX && n < MCS_CWDUP_EVENT_MAX; i++) {
+			int ridx = (ssf_cwreuse_event_head - i + 2 * SSF_CWREUSE_EVENT_MAX) % SSF_CWREUSE_EVENT_MAX;
+			const struct ssf_cwdup_event *ev = &ssf_cwreuse_events[ridx];
+			if (!ev->timestamp) continue;
+			st->cwreuse_events[n].timestamp = ev->timestamp;
+			st->cwreuse_events[n].caid = ev->caid;
+			st->cwreuse_events[n].provid = ev->provid;
+			st->cwreuse_events[n].sid = ev->sid;
+			st->cwreuse_events[n].rep = ev->rep;
+			st->cwreuse_events[n].rep_needed = ev->rep_needed;
+			st->cwreuse_events[n].mode = ev->mode;
+			st->cwreuse_events[n].rejected = ev->rejected;
+			st->cwreuse_events[n].peer_id = ev->peer_id;
+			st->cwreuse_events[n].competitor_age_ms = ev->competitor_age_ms;
+			n++;
+		}
+		st->cwreuse_event_count = n;
+	}
+	st->marchcheck_global_mode = ssf_cfg.sf_marchcheck;
+	st->marchcheck_flagged = ssf_stats.marchcheck_flagged;
+	st->marchcheck_rejected = ssf_stats.rejected_marchcheck;
+	st->marchcheck_event_total = ssf_marchcheck_event_total;
+	{
+		int i, n = 0;
+		for (i = 1; i <= SSF_MARCHCHECK_EVENT_MAX && n < MCS_CWDUP_EVENT_MAX; i++) {
+			int midx = (ssf_marchcheck_event_head - i + 2 * SSF_MARCHCHECK_EVENT_MAX) % SSF_MARCHCHECK_EVENT_MAX;
+			const struct ssf_cwdup_event *ev = &ssf_marchcheck_events[midx];
+			if (!ev->timestamp) continue;
+			st->marchcheck_events[n].timestamp = ev->timestamp;
+			st->marchcheck_events[n].caid = ev->caid;
+			st->marchcheck_events[n].provid = ev->provid;
+			st->marchcheck_events[n].sid = ev->sid;
+			st->marchcheck_events[n].rep = ev->rep;
+			st->marchcheck_events[n].rep_needed = ev->rep_needed;
+			st->marchcheck_events[n].mode = ev->mode;
+			st->marchcheck_events[n].rejected = ev->rejected;
+			st->marchcheck_events[n].peer_id = ev->peer_id;
+			st->marchcheck_events[n].competitor_age_ms = ev->competitor_age_ms;
+			n++;
+		}
+		st->marchcheck_event_count = n;
+	}
+	st->latecw_global_mode = ssf_cfg.sf_latecw;
+	st->latecw_global_ms = ssf_cfg.sf_latecw_ms;
+	st->latecw_flagged = ssf_stats.latecw_flagged;
+	st->latecw_rejected = ssf_stats.rejected_latecw;
+	st->latecw_event_total = ssf_latecw_event_total;
+	{
+		int i, n = 0;
+		for (i = 1; i <= SSF_LATECW_EVENT_MAX && n < MCS_CWDUP_EVENT_MAX; i++) {
+			int lidx = (ssf_latecw_event_head - i + 2 * SSF_LATECW_EVENT_MAX) % SSF_LATECW_EVENT_MAX;
+			const struct ssf_cwdup_event *ev = &ssf_latecw_events[lidx];
+			if (!ev->timestamp) continue;
+			st->latecw_events[n].timestamp = ev->timestamp;
+			st->latecw_events[n].caid = ev->caid;
+			st->latecw_events[n].provid = ev->provid;
+			st->latecw_events[n].sid = ev->sid;
+			st->latecw_events[n].rep = ev->rep;
+			st->latecw_events[n].rep_needed = ev->rep_needed;
+			st->latecw_events[n].mode = ev->mode;
+			st->latecw_events[n].rejected = ev->rejected;
+			st->latecw_events[n].peer_id = ev->peer_id;
+			st->latecw_events[n].competitor_age_ms = ev->competitor_age_ms;
+			n++;
+		}
+		st->latecw_event_count = n;
+	}
+pthread_mutex_unlock(&ssf_lock);
+}
 pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
 struct dcwstrict_config dcwstrict_cfg;
 

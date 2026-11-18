@@ -18,6 +18,13 @@ void log_viewer_add(int level, const char *source, const char *format, ...)
     (void)format;
 }
 
+/* ecmdata.c closes shared trace links when an ECM slot is recycled;
+ * the fixture has no trace sessions, so the unbind is a no-op here. */
+void user_trace_unbind_shared_instance(uint64_t instance)
+{
+    (void)instance;
+}
+
 void *__wrap_malloc(size_t size)
 {
     if (fail_next_allocation) {

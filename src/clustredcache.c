@@ -3127,8 +3127,15 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 		 * threshold (0/unset = engine default 2). Cheap enough to
 		 * restate per arrival; a config reload takes effect on the
 		 * very next push. */
-		cwconsensus_set_min_sources(cfg.cache.consensus_sources >= 2
-				    ? cfg.cache.consensus_sources : 2);
+		/* Band 105: per-profile override wins over the global default */
+		int eff_consensus_sources = cfg.cache.consensus_sources >= 2
+				    ? cfg.cache.consensus_sources : 2;
+		{
+			struct cardserver_data *pcs = cache_entry_cardserver_current(pcache);
+			if (pcs && pcs->option.consensus_sources >= 2)
+				eff_consensus_sources = pcs->option.consensus_sources;
+		}
+		cwconsensus_set_min_sources(eff_consensus_sources);
 		cwconsensus_set_independence(cfg.cache.consensus_independence);
 		cwconsensus_set_quarantine(cfg.cache.quarantine);
 		cwconsensus_set_storm_guard(cfg.cache.storm_guard);
@@ -3168,7 +3175,7 @@ int cache_setdcw( struct cache_data *req, uint8_t cw[16], cwcycle_t cwcycle, int
 				if (known) {
 					snprintf(detail, sizeof(detail), "cache consensus vote: verdict=%s; peer IDs=%d; weight=%d; threshold=%d",
 					         cv==CWC_HOLD ? "held" : (cv==CWC_REFUSE ? "refused" : "proceed"),
-					         distinct, weight, cfg.cache.consensus_sources >= 2 ? cfg.cache.consensus_sources : 2);
+					         distinct, weight, eff_consensus_sources);
 				} else {
 					snprintf(detail, sizeof(detail), "cache consensus vote: no candidate slot; verdict=%s; agreement unconfirmed",
 					         cv==CWC_DELIVER ? "proceed" : "other");
