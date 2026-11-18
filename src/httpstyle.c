@@ -48,8 +48,11 @@ char style_css[] =
 "pre{background:#0d1520;color:#d7e6f5;border:1px solid #22344c;border-radius:10px;padding:12px 14px;overflow:auto;font:12.5px/1.55 ui-monospace,Consolas,monospace;box-shadow:var(--card-shadow);}\n"
 /* ---- the navbar: dark gradient app bar with brand + icons ---- */
 ".menu{position:sticky;top:0;z-index:50;margin:0 -16px 14px;background:var(--nav-grad);"
-"box-shadow:0 3px 14px rgba(8,30,48,.35);padding:6px 14px;overflow:hidden;}\n"
-".menu ul{margin:0;padding:0;display:flex;flex-wrap:wrap;"
+"box-shadow:0 3px 14px rgba(8,30,48,.35);padding:6px 14px;}\n"
+/* Band 98: one-row nav that scrolls sideways at EVERY width. The old
+ * wrapping nav grew to 2-3 rows on medium screens, so sticky table
+ * headers (fixed top:52px) slid underneath it and overlapped. */
+".menu ul{margin:0;padding:0;display:flex;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;"
 "align-items:center;list-style:none;gap:2px;}\n"
 ".menu li{margin:2px 1px;}\n"
 ".menu li a{display:block;padding:6px 11px;border-radius:8px;"
@@ -94,7 +97,7 @@ char style_css[] =
 "table[border] td{border-bottom:1px solid var(--line);padding:7px 10px;}\n"
 ".maintable,.module{background:var(--panel);font-size:12.5px;width:auto;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--card-shadow);overflow:hidden;}\n"
 ".maintable th,.module th{padding:8px 9px;text-align:left;background:var(--accent-grad);color:#fff;"
-"font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--accent);position:sticky;top:52px;z-index:5;}\n"
+"font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--accent);position:sticky;top:46px;z-index:5;}\n"
 ".maintable tr,.module tr{transition:background .12s;}\n"
 ".maintable tr:nth-child(even),.module tr:nth-child(even){background-color:var(--panel-2);}\n"
 ".maintable tr:hover,.module tr:hover{background-color:var(--accent-soft);}\n"
@@ -127,13 +130,34 @@ char style_css[] =
 ".online{background-color:var(--good);}\n"
 ".online::before{animation:mcsPulse 1.8s ease-in-out infinite;}\n"
 ".offline{background-color:var(--bad);}\n"
+/* Band 99: status classes on a table CELL (the profiles port cell,
+ * server/client status cells) must not become pills: the old
+ * inline-flex pill stretched across the cell, and a link inside it
+ * (the port number) rendered accent-blue on the green/red pill --
+ * the clash the operator reported. A status cell is now a softly
+ * tinted table cell whose text AND links take the status color on
+ * a matching pale background (contrast-checked in both themes). */
+"td.online,td.offline,td.busy{display:table-cell;min-width:0;border-radius:0;box-shadow:none;text-align:center;font-weight:800;}\n"
+"td.online{background:var(--good-bg);color:var(--good);}\n"
+"td.offline{background:var(--bad-bg);color:var(--bad);}\n"
+"td.busy{background:var(--warn-bg);color:var(--warn);}\n"
+"td.online a{color:var(--good);}\n"
+"td.offline a{color:var(--bad);}\n"
+"td.busy a{color:var(--warn);}\n"
+"td.online::before,td.offline::before,td.busy::before{background:currentColor;}\n"
 "@keyframes mcsPulse{0%,100%{opacity:1;}50%{opacity:.35;}}\n"
 ".left{text-align:left;}.center{text-align:center;}.right{text-align:right;}\n"
+/* Band 100: was an inline style= on hundreds of generated spans. */
+".pct{float:right;font-variant-numeric:tabular-nums;}\n"
 /* Band 93: legacy generators hardcode dark-red provider names
  * (<font color=#CC3300>) that sink into dark panels; lift them in
  * the dark theme (explicit and OS-driven) so text never vanishes. */
 "[data-theme=dark] font[color='#CC3300'],[data-theme=dark] font[color='#cc3300']{color:#ff8a75;}\n"
 "@media (prefers-color-scheme:dark){:root:not([data-theme=light]) font[color='#CC3300'],:root:not([data-theme=light]) font[color='#cc3300']{color:#ff8a75;}}\n"
+/* Band 98: same lift for legacy pure-red <font> text (sinks on dark). */
+"[data-theme=dark] font[color='#ff0000'],[data-theme=dark] font[color='red']{color:#ff7b72;}\n"
+"@media (prefers-color-scheme:dark){:root:not([data-theme=light]) font[color='#ff0000'],:root:not([data-theme=light]) font[color='red']{color:#ff7b72;}}\n"
+"img{max-width:100%;height:auto;}\n"
 /* ---- hover card on connection icons (legacy geometry kept) ---- */
 ".online:hover .connect_data,.offline:hover .connect_data,"
 ".busy:hover .connect_data{visibility:visible;opacity:1;transform:translateY(0);}\n"
@@ -190,6 +214,21 @@ char style_css[] =
 ".perf-cards.sys .perf-card{padding:10px 13px;border-top-width:2px;}\n"
 ".perf-cards.sys .value{font-size:16.5px;}\n"
 ".perf-cards.sys .label{margin-bottom:2px;}\n"
+/* ---- Band 99: home control-center hero + live badge ---- */
+".home-hero{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 18px;"
+"background:var(--nav-grad);border-radius:14px;padding:16px 20px;margin:2px 0 14px;color:#eaf4fb;"
+"box-shadow:0 8px 22px rgba(8,30,48,.28);border:1px solid rgba(255,255,255,.14);}\\n"
+".hero-title{font-size:21px;font-weight:800;letter-spacing:.3px;color:#fff;line-height:1.2;}\\n"
+".hero-sub{font-size:12.5px;color:#c4dcee;margin-top:3px;font-variant-numeric:tabular-nums;}\\n"
+".hero-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;}\\n"
+".hero-chip{background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.22);color:#eaf4fb;"
+"border-radius:999px;padding:2px 11px;font-size:11.5px;font-weight:700;}\\n"
+".live-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(0,0,0,.28);"
+"border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:6px 14px;font-weight:800;"
+"font-size:12px;letter-spacing:1.2px;color:#fff;font-variant-numeric:tabular-nums;}\\n"
+".live-dot{width:9px;height:9px;border-radius:50%;background:#3fb950;box-shadow:0 0 0 3px rgba(63,185,80,.25);animation:mcsPulse 1.6s ease-in-out infinite;}\\n"
+".home-sec{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:16px 0 6px;}\\n"
+"@media (max-width:760px){.home-hero{padding:13px 14px;}.hero-title{font-size:18px;}}\\n"
 /* ---- scrollbars ---- */
 "::-webkit-scrollbar{width:10px;height:10px;}\n"
 "::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:8px;}\n"
@@ -197,6 +236,13 @@ char style_css[] =
 "::-webkit-scrollbar-track{background:transparent;}\n"
 "@media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important;}}\n"
 "@media print{.menu,div[align=right]{display:none !important;}body{padding:0;}}\n"
+/* ---- Band 98: medium screens -- data tables swipe instead of
+ * overflowing the page (this used to exist only under 760px, so
+ * 761-1100px tablets/laptops pushed wide tables off-screen). ---- */
+"@media (max-width:1100px){\\n"
+" .maintable,.infotable,.option,.module{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;}\\n"
+" .connect_data{max-width:82vw;margin-left:8px;}\\n"
+"}\\n"
 /* ---- phone: the nav scrolls sideways, the tables swipe ---- */
 "@media (max-width:760px){\n"
 " body{font-size:13px;padding:0 8px 16px;}\n"

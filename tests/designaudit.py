@@ -148,6 +148,26 @@ def main():
             m = re.search(r'Last Reload</div><div class=.value.>([\d.]+) ms', home)
             print(f'designaudit: reload timed and published (Last Reload = {m.group(1) if m else "?"} ms)')
 
+            # --- Band 99: live home + the profiles port-cell clash ---------
+            assert 'home-hero' in home and 'live-badge' in home and "id='kpiTotalEcm'" in home, \
+                'home is not the live control-center (hero/live KPIs missing)'
+            st, frag = cl.get('/?action=div')
+            assert st == 200 and 'home-hero' in frag, \
+                'the action=div live fragment is not a valid HTTP reply'
+            st, profiles = cl.get('/profiles')
+            assert 'td.online{background:var(--good-bg);color:var(--good);}' in profiles, \
+                'status cells are still pills (port-number colour clash)'
+            assert 'td.online a{color:var(--good);}' in profiles, \
+                'port link still fights the status-cell background'
+            print('designaudit: live home + port-cell clash guards hold')
+
+            # --- Band 101: no silent disconnects ----------------------------
+            for bad_route in ('/nonexistent-page', '/editor99', '/sms'):
+                st, body = cl.get(bad_route)
+                assert st == 404 and 'not found' in body, \
+                    f'{bad_route} is not the designed 404 (HTTP {st})'
+            print('designaudit: unknown/hidden/bad-index routes answer the designed 404')
+
             # --- BISS add/list/delete --------------------------------------
             st, _ = cl.get('/biss?action=add&caid=2600&sid=0001&provid=000000&key=0123456789ABCDEF')
             st, listing = cl.get('/biss')

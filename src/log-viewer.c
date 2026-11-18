@@ -271,6 +271,7 @@ void http_send_log_viewer(int sock, struct http_request *req)
         "<meta charset='utf-8'>\n"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>\n"
         "<title>عارض السجلات - MultiCS</title>\n"
+        "<script>(function(){try{var t=localStorage.getItem('mcs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>\n"
         "<style>\n"
         "body { font-family: ui-monospace,'Cascadia Mono',Consolas,monospace; margin: 0; padding: 22px; background: linear-gradient(180deg,#111a23,#0d1319); color: #dbe6f2; }\n"
         ".container { max-width: 1600px; margin: 0 auto; background: #18222d; padding: 24px; border-radius: 14px; border-top: 3px solid #3b93c9; box-shadow: 0 6px 22px rgba(0,0,0,.5); }\n"
@@ -279,6 +280,11 @@ void http_send_log_viewer(int sock, struct http_request *req)
         ".stat-card { background: #2d2d30; padding: 15px; border-radius: 6px; border-left: 4px solid #569cd6; }\n"
         ".stat-value { font-size: 24px; font-weight: bold; color: #569cd6; }\n"
         ".stat-label { color: #858585; font-size: 12px; margin-top: 5px; }\n"
+        ".stat-value.err { color: #f48771; }\n"
+        ".stat-value.warn { color: #cca700; }\n"
+        ".stat-value.info { color: #569cd6; }\n"
+        ".stat-value.debug { color: #858585; }\n"
+        ".search-note { color: #569cd6; text-align: center; }\n"
         ".controls { margin: 20px 0; padding: 15px; background: #2d2d30; border-radius: 6px; }\n"
         ".btn { display: inline-block; padding: 8px 16px; background: linear-gradient(135deg,#1d6fa5,#0f766e); color: white; text-decoration: none; border-radius: 8px; margin: 5px; border: none; cursor: pointer; font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,.35); }\n"
         ".btn:hover { background: #1177bb; }\n"
@@ -299,7 +305,7 @@ void http_send_log_viewer(int sock, struct http_request *req)
         ".log-level-debug { color: #858585; }\n"
         ".log-source { color: #4ec9b0; margin: 0 10px; }\n"
         ".log-message { color: #d4d4d4; }\n"
-        "\n/* Band 91: professional components */\nh2{color:#6cb6e8;font-size:15px;border-bottom:2px solid #2b3949;padding-bottom:5px;margin:20px 0 8px;}\n.btn{transition:filter .15s,transform .1s;}\n.btn:hover{filter:brightness(1.18);}\n.btn:active{transform:translateY(1px);}\npre,.log-content{background:#0d1520 !important;border:1px solid #22344c;border-radius:10px;padding:12px 14px;line-height:1.55;}\ninput,select{background:#18222d;color:#dbe6f2;border:1px solid #3a4d63;border-radius:8px;padding:6px 9px;}\ninput:focus,select:focus{outline:none;border-color:#3b93c9;box-shadow:0 0 0 3px rgba(59,147,201,.25);}\ntable{border-radius:10px;overflow:hidden;}\ntd{font-variant-numeric:tabular-nums;}\n.mcs-nav{background:linear-gradient(135deg,#0b2f47,#0f5f8a 60%,#12838f);margin:-22px -22px 18px;padding:10px 22px;border-radius:0;}.mcs-nav a{color:#dcebf5;margin-right:14px;font-size:13px;font-weight:600;text-decoration:none;}.mcs-nav a:hover{color:#fff;text-decoration:underline;}</style>\n"
+        "\n/* Band 91: professional components */\nh2{color:#6cb6e8;font-size:15px;border-bottom:2px solid #2b3949;padding-bottom:5px;margin:20px 0 8px;}\n.btn{transition:filter .15s,transform .1s;}\n.btn:hover{filter:brightness(1.18);}\n.btn:active{transform:translateY(1px);}\npre,.log-content{background:#0d1520 !important;border:1px solid #22344c;border-radius:10px;padding:12px 14px;line-height:1.55;}\ninput,select{background:#18222d;color:#dbe6f2;border:1px solid #3a4d63;border-radius:8px;padding:6px 9px;}\ninput:focus,select:focus{outline:none;border-color:#3b93c9;box-shadow:0 0 0 3px rgba(59,147,201,.25);}\ntable{border-radius:10px;overflow:hidden;}\ntd{font-variant-numeric:tabular-nums;}\n.mcs-nav{background:linear-gradient(135deg,#0b2f47,#0f5f8a 60%,#12838f);margin:-22px -22px 18px;padding:10px 22px;border-radius:0;}.mcs-nav a{color:#dcebf5;margin-right:14px;font-size:13px;font-weight:600;text-decoration:none;}.mcs-nav a:hover{color:#fff;text-decoration:underline;}\n/* Band 98: unified theme bridge (httpstyle.c tokens) + responsive */\n[data-theme=light] body{background:linear-gradient(180deg,#f2f6fa,#e9eef3);color:#182635;}\n[data-theme=light] .container{background:#ffffff;box-shadow:0 4px 18px rgba(16,35,55,.10);}\n[data-theme=light] h1,[data-theme=light] h2{color:#0f5f8a;}\n[data-theme=light] .stat-card,[data-theme=light] .controls{background:#f6f9fb;}\n[data-theme=light] .stat-label{color:#5b6b7b;}\n[data-theme=light] .stat-value.err{color:#c0392b;}[data-theme=light] .stat-value.warn{color:#96690d;}[data-theme=light] .stat-value.info{color:#0f5f8a;}[data-theme=light] .stat-value.debug{color:#5b6b7b;}[data-theme=light] .search-note{color:#0f5f8a;}\n[data-theme=light] select,[data-theme=light] input[type=text]{background:#ffffff;color:#182635;border-color:#b9c7d4;}\n@media (prefers-color-scheme:light){:root:not([data-theme=dark]) body{background:linear-gradient(180deg,#f2f6fa,#e9eef3);color:#182635;}:root:not([data-theme=dark]) .container{background:#ffffff;box-shadow:0 4px 18px rgba(16,35,55,.10);}:root:not([data-theme=dark]) h1,:root:not([data-theme=dark]) h2{color:#0f5f8a;}:root:not([data-theme=dark]) .stat-card,:root:not([data-theme=dark]) .controls{background:#f6f9fb;}:root:not([data-theme=dark]) .stat-label{color:#5b6b7b;}:root:not([data-theme=dark]) .stat-value.err{color:#c0392b;}:root:not([data-theme=dark]) .stat-value.warn{color:#96690d;}:root:not([data-theme=dark]) .stat-value.info{color:#0f5f8a;}:root:not([data-theme=dark]) .stat-value.debug{color:#5b6b7b;}:root:not([data-theme=dark]) .search-note{color:#0f5f8a;}:root:not([data-theme=dark]) select,:root:not([data-theme=dark]) input[type=text]{background:#ffffff;color:#182635;border-color:#b9c7d4;}}\n*{box-sizing:border-box;}img{max-width:100%;}\n@media (max-width:760px){body{padding:10px;}.container{padding:14px;}.stats{grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;}table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}h1{font-size:18px;}}\n</style>\n"
         "</head>\n"
         "<body>\n"
         "<div class='mcs-nav'><a href='/'>\U0001F3E0 Home</a><a href='/servers'>Servers</a><a href='/profiles'>Profiles</a><a href='/cache'>Cache</a><a href='/newcamd'>Newcamd</a><a href='/smartfilter'>SmartFilter</a><a href='/editor'>Editor</a></div>\n"
@@ -313,10 +319,10 @@ void http_send_log_viewer(int sock, struct http_request *req)
     snprintf(buf, sizeof(buf),
         "<div class='stats'>\n"
         "<div class='stat-card'><div class='stat-value'>%u</div><div class='stat-label'>إجمالي السجلات</div></div>\n"
-        "<div class='stat-card'><div class='stat-value' style='color: #f48771;'>%u</div><div class='stat-label'>أخطاء</div></div>\n"
-        "<div class='stat-card'><div class='stat-value' style='color: #cca700;'>%u</div><div class='stat-label'>تحذيرات</div></div>\n"
-        "<div class='stat-card'><div class='stat-value' style='color: #569cd6;'>%u</div><div class='stat-label'>معلومات</div></div>\n"
-        "<div class='stat-card'><div class='stat-value' style='color: #858585;'>%u</div><div class='stat-label'>تصحيح</div></div>\n"
+        "<div class='stat-card'><div class='stat-value err'>%u</div><div class='stat-label'>أخطاء</div></div>\n"
+        "<div class='stat-card'><div class='stat-value warn'>%u</div><div class='stat-label'>تحذيرات</div></div>\n"
+        "<div class='stat-card'><div class='stat-value info'>%u</div><div class='stat-label'>معلومات</div></div>\n"
+        "<div class='stat-card'><div class='stat-value debug'>%u</div><div class='stat-label'>تصحيح</div></div>\n"
         "</div>\n",
         log_viewer_tab.total_logs,
         log_viewer_tab.error_count,
@@ -460,7 +466,7 @@ void http_send_log_viewer(int sock, struct http_request *req)
         html_esc(safe_search, sizeof(safe_search), search);
         snprintf(buf, sizeof(buf),
             "</div>\n"
-            "<p style='color:#569cd6;text-align:center;'>🔍 نتائج البحث عن: <b>%s</b> (%d نتيجة)</p>\n"
+            "<p class='search-note'>🔍 نتائج البحث عن: <b>%s</b> (%d نتيجة)</p>\n"
             "</div>\n"
             "</body>\n"
             "</html>\n",
