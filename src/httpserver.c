@@ -9695,6 +9695,61 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         } else {
             tcp_writestr(tcpbuf, sock, "<p>لا قرارات DoubleCheck بعد في هذه الجلسة (تظهر هنا فور حدوثها، بدل سجلات [ECM-DBLCHK]).</p>");
         }
+        /* Band 104: CW_DUP inside CCcam Trace -- the detector's mode,
+         * its counters and its most recent flags with the evidence, so
+         * arming/tuning (DCW CWDUP: 1|2, DCW CWDUPREP) is driven from
+         * this page alone. */
+        {
+            const char *gmode = st.cwdup_global_mode == 2 ? "رفض" :
+                                st.cwdup_global_mode == 1 ? "تسجيل فقط" : "مطفأ";
+            char armed_reject[900] = "";
+            char armed_log[900] = "";
+            struct cardserver_data *pcs;
+            for (pcs = cfg.cardserver; pcs; pcs = pcs->next) {
+                char et2[1024];
+                char entry[300];
+                if (pcs->option.sf_cwdup == 3) {
+                    snprintf(entry, sizeof(entry), "%s%s (rep>=%d)",
+                             armed_reject[0] ? "، " : "", escf(et2, pcs->name),
+                             pcs->option.sf_cwdup_rep > 0 ? pcs->option.sf_cwdup_rep : ssf_cfg.sf_cwdup_rep);
+                    if (strlen(armed_reject) + strlen(entry) < sizeof(armed_reject) - 1)
+                        strcat(armed_reject, entry);
+                } else if (pcs->option.sf_cwdup == 2) {
+                    snprintf(entry, sizeof(entry), "%s%s",
+                             armed_log[0] ? "، " : "", escf(et2, pcs->name));
+                    if (strlen(armed_log) + strlen(entry) < sizeof(armed_log) - 1)
+                        strcat(armed_log, entry);
+                }
+            }
+            snprintf(out, sizeof(out), "<p><b>تكرار الشفرة (CW_DUP — نفس CW عبر دورات ECM جديدة مع وجود منافس):</b> الوضع العام: %s | أعلام: %llu | رُفضت: %llu | أحداث مسجلة: %llu</p>",
+                     gmode,
+                     (unsigned long long)st.cwdup_flagged,
+                     (unsigned long long)st.cwdup_rejected,
+                     (unsigned long long)st.cwdup_event_total);
+            tcp_writestr(tcpbuf, sock, out);
+            snprintf(out, sizeof(out), "<p>مسلّح بالرفض في: %s<br>مسلّح بالتسجيل فقط في: %s<br><small>الضبط لكل بروفايل من ملف الإعدادات: ‏DCW CWDUP: 1 (تسجيل) ثم ‏2 (رفض) بعد ثبوت الأعلام هنا، وDCW CWDUPREP لعتبة التكرار. العلم وحده لا يرفض في وضع التسجيل.</small></p>",
+                     armed_reject[0] ? armed_reject : "—",
+                     armed_log[0] ? armed_log : "—");
+            tcp_writestr(tcpbuf, sock, out);
+            if (st.cwdup_event_count) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>القناة</th><th>تكرار/عتبة</th><th>المنافس قبل</th><th>الوضع</th><th>الإجراء</th><th>المصدر</th></tr>");
+                for (i = 0; i < st.cwdup_event_count; i++) {
+                    char timestr[32];
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)st.cwdup_events[i].timestamp, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td><code>%04X:%06X:%04X</code></td><td>%d/%d</td><td>%u ms</td><td>%s</td><td>%s</td><td>%u</td></tr>",
+                             timestr, st.cwdup_events[i].caid, st.cwdup_events[i].provid, st.cwdup_events[i].sid,
+                             st.cwdup_events[i].rep, st.cwdup_events[i].rep_needed,
+                             (unsigned)st.cwdup_events[i].competitor_age_ms,
+                             st.cwdup_events[i].mode == 2 ? "رفض" : "تسجيل فقط",
+                             st.cwdup_events[i].rejected ? "⛔ رُفضت" : "✅ سُلّمت",
+                             (unsigned)st.cwdup_events[i].peer_id);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else {
+                tcp_writestr(tcpbuf, sock, "<p>لا أعلام CW_DUP بعد في هذه الجلسة (تظهر هنا فور حدوثها، وتدخل أيضًا جدول أحداث الجلسة أسفل الصفحة عند مطابقة قناة العميل).</p>");
+            }
+        }
         /* CWPAIR (band 38): discovery counters + ready-to-paste pairs */
         snprintf(out, sizeof(out), "<p><b>اقتران الشفرات (CWPAIR — SimulCrypt):</b> %s | شفرات ملاحظة: %lu | تطابقات توأم: %lu | قُدّمت من التوأم: %lu | رُفضت للقدم: %lu | رفض STRICTCYCLE: %lu | لا توأم معروف: %lu</p>",
                  st.cwpair_discover ? "اكتشاف مفعّل" : "اكتشاف مطفأ (CWDEDUP_CHECK: YES لتفعيله)",

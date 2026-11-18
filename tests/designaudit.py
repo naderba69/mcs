@@ -177,6 +177,12 @@ def main():
             assert "class='grade g" in profiles, 'profiles carry no grade badges'
             print('designaudit: classification panels + grade badges hold')
 
+            # --- Band 104: CW_DUP inside CCcam Trace -----------------------
+            st, trace = cl.get('/user-trace')
+            assert st == 200 and 'CW_DUP' in trace and 'تكرار الشفرة' in trace, \
+                'CW_DUP is not embedded in the CCcam trace overview'
+            print('designaudit: CW_DUP trace section holds')
+
             # --- BISS add/list/delete --------------------------------------
             st, _ = cl.get('/biss?action=add&caid=2600&sid=0001&provid=000000&key=0123456789ABCDEF')
             st, listing = cl.get('/biss')

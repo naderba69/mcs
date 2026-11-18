@@ -215,6 +215,35 @@ extern int ssf_reuse_index;   /* band 83: single instance */
 extern struct ssf_stats ssf_stats;
 extern pthread_mutex_t ssf_lock;
 
+/* Band 104: CW_DUP lives in CCcam Trace (/user-trace). The last flags
+ * are kept in a small ring (written under ssf_lock from check 11,
+ * read through mcs_field_status) and every flag also becomes a
+ * channel-level trace observation with the full evidence, so the
+ * detector can be tuned (mode / CWDUPREP per profile) from the one
+ * diagnostic page instead of /smartfilter counters alone. */
+#define SSF_CWDUP_EVENT_MAX 12
+struct ssf_cwdup_event {
+    uint32_t timestamp;      /* wall-clock seconds, display only */
+    uint16_t caid;
+    uint32_t provid;
+    uint16_t sid;
+    int rep;                 /* new-cycle repeats seen at flag time */
+    int rep_needed;          /* threshold that fired */
+    int mode;                /* effective mode: 1 = log-only, 2 = reject */
+    int rejected;            /* this sighting was dropped */
+    uint32_t peer_id;        /* candidate source id at the call site */
+    uint32_t competitor_age_ms;
+};
+extern struct ssf_cwdup_event ssf_cwdup_events[SSF_CWDUP_EVENT_MAX];
+extern int ssf_cwdup_event_head; /* next write slot */
+extern uint64_t ssf_cwdup_event_total;
+/* Declared here to keep this header free of user-trace.h: records a
+ * channel-level observation in the active trace session, if any. */
+extern void user_trace_cache_observation(uint16_t caid, uint32_t provider,
+                                         uint16_t sid, uint32_t hash,
+                                         int peerid, const char *detail,
+                                         const uint8_t cw[16]);
+
 // ============================================================================
 // Check Functions
 // ============================================================================
@@ -654,6 +683,12 @@ static int ssf_check_marchcheck(const uint8_t cw[16], uint16_t caid,
  * (fail-open). Observation state is updated on every sighting --
  * including a mode-2 rejection -- so a stuck fake keeps being counted
  * (and rejected) instead of silently becoming the new reference. */
+/* Band 104: firing evidence of the most recent ssf_check_cwdup flag
+ * (same TU as the check itself; read by check 11 immediately after). */
+static int ssf_cwdup_last_rep;
+static int ssf_cwdup_last_rep_needed;
+static uint32_t ssf_cwdup_last_competitor_age;
+
 static int ssf_check_cwdup(const uint8_t cw[16], const uint8_t ecm_hash[16],
                            uint16_t caid, uint32_t provid, uint16_t sid,
                            uint32_t now_ms, int rep_needed)
@@ -690,8 +725,17 @@ static int ssf_check_cwdup(const uint8_t cw[16], const uint8_t ecm_hash[16],
         memcpy(entry->last_hash, ecm_hash, 16);
         entry->rep = 0;
     }
-    return entry->rep >= rep_needed && entry->other_ms &&
-           (uint32_t)(now_ms - entry->other_ms) <= SSF_CWDUP_COMPETITOR_WINDOW_MS;
+    {
+        int flagged = entry->rep >= rep_needed && entry->other_ms &&
+                      (uint32_t)(now_ms - entry->other_ms) <= SSF_CWDUP_COMPETITOR_WINDOW_MS;
+        if (flagged) {
+            /* Band 104: evidence for the trace event recorded by check 11 */
+            ssf_cwdup_last_rep = entry->rep;
+            ssf_cwdup_last_rep_needed = rep_needed;
+            ssf_cwdup_last_competitor_age = (uint32_t)(now_ms - entry->other_ms);
+        }
+        return flagged;
+    }
 }
 
 /* Band 58: returns 1 when either non-zero half of `cw` was seen inside
@@ -900,6 +944,38 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
                             profile_cwdup_rep > 0 ? profile_cwdup_rep
                                                   : ssf_cfg.sf_cwdup_rep)) {
             ssf_stats.cwdup_flagged++;
+            /* Band 104: ring + trace-session event (under ssf_lock) */
+            {
+                struct ssf_cwdup_event *ev =
+                    &ssf_cwdup_events[ssf_cwdup_event_head];
+                ev->timestamp = (uint32_t)time(NULL);
+                ev->caid = caid; ev->provid = provid; ev->sid = sid;
+                ev->rep = ssf_cwdup_last_rep;
+                ev->rep_needed = ssf_cwdup_last_rep_needed;
+                ev->mode = dup_mode;
+                ev->rejected = (dup_mode == 2);
+                ev->peer_id = peer_id;
+                ev->competitor_age_ms = ssf_cwdup_last_competitor_age;
+                ssf_cwdup_event_head =
+                    (ssf_cwdup_event_head + 1) % SSF_CWDUP_EVENT_MAX;
+                ssf_cwdup_event_total++;
+                {
+                    char detail[192];
+                    uint32_t fh = 0;
+                    if (ecm_hash) memcpy(&fh, ecm_hash, sizeof(fh));
+                    snprintf(detail, sizeof(detail),
+                             "CW_DUP %s: same CW across %d new ECM cycles "
+                             "(threshold %d), competitor seen %u ms ago; "
+                             "mode=%s; source id=%u",
+                             dup_mode == 2 ? "REJECTED" : "flagged (log-only, delivered)",
+                             ev->rep, ev->rep_needed,
+                             (unsigned)ev->competitor_age_ms,
+                             dup_mode == 2 ? "reject" : "log-only",
+                             (unsigned)peer_id);
+                    user_trace_cache_observation(caid, provid, sid, fh,
+                                                 (int)peer_id, detail, cw);
+                }
+            }
             if (dup_mode == 2) {
                 ssf_stats.rejected_cwdup++;
                 rejected = 1;
