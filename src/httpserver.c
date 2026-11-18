@@ -9735,6 +9735,23 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                      st.gate_no_cycle, st.gate_cycle_late, st.gate_cycle_wrong,
                      st.gate_halfnull);
             tcp_writestr(tcpbuf, sock, out);
+            {
+                char rows[1500] = "";
+                int gi;
+                for (gi = 0; gi < st.gate_caid_count; gi++) {
+                    char entry[220];
+                    snprintf(entry, sizeof(entry), "%s<code>%04X</code>: مرشحون %lu · بلا دورة %lu · متأخر %lu · خاطئ %lu",
+                             gi ? " | " : "", st.gate_caids[gi].caid,
+                             st.gate_caids[gi].seen, st.gate_caids[gi].no_cycle,
+                             st.gate_caids[gi].cycle_late, st.gate_caids[gi].cycle_wrong);
+                    if (strlen(rows) + strlen(entry) < sizeof(rows) - 1)
+                        strcat(rows, entry);
+                }
+                snprintf(out, sizeof(out), "<p><b>حسب CAID (الأعلى رفضًا أولًا):</b> %s%s<br><small>قرار بوابة الدورة/التقدير يُبنى لكل CAID من صفّه وحده: غلبة «متأخر» على CAID ⇒ مرشّح لتجربة ‏CACHE CYCLE ESTIMATE بحذر؛ غلبة «خاطئ» ⇒ البوابة تصطاد شفرات غريبة فعلًا.</small></p>",
+                         rows[0] ? rows : "لا مرشحين بعد في هذه الجلسة",
+                         st.gate_caid_overflow ? " | (+CAIDs beyond the 32-slot tally)" : "");
+                tcp_writestr(tcpbuf, sock, out);
+            }
         }
         /* Band 106: MARCHCHECK inside CCcam Trace -- same shape as
          * CW_DUP/CW_REUSE, so all three fake-CW detectors are tuned

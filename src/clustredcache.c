@@ -2477,6 +2477,31 @@ static unsigned long gate_tally_cycle_wrong;
 static unsigned long gate_tally_halfnull;
 static unsigned long gate_tally_expired;
 
+/* Band 110: the same tally per CAID. The cycle-gate decision is taken
+ * per provider (the cycle-estimate review note in this file says so),
+ * so the operator must see WHICH CAID produces late vs wrong vs
+ * unmarked refusals before arming anything. Fixed 32 slots, first-
+ * come; further CAIDs fold into gate_tally_caid_overflow. */
+#define GATE_CAID_MAX 32
+static struct {
+	uint16_t caid;
+	unsigned long seen, no_cycle, cycle_late, cycle_wrong;
+} gate_caid_tally[GATE_CAID_MAX];
+static unsigned long gate_tally_caid_overflow;
+
+static int gate_caid_slot(uint16_t caid)
+{
+	int i, free_slot = -1;
+	for (i = 0; i < GATE_CAID_MAX; i++) {
+		if (gate_caid_tally[i].caid == caid && gate_caid_tally[i].seen)
+			return i;
+		if (!gate_caid_tally[i].seen && free_slot < 0) free_slot = i;
+	}
+	if (free_slot < 0) return -1;
+	gate_caid_tally[free_slot].caid = caid;
+	return free_slot;
+}
+
 static void cache_gate_status_fill(struct mcs_field_status *st)
 {
 	pthread_mutex_lock(&prg.lockcache);
@@ -2500,6 +2525,32 @@ static void cache_gate_status_fill(struct mcs_field_status *st)
 	st->gate_passed = gate_tally_seen - gate_tally_no_cycle
 		- gate_tally_cycle_late - gate_tally_cycle_wrong
 		- gate_tally_halfnull;
+	{
+		/* top CAIDs by refusals, worst first (insertion sort, 32 max) */
+		struct mcs_gate_caid tmp[GATE_CAID_MAX];
+		int i, j, n = 0;
+		for (i = 0; i < GATE_CAID_MAX; i++) {
+			if (!gate_caid_tally[i].seen) continue;
+			tmp[n].caid = gate_caid_tally[i].caid;
+			tmp[n].seen = gate_caid_tally[i].seen;
+			tmp[n].no_cycle = gate_caid_tally[i].no_cycle;
+			tmp[n].cycle_late = gate_caid_tally[i].cycle_late;
+			tmp[n].cycle_wrong = gate_caid_tally[i].cycle_wrong;
+			n++;
+		}
+		for (i = 1; i < n; i++) {
+			struct mcs_gate_caid key = tmp[i];
+			unsigned long kr = key.no_cycle + key.cycle_late + key.cycle_wrong;
+			for (j = i - 1; j >= 0 &&
+				(tmp[j].no_cycle + tmp[j].cycle_late + tmp[j].cycle_wrong) < kr; j--)
+				tmp[j + 1] = tmp[j];
+			tmp[j + 1] = key;
+		}
+		if (n > MCS_GATE_CAID_MAX) n = MCS_GATE_CAID_MAX;
+		st->gate_caid_count = n;
+		for (i = 0; i < n; i++) st->gate_caids[i] = tmp[i];
+		st->gate_caid_overflow = gate_tally_caid_overflow;
+	}
 	pthread_mutex_unlock(&prg.lockcache);
 }
 
@@ -2511,6 +2562,11 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 {
     int piped = 0;
     gate_tally_seen++;
+    {
+        int gs = gate_caid_slot(req->caid);
+        if (gs >= 0) gate_caid_tally[gs].seen++;
+        else gate_tally_caid_overflow++;
+    }
     cwcycle_t incoming_cycle = cwcycle;
     uint8_t previous_status = cwdata->status;
     cwcycle_t previous_cycle = cwdata->cwcycle;
@@ -2609,6 +2665,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 					         isnullDCW(pcache->prevcw) ? "absent" : "present");
 					user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
 					gate_tally_no_cycle++;
+					{ int gs = gate_caid_slot(req->caid); if (gs >= 0) gate_caid_tally[gs].no_cycle++; }
 					return cwdata->status | DCW_ERROR | DCW_SKIP;
 				}
 			}
@@ -2683,7 +2740,8 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 					int s = dcwcmp8(cw+8, pcache->prevcw+8);
 					if (f != s) cls = "late";
 				}
-				if (cls[0] == 'l') gate_tally_cycle_late++; else gate_tally_cycle_wrong++;
+				if (cls[0] == 'l') { gate_tally_cycle_late++; { int gs = gate_caid_slot(req->caid); if (gs >= 0) gate_caid_tally[gs].cycle_late++; } }
+				else { gate_tally_cycle_wrong++; { int gs = gate_caid_slot(req->caid); if (gs >= 0) gate_caid_tally[gs].cycle_wrong++; } }
 				snprintf(detail, sizeof(detail), "cache cycle mismatch: expected=%s; assessed=%s; incoming=%s; class=%s",
 				         cwcy_str((int)pcache->cwcycle), cwcy_str((int)cwcycle), cwcy_str((int)incoming_cycle), cls);
 				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);

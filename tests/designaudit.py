@@ -188,6 +188,9 @@ def main():
             assert 'حصيلة الإجماع والبوابات' in trace and 'ما بعد الإجماع' in trace, \
                 'consensus/gate tally missing from the trace overview'
             print('designaudit: consensus + gate tally holds')
+            assert 'حسب CAID (الأعلى رفضًا أولًا)' in trace, \
+                'per-CAID gate tally missing from the trace overview'
+            print('designaudit: per-CAID gate tally holds')
             assert 'MARCHCHECK' in trace and 'ركن النصف' in trace, \
                 'MARCHCHECK is not embedded in the CCcam trace overview'
             print('designaudit: MARCHCHECK trace section holds')
