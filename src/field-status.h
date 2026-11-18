@@ -106,6 +106,13 @@ struct mcs_field_status {
     uint64_t cwdup_event_total;
     int cwdup_event_count;
     struct mcs_cwdup_event cwdup_events[MCS_CWDUP_EVENT_MAX];
+    /* CW_REUSE (band 105): same shape, second detector */
+    int cwreuse_global_mode;    /* CACHE SF CWREUSE: 0 off, 1 log-only, 2 reject */
+    uint64_t cwreuse_flagged;
+    uint64_t cwreuse_rejected;
+    uint64_t cwreuse_event_total;
+    int cwreuse_event_count;
+    struct mcs_cwdup_event cwreuse_events[MCS_CWDUP_EVENT_MAX];
 };
 
 void mcs_field_status_fill(struct mcs_field_status *st);

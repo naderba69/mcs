@@ -182,6 +182,9 @@ def main():
             assert st == 200 and 'CW_DUP' in trace and 'تكرار الشفرة' in trace, \
                 'CW_DUP is not embedded in the CCcam trace overview'
             print('designaudit: CW_DUP trace section holds')
+            assert 'CW_REUSE' in trace and 'Cache Consensus' in trace, \
+                'CW_REUSE / consensus arming missing from the trace overview'
+            print('designaudit: CW_REUSE + consensus trace sections hold')
 
             # --- BISS add/list/delete --------------------------------------
             st, _ = cl.get('/biss?action=add&caid=2600&sid=0001&provid=000000&key=0123456789ABCDEF')

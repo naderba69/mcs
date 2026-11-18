@@ -2335,6 +2335,10 @@ struct ssf_stats ssf_stats;
 struct ssf_cwdup_event ssf_cwdup_events[SSF_CWDUP_EVENT_MAX];
 int ssf_cwdup_event_head;
 uint64_t ssf_cwdup_event_total;
+/* Band 105: CW_REUSE recent-events ring for /user-trace */
+struct ssf_cwdup_event ssf_cwreuse_events[SSF_CWREUSE_EVENT_MAX];
+int ssf_cwreuse_event_head;
+uint64_t ssf_cwreuse_event_total;
 
 static void mcs_cwdup_status_fill(struct mcs_field_status *st)
 {
@@ -2364,7 +2368,31 @@ static void mcs_cwdup_status_fill(struct mcs_field_status *st)
 		}
 		st->cwdup_event_count = n;
 	}
-	pthread_mutex_unlock(&ssf_lock);
+		st->cwreuse_global_mode = ssf_cfg.sf_cwreuse;
+	st->cwreuse_flagged = ssf_stats.cwreuse_flagged;
+	st->cwreuse_rejected = ssf_stats.rejected_cwreuse;
+	st->cwreuse_event_total = ssf_cwreuse_event_total;
+	{
+		int i, n = 0;
+		for (i = 1; i <= SSF_CWREUSE_EVENT_MAX && n < MCS_CWDUP_EVENT_MAX; i++) {
+			int ridx = (ssf_cwreuse_event_head - i + 2 * SSF_CWREUSE_EVENT_MAX) % SSF_CWREUSE_EVENT_MAX;
+			const struct ssf_cwdup_event *ev = &ssf_cwreuse_events[ridx];
+			if (!ev->timestamp) continue;
+			st->cwreuse_events[n].timestamp = ev->timestamp;
+			st->cwreuse_events[n].caid = ev->caid;
+			st->cwreuse_events[n].provid = ev->provid;
+			st->cwreuse_events[n].sid = ev->sid;
+			st->cwreuse_events[n].rep = ev->rep;
+			st->cwreuse_events[n].rep_needed = ev->rep_needed;
+			st->cwreuse_events[n].mode = ev->mode;
+			st->cwreuse_events[n].rejected = ev->rejected;
+			st->cwreuse_events[n].peer_id = ev->peer_id;
+			st->cwreuse_events[n].competitor_age_ms = ev->competitor_age_ms;
+			n++;
+		}
+		st->cwreuse_event_count = n;
+	}
+pthread_mutex_unlock(&ssf_lock);
 }
 pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
 struct dcwstrict_config dcwstrict_cfg;

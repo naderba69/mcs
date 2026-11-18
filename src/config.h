@@ -757,6 +757,7 @@ struct cardserver_data
 		int cachetimeout;
 		uint8_t cachetimeout_explicit; /* Distinguish a profile override from the zero default. */
 		uint8_t cache_evidence; /* R48: arm adaptive cache evidence/window learning; default OFF */
+		uint8_t consensus_sources; /* Band 105: per-profile CACHE CONSENSUS SOURCES override (2..8), 0=inherit global */
 		int cachesendreq;
 		int cacheresendreq;
 		int cachesendrep;

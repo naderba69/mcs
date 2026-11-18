@@ -9695,6 +9695,26 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         } else {
             tcp_writestr(tcpbuf, sock, "<p>لا قرارات DoubleCheck بعد في هذه الجلسة (تظهر هنا فور حدوثها، بدل سجلات [ECM-DBLCHK]).</p>");
         }
+        /* Band 105: cache-consensus arming at a glance (global default
+         * + per-profile CACHE CONSENSUS SOURCES overrides) */
+        {
+            char over[700] = "";
+            struct cardserver_data *pcs;
+            for (pcs = cfg.cardserver; pcs; pcs = pcs->next) {
+                if (pcs->option.consensus_sources >= 2) {
+                    char et3[1024]; char entry[220];
+                    snprintf(entry, sizeof(entry), "%s%s=%d",
+                             over[0] ? "، " : "", escf(et3, pcs->name),
+                             pcs->option.consensus_sources);
+                    if (strlen(over) + strlen(entry) < sizeof(over) - 1)
+                        strcat(over, entry);
+                }
+            }
+            snprintf(out, sizeof(out), "<p><b>إجماع الكاش (Cache Consensus):</b> مصادر التصديق المطلوبة عالميًا: %d | تجاوزات لكل بروفايل: %s<br><small>‏CACHE CONSENSUS SOURCES داخل كتلة البروفايل يخصّص العتبة لقنواته وحدها (2..8)؛ الرفض الموزون ضد المفاتيح المتعارضة لا يتأثر.</small></p>",
+                     cfg.cache.consensus_sources >= 2 ? cfg.cache.consensus_sources : 2,
+                     over[0] ? over : "—");
+            tcp_writestr(tcpbuf, sock, out);
+        }
         /* Band 104: CW_DUP inside CCcam Trace -- the detector's mode,
          * its counters and its most recent flags with the evidence, so
          * arming/tuning (DCW CWDUP: 1|2, DCW CWDUPREP) is driven from
@@ -9748,6 +9768,34 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                 tcp_writestr(tcpbuf, sock, "</table>");
             } else {
                 tcp_writestr(tcpbuf, sock, "<p>لا أعلام CW_DUP بعد في هذه الجلسة (تظهر هنا فور حدوثها، وتدخل أيضًا جدول أحداث الجلسة أسفل الصفحة عند مطابقة قناة العميل).</p>");
+            }
+        }
+        /* Band 105: CW_REUSE inside CCcam Trace, same shape as CW_DUP */
+        {
+            const char *rmode = st.cwreuse_global_mode == 2 ? "رفض" :
+                                st.cwreuse_global_mode == 1 ? "تسجيل فقط" : "مطفأ";
+            snprintf(out, sizeof(out), "<p><b>إعادة تدوير النصف (CW_REUSE — نصف CW ظهر على قناة أخرى داخل النافذة):</b> الوضع العام: %s | أعلام: %llu | رُفضت: %llu | أحداث مسجلة: %llu</p>",
+                     rmode,
+                     (unsigned long long)st.cwreuse_flagged,
+                     (unsigned long long)st.cwreuse_rejected,
+                     (unsigned long long)st.cwreuse_event_total);
+            tcp_writestr(tcpbuf, sock, out);
+            if (st.cwreuse_event_count) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>القناة</th><th>نافذة إعادة التدوير</th><th>الوضع</th><th>الإجراء</th><th>المصدر</th></tr>");
+                for (i = 0; i < st.cwreuse_event_count; i++) {
+                    char timestr[32];
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)st.cwreuse_events[i].timestamp, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td><code>%04X:%06X:%04X</code></td><td>%u ms</td><td>%s</td><td>%s</td><td>%u</td></tr>",
+                             timestr, st.cwreuse_events[i].caid, st.cwreuse_events[i].provid, st.cwreuse_events[i].sid,
+                             (unsigned)st.cwreuse_events[i].competitor_age_ms,
+                             st.cwreuse_events[i].mode == 2 ? "رفض" : "تسجيل فقط",
+                             st.cwreuse_events[i].rejected ? "⛔ رُفضت" : "✅ سُلّمت",
+                             (unsigned)st.cwreuse_events[i].peer_id);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else {
+                tcp_writestr(tcpbuf, sock, "<p>لا أعلام CW_REUSE بعد في هذه الجلسة.</p>");
             }
         }
         /* CWPAIR (band 38): discovery counters + ready-to-paste pairs */

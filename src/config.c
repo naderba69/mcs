@@ -4393,10 +4393,20 @@ link_mgcamd_user:
 						continue;
 					} else iparser++;
 					parse_int(str);
-					cfg->cache.consensus_sources = atoi(str);
-					if (cfg->cache.consensus_sources<2) cfg->cache.consensus_sources = 2;
-					else if (cfg->cache.consensus_sources>8) cfg->cache.consensus_sources = 8;
-					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CONSENSUS SOURCES: %d\n",file->nbline,iparser-currentline, cfg->cache.consensus_sources);
+					{
+						int v = atoi(str);
+						if (v<2) v = 2; else if (v>8) v = 8;
+						/* Band 105: inside a profile this is that
+						 * profile's override; globally it is the
+						 * default for every profile (0 = inherit). */
+						if (cardserver) {
+							cardserver->option.consensus_sources = (uint8_t)v;
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CONSENSUS SOURCES: %d (profile %s)\n",file->nbline,iparser-currentline, v, cardserver->name);
+						} else {
+							cfg->cache.consensus_sources = v;
+							debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CONSENSUS SOURCES: %d\n",file->nbline,iparser-currentline, cfg->cache.consensus_sources);
+						}
+					}
 				}
 				else if (!strcmp(str,"WINDOW")) {
 					parse_spaces();

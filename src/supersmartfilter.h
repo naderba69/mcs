@@ -237,6 +237,11 @@ struct ssf_cwdup_event {
 extern struct ssf_cwdup_event ssf_cwdup_events[SSF_CWDUP_EVENT_MAX];
 extern int ssf_cwdup_event_head; /* next write slot */
 extern uint64_t ssf_cwdup_event_total;
+/* Band 105: same treatment for CW_REUSE (check 12) -- same event shape */
+#define SSF_CWREUSE_EVENT_MAX 12
+extern struct ssf_cwdup_event ssf_cwreuse_events[SSF_CWREUSE_EVENT_MAX];
+extern int ssf_cwreuse_event_head;
+extern uint64_t ssf_cwreuse_event_total;
 /* Declared here to keep this header free of user-trace.h: records a
  * channel-level observation in the active trace session, if any. */
 extern void user_trace_cache_observation(uint16_t caid, uint32_t provider,
@@ -999,6 +1004,37 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
                                   ? profile_cwreuse_window_ms
                                   : ssf_cfg.sf_cwreuse_window_ms)) {
             ssf_stats.cwreuse_flagged++;
+            /* Band 105: ring + trace-session event (under ssf_lock) */
+            {
+                struct ssf_cwdup_event *ev =
+                    &ssf_cwreuse_events[ssf_cwreuse_event_head];
+                ev->timestamp = (uint32_t)time(NULL);
+                ev->caid = caid; ev->provid = provid; ev->sid = sid;
+                ev->rep = 0; ev->rep_needed = 0;
+                ev->mode = reuse_mode;
+                ev->rejected = (reuse_mode == 2);
+                ev->peer_id = peer_id;
+                ev->competitor_age_ms = (uint32_t)(profile_cwreuse_window_ms > 0
+                                  ? profile_cwreuse_window_ms
+                                  : ssf_cfg.sf_cwreuse_window_ms);
+                ssf_cwreuse_event_head =
+                    (ssf_cwreuse_event_head + 1) % SSF_CWREUSE_EVENT_MAX;
+                ssf_cwreuse_event_total++;
+                {
+                    char detail[192];
+                    uint32_t fh = 0;
+                    if (ecm_hash) memcpy(&fh, ecm_hash, sizeof(fh));
+                    snprintf(detail, sizeof(detail),
+                             "CW_REUSE %s: half of this CW recycled on another "
+                             "channel within %u ms window; mode=%s; source id=%u",
+                             reuse_mode == 2 ? "REJECTED" : "flagged (log-only, delivered)",
+                             (unsigned)ev->competitor_age_ms,
+                             reuse_mode == 2 ? "reject" : "log-only",
+                             (unsigned)peer_id);
+                    user_trace_cache_observation(caid, provid, sid, fh,
+                                                 (int)peer_id, detail, cw);
+                }
+            }
             if (reuse_mode == 2) {
                 ssf_stats.rejected_cwreuse++;
                 rejected = 1;

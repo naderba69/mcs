@@ -39,6 +39,9 @@ pthread_mutex_t ssf_lock = PTHREAD_MUTEX_INITIALIZER;
 struct ssf_cwdup_event ssf_cwdup_events[SSF_CWDUP_EVENT_MAX];
 int ssf_cwdup_event_head;
 uint64_t ssf_cwdup_event_total;
+struct ssf_cwdup_event ssf_cwreuse_events[SSF_CWREUSE_EVENT_MAX];
+int ssf_cwreuse_event_head;
+uint64_t ssf_cwreuse_event_total;
 static int trace_hook_calls;
 static char trace_hook_detail[192];
 void user_trace_cache_observation(uint16_t caid, uint32_t provider,
