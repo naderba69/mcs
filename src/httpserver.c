@@ -920,7 +920,7 @@ void tcp_write_menu(struct tcp_buffer_data *tcpbuf, int sock, int selected)
 	sprintf( buf, "<li><a href='/logout'>%s</a></li>", mlabel("Logout","خروج"));
 	tcp_writestr(tcpbuf, sock, buf);
 	tcp_writestr(tcpbuf, sock, "<script>\nfunction toggleTheme(){var t=document.documentElement.getAttribute('data-theme');var n=t==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',n);try{localStorage.setItem('mcs-theme',n);}catch(e){}}\n(function(){try{var t=localStorage.getItem('mcs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();\n</script>\n");
-	tcp_writestr(tcpbuf, sock, "</ul><span style='float:right;'>Multi Card Server r"REVISION_STR"</span></div>\n");
+	tcp_writestr(tcpbuf, sock, "</ul><span class='brand'>&#128225; Multi Card Server r"REVISION_STR"</span></div>\n");
 
 	//
 	if ( (selected!=PAGE_RESTART)&&(selected!=PAGE_EDITOR) ) {
@@ -1320,13 +1320,14 @@ void http_send_index(int sock, http_request *req)
 	tcp_writestr(&tcpbuf, sock, "<div style=\"margin-left:10px;\">");
 
 	unsigned int d= GetTickCount()/1000;
-	sprintf( http_buf,"Uptime: %02dd %02d:%02d:%02d", d/(3600*24), (d/3600)%24, (d/60)%60, d%60); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	tcp_writestr(&tcpbuf, sock, "<div class='perf-cards sys'>");
+	sprintf( http_buf,"<div class='perf-card'><div class='label'>Uptime</div><div class='value'>%02dd %02d:%02d:%02d</div></div>", d/(3600*24), (d/3600)%24, (d/60)%60, d%60); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 
 	FILE *fp = fopen ("/proc/loadavg", "r");
 	if (fp) {
 		float avg;
 		(void)fscanf(fp, "%f", &avg);
-		sprintf( http_buf,"<br>Load Average: %01.2f", avg); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf,"<div class='perf-card'><div class='label'>Load Average</div><div class='value'>%01.2f</div></div>", avg); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		fclose(fp);
 	}
 
@@ -1334,16 +1335,17 @@ void http_send_index(int sock, http_request *req)
 	if (fp) {
 		int memfree;
 		(void)fscanf (fp, "MemTotal: %*d kB MemFree: %d kB", &memfree);
-		sprintf( http_buf,"<br>Free Memory: %d kB", memfree); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf,"<div class='perf-card'><div class='label'>Free Memory</div><div class='value'>%d kB</div></div>", memfree); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		fclose(fp);
 	}
-	sprintf( http_buf, "<br>Total Profiles: %d", cfg.totalprofiles ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total Servers: %d", cfg.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total Cache Servers: %d", cfg.cache.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total CCcam Servers: %d", cfg.cccam.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total Mgcamd Servers: %d", cfg.mgcamd.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total Camd35 Servers: %d", cfg.camd35.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
-	sprintf( http_buf, "<br>Total cs378x Servers: %d", cfg.cs378x.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>Total Profiles</div><div class='value'>%d</div></div>", cfg.totalprofiles ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>Total Servers</div><div class='value'>%d</div></div>", cfg.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>Cache Servers</div><div class='value'>%d</div></div>", cfg.cache.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>CCcam Servers</div><div class='value'>%d</div></div>", cfg.cccam.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>Mgcamd Servers</div><div class='value'>%d</div></div>", cfg.mgcamd.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>Camd35 Servers</div><div class='value'>%d</div></div>", cfg.camd35.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	sprintf( http_buf, "<div class='perf-card'><div class='label'>cs378x Servers</div><div class='value'>%d</div></div>", cfg.cs378x.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	tcp_writestr(&tcpbuf, sock, "</div>");
 	/* R48: ECM performance cards */
 	{
 		int total_ecm = 0, accepted_ecm = 0, ok_ecm = 0;
@@ -9447,7 +9449,7 @@ static void http_send_user_trace(int sock, http_request *req)
     tcp_writestr(&tcpbuf, sock, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\n");
     if (req->setcookie[0]) { tcp_writestr(&tcpbuf, sock, "Set-Cookie: "); tcp_writestr(&tcpbuf, sock, req->setcookie); tcp_writestr(&tcpbuf, sock, "\r\n"); }
     tcp_writestr(&tcpbuf, sock, "\r\n");
-    tcp_writestr(&tcpbuf, sock, "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><title>متابعة عميل</title><style>body{background:linear-gradient(180deg,#111a23,#0d1319);color:#e6edf3;font:15px/1.55 system-ui,'Segoe UI',Tahoma,sans-serif;margin:0;padding:26px}h1{color:#6cb6e8;font-size:22px;border-bottom:2px solid #3b93c9;padding-bottom:8px}input,select,button{padding:.45em .7em;margin:.3em;border-radius:8px;border:1px solid #3a4d63;background:#18222d;color:#e6edf3;font:inherit}button{background:linear-gradient(135deg,#1d6fa5,#0f766e);border:0;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.35)}button:hover{filter:brightness(1.15)}table{border-collapse:separate;border-spacing:0;width:100%;background:#18222d;border:1px solid #2b3949;border-radius:10px;overflow:hidden}td,th{border-bottom:1px solid #2b3949;padding:.45em .6em;text-align:right;font-size:13.5px}th{background:linear-gradient(135deg,#1d6fa5,#0f766e);color:#fff}tr:hover td{background:#1b2c40}code{direction:ltr;display:inline-block;background:#1b2c40;padding:1px 6px;border-radius:5px}</style></head><body><h1>متابعة CCcam</h1><p>جلسة واحدة مشتركة للمشرفين؛ البدء يستبدل الجلسة السابقة، وإعادة تحميل الإعدادات توقفها. تبدأ المتابعة للطلبات الجديدة فقط. اختيار العميل يملأ آخر قناة مسجلة إن توفرت، وقد لا تكون القناة الحالية؛ يمكن تعديلها يدوياً. بعض أسباب الرفض غير مسجلة في هذه النسخة. أحداث الكاش على مستوى القناة فقط، وقد تخص طلبات عملاء آخرين؛ تطابق CAID وSID لا يثبت تطابق الطلب أو Provider، و000000 قد تعني أن المصدر لم يرسله. الأحداث المشتركة تخص ECM وقد يشارك فيه عملاء آخرون؛ إرسال CW لا يثبت ظهور الصورة.</p>");
+    tcp_writestr(&tcpbuf, sock, "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><title>متابعة عميل</title><style>body{background:linear-gradient(180deg,#111a23,#0d1319);color:#e6edf3;font:15px/1.55 system-ui,'Segoe UI',Tahoma,sans-serif;margin:0;padding:26px}h1{color:#6cb6e8;font-size:22px;border-bottom:2px solid #3b93c9;padding-bottom:8px}input,select,button{padding:.45em .7em;margin:.3em;border-radius:8px;border:1px solid #3a4d63;background:#18222d;color:#e6edf3;font:inherit}button{background:linear-gradient(135deg,#1d6fa5,#0f766e);border:0;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.35)}button:hover{filter:brightness(1.15)}table{border-collapse:separate;border-spacing:0;width:100%;background:#18222d;border:1px solid #2b3949;border-radius:10px;overflow:hidden}td,th{border-bottom:1px solid #2b3949;padding:.45em .6em;text-align:right;font-size:13.5px}th{background:linear-gradient(135deg,#1d6fa5,#0f766e);color:#fff}tr:hover td{background:#1b2c40}code{direction:ltr;display:inline-block;background:#1b2c40;padding:1px 6px;border-radius:5px}h2{color:#6cb6e8;font-size:16px;border-bottom:2px solid #2b3949;padding-bottom:5px;margin-top:22px}th{position:sticky;top:0}td{font-variant-numeric:tabular-nums}tr:nth-child(even) td{background:#151f2a}input:focus,select:focus{outline:none;border-color:#3b93c9;box-shadow:0 0 0 3px rgba(59,147,201,.25)}button:active{transform:translateY(1px)}fieldset{border:1px solid #2b3949;border-radius:10px;background:#18222d}::selection{background:#1d6fa5}</style></head><body><h1>متابعة CCcam</h1><p>جلسة واحدة مشتركة للمشرفين؛ البدء يستبدل الجلسة السابقة، وإعادة تحميل الإعدادات توقفها. تبدأ المتابعة للطلبات الجديدة فقط. اختيار العميل يملأ آخر قناة مسجلة إن توفرت، وقد لا تكون القناة الحالية؛ يمكن تعديلها يدوياً. بعض أسباب الرفض غير مسجلة في هذه النسخة. أحداث الكاش على مستوى القناة فقط، وقد تخص طلبات عملاء آخرين؛ تطابق CAID وSID لا يثبت تطابق الطلب أو Provider، و000000 قد تعني أن المصدر لم يرسله. الأحداث المشتركة تخص ECM وقد يشارك فيه عملاء آخرون؛ إرسال CW لا يثبت ظهور الصورة.</p>");
     snprintf(out, sizeof(out), "<form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='start'><label>العميل <select name='client' required onchange='traceChoose(this)'><option value='' disabled%s>اختر عميلاً</option>", trace_csrf, snap->active ? "" : " selected");
     tcp_writestr(&tcpbuf, sock, out);
     {

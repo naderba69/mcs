@@ -290,7 +290,7 @@ void http_send_debug_ecm(int sock, struct http_request *req)
         ".stat-card { background: #f8f9fa; padding: 15px; border-radius: 6px; border-left: 4px solid #007bff; }\n"
         ".stat-value { font-size: 24px; font-weight: bold; color: #333; }\n"
         ".stat-label { color: #666; font-size: 14px; margin-top: 5px; }\n"
-        "</style>\n"
+        "\n/* Band 91: professional components */\nh2{font-size:15px;color:#0f5f8a;border-bottom:2px solid #d3dce4;padding-bottom:5px;margin:20px 0 8px;}\ntable{border-radius:10px;overflow:hidden;box-shadow:0 2px 10px rgba(16,35,55,.09);}\nth{position:sticky;top:0;}\ntd{font-variant-numeric:tabular-nums;}\n.btn,.button,button,input[type=submit]{background:linear-gradient(135deg,#0f5f8a,#12838f);color:#fff;border:0;border-radius:8px;padding:7px 15px;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(15,95,138,.25);}\ninput,select{border:1px solid #b9c7d4;border-radius:8px;padding:6px 9px;}\ninput:focus,select:focus{outline:none;border-color:#0f5f8a;box-shadow:0 0 0 3px #e2eef5;}\n</style>\n"
         "</head>\n"
         "<body>\n"
         "<div class='container'>\n"

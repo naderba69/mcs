@@ -424,7 +424,7 @@ void http_send_cache_analytics(int sock, struct http_request *req)
         ".hit-rate-high { color: #28a745; font-weight: bold; }\n"
         ".hit-rate-medium { color: #ffc107; font-weight: bold; }\n"
         ".hit-rate-low { color: #dc3545; font-weight: bold; }\n"
-        "</style>\n"
+        "\n/* Band 91: professional components */\nh2{font-size:15px;color:#0f5f8a;border-bottom:2px solid #d3dce4;padding-bottom:5px;margin:20px 0 8px;}\n.stat-grid{display:grid !important;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;}\n.stat-card{border-top:3px solid #12838f !important;transition:transform .18s,box-shadow .18s;}\n.stat-card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(16,35,55,.16) !important;}\n.stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#5b6b7b;font-weight:700;}\ntable{border-radius:10px;overflow:hidden;box-shadow:0 2px 10px rgba(16,35,55,.09);}\nth{position:sticky;top:0;}\ntd{font-variant-numeric:tabular-nums;}\n.btn,.button,button,input[type=submit]{background:linear-gradient(135deg,#0f5f8a,#12838f);color:#fff;border:0;border-radius:8px;padding:7px 15px;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(15,95,138,.25);}\n</style>\n"
         "</head>\n"
         "<body>\n"
         "<div class='container'>\n"

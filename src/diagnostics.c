@@ -397,7 +397,7 @@ void http_send_diagnostics(int sock, struct http_request *req)
         ".progress-fill { height: 100%%; transition: width 0.3s; }\n"
         ".btn { display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }\n"
         ".btn:hover { background: #0056b3; }\n"
-        "</style>\n"
+        "\n/* Band 91: professional components */\nh2{font-size:15px;color:#0f5f8a;border-bottom:2px solid #d3dce4;padding-bottom:5px;margin:20px 0 8px;}\n.stats-grid,.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;}\n.stat-card{border-top:3px solid #12838f !important;transition:transform .18s,box-shadow .18s;}\n.stat-card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(16,35,55,.16) !important;}\n.stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#5b6b7b;font-weight:700;}\ntable{border-radius:10px;overflow:hidden;box-shadow:0 2px 10px rgba(16,35,55,.09);}\ntd{font-variant-numeric:tabular-nums;}\n.btn,.button,button,input[type=submit]{background:linear-gradient(135deg,#0f5f8a,#12838f);color:#fff;border:0;border-radius:8px;padding:7px 15px;font-weight:700;cursor:pointer;}\npre{background:#0d1520;color:#d7e6f5;border-radius:10px;padding:12px;overflow:auto;}\n</style>\n"
         "</head>\n"
         "<body>\n"
         "<div class='container'>\n"
