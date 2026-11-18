@@ -191,6 +191,13 @@ def main():
             assert 'حسب CAID (الأعلى رفضًا أولًا)' in trace, \
                 'per-CAID gate tally missing from the trace overview'
             print('designaudit: per-CAID gate tally holds')
+            assert 'تصنيف الظل لرفض «بلا دورة»' in trace, \
+                'shadow classification of no-cycle refusals missing from trace'
+            assert 'تصنيف الظل حسب CAID' in trace, \
+                'per-CAID shadow tally missing from trace overview'
+            assert 'التثبت: مجموع الظل' in trace, \
+                'shadow partition self-check missing from trace overview'
+            print('designaudit: shadow gate tally holds')
             assert 'MARCHCHECK' in trace and 'ركن النصف' in trace, \
                 'MARCHCHECK is not embedded in the CCcam trace overview'
             print('designaudit: MARCHCHECK trace section holds')

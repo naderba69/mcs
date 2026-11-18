@@ -192,6 +192,7 @@ int peer_doublecheck(struct cacheserver_data *cache, struct cachepeer_data *xpee
 #include "peerrep.h"		/* TASK R4 (D58): the persistent peer-reputation ladder */
 #include "cwconsensus.h"/* TASK R8 (D62): the per-request cw arbitrer */
 #include "cache-intelligence.h" /* CACHE-AI: 7-level smart cache optimization */
+#include "cache-cycle-shadow.h" /* band 111: shadow gate classifier */
 #include "cwpair.h" /* band 38: observe cache-stored CWs for pairing */
 #ifdef MCS_DCWSTATS
 #include "cwlog.h"		/* TASK R11 (D65): the per-CW verdict ring */
@@ -2486,8 +2487,28 @@ static unsigned long gate_tally_expired;
 static struct {
 	uint16_t caid;
 	unsigned long seen, no_cycle, cycle_late, cycle_wrong;
+	unsigned long shadow_rot, shadow_neither;
+	unsigned long shadow_bothsame, shadow_noprev;
 } gate_caid_tally[GATE_CAID_MAX];
 static unsigned long gate_tally_caid_overflow;
+
+/* Band 111: SHADOW classification of the "filter did not establish cycle"
+ * refusals -- measurement only, the refusal below is untouched.
+ * Band 109's late/wrong split lives on the CONTRADICTION branch, which an
+ * UNMARKED key never reaches: the no-cycle return happens first. So a
+ * server whose peers carry no cycle markers reads "0 late / 0 wrong"
+ * forever -- the decisive classes were structurally starved, not empty.
+ * The field trace (91033 candidates, 30521 refused, 0/0) proved that, so
+ * these counters answer the deferred question directly instead: for each
+ * refused unmarked key, what WOULD cfg.cache.cycle_estimate have claimed,
+ * using exactly its predicate (exactly one half differs from prevcw =>
+ * the other half rotated). The five classes below partition the no-cycle
+ * refusals, so shadow total == no_cycle is the only accepted self-check. */
+static unsigned long gate_shadow_rot_cw1;   /* first half differs -> CW1 */
+static unsigned long gate_shadow_rot_cw0;   /* second half differs -> CW0 */
+static unsigned long gate_shadow_neither;   /* both differ: no stable half */
+static unsigned long gate_shadow_bothsame;  /* both equal prevcw: same key */
+static unsigned long gate_shadow_noprev;    /* no prevcw to compare with */
 
 static int gate_caid_slot(uint16_t caid)
 {
@@ -2525,6 +2546,11 @@ static void cache_gate_status_fill(struct mcs_field_status *st)
 	st->gate_passed = gate_tally_seen - gate_tally_no_cycle
 		- gate_tally_cycle_late - gate_tally_cycle_wrong
 		- gate_tally_halfnull;
+	st->shadow_rot_cw1 = gate_shadow_rot_cw1;
+	st->shadow_rot_cw0 = gate_shadow_rot_cw0;
+	st->shadow_neither = gate_shadow_neither;
+	st->shadow_bothsame = gate_shadow_bothsame;
+	st->shadow_noprev = gate_shadow_noprev;
 	{
 		/* top CAIDs by refusals, worst first (insertion sort, 32 max) */
 		struct mcs_gate_caid tmp[GATE_CAID_MAX];
@@ -2536,6 +2562,10 @@ static void cache_gate_status_fill(struct mcs_field_status *st)
 			tmp[n].no_cycle = gate_caid_tally[i].no_cycle;
 			tmp[n].cycle_late = gate_caid_tally[i].cycle_late;
 			tmp[n].cycle_wrong = gate_caid_tally[i].cycle_wrong;
+			tmp[n].shadow_rot = gate_caid_tally[i].shadow_rot;
+			tmp[n].shadow_neither = gate_caid_tally[i].shadow_neither;
+			tmp[n].shadow_bothsame = gate_caid_tally[i].shadow_bothsame;
+			tmp[n].shadow_noprev = gate_caid_tally[i].shadow_noprev;
 			n++;
 		}
 		for (i = 1; i < n; i++) {
@@ -2665,7 +2695,33 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 					         isnullDCW(pcache->prevcw) ? "absent" : "present");
 					user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
 					gate_tally_no_cycle++;
-					{ int gs = gate_caid_slot(req->caid); if (gs >= 0) gate_caid_tally[gs].no_cycle++; }
+					{
+						/* Same inputs the estimator reads, same order --
+						 * dcwcmp8() is an EQUALITY test, so the flags below
+						 * mean "this half carried over". */
+						int gs = gate_caid_slot(req->caid);
+						int cls = mcs_shadow_class(!isnullDCW(pcache->prevcw),
+						                           dcwcmp8(cw, pcache->prevcw),
+						                           dcwcmp8(cw+8, pcache->prevcw+8));
+						switch (cls) {
+						case MCS_SHADOW_ROT_CW1:  gate_shadow_rot_cw1++; break;
+						case MCS_SHADOW_ROT_CW0:  gate_shadow_rot_cw0++; break;
+						case MCS_SHADOW_NEITHER:  gate_shadow_neither++; break;
+						case MCS_SHADOW_BOTHSAME: gate_shadow_bothsame++; break;
+						default: gate_shadow_noprev++; break;
+						}
+						if (gs >= 0) {
+							gate_caid_tally[gs].no_cycle++;
+							if (cls == MCS_SHADOW_ROT_CW1 || cls == MCS_SHADOW_ROT_CW0)
+								gate_caid_tally[gs].shadow_rot++;
+							else if (cls == MCS_SHADOW_NEITHER)
+								gate_caid_tally[gs].shadow_neither++;
+							else if (cls == MCS_SHADOW_BOTHSAME)
+								gate_caid_tally[gs].shadow_bothsame++;
+							else
+								gate_caid_tally[gs].shadow_noprev++;
+						}
+					}
 					return cwdata->status | DCW_ERROR | DCW_SKIP;
 				}
 			}
@@ -4890,7 +4946,6 @@ void *cache_thread(void *param)
 							user_trace_cache_observation(chpc->caid, chpc->provid, chpc->sid, chpc->hash, cch.peerid,
 							    "cache consensus window expired; cycle checks pending", chw->cw);
 							gate_tally_expired++;
-							gate_tally_expired++;
 							cache_after_consensus(chpc, chpc, chw, chw->cw,
 							                      (cwcycle_t)cch.cycle, cch.peerid);
 							debugf(getdbgflag(DBG_CACHE,0,0),
@@ -4994,6 +5049,7 @@ void *cache_thread(void *param)
 							 * gates still decide whether the CW may be forwarded. */
 							user_trace_cache_observation(chpc->caid, chpc->provid, chpc->sid, chpc->hash, cch.peerid,
 							    "cache consensus window expired; cycle checks pending", chw->cw);
+							gate_tally_expired++;
 							cache_after_consensus(chpc, chpc, chw, chw->cw,
 							                      (cwcycle_t)cch.cycle, cch.peerid);
 							debugf(getdbgflag(DBG_CACHE,0,0),

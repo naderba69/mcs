@@ -9747,10 +9747,42 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                     if (strlen(rows) + strlen(entry) < sizeof(rows) - 1)
                         strcat(rows, entry);
                 }
-                snprintf(out, sizeof(out), "<p><b>حسب CAID (الأعلى رفضًا أولًا):</b> %s%s<br><small>قرار بوابة الدورة/التقدير يُبنى لكل CAID من صفّه وحده: غلبة «متأخر» على CAID ⇒ مرشّح لتجربة ‏CACHE CYCLE ESTIMATE بحذر؛ غلبة «خاطئ» ⇒ البوابة تصطاد شفرات غريبة فعلًا.</small></p>",
+                snprintf(out, sizeof(out), "<p><b>حسب CAID (الأعلى رفضًا أولًا):</b> %s%s<br><small>قرار بوابة الدورة/التقدير يُبنى لكل CAID من صفّه وحده. انتبه: «متأخر/خاطئ» لا يتحرّكان إلا على مفاتيح تحمل علامة دورة من النظير؛ إن كان نظراؤك بلا علامة فالدليل الحاسم هو سطر «تصنيف الظل» تاليًا لا هذان.</small></p>",
                          rows[0] ? rows : "لا مرشحين بعد في هذه الجلسة",
                          st.gate_caid_overflow ? " | (+CAIDs beyond the 32-slot tally)" : "");
                 tcp_writestr(tcpbuf, sock, out);
+            }
+            /* Band 111: shadow classification of the no-cycle refusals --
+             * the numbers the late/wrong pair can never show when peers
+             * carry no marker. Measure only; nothing here decides. */
+            {
+                char sout[1600];
+                unsigned long ssum = st.shadow_rot_cw1 + st.shadow_rot_cw0
+                    + st.shadow_neither + st.shadow_bothsame + st.shadow_noprev;
+                snprintf(sout, sizeof(sout),
+                    "<p><b>تصنيف الظل لرفض «بلا دورة» (Shadow — قياس فقط، لا يغيّر قرارًا):</b> دوران نصفي ‏CW1: %lu · دوران نصفي ‏CW0: %lu | لا نصف ثابت: %lu · مطابق للسابق تمامًا: %lu · بلا ‏prevcw: %lu | التثبت: مجموع الظل %lu «بلا دورة» %lu ⇒ <b>%s</b><br><small>هذه أرقام ما كان ليصنّفه ‏CACHE CYCLE ESTIMATE لو كان مفعّلًا، بنفس مقدِّمه حرفيًا (نصف يختلف ⇔ النصف الآخر دار). «دوران» = مادة مفتاح حقيقية قديمة الدورة يرفضها الباب بلا طائل ⇒ التجربة مبرّرة لكل بروفايل على حدة؛ «لا نصف ثابت» = لا واسطة عند المُقدِّر ويبقى الرفض صحيحًا؛ «مطابق للسابق» = نفس الشفرة أُعيدت (مكانها ‏CW_DUP لا الباب)؛ «بلا ‏prevcw» = أول شفرة على القناة، تُحسم من توقّع ‏ecmtag لا من النصفين. لا تُقرأ «متأخر/خاطئ» أعلاه إلا على مفاتيح مُعلَّمة: عند نظراء بلا علامة يخرج الرفض قبلها، فسطر الظل هذا هو الدليل الحاسم.</small></p>",
+                    st.shadow_rot_cw1, st.shadow_rot_cw0, st.shadow_neither,
+                    st.shadow_bothsame, st.shadow_noprev, ssum, st.gate_no_cycle,
+                    ssum == st.gate_no_cycle ? "متطابقان ✅" : "فرق — القياس ناقش ⚠️");
+                tcp_writestr(tcpbuf, sock, sout);
+            }
+            {
+                char sout[1600];
+                char srows[2048] = "";
+                int si;
+                for (si = 0; si < st.gate_caid_count && si < 8; si++) {
+                    char entry[200];
+                    snprintf(entry, sizeof(entry), "%s<code>%04X</code>: دوران %lu · لا-نصف-ثابت %lu · مطابق %lu · بلا-سابق %lu",
+                             si ? " | " : "", st.gate_caids[si].caid,
+                             st.gate_caids[si].shadow_rot, st.gate_caids[si].shadow_neither,
+                             st.gate_caids[si].shadow_bothsame, st.gate_caids[si].shadow_noprev);
+                    if (strlen(srows) + strlen(entry) < sizeof(srows) - 1)
+                        strcat(srows, entry);
+                }
+                snprintf(sout, sizeof(sout), "<p><b>تصنيف الظل حسب CAID (أعلى 8 رفضًا):</b> %s%s</p>",
+                         srows[0] ? srows : "لا رفض «بلا دورة» بعد في هذه الجلسة",
+                         st.gate_caid_count > 8 ? " | (ثمانية أولًا — الباقون في العالمي)" : "");
+                tcp_writestr(tcpbuf, sock, sout);
             }
         }
         /* Band 106: MARCHCHECK inside CCcam Trace -- same shape as

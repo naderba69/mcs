@@ -40,6 +40,10 @@ struct mcs_gate_caid {
     unsigned long no_cycle;
     unsigned long cycle_late;
     unsigned long cycle_wrong;
+    unsigned long shadow_rot;       /* one-half rotation (est. would pass) */
+    unsigned long shadow_neither;   /* neither half stable */
+    unsigned long shadow_bothsame;  /* identical to prevcw */
+    unsigned long shadow_noprev;    /* no previous CW on the channel */
 };
 
 struct mcs_cwdup_event {
@@ -154,6 +158,8 @@ struct mcs_field_status {
     unsigned long gate_cycle_late;
     unsigned long gate_cycle_wrong;
     unsigned long gate_halfnull;
+    unsigned long shadow_rot_cw1, shadow_rot_cw0, shadow_neither;
+    unsigned long shadow_bothsame, shadow_noprev;
     int gate_caid_count;
     unsigned long gate_caid_overflow;
     struct mcs_gate_caid gate_caids[MCS_GATE_CAID_MAX];
