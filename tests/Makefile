@@ -270,6 +270,22 @@ cwreuse-half:
 latecw:
 	sh ./latecw.sh
 
+# Band 108: every fast unit harness in one loud target. Bands 104-107
+# silently broke the marchcheck/latecw links (header grew trace-ring
+# externs; the harnesses were outside the usual run set) -- a harness
+# that is not run does not exist. Keep this list complete: any new
+# tests/*.sh unit harness joins here in the same band that adds it.
+.PHONY: unit
+unit:
+	@for t in marchcheck cwdup cwreuse latecw cache-hash-invariants \
+	    cache-sms-escape ecmdata-allocation camd35-send-guard \
+	    loginaudit loginban protoban ecm-radegast-identity \
+	    cache-check-characterization cache-cross-gates \
+	    cache-cross-provider; do \
+	  echo "== $$t"; sh ./$$t.sh || { echo "unit: $$t FAILED"; exit 1; }; \
+	done
+	@echo "unit: ALL PASS"
+
 # Band 60: per-protocol IP bans (isolation/threshold/lapse/unban/
 # snapshot) against the production loginthrottle.c, injected clock.
 protoban:

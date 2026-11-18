@@ -53,14 +53,14 @@ dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 5392840310182c115bf07767de740867  bin/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  bin/multics-r82a-r22-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-e1359ca202922c6133aac183fe978bee  bin/multics-r82a-stats-x64
+af838849fc4a306ee118bf82fba9a3a0  bin/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  bin/multics-r82a-stock-x64
 fbfef2a162b03fed8d56aca7babd3ef3  bin/multics-r82a-x64
-e1359ca202922c6133aac183fe978bee  bin/multics.x64
+af838849fc4a306ee118bf82fba9a3a0  bin/multics.x64
 9d212081c5d435e4166a24fd6a48d666  dist/multics-r82a-queue-stats-x64
 4a574b9f126f88809cbbe56f4ceaa633  dist/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  dist/multics-r82a-r22-x64
-e1359ca202922c6133aac183fe978bee  dist/multics-r82a-stats-x64
+af838849fc4a306ee118bf82fba9a3a0  dist/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
@@ -152,7 +152,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-28c07363d17d6cf1d3a3fc3a1646189f  docs/REPORT-R48-ar.md
+f7464046b31dcdb32d49d85ce2ef29cd  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -584,7 +584,7 @@ fcefcdfa1775d443482ebfec42fa6b98  src/fastretx.h
 b0bbaa2af7f807538bbf094b09bcfdaa  src/field-status.h
 8798be7a3334dd52a05bfb5c12e3b4c5  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-e40d60acbcf8f8467ce8b4df543b4efe  src/httpserver.c
+1077630a08d52b5caa177908d8d08b83  src/httpserver.c
 ba3dbab45abea98efcb6961173889ec0  src/httpserver.h
 fa48ec09d83b51893a5544e8364d5a59  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
@@ -737,8 +737,8 @@ addad57e2865ca125b0a0e344a04d5b2  src/zerohandoff.h
 d891e63347205f1bde3fca5ae2239420  src/zerolatency.h
 49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-b6d87b6b57450e781f73f705665608ba  tests/Makefile
-c4753a58d62747cb581addf833032ef3  tests/__pycache__/cccam-trace-success.cpython-311.pyc
+77365cceba44034b41c730567e1143f2  tests/Makefile
+85a50334f924c448f2b91bc8fb5f9923  tests/__pycache__/cccam-trace-success.cpython-311.pyc
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 20d219f9c855160bef706a75cc36cea2  tests/ca-bite.c
 5aca781251bd8d1cfefe116689ea3504  tests/cache-1884-compare.py
@@ -754,7 +754,7 @@ d8c969bf2fa789a0acf23c9ab926fa4f  tests/cache-cross-gates.c
 a8cf1ad4cfeb5bf88f09ad3f44872911  tests/cache-cross-provider.sh
 0c0f09210608d313292b8059e984a9f4  tests/cache-disabled-peer.py
 92e1649007ac451546185835a949bf70  tests/cache-hash-invariants.c
-8f7bb2c2aa793a2a0c5adfced695a531  tests/cache-hash-invariants.sh
+d4c9b5d3663e9d21473b745c28639315  tests/cache-hash-invariants.sh
 df878ec14bc0c7a41e7ee05c8178d6cc  tests/cache-ingress-gates.py
 5ee23d87b929253f861de92963eab4bb  tests/cache-origin-loop.py
 a5e1b8fa4c3febb70f511d3e09777837  tests/cache-peer-broadcast.py
@@ -762,7 +762,7 @@ e6dacc82778b43214b09f6078fc81f57  tests/cache-peer-serve.py
 4fe37c33ef2f4538c916a04d6d9ffee2  tests/cache-pingreq-tlv.py
 ca27187eb91592ed437f7ed4bc949b5e  tests/cache-repeat-provider.py
 e0b47c3a7f6149c6672489cc1f13cab1  tests/cache-sms-escape.c
-0d5120721e4839167bbdb26e3eb0abb1  tests/cache-sms-escape.sh
+aff8aff3e7d63b9dce73703077837be3  tests/cache-sms-escape.sh
 fd11ab6baac59025820358b5e41c2621  tests/cache-sms-network.py
 17b833d4e9a96bec380079bee73fcce0  tests/cache-sms-web-xss.py
 67675b2bf8befa3aad33f6e9e564df99  tests/cache-trace-network.py
@@ -812,8 +812,8 @@ a16adeb896de5c72ffea07012c9c44d3  tests/dt-probe.c
 9246d2821813a6d4adac4fb8bb057899  tests/ecm-provider-identity.py
 b6379a08119c84be4dde275a46bab425  tests/ecm-radegast-identity.c
 6ac94c5466db573021b8807e48dec58f  tests/ecm-radegast-identity.sh
-e25c7c7c2f729f01636556594a890ebb  tests/ecmdata-allocation.c
-c5904454e1596815cbd4713519ab7a2f  tests/ecmdata-allocation.sh
+e506b76ed3d3d7f98038cba38e33a7d0  tests/ecmdata-allocation.c
+6419370a950165a7fa3a6237e141d52b  tests/ecmdata-allocation.sh
 d0109213acaa4c7b93850af606af1610  tests/ecmfail-trace-live.py
 85762271416cc8fd82e0e621a721f35d  tests/expert-config.py
 0cd1a6f8b2b243e4e8c5bacf431de50d  tests/freecccam-live.py
@@ -836,8 +836,8 @@ be36a40834f6b8b4be29de871b8843a5  tests/multics-filter.cfg
 b2caeeac7e48b211710f9236a020fdb7  tests/multics-live.cfg
 682c91abf5b5dd86783399b0faf72b1e  tests/ncclient.c
 5c1f07e52d172768e09647795130b054  tests/ncserver.c
-65e394560febcf175663f5689f370ca9  tests/newcamd-ack-race.sh
-324667f0c3a45ae291493c9fd8fce4ab  tests/newcamd-config-reload.sh
+c7efd67d478b76d33652490b77d94a78  tests/newcamd-ack-race.sh
+191abac08eab459e0b51d15b41831da4  tests/newcamd-config-reload.sh
 15f1d35306a0b6eff09bb228768f9072  tests/newcamd-sendfault.c
 4528e898bcc97425ab84014cc59e5003  tests/newcamd-trace-live.py
 b27a0626a2846f852fd4440fa0b7d9ad  tests/nopushafter-live.py
@@ -857,7 +857,7 @@ cc0f9f1ddf4f423a3bbdf994ef856e2a  tests/radegast-server-smoke.py
 12bd2da9e1dd42c9171f427266e32297  tests/readycfg-audit.py
 af805e473a54bb17c93da08d7ad64ba5  tests/reloadban-live.py
 bb2facce7bd4e0d2fb8c575eefe1ec38  tests/reloadjournal-live.py
-5dad8068f5991738e8ac93cdaa9529da  tests/run-peerrep-pr.sh
+a61b926f9cf282e51346b87de31050fd  tests/run-peerrep-pr.sh
 60584449465bb20ece8afe3f76abd73f  tests/safe-time.c
 acea77f13277ecce54ee99fd9a0c5972  tests/savekick-live.py
 5169d4f049cff014f1a3310d34044c99  tests/savereload-live.py
@@ -867,7 +867,8 @@ b30e2c361e045f3542a84ad12807ca71  tests/scoped-checksum-reload.py
 d6f64876f2ea477b11055e032c0a44f7  tests/service-doubt-live.py
 b7c2703b1ceb20a754b47f46ad6faf89  tests/share-limits.c
 23b491c910c7fb143e0a0c39d369803f  tests/slow1884.sh
-6a182d2d3bc58a601b49bc3acbb15139  tests/soak.sh
+49a37c26db13c9b08c37d5698e6e5984  tests/soak.sh
+db652feb1be96203f8708df2b2b5ee9c  tests/storm-repro.sh
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
 662f8a46ca84fd676c4385f9b79795ba  tests/ssfconsole-live.py
 f406bf242644b2c0497834156723f4ec  tests/stability.mk

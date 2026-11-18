@@ -11,5 +11,5 @@ ${CC:-cc} -std=gnu99 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=a
   -DFREECCCAM_SRV -DEXPIREDATE -DDCWSWAP -DCACHEEX -DTHREAD_DCW \
   -DMONOTHREAD_ACCEPT -DDEBUG_NETWORK -DEPOLL_NEWCAMD -DEPOLL_ECM \
   tests/ecmdata-allocation.c src/ecmdata.c src/tools.c src/md5.c src/debug.c \
-  -Wl,--wrap=malloc -Wl,--gc-sections -o "$tmp/test"
+  -Wl,--wrap=malloc -Wl,--gc-sections -o "$tmp/test" -lm
 "$tmp/test"

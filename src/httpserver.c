@@ -1150,8 +1150,13 @@ static void mcs_render_class_panel(struct tcp_buffer_data *tcpbuf, int sock, cha
 			const struct mcs_rank_entry *e = &sum->worst[i];
 			char badge[512];
 			mcs_grade_badge(badge, sizeof(badge), e->grade, e->score, e->reason);
+			/* html_esc returns the escaped LENGTH (int), not the buffer:
+			 * passing its return as %s reads address <length> (band 108
+			 * segfault on the home page once any entity was graded). */
+			html_esc(esc, (int)sizeof(esc), e->name);
+			html_esc(esc2, (int)sizeof(esc2), e->reason);
 			snprintf(http_buf, 2048, "<div class='rank-row'>%s<a class='nm' href='%s'>%s</a><span class='rs'>%s</span><span class='sc'>%d</span></div>",
-				badge, e->link, html_esc(esc, (int)sizeof(esc), e->name), html_esc(esc2, (int)sizeof(esc2), e->reason), e->score);
+				badge, e->link, esc, esc2, e->score);
 			tcp_write(tcpbuf, sock, http_buf, strlen(http_buf));
 		}
 	}
@@ -1161,8 +1166,13 @@ static void mcs_render_class_panel(struct tcp_buffer_data *tcpbuf, int sock, cha
 			const struct mcs_rank_entry *e = &sum->best[i];
 			char badge[512];
 			mcs_grade_badge(badge, sizeof(badge), e->grade, e->score, e->reason);
+			/* html_esc returns the escaped LENGTH (int), not the buffer:
+			 * passing its return as %s reads address <length> (band 108
+			 * segfault on the home page once any entity was graded). */
+			html_esc(esc, (int)sizeof(esc), e->name);
+			html_esc(esc2, (int)sizeof(esc2), e->reason);
 			snprintf(http_buf, 2048, "<div class='rank-row'>%s<a class='nm' href='%s'>%s</a><span class='rs'>%s</span><span class='sc'>%d</span></div>",
-				badge, e->link, html_esc(esc, (int)sizeof(esc), e->name), html_esc(esc2, (int)sizeof(esc2), e->reason), e->score);
+				badge, e->link, esc, esc2, e->score);
 			tcp_write(tcpbuf, sock, http_buf, strlen(http_buf));
 		}
 	}

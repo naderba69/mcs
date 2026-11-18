@@ -273,7 +273,19 @@ if [ "$FAIL" -eq 0 ]; then
 		note "FAIL: telnet dcwstats did not answer"
 		FAIL=1
 	fi
-	curl -s -m 5 -u admin:admin "http://127.0.0.1:${HTTP}/" > "$LOG/page.html" || true
+	# Band 108: the home page is ~30 KB rendered under load; one 5 s
+	# curl can return a truncated body and the counter comparison
+	# then reports a phantom "page missing <name>". Retry until the
+	# body is complete (</html>) before comparing anything.
+	page_try=0
+	while [ "$page_try" -lt 5 ]; do
+		curl -s -m 20 -u admin:admin "http://127.0.0.1:${HTTP}/" > "$LOG/page.html" || true
+		if grep -q "</html>" "$LOG/page.html" 2>/dev/null; then
+			break
+		fi
+		page_try=$((page_try + 1))
+		sleep 1
+	done
 fi
 
 # stop the storm before judging the log, but keep the server until checks done

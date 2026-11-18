@@ -4,7 +4,7 @@
 
 set -u
 
-BIN=${BIN:-../make-x64/x64/multics}
+BIN=${BIN:-../bin/multics.x64}
 NCCLIENT=${NCCLIENT:-./.ncclient.bin}
 CACHEPEER=${CACHEPEER:-./.cachepeer.bin}
 WEB=./peerrep-web.py
