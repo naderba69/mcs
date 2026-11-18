@@ -1345,6 +1345,21 @@ void http_send_index(int sock, http_request *req)
 	sprintf( http_buf, "<div class='perf-card'><div class='label'>Mgcamd Servers</div><div class='value'>%d</div></div>", cfg.mgcamd.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<div class='perf-card'><div class='label'>Camd35 Servers</div><div class='value'>%d</div></div>", cfg.camd35.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	sprintf( http_buf, "<div class='perf-card'><div class='label'>cs378x Servers</div><div class='value'>%d</div></div>", cfg.cs378x.totalservers ); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	/* Band 94: what the last config reload cost -- the number behind
+	 * "the web froze after I saved". -1 means no reload yet. */
+	{
+		extern long cfg_reload_last_ms, cfg_reload_max_ms;
+		extern int cfg_reload_count;
+		long last = __atomic_load_n(&cfg_reload_last_ms, __ATOMIC_RELAXED);
+		long max = __atomic_load_n(&cfg_reload_max_ms, __ATOMIC_RELAXED);
+		int cnt = __atomic_load_n(&cfg_reload_count, __ATOMIC_RELAXED);
+		const char *cls = last < 0 ? "" : (last < 1000 ? "good" : (last < 5000 ? "warn" : "bad"));
+		if (last < 0)
+			sprintf( http_buf, "<div class='perf-card'><div class='label'>Last Reload</div><div class='value'>—</div><div class='sub'>no reload yet</div></div>" );
+		else
+			sprintf( http_buf, "<div class='perf-card %s'><div class='label'>Last Reload</div><div class='value'>%ld ms</div><div class='sub'>max %ld ms · %d reloads</div></div>", cls, last, max, cnt );
+		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+	}
 	tcp_writestr(&tcpbuf, sock, "</div>");
 	/* R48: ECM performance cards */
 	{
@@ -8224,7 +8239,7 @@ void http_send_editor(int sock, http_request *req, int index)
 									if (stat(fname, &st)==0) chmod(tmpname, st.st_mode);
 									if (rename(tmpname, fname)!=0) save_ok = 0;
 								}
-								if (save_ok) sprintf( http_buf, "<script type=\"text/JavaScript\"><!--\nsetTimeout(\"location.href = '/editor%d';\",5000);\n--></script>\n<h3><center>file '%s' is Successfully Saved</center></h3>", index, fname);
+								if (save_ok) sprintf( http_buf, "<script type=\"text/JavaScript\"><!--\nsetTimeout(\"location.href = '/editor%d';\",5000);\n--></script>\n<h3><center>file '%s' is Successfully Saved</center></h3><p><center>The configuration is now reloading. The web interface and ECM service may pause briefly while the new settings are applied (the cost of the last reload is shown as 'Last Reload' on the Home page).</center></p>", index, fname);
 								else {
 									if (atomic_ok) unlink(tmpname);
 									sprintf( http_buf, "<h2>Error saving file '%s'</h2>", fname);

@@ -137,6 +137,17 @@ def main():
             print(f'designaudit: editor saved the full {len(original)}-char / '
                   f'{original.count(chr(10))}-line config byte-identically')
 
+            # --- Band 94: the reload the save triggered is timed -----------
+            home = ''
+            for _ in range(40):
+                st, home = cl.get('/')
+                if 'Last Reload' in home and ' ms' in home: break
+                time.sleep(0.25)
+            assert 'Last Reload' in home and ' ms' in home, \
+                'home page does not publish the last reload duration'
+            m = re.search(r'Last Reload</div><div class=.value.>([\d.]+) ms', home)
+            print(f'designaudit: reload timed and published (Last Reload = {m.group(1) if m else "?"} ms)')
+
             # --- BISS add/list/delete --------------------------------------
             st, _ = cl.get('/biss?action=add&caid=2600&sid=0001&provid=000000&key=0123456789ABCDEF')
             st, listing = cl.get('/biss')
