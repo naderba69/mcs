@@ -248,6 +248,12 @@ extern uint64_t ssf_cwreuse_event_total;
 extern struct ssf_cwdup_event ssf_marchcheck_events[SSF_MARCHCHECK_EVENT_MAX];
 extern int ssf_marchcheck_event_head;
 extern uint64_t ssf_marchcheck_event_total;
+/* Band 107: same treatment for LATECW (check 13) -- same event shape;
+ * `rep` = ECM age at CW arrival (ms), `rep_needed` = threshold (ms) */
+#define SSF_LATECW_EVENT_MAX 12
+extern struct ssf_cwdup_event ssf_latecw_events[SSF_LATECW_EVENT_MAX];
+extern int ssf_latecw_event_head;
+extern uint64_t ssf_latecw_event_total;
 /* Declared here to keep this header free of user-trace.h: records a
  * channel-level observation in the active trace session, if any. */
 extern void user_trace_cache_observation(uint16_t caid, uint32_t provider,
@@ -1110,6 +1116,35 @@ static int supersmartfilter_check(const uint8_t cw[16], const uint8_t ecm_hash[1
                 ecm_age_ms != 0xFFFFFFFFu &&
                 ecm_age_ms > (uint32_t)late_ms) {
             ssf_stats.latecw_flagged++;
+            /* Band 107: ring + trace-session event (under ssf_lock) */
+            {
+                struct ssf_cwdup_event *ev =
+                    &ssf_latecw_events[ssf_latecw_event_head];
+                ev->timestamp = (uint32_t)time(NULL);
+                ev->caid = caid; ev->provid = provid; ev->sid = sid;
+                ev->rep = (int)ecm_age_ms; ev->rep_needed = late_ms;
+                ev->mode = late_mode;
+                ev->rejected = (late_mode == 2);
+                ev->peer_id = peer_id;
+                ev->competitor_age_ms = ecm_age_ms;
+                ssf_latecw_event_head =
+                    (ssf_latecw_event_head + 1) % SSF_LATECW_EVENT_MAX;
+                ssf_latecw_event_total++;
+                {
+                    char detail[192];
+                    uint32_t fh = 0;
+                    if (ecm_hash) memcpy(&fh, ecm_hash, sizeof(fh));
+                    snprintf(detail, sizeof(detail),
+                             "LATECW %s: CW arrived after the ECM waited %u ms "
+                             "(threshold %d ms); mode=%s; source id=%u",
+                             late_mode == 2 ? "REJECTED" : "flagged (log-only, delivered)",
+                             (unsigned)ecm_age_ms, late_ms,
+                             late_mode == 2 ? "reject" : "log-only",
+                             (unsigned)peer_id);
+                    user_trace_cache_observation(caid, provid, sid, fh,
+                                                 (int)peer_id, detail, cw);
+                }
+            }
             if (late_mode == 2) {
                 ssf_stats.rejected_latecw++;
                 rejected = 1;

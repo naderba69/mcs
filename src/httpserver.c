@@ -9850,6 +9850,59 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                 tcp_writestr(tcpbuf, sock, "<p>لا أعلام CW_REUSE بعد في هذه الجلسة.</p>");
             }
         }
+        /* Band 107: LATECW inside CCcam Trace -- the fourth and last
+         * per-profile SSF detector joins MARCHCHECK/CW_DUP/CW_REUSE,
+         * so the whole family tunes from this page alone. */
+        {
+            const char *lmode = st.latecw_global_mode == 2 ? "رفض" :
+                                st.latecw_global_mode == 1 ? "تسجيل فقط" : "مطفأ";
+            char armed_reject[900] = "";
+            char armed_log[900] = "";
+            struct cardserver_data *pcs;
+            for (pcs = cfg.cardserver; pcs; pcs = pcs->next) {
+                char et2[1024];
+                char entry[300];
+                if (pcs->option.sf_latecw == 3) {
+                    snprintf(entry, sizeof(entry), "%s%s (>%dms)",
+                             armed_reject[0] ? "، " : "", escf(et2, pcs->name),
+                             pcs->option.sf_latecw_ms > 0 ? pcs->option.sf_latecw_ms : ssf_cfg.sf_latecw_ms);
+                    if (strlen(armed_reject) + strlen(entry) < sizeof(armed_reject) - 1)
+                        strcat(armed_reject, entry);
+                } else if (pcs->option.sf_latecw == 2) {
+                    snprintf(entry, sizeof(entry), "%s%s",
+                             armed_log[0] ? "، " : "", escf(et2, pcs->name));
+                    if (strlen(armed_log) + strlen(entry) < sizeof(armed_log) - 1)
+                        strcat(armed_log, entry);
+                }
+            }
+            snprintf(out, sizeof(out), "<p><b>الشفرة المتأخرة (LATECW — وصلت CW بعد انتظار ECM أطول من العتبة):</b> الوضع العام: %s | العتبة العامة: %d ms | أعلام: %llu | رُفضت: %llu | أحداث مسجلة: %llu</p>",
+                     lmode, st.latecw_global_ms,
+                     (unsigned long long)st.latecw_flagged,
+                     (unsigned long long)st.latecw_rejected,
+                     (unsigned long long)st.latecw_event_total);
+            tcp_writestr(tcpbuf, sock, out);
+            snprintf(out, sizeof(out), "<p>مسلّح بالرفض في: %s<br>مسلّح بالتسجيل فقط في: %s<br><small>الضبط لكل بروفايل من ملف الإعدادات: ‏DCW LATECW: 1 (تسجيل) ثم ‏2 (رفض) بعد ثبوت الأعلام هنا، وDCW LATECWMS لعتبة كل بروفايل. <b>تحذير:</b> لا تُسلّح بالرفض بروفايلات المصادر البطيئة (بطاقات تجيب بعشرات الثواني) — العلم وحده لا يرفض في وضع التسجيل.</small></p>",
+                     armed_reject[0] ? armed_reject : "—",
+                     armed_log[0] ? armed_log : "—");
+            tcp_writestr(tcpbuf, sock, out);
+            if (st.latecw_event_count) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>القناة</th><th>انتظار/عتبة</th><th>الوضع</th><th>الإجراء</th><th>المصدر</th></tr>");
+                for (i = 0; i < st.latecw_event_count; i++) {
+                    char timestr[32];
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)st.latecw_events[i].timestamp, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td><code>%04X:%06X:%04X</code></td><td>%d/%d ms</td><td>%s</td><td>%s</td><td>%u</td></tr>",
+                             timestr, st.latecw_events[i].caid, st.latecw_events[i].provid, st.latecw_events[i].sid,
+                             st.latecw_events[i].rep, st.latecw_events[i].rep_needed,
+                             st.latecw_events[i].mode == 2 ? "رفض" : "تسجيل فقط",
+                             st.latecw_events[i].rejected ? "⛔ رُفضت" : "✅ سُلّمت",
+                             (unsigned)st.latecw_events[i].peer_id);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else {
+                tcp_writestr(tcpbuf, sock, "<p>لا أعلام LATECW بعد في هذه الجلسة (تظهر هنا فور حدوثها، وتدخل أيضًا جدول أحداث الجلسة أسفل الصفحة عند مطابقة قناة العميل).</p>");
+            }
+        }
         /* CWPAIR (band 38): discovery counters + ready-to-paste pairs */
         snprintf(out, sizeof(out), "<p><b>اقتران الشفرات (CWPAIR — SimulCrypt):</b> %s | شفرات ملاحظة: %lu | تطابقات توأم: %lu | قُدّمت من التوأم: %lu | رُفضت للقدم: %lu | رفض STRICTCYCLE: %lu | لا توأم معروف: %lu</p>",
                  st.cwpair_discover ? "اكتشاف مفعّل" : "اكتشاف مطفأ (CWDEDUP_CHECK: YES لتفعيله)",

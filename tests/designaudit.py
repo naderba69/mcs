@@ -188,6 +188,9 @@ def main():
             assert 'MARCHCHECK' in trace and 'ركن النصف' in trace, \
                 'MARCHCHECK is not embedded in the CCcam trace overview'
             print('designaudit: MARCHCHECK trace section holds')
+            assert 'LATECW' in trace and 'الشفرة المتأخرة' in trace, \
+                'LATECW is not embedded in the CCcam trace overview'
+            print('designaudit: LATECW trace section holds')
 
             # --- BISS add/list/delete --------------------------------------
             st, _ = cl.get('/biss?action=add&caid=2600&sid=0001&provid=000000&key=0123456789ABCDEF')

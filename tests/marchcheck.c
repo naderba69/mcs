@@ -44,6 +44,10 @@ uint64_t ssf_cwreuse_event_total;
 struct ssf_cwdup_event ssf_marchcheck_events[SSF_MARCHCHECK_EVENT_MAX];
 int ssf_marchcheck_event_head;
 uint64_t ssf_marchcheck_event_total;
+/* Band 107: LATECW trace ring (stub for the unit test) */
+struct ssf_cwdup_event ssf_latecw_events[SSF_LATECW_EVENT_MAX];
+int ssf_latecw_event_head;
+uint64_t ssf_latecw_event_total;
 static int trace_hook_calls;
 static char trace_hook_detail[192];
 void user_trace_cache_observation(uint16_t caid, uint32_t provider,

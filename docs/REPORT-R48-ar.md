@@ -2835,3 +2835,20 @@ Commits على `arena/59c38810-mcs`: ‏`033efd7`، ‏`172e455`، ‏`f9d5fe2`�
 ### الديون المسمّاة المتبقية
 - بوابة ‏cycle بعد انتهاء ‏consensus (قرار 105 المؤجل عمدًا بلا دليل ميداني) — كما هي.
 - تسليح ‏MARCHCHECK ميدانيًا: الملف الموزّع ما زال `CACHE SF MARCHCHECK: 0`؛ الخطوة عند المشغّل ‏`DCW MARCHCHECK: 1` داخل بروفايل مشتبه أولًا، والأعلام ستظهر هنا.
+
+## 107. ‏LATECW داخل التريس — اكتمال عائلة فحوص ‏SSF القابلة للضبط + إصلاح كسر ‏latecw
+
+البصمة: `bin/multics.x64` ‏= `e1359ca202922c6133aac183fe978bee` ‏(= `bin/multics-r82a-stats-x64` ‏= `dist/multics-r82a-stats-x64`). الخلفية: `f9fc7fa` ‏(106).
+
+### التشخيص قبل التنفيذ
+مراجعة `/smartfilter` أظهرت أن ‏LATECW ‏(Check 13، بند 59) هو آخر فحص ‏SSF قابل للضبط لكل بروفايل (‏`DCW LATECW`/`DCW LATECWMS` + عام `CACHE SF LATECW/LATECWMS`) عدّاداته (`latecw_flagged/rejected_latecw`) لا تظهر إلا في `/smartfilter`، بلا أحداث ولا أدلة — نفس فئة دين 104–106 بالضبط. وفحص الحزم وجد أن `tests/latecw` **مكسور الربط منذ بند 104** لنفس سبب marchcheck (يقود `supersmartfilter_check()` الحقيقي بلا stubs الحلقات/الخطّاف).
+
+### ما نُفّذ
+نفس النمط حرفيًا: حلقة `ssf_latecw_events[12]` ‏+ `ssf_latecw_event_total` تُكتب عند كل علم تحت `ssf_lock` بالوضع الفعلي والعتبة الفعلية؛ حقول الحدث هنا: `rep` = عمر ‏ECM عند وصول الـCW ‏(ms) و`rep_needed` = العتبة التي اشتعلت. حدث جلسة «‏LATECW REJECTED/flagged: CW arrived after the ECM waited N ms (threshold M ms)…». قسم «الشفرة المتأخرة (LATECW)» في نظرة ‏/user-trace بعد ‏CW_REUSE (اكتمال ترتيب الفحوص 10←11←12←13): الوضع العام + **العتبة العامة بالمللي ثانية**، قوائم تسليح البروفايلات مع عتبة كل بروفايل الفعلية (`>Nms`)، جدول آخر 12 (انتظار/عتبة)، وتحذير المصادر البطيئة منقول من تعليق الكود نفسه إلى الصفحة حيث يُتّخذ قرار التسليح. عبر `latecw_*` في `mcs_field_status`. أُصلح `tests/latecw` بالـstubs الكاملة ومطابقات 107 (العمر/العتبة في الحدث، الخطّاف، علامة الرفض).
+
+### التحقق
+`latecw` PASS لأول مرة منذ 104 (بمطابقات الحلقة) · `marchcheck`/`cwdup`/`cwreuse` وحدةً PASS · `cwreuse` حيًّا PASS ‏(8/8 ok) · `cfgcheck: 5 checks ok` · `designaudit` PASS (حارس LATECW الجديد) · `pageaudit` PASS. تحقق حي: الترتيب الكامل ‏Consensus ← MARCHCHECK ← CW_DUP ← CW_REUSE ← LATECW ← CWPAIR، والقسم يقرأ «مطفأ | العتبة العامة: 8000 ms» مطابقًا للملف الموزّع. لا سلوك بروتوكولي تغيّر.
+
+### الديون المسمّاة المتبقية
+- بوابة ‏cycle بعد انتهاء ‏consensus (قرار 105 المؤجل بلا دليل ميداني) — كما هي، وهي الآن الدين السلوكي الوحيد المعلن.
+- تسليح ‏LATECW/MARCHCHECK ميدانيًا عند المشغّل بالتسجيل أولًا (`DCW …: 1`) — والأدلة ستظهر في القسمين الجديدين مباشرة.

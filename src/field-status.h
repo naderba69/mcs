@@ -121,6 +121,15 @@ struct mcs_field_status {
     uint64_t marchcheck_event_total;
     int marchcheck_event_count;
     struct mcs_cwdup_event marchcheck_events[MCS_CWDUP_EVENT_MAX];
+    /* LATECW (band 107): same shape, fourth detector; in events,
+     * rep = ECM age at arrival (ms), rep_needed = threshold (ms) */
+    int latecw_global_mode;     /* CACHE SF LATECW: 0 off, 1 log-only, 2 reject */
+    int latecw_global_ms;       /* CACHE SF LATECWMS */
+    uint64_t latecw_flagged;
+    uint64_t latecw_rejected;
+    uint64_t latecw_event_total;
+    int latecw_event_count;
+    struct mcs_cwdup_event latecw_events[MCS_CWDUP_EVENT_MAX];
 };
 
 void mcs_field_status_fill(struct mcs_field_status *st);
