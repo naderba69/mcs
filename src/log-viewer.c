@@ -299,9 +299,10 @@ void http_send_log_viewer(int sock, struct http_request *req)
         ".log-level-debug { color: #858585; }\n"
         ".log-source { color: #4ec9b0; margin: 0 10px; }\n"
         ".log-message { color: #d4d4d4; }\n"
-        "\n/* Band 91: professional components */\nh2{color:#6cb6e8;font-size:15px;border-bottom:2px solid #2b3949;padding-bottom:5px;margin:20px 0 8px;}\n.btn{transition:filter .15s,transform .1s;}\n.btn:hover{filter:brightness(1.18);}\n.btn:active{transform:translateY(1px);}\npre,.log-content{background:#0d1520 !important;border:1px solid #22344c;border-radius:10px;padding:12px 14px;line-height:1.55;}\ninput,select{background:#18222d;color:#dbe6f2;border:1px solid #3a4d63;border-radius:8px;padding:6px 9px;}\ninput:focus,select:focus{outline:none;border-color:#3b93c9;box-shadow:0 0 0 3px rgba(59,147,201,.25);}\ntable{border-radius:10px;overflow:hidden;}\ntd{font-variant-numeric:tabular-nums;}\n</style>\n"
+        "\n/* Band 91: professional components */\nh2{color:#6cb6e8;font-size:15px;border-bottom:2px solid #2b3949;padding-bottom:5px;margin:20px 0 8px;}\n.btn{transition:filter .15s,transform .1s;}\n.btn:hover{filter:brightness(1.18);}\n.btn:active{transform:translateY(1px);}\npre,.log-content{background:#0d1520 !important;border:1px solid #22344c;border-radius:10px;padding:12px 14px;line-height:1.55;}\ninput,select{background:#18222d;color:#dbe6f2;border:1px solid #3a4d63;border-radius:8px;padding:6px 9px;}\ninput:focus,select:focus{outline:none;border-color:#3b93c9;box-shadow:0 0 0 3px rgba(59,147,201,.25);}\ntable{border-radius:10px;overflow:hidden;}\ntd{font-variant-numeric:tabular-nums;}\n.mcs-nav{background:linear-gradient(135deg,#0b2f47,#0f5f8a 60%,#12838f);margin:-22px -22px 18px;padding:10px 22px;border-radius:0;}.mcs-nav a{color:#dcebf5;margin-right:14px;font-size:13px;font-weight:600;text-decoration:none;}.mcs-nav a:hover{color:#fff;text-decoration:underline;}</style>\n"
         "</head>\n"
         "<body>\n"
+        "<div class='mcs-nav'><a href='/'>\U0001F3E0 Home</a><a href='/servers'>Servers</a><a href='/profiles'>Profiles</a><a href='/cache'>Cache</a><a href='/newcamd'>Newcamd</a><a href='/smartfilter'>SmartFilter</a><a href='/editor'>Editor</a></div>\n"
         "<div class='container'>\n"
         "<h1>📝 عارض السجلات المباشر</h1>\n"
     );

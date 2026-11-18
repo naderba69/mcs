@@ -381,3 +381,7 @@ savekick: .ncclient.bin .ncserver.bin
 # Band 89: every web route answered and sane (virtual browser sweep).
 pageaudit:
 	@python3 pageaudit.py $(BIN)
+
+# Band 93: every page styled/navigable/clash-free + full-size editor save.
+designaudit:
+	@python3 designaudit.py $(BIN)

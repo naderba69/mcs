@@ -1494,7 +1494,7 @@ void http_send_debug(int sock, http_request *req)
 #endif
 		if (sel==DBG_ERROR) tcp_writestr(&tcpbuf, sock, "<option value='ERROR' selected>ERROR</option>"); else tcp_writestr(&tcpbuf, sock, "<option value='ERROR'>ERROR</option>");
 		tcp_writestr(&tcpbuf, sock, "</select></legend>\n");
-		sprintf( http_buf, "<pre style=\"font-size:10; color:#004455;\">"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
+		sprintf( http_buf, "<pre style=\"font-size:10px;\">"); tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 		int current = __atomic_load_n(&idbgline, __ATOMIC_RELAXED);
 		int i = current - 35;
 		if (i<0) i += 70;
@@ -9449,7 +9449,7 @@ static void http_send_user_trace(int sock, http_request *req)
     tcp_writestr(&tcpbuf, sock, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\n");
     if (req->setcookie[0]) { tcp_writestr(&tcpbuf, sock, "Set-Cookie: "); tcp_writestr(&tcpbuf, sock, req->setcookie); tcp_writestr(&tcpbuf, sock, "\r\n"); }
     tcp_writestr(&tcpbuf, sock, "\r\n");
-    tcp_writestr(&tcpbuf, sock, "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><title>متابعة عميل</title><style>body{background:linear-gradient(180deg,#111a23,#0d1319);color:#e6edf3;font:15px/1.55 system-ui,'Segoe UI',Tahoma,sans-serif;margin:0;padding:26px}h1{color:#6cb6e8;font-size:22px;border-bottom:2px solid #3b93c9;padding-bottom:8px}input,select,button{padding:.45em .7em;margin:.3em;border-radius:8px;border:1px solid #3a4d63;background:#18222d;color:#e6edf3;font:inherit}button{background:linear-gradient(135deg,#1d6fa5,#0f766e);border:0;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.35)}button:hover{filter:brightness(1.15)}table{border-collapse:separate;border-spacing:0;width:100%;background:#18222d;border:1px solid #2b3949;border-radius:10px;overflow:hidden}td,th{border-bottom:1px solid #2b3949;padding:.45em .6em;text-align:right;font-size:13.5px}th{background:linear-gradient(135deg,#1d6fa5,#0f766e);color:#fff}tr:hover td{background:#1b2c40}code{direction:ltr;display:inline-block;background:#1b2c40;padding:1px 6px;border-radius:5px}h2{color:#6cb6e8;font-size:16px;border-bottom:2px solid #2b3949;padding-bottom:5px;margin-top:22px}th{position:sticky;top:0}td{font-variant-numeric:tabular-nums}tr:nth-child(even) td{background:#151f2a}input:focus,select:focus{outline:none;border-color:#3b93c9;box-shadow:0 0 0 3px rgba(59,147,201,.25)}button:active{transform:translateY(1px)}fieldset{border:1px solid #2b3949;border-radius:10px;background:#18222d}::selection{background:#1d6fa5}</style></head><body><h1>متابعة CCcam</h1><p>جلسة واحدة مشتركة للمشرفين؛ البدء يستبدل الجلسة السابقة، وإعادة تحميل الإعدادات توقفها. تبدأ المتابعة للطلبات الجديدة فقط. اختيار العميل يملأ آخر قناة مسجلة إن توفرت، وقد لا تكون القناة الحالية؛ يمكن تعديلها يدوياً. بعض أسباب الرفض غير مسجلة في هذه النسخة. أحداث الكاش على مستوى القناة فقط، وقد تخص طلبات عملاء آخرين؛ تطابق CAID وSID لا يثبت تطابق الطلب أو Provider، و000000 قد تعني أن المصدر لم يرسله. الأحداث المشتركة تخص ECM وقد يشارك فيه عملاء آخرون؛ إرسال CW لا يثبت ظهور الصورة.</p>");
+    tcp_writestr(&tcpbuf, sock, "<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><title>متابعة عميل</title><style>body{background:linear-gradient(180deg,#111a23,#0d1319);color:#e6edf3;font:15px/1.55 system-ui,'Segoe UI',Tahoma,sans-serif;margin:0;padding:26px}h1{color:#6cb6e8;font-size:22px;border-bottom:2px solid #3b93c9;padding-bottom:8px}input,select,button{padding:.45em .7em;margin:.3em;border-radius:8px;border:1px solid #3a4d63;background:#18222d;color:#e6edf3;font:inherit}button{background:linear-gradient(135deg,#1d6fa5,#0f766e);border:0;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.35)}button:hover{filter:brightness(1.15)}table{border-collapse:separate;border-spacing:0;width:100%;background:#18222d;border:1px solid #2b3949;border-radius:10px;overflow:hidden}td,th{border-bottom:1px solid #2b3949;padding:.45em .6em;text-align:right;font-size:13.5px}th{background:linear-gradient(135deg,#1d6fa5,#0f766e);color:#fff}tr:hover td{background:#1b2c40}code{direction:ltr;display:inline-block;background:#1b2c40;padding:1px 6px;border-radius:5px}h2{color:#6cb6e8;font-size:16px;border-bottom:2px solid #2b3949;padding-bottom:5px;margin-top:22px}th{position:sticky;top:0}td{font-variant-numeric:tabular-nums}tr:nth-child(even) td{background:#151f2a}input:focus,select:focus{outline:none;border-color:#3b93c9;box-shadow:0 0 0 3px rgba(59,147,201,.25)}button:active{transform:translateY(1px)}fieldset{border:1px solid #2b3949;border-radius:10px;background:#18222d}::selection{background:#1d6fa5}.mcs-nav{background:linear-gradient(135deg,#0a1826,#123c5c 60%,#0d4f4a);margin:-26px -26px 18px;padding:10px 26px}.mcs-nav a{color:#dcebf5;margin-left:14px;font-size:13px;font-weight:600;text-decoration:none}.mcs-nav a:hover{color:#fff;text-decoration:underline}</style></head><body><div class='mcs-nav'><a href='/'>🏠 الرئيسية</a><a href='/servers'>الخوادم</a><a href='/profiles'>البروفايلات</a><a href='/smartfilter'>SmartFilter</a><a href='/editor'>المحرر</a></div><h1>متابعة CCcam</h1><p>جلسة واحدة مشتركة للمشرفين؛ البدء يستبدل الجلسة السابقة، وإعادة تحميل الإعدادات توقفها. تبدأ المتابعة للطلبات الجديدة فقط. اختيار العميل يملأ آخر قناة مسجلة إن توفرت، وقد لا تكون القناة الحالية؛ يمكن تعديلها يدوياً. بعض أسباب الرفض غير مسجلة في هذه النسخة. أحداث الكاش على مستوى القناة فقط، وقد تخص طلبات عملاء آخرين؛ تطابق CAID وSID لا يثبت تطابق الطلب أو Provider، و000000 قد تعني أن المصدر لم يرسله. الأحداث المشتركة تخص ECM وقد يشارك فيه عملاء آخرون؛ إرسال CW لا يثبت ظهور الصورة.</p>");
     snprintf(out, sizeof(out), "<form method='post' action='/user-trace'><input type='hidden' name='csrf' value='%s'><input type='hidden' name='action' value='start'><label>العميل <select name='client' required onchange='traceChoose(this)'><option value='' disabled%s>اختر عميلاً</option>", trace_csrf, snap->active ? "" : " selected");
     tcp_writestr(&tcpbuf, sock, out);
     {
@@ -10143,21 +10143,34 @@ void http_send_biss(int sock, struct http_request *req)
 		"Connection: close\r\n\r\n"
 		"<html><head><title>BISS Keys</title>"
 		"<style>"
-		"body { font-family: Arial; margin: 20px; }"
-		"h1 { color: #333; }"
-		"table { border-collapse: collapse; width: 100%%; margin-top: 20px; }"
-		"th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }"
-		"th { background-color: #4CAF50; color: white; }"
-		"tr:nth-child(even) { background-color: #f2f2f2; }"
-		".form-box { background: #f9f9f9; padding: 20px; margin: 20px 0; border-radius: 5px; }"
-		"input[type=text] { padding: 8px; margin: 5px; width: 150px; }"
-		"input[type=submit] { padding: 10px 20px; background: #4CAF50; color: white; border: none; cursor: pointer; }"
-		"input[type=submit]:hover { background: #45a049; }"
-		".delete-btn { background: #f44336; color: white; padding: 5px 10px; text-decoration: none; border-radius: 3px; }"
-		".delete-btn:hover { background: #da190b; }"
+		/* Band 93: this page had a private 2010-era green skin, off-system
+		 * and unreadable next to every other page. Same design tokens
+		 * as httpstyle.c now, with an OS-dark variant. */
+		"body { font-family: system-ui,'Segoe UI',Tahoma,Arial,sans-serif; margin: 0; padding: 22px; background: linear-gradient(180deg,#f4f7fa,#e8edf2); color: #16222f; }"
+		"h1 { color: #0f5f8a; font-size: 22px; border-bottom: 3px solid #12838f; padding-bottom: 8px; }"
+		"h2 { color: #0f5f8a; font-size: 15px; }"
+		"a { color: #0f5f8a; font-weight: 600; text-decoration: none; }"
+		"a:hover { text-decoration: underline; }"
+		"nav { background: linear-gradient(135deg,#0b2f47,#0f5f8a 60%,#12838f); margin: -22px -22px 18px; padding: 10px 22px; }"
+		"nav a { color: #dcebf5; margin-right: 14px; font-size: 13px; }"
+		"nav a:hover { color: #fff; }"
+		"table { border-collapse: separate; border-spacing: 0; width: 100%%; margin-top: 16px; background: #fff; border: 1px solid #d3dce4; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(16,35,55,.09); }"
+		"th, td { padding: 8px 10px; text-align: left; font-size: 13px; font-variant-numeric: tabular-nums; }"
+		"th { background: linear-gradient(135deg,#0f5f8a,#12838f); color: white; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }"
+		"td { border-bottom: 1px solid #e3eaf0; }"
+		"tr:nth-child(even) { background-color: #f4f7fa; }"
+		"tr:hover { background-color: #e2eef5; }"
+		".form-box { background: #fff; padding: 18px 20px; margin: 16px 0; border: 1px solid #d3dce4; border-top: 3px solid #12838f; border-radius: 10px; box-shadow: 0 2px 10px rgba(16,35,55,.09); }"
+		"input[type=text] { padding: 7px 9px; margin: 5px; width: 150px; border: 1px solid #b9c7d4; border-radius: 8px; font: inherit; font-size: 13px; }"
+		"input[type=text]:focus { outline: none; border-color: #0f5f8a; box-shadow: 0 0 0 3px #e2eef5; }"
+		"input[type=submit] { padding: 8px 18px; background: linear-gradient(135deg,#0f5f8a,#12838f); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 6px rgba(15,95,138,.25); }"
+		"input[type=submit]:hover { filter: brightness(1.12); }"
+		".delete-btn { background: #c0392b; color: white; padding: 5px 12px; text-decoration: none; border-radius: 999px; font-size: 12px; font-weight: 700; }"
+		".delete-btn:hover { background: #a93226; text-decoration: none; }"
+		"@media (prefers-color-scheme: dark) { body { background: linear-gradient(180deg,#111a23,#0d1319); color: #e6edf3; } h1, h2 { color: #6cb6e8; } table, .form-box { background: #18222d; border-color: #2b3949; } td { border-bottom-color: #2b3949; } tr:nth-child(even) { background-color: #141d28; } tr:hover { background-color: #1b2c40; } input[type=text] { background: #18222d; color: #e6edf3; border-color: #3a4d63; } }"
 		"</style></head><body>"
+		"<nav><a href='/'>🏠 Home</a><a href='/servers'>🗄️ Servers</a><a href='/profiles'>📂 Profiles</a><a href='/cache'>💾 Cache</a><a href='/editor'>✏️ Editor</a></nav>"
 		"<h1>🔐 BISS Key Management</h1>"
-		"<p><a href='/'>← Back to Home</a></p>"
 	);
 	tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
 

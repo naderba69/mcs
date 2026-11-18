@@ -393,9 +393,10 @@ void http_send_server_stats(int sock, struct http_request *req)
         ".stat-label { color: #666; font-size: 14px; margin-top: 5px; }\n"
         ".progress-bar { background: #e9ecef; height: 20px; border-radius: 10px; overflow: hidden; }\n"
         ".progress-fill { height: 100%%; transition: width 0.3s; }\n"
-        "\n/* Band 91: professional components */\nh2{font-size:15px;color:#0f5f8a;border-bottom:2px solid #d3dce4;padding-bottom:5px;margin:20px 0 8px;}\ntable{border-radius:10px;overflow:hidden;box-shadow:0 2px 10px rgba(16,35,55,.09);}\nth{position:sticky;top:0;}\ntd{font-variant-numeric:tabular-nums;}\n.stat-card,.card{border-top:3px solid #12838f;transition:transform .18s,box-shadow .18s;}\n.stat-card:hover,.card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(16,35,55,.16);}\n.btn,.button,button,input[type=submit]{background:linear-gradient(135deg,#0f5f8a,#12838f);color:#fff;border:0;border-radius:8px;padding:7px 15px;font-weight:700;cursor:pointer;}\n</style>\n"
+        "\n/* Band 91: professional components */\nh2{font-size:15px;color:#0f5f8a;border-bottom:2px solid #d3dce4;padding-bottom:5px;margin:20px 0 8px;}\ntable{border-radius:10px;overflow:hidden;box-shadow:0 2px 10px rgba(16,35,55,.09);}\nth{position:sticky;top:0;}\ntd{font-variant-numeric:tabular-nums;}\n.stat-card,.card{border-top:3px solid #12838f;transition:transform .18s,box-shadow .18s;}\n.stat-card:hover,.card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(16,35,55,.16);}\n.btn,.button,button,input[type=submit]{background:linear-gradient(135deg,#0f5f8a,#12838f);color:#fff;border:0;border-radius:8px;padding:7px 15px;font-weight:700;cursor:pointer;}\n.mcs-nav{background:linear-gradient(135deg,#0b2f47,#0f5f8a 60%,#12838f);margin:-22px -22px 18px;padding:10px 22px;border-radius:0;}.mcs-nav a{color:#dcebf5;margin-right:14px;font-size:13px;font-weight:600;text-decoration:none;}.mcs-nav a:hover{color:#fff;text-decoration:underline;}</style>\n"
         "</head>\n"
         "<body>\n"
+        "<div class='mcs-nav'><a href='/'>\U0001F3E0 Home</a><a href='/servers'>Servers</a><a href='/profiles'>Profiles</a><a href='/cache'>Cache</a><a href='/newcamd'>Newcamd</a><a href='/smartfilter'>SmartFilter</a><a href='/editor'>Editor</a></div>\n"
         "<div class='container'>\n"
         "<h1>📊 إحصائيات الخوادم المفصلة</h1>\n"
     );

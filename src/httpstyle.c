@@ -129,6 +129,11 @@ char style_css[] =
 ".offline{background-color:var(--bad);}\n"
 "@keyframes mcsPulse{0%,100%{opacity:1;}50%{opacity:.35;}}\n"
 ".left{text-align:left;}.center{text-align:center;}.right{text-align:right;}\n"
+/* Band 93: legacy generators hardcode dark-red provider names
+ * (<font color=#CC3300>) that sink into dark panels; lift them in
+ * the dark theme (explicit and OS-driven) so text never vanishes. */
+"[data-theme=dark] font[color='#CC3300'],[data-theme=dark] font[color='#cc3300']{color:#ff8a75;}\n"
+"@media (prefers-color-scheme:dark){:root:not([data-theme=light]) font[color='#CC3300'],:root:not([data-theme=light]) font[color='#cc3300']{color:#ff8a75;}}\n"
 /* ---- hover card on connection icons (legacy geometry kept) ---- */
 ".online:hover .connect_data,.offline:hover .connect_data,"
 ".busy:hover .connect_data{visibility:visible;opacity:1;transform:translateY(0);}\n"
