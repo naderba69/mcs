@@ -201,6 +201,8 @@ void *reread_config_thread(void *param)
 				 * the cost is diagnosable from the web UI itself. */
 				{
 					unsigned int reload_t0 = GetTickCount();
+					char detail[48];
+					reload_journal_note("reload-start", "config", "", 0, "config file changed");
 					reread_config(&cfg);
 					long reload_ms = (long)(GetTickCount() - reload_t0);
 					__atomic_store_n(&cfg_reload_last_ms, reload_ms, __ATOMIC_RELAXED);
@@ -210,6 +212,8 @@ void *reread_config_thread(void *param)
 					printf("[config] reload #%d took %ld ms\n",
 						__atomic_load_n(&cfg_reload_count, __ATOMIC_RELAXED), reload_ms);
 					fflush(stdout);
+					snprintf(detail, sizeof(detail), "took %ld ms", reload_ms);
+					reload_journal_note("reload-end", "config", "", 0, detail);
 				}
 				doublecheck_autofill_from_profiles();
 				ecm_doublecheck_apply_config(); /* ECM DOUBLECHECK list follows the file, like the rest */

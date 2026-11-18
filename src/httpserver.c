@@ -9313,6 +9313,36 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                 tcp_writestr(tcpbuf, sock, "<p>لا محاولات دخول موثّقة بعد في هذه الجلسة (تُسجَّل محاولات الويب والتلنت الحقيقية فقط، لا طلبات الجلسات).</p>");
             }
         }
+        /* Band 95: reload journal -- who the last save/reload dropped, and why */
+        {
+            struct reload_journal_entry rj[24];
+            int rn = reload_journal_snapshot(rj, 24);
+            int ri;
+            extern long cfg_reload_last_ms;
+            long last = __atomic_load_n(&cfg_reload_last_ms, __ATOMIC_RELAXED);
+            if (last >= 0)
+                snprintf(out, sizeof(out), "<h3>سجلّ أحداث الحفظ / إعادة تحميل الإعدادات</h3><p>آخر إعادة تحميل استغرقت <b>%ld ms</b>. كل فصلٍ تسبّب فيه الحفظ/إعادة التحميل مُسجَّل هنا بسببه:</p>", last);
+            else
+                snprintf(out, sizeof(out), "<h3>سجلّ أحداث الحفظ / إعادة تحميل الإعدادات</h3><p>لم تحدث إعادة تحميل بعد في هذه الجلسة.</p>");
+            tcp_writestr(tcpbuf, sock, out);
+            if (rn) {
+                tcp_writestr(tcpbuf, sock, "<table><tr><th>الوقت</th><th>الحدث</th><th>الباب</th><th>المستخدم/البروفايل</th><th>من</th><th>التفصيل</th></tr>");
+                for (ri = 0; ri < rn; ri++) {
+                    char timestr[32];
+                    char escuser[96], escdetail[160];
+                    html_esc(escuser, sizeof(escuser), rj[ri].user);
+                    html_esc(escdetail, sizeof(escdetail), rj[ri].detail);
+                    mcs_format_local_time(timestr, sizeof(timestr), (time_t)rj[ri].when, "%H:%M:%S");
+                    snprintf(out, sizeof(out), "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+                             timestr, rj[ri].kind, rj[ri].proto, escuser,
+                             rj[ri].ip ? ip2string(rj[ri].ip) : "—", escdetail);
+                    tcp_writestr(tcpbuf, sock, out);
+                }
+                tcp_writestr(tcpbuf, sock, "</table>");
+            } else if (last >= 0) {
+                tcp_writestr(tcpbuf, sock, "<p>إعادة التحميل الأخيرة لم تفصل أي عميل أو خادم.</p>");
+            }
+        }
         snprintf(out, sizeof(out), "<p><b>حسم الخدمة عند الشك (CACHE SERVICE DOUBT):</b> %s | انتقادات ذات مرشحين مختلفين: %lu | رُفضت الخدمة للشك: %lu | خُدمت بأغلبية صارمة: %lu</p>",
                  st.svc_armed ? "مفعّل" : "مطفأ (CACHE SERVICE DOUBT: ON لتفعيله)", st.svc_checked, st.svc_doubt, st.svc_majority);
         tcp_writestr(tcpbuf, sock, out);

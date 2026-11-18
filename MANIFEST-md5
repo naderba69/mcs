@@ -53,14 +53,14 @@ dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 5392840310182c115bf07767de740867  bin/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  bin/multics-r82a-r22-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-e7c043e5f38594ade5d265e498ca9555  bin/multics-r82a-stats-x64
+3d9cb1077fe9893a8a22f1b90222bd7b  bin/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  bin/multics-r82a-stock-x64
 fbfef2a162b03fed8d56aca7babd3ef3  bin/multics-r82a-x64
-e7c043e5f38594ade5d265e498ca9555  bin/multics.x64
+3d9cb1077fe9893a8a22f1b90222bd7b  bin/multics.x64
 9d212081c5d435e4166a24fd6a48d666  dist/multics-r82a-queue-stats-x64
 4a574b9f126f88809cbbe56f4ceaa633  dist/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  dist/multics-r82a-r22-x64
-e7c043e5f38594ade5d265e498ca9555  dist/multics-r82a-stats-x64
+3d9cb1077fe9893a8a22f1b90222bd7b  dist/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
@@ -152,7 +152,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-695d99e8fd783364c7c058faf867c41e  docs/REPORT-R48-ar.md
+c302f08f95a3af211b38d755dc5c9b17  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -487,7 +487,7 @@ aee7bf15b72c60d902cf2dc7c11ba01e  src/cli-cs378x.c
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
 bfdeb5ee4b6c6ec251862779968b8300  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-d1cd9399072e5e45a01447237d5b7a58  src/config.c
+9ee6d3f4905104e2000fd6cd6b156da1  src/config.c
 58978da6c98d008ca3ac3f894072be49  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
@@ -584,7 +584,7 @@ fcefcdfa1775d443482ebfec42fa6b98  src/fastretx.h
 4fe0cf88f0c7df1017c9e2c70b7b65ef  src/field-status.h
 8798be7a3334dd52a05bfb5c12e3b4c5  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-0f6037488d833654c1d0b34f69f528d8  src/httpserver.c
+ec212620f52029a0e66eb761b7b8f54d  src/httpserver.c
 ba3dbab45abea98efcb6961173889ec0  src/httpserver.h
 5504aa24026350df60db52b6de1f2213  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
@@ -597,8 +597,8 @@ a8751c551e7c8a7a52f7d9fdf0fd21f9  src/ipdata.c
 460a9469471a5e39669d4ea6f998f7f2  src/loadbalance.c
 01262d7bbdd7bce66fd9c45f7c557b7d  src/log-viewer.c
 c7e6fdad95760a74355a4dfc10f32c38  src/log-viewer.h
-dc99542e3a97ff25a558f0b6cf730f17  src/loginthrottle.c
-5bd7b53e8e592c33d2da9ea2f53465b8  src/loginthrottle.h
+678d8f8d061a834b21380a9bbdaaa709  src/loginthrottle.c
+d5123381ad995cbf1f5607288cf795a0  src/loginthrottle.h
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
 d96280090f7eaa39ecf084b68f567f0d  src/main.c
 cad8295c0e073cc695a0f79d689bea2f  src/main.h
@@ -660,7 +660,7 @@ edc33995c06188e6dd0193f948e67752  src/smart-server-select.h
 0354fb0a0398fe2c9fdba35de16a4dc4  src/sockets.c
 d81f1b6f49a731250730434cd6f39859  src/sockets.h
 15a08085029b8f3ff3833ca39119eada  src/srv-camd35.c
-5b982cc034a19a75122e2c85ae10a34b  src/srv-cccam.c
+07a0817b3092893d188c11aaf3ebc98b  src/srv-cccam.c
 5ee55026c9116b254dc01fc93c30171d  src/srv-common.c
 577668e37e3654ea447385ef344b757f  src/srv-cs378x.c
 6991787ba89662d200e4c2878b31231c  src/srv-freecccam.c
@@ -671,7 +671,7 @@ e1dd36053481d6f4abd4a1cd15030109  src/srv-radegast.c
 fa9299cc3f10cb25ca87bb13e36e0138  src/supersmartfilter.h
 7a70fd0cb8fa58b8b4d070506f4e53ca  src/telnet.c
 e79043a4563b3f9a8cf0acacc292f691  src/telnet.h
-45931c7c44d16b9c07ae3ad56e5d478a  src/th-cfg.c
+a6ece011a4ae624688da716473a0412d  src/th-cfg.c
 2e000e6634987a18d5de8559fd456fcc  src/th-date.c
 58dc79b3bb6c43fe2e5eeccd5f8588bd  src/th-dns.c
 2b68260ff8df6b9ec6a366cf70bf111d  src/th-ecm.c
@@ -737,7 +737,7 @@ addad57e2865ca125b0a0e344a04d5b2  src/zerohandoff.h
 d891e63347205f1bde3fca5ae2239420  src/zerolatency.h
 49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-430059b25093d831a78e17f2662f071f  tests/Makefile
+0428ae9a192ebd7a8b1e17a1931d07a2  tests/Makefile
 c4753a58d62747cb581addf833032ef3  tests/__pycache__/cccam-trace-success.cpython-311.pyc
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 20d219f9c855160bef706a75cc36cea2  tests/ca-bite.c
@@ -855,9 +855,11 @@ b15af4b90f3df83d9880d9601260f980  tests/r107peer.c
 cc0f9f1ddf4f423a3bbdf994ef856e2a  tests/radegast-server-smoke.py
 12bd2da9e1dd42c9171f427266e32297  tests/readycfg-audit.py
 af805e473a54bb17c93da08d7ad64ba5  tests/reloadban-live.py
+bb2facce7bd4e0d2fb8c575eefe1ec38  tests/reloadjournal-live.py
 5dad8068f5991738e8ac93cdaa9529da  tests/run-peerrep-pr.sh
 60584449465bb20ece8afe3f76abd73f  tests/safe-time.c
 acea77f13277ecce54ee99fd9a0c5972  tests/savekick-live.py
+5169d4f049cff014f1a3310d34044c99  tests/savereload-live.py
 3efd91a83794f209f2347dba5a41519f  tests/scoped-checksum-policy.c
 1a773c998d38226c5f58fccba9ed4a83  tests/scoped-checksum-reload-inflight.py
 b30e2c361e045f3542a84ad12807ca71  tests/scoped-checksum-reload.py

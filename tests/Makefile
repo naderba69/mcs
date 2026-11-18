@@ -385,3 +385,7 @@ pageaudit:
 # Band 93: every page styled/navigable/clash-free + full-size editor save.
 designaudit:
 	@python3 designaudit.py $(BIN)
+
+# Band 95: the reload journal on /user-trace names save/reload drops.
+reloadjournal: .ncclient.bin .ncserver.bin
+	@python3 reloadjournal-live.py $(BIN)

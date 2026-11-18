@@ -406,3 +406,43 @@ int loginaudit_snapshot(struct login_audit_entry *out, int max)
 	pthread_mutex_unlock(&la_lock);
 	return n;
 }
+
+/* --- reload journal (band 95) ---------------------------------------------- */
+
+static struct reload_journal_entry rj_ring[RELOAD_JOURNAL_MAX];
+static int rj_head = 0;   /* next write slot */
+static int rj_count = 0;
+static pthread_mutex_t rj_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void reload_journal_note(const char *kind, const char *proto, const char *user,
+                         uint32_t ip, const char *detail)
+{
+	struct reload_journal_entry *e;
+	pthread_mutex_lock(&rj_lock);
+	e = &rj_ring[rj_head];
+	rj_head = (rj_head + 1) % RELOAD_JOURNAL_MAX;
+	if (rj_count < RELOAD_JOURNAL_MAX) rj_count++;
+	e->when = (uint32_t)time(NULL);
+	e->ip = ip;
+	strncpy(e->kind, kind ? kind : "?", sizeof(e->kind) - 1);
+	e->kind[sizeof(e->kind) - 1] = 0;
+	strncpy(e->proto, proto ? proto : "?", sizeof(e->proto) - 1);
+	e->proto[sizeof(e->proto) - 1] = 0;
+	strncpy(e->user, user ? user : "", sizeof(e->user) - 1);
+	e->user[sizeof(e->user) - 1] = 0;
+	strncpy(e->detail, detail ? detail : "", sizeof(e->detail) - 1);
+	e->detail[sizeof(e->detail) - 1] = 0;
+	pthread_mutex_unlock(&rj_lock);
+}
+
+int reload_journal_snapshot(struct reload_journal_entry *out, int max)
+{
+	int i, n = 0;
+	pthread_mutex_lock(&rj_lock);
+	for (i = 0; i < rj_count && n < max; i++) {
+		int idx = (rj_head - 1 - i + RELOAD_JOURNAL_MAX * 2) % RELOAD_JOURNAL_MAX;
+		out[n++] = rj_ring[idx];
+	}
+	pthread_mutex_unlock(&rj_lock);
+	return n;
+}

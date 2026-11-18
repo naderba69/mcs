@@ -396,6 +396,7 @@ static void cccam_protoban_fail(struct cccam_server_data *cccam, uint32_t ip, in
 	int banned = 0;
 	protoban_note_failure(ip, proto, (uint32_t)(lf>0?lf:0),
 	                      (uint32_t)(lb>0?lb:0), &banned);
+	loginaudit_note(proto, ip, "", 0); /* Band 95: CCcam failures were counted but never audited; the user is not parsed yet at this door */
 	if (banned) debugf(getdbgflag(DBG_CCCAM,cccam->id,0)," CCcam%d: %s reached the login failure threshold, banned for %s\n", cccam->id, ip2string(ip), protoban_name(proto));
 }
 

@@ -8231,6 +8231,7 @@ void update_cardserver(struct config_data *cfg, struct config_data *newcfg)
 	cs = newcfg->cardserver;
 	while (cs) {
 		if (cs->flags&FLAG_DISCONNECT) {
+				reload_journal_note("share-del", "cccam/mgcamd", cs->name, 0, "card share withdrawn+readded at reload");
 				// SEND DEL SHARE TO CCCAM/MGCAMD CLIENTS using a stable card snapshot.
 				debugf(0, " DEL share [%s] id:%d  caid:%04x\n", cs->name, cs->id, cs->card.caid);
 				if (cs->option.fsharecccam) pipe_send_card_snapshot(prg.pipe.cccam[1], PIPE_CARD_DEL, cs);
@@ -9072,7 +9073,7 @@ void reread_config( struct config_data *cfg )
 	while (cs) {
 		struct cs_client_data *cli = cs->newcamd.client;
 		while (cli) {
-			if ( (cs->flags&FLAG_DISCONNECT)||(cs->newcamd.flags&FLAG_DISCONNECT)||(cli->flags&FLAG_DISCONNECT) ) if (cli->connection.status>0) cs_disconnect_cli( cli );
+			if ( (cs->flags&FLAG_DISCONNECT)||(cs->newcamd.flags&FLAG_DISCONNECT)||(cli->flags&FLAG_DISCONNECT) ) if (cli->connection.status>0) { reload_journal_note("drop-client", "newcamd", cli->user, cli->ip, (cs->flags&FLAG_DISCONNECT) ? "profile flag" : (cs->newcamd.flags&FLAG_DISCONNECT) ? "key/server flag" : "user flag (pass/removed)"); cs_disconnect_cli( cli ); }
 			cli->flags &= ~FLAG_DISCONNECT;
 			cli = cli->next;
 		}
@@ -9099,7 +9100,7 @@ void reread_config( struct config_data *cfg )
 	while (mgcamd) {
 		struct mg_client_data *cli = mgcamd->client;
 		while (cli) {
-			if ( (mgcamd->flags&FLAG_DISCONNECT)||(cli->flags&FLAG_DISCONNECT) ) if (cli->connection.status>0) mg_disconnect_cli( cli );
+			if ( (mgcamd->flags&FLAG_DISCONNECT)||(cli->flags&FLAG_DISCONNECT) ) if (cli->connection.status>0) { reload_journal_note("drop-client", "mgcamd", cli->user, cli->ip, (mgcamd->flags&FLAG_DISCONNECT) ? "server flag" : "user flag (pass/removed)"); mg_disconnect_cli( cli ); }
 			cli->flags &= ~FLAG_DISCONNECT;
 			cli = cli->next;
 		}
@@ -9110,7 +9111,7 @@ void reread_config( struct config_data *cfg )
 	// Servers
 	struct server_data *srv = cfg->server;
 	while (srv) {
-		if (srv->flags&FLAG_DISCONNECT) if (srv->connection.status>0) disconnect_srv( srv );
+		if (srv->flags&FLAG_DISCONNECT) if (srv->connection.status>0) { char dbuf[48]; snprintf(dbuf, sizeof(dbuf), "%s:%d changed/removed", srv->host ? srv->host->name : "?", srv->port); reload_journal_note("drop-server", "outbound", "", 0, dbuf); disconnect_srv( srv ); }
 		srv->flags &= ~FLAG_DISCONNECT;
 		srv = srv->next;
 	}
