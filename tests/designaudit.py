@@ -168,6 +168,15 @@ def main():
                     f'{bad_route} is not the designed 404 (HTTP {st})'
             print('designaudit: unknown/hidden/bad-index routes answer the designed 404')
 
+            # --- Band 102: health classification ----------------------------
+            assert 'Health classification' in home and home.count('class-panel') >= 3, \
+                'home lacks the Strong/Medium/Bad classification panels'
+            assert 'Bad-CW Sources' in home and 'Cache Hits' in home, \
+                'home lacks the live cache/bad-CW cards'
+            st, profiles = cl.get('/profiles')
+            assert "class='grade g" in profiles, 'profiles carry no grade badges'
+            print('designaudit: classification panels + grade badges hold')
+
             # --- BISS add/list/delete --------------------------------------
             st, _ = cl.get('/biss?action=add&caid=2600&sid=0001&provid=000000&key=0123456789ABCDEF')
             st, listing = cl.get('/biss')

@@ -990,6 +990,196 @@ void getstatcell2(int ecmok, int ecmnb, char *dest)
 	else sprintf( dest, "<span class=\"pct\">0%%</span>" );
 }
 
+/* ---- Band 102: health classification -----------------------------------
+ * Every line (outbound server), cache peer and profile is graded from
+ * ITS OWN counters only -- the same numbers its detail page shows:
+ *   success%  = ecmok / ecmnb          (profile: ecmok / ecmaccepted)
+ *   avg ms    = ecmoktime / ecmok
+ *   timeout%  = ecmtimeout / ecmnb     (lines & cache peers)
+ *   badcw%    = bad-CW / ecmnb         (ecmerrdcw; cacheex.badcw)
+ * Score = success% minus penalties (avg: -5/-12/-20 over 300/600/1000ms;
+ * timeouts: -10/-20 over 5%%/15%%; bad CW: -15/-30 over 0%%/2%%).
+ * STRONG: online, success>=90%%, avg<=500ms, no bad CW, timeouts<=5%%.
+ * MEDIUM: online, success>=70%%, avg<=1000ms, bad CW<=2%%.
+ * BAD:    everything else with data (incl. offline with history).
+ * No grade below 20 ECM samples -- a new line is "no data", not bad. */
+#define MCS_GRADE_NONE   0
+#define MCS_GRADE_BAD    1
+#define MCS_GRADE_MEDIUM 2
+#define MCS_GRADE_STRONG 3
+
+static int mcs_grade_stats(int connected, int ecmnb, int ecmok, int avgms,
+			   int timeouts, int badcw, int *score_out,
+			   char *reason, size_t reason_len)
+{
+	int success = ecmnb > 0 ? (ecmok * 100) / ecmnb : 0;
+	int timeoutpct = ecmnb > 0 ? (timeouts * 100) / ecmnb : 0;
+	int badcwpct = ecmnb > 0 ? (badcw * 100) / ecmnb : 0;
+	int score = success;
+	if (avgms > 1000) score -= 20; else if (avgms > 600) score -= 12; else if (avgms > 300) score -= 5;
+	if (timeoutpct > 15) score -= 20; else if (timeoutpct > 5) score -= 10;
+	if (badcwpct > 2) score -= 30; else if (badcw > 0) score -= 15;
+	if (score < 0) score = 0;
+	if (score_out) *score_out = score;
+	if (ecmnb < 20) {
+		if (reason) snprintf(reason, reason_len, connected ? "no data yet (%d ECM)" : "offline · no data yet", ecmnb);
+		return MCS_GRADE_NONE;
+	}
+	if (!connected) {
+		if (reason) snprintf(reason, reason_len, "offline · last success %d%%", success);
+		return MCS_GRADE_BAD;
+	}
+	/* dominant problem first, so the operator sees WHY */
+	if (badcwpct > 2) { if (reason) snprintf(reason, reason_len, "%d%% bad CW", badcwpct); }
+	else if (success < 70) { if (reason) snprintf(reason, reason_len, "success only %d%%", success); }
+	else if (timeoutpct > 15) { if (reason) snprintf(reason, reason_len, "%d%% timeouts", timeoutpct); }
+	else if (avgms > 1000) { if (reason) snprintf(reason, reason_len, "slow · %d ms avg", avgms); }
+	else if (badcw > 0) { if (reason) snprintf(reason, reason_len, "%d bad CW seen", badcw); }
+	else if (success < 90) { if (reason) snprintf(reason, reason_len, "success %d%%", success); }
+	else if (avgms > 500) { if (reason) snprintf(reason, reason_len, "%d ms avg", avgms); }
+	else if (reason) snprintf(reason, reason_len, "success %d%% · %d ms", success, avgms);
+	if (success >= 90 && avgms <= 500 && badcw == 0 && timeoutpct <= 5) return MCS_GRADE_STRONG;
+	if (success >= 70 && avgms <= 1000 && badcwpct <= 2) return MCS_GRADE_MEDIUM;
+	return MCS_GRADE_BAD;
+}
+
+static const char *mcs_grade_name(int grade)
+{
+	switch (grade) {
+	case MCS_GRADE_STRONG: return "STRONG";
+	case MCS_GRADE_MEDIUM: return "MEDIUM";
+	case MCS_GRADE_BAD: return "BAD";
+	default: return "NO DATA";
+	}
+}
+
+static void mcs_grade_badge(char *dest, size_t destlen, int grade, int score, const char *reason)
+{
+	char esc[256];
+	html_esc(esc, (int)sizeof(esc), reason ? reason : "");
+	if (grade == MCS_GRADE_NONE)
+		snprintf(dest, destlen, "<span class='grade g0' title=\"%s\">NO DATA</span>", esc);
+	else
+		snprintf(dest, destlen, "<span class='grade g%d' title=\"%s\">%s %d</span>", grade, esc, mcs_grade_name(grade), score);
+}
+
+/* grade one outbound/cache line from an already-taken stats snapshot */
+static int mcs_grade_server_fields(int connected, int ecmnb, int ecmok, int ecmoktime,
+				   int ecmtimeout, int badcw, int *score,
+				   char *reason, size_t reason_len)
+{
+	int avgms = ecmok > 0 ? ecmoktime / ecmok : 0;
+	return mcs_grade_stats(connected, ecmnb, ecmok, avgms, ecmtimeout, badcw, score, reason, reason_len);
+}
+
+struct mcs_rank_entry {
+	char name[280];
+	char link[96];
+	char reason[96];
+	int grade;
+	int score;
+};
+
+struct mcs_class_summary {
+	int counts[4]; /* by MCS_GRADE_* */
+	struct mcs_rank_entry worst[3]; /* BAD/MEDIUM, lowest score first */
+	int worst_n;
+	struct mcs_rank_entry best[3]; /* STRONG, highest score first */
+	int best_n;
+};
+
+static void mcs_class_add(struct mcs_class_summary *sum, const char *name, const char *link,
+			  int grade, int score, const char *reason)
+{
+	sum->counts[grade]++;
+	if (grade == MCS_GRADE_BAD || grade == MCS_GRADE_MEDIUM) {
+		struct mcs_rank_entry e;
+		int i;
+		memset(&e, 0, sizeof(e));
+		snprintf(e.name, sizeof(e.name), "%s", name);
+		snprintf(e.link, sizeof(e.link), "%s", link);
+		snprintf(e.reason, sizeof(e.reason), "%s", reason);
+		e.grade = grade; e.score = score;
+		for (i = sum->worst_n; i > 0 && sum->worst[i-1].score > score; i--) {
+			if (i < 3) sum->worst[i] = sum->worst[i-1];
+		}
+		if (i < 3) { sum->worst[i] = e; if (sum->worst_n < 3) sum->worst_n++; }
+	} else if (grade == MCS_GRADE_STRONG) {
+		struct mcs_rank_entry e;
+		int i;
+		memset(&e, 0, sizeof(e));
+		snprintf(e.name, sizeof(e.name), "%s", name);
+		snprintf(e.link, sizeof(e.link), "%s", link);
+		snprintf(e.reason, sizeof(e.reason), "%s", reason);
+		e.grade = grade; e.score = score;
+		for (i = sum->best_n; i > 0 && sum->best[i-1].score < score; i--) {
+			if (i < 3) sum->best[i] = sum->best[i-1];
+		}
+		if (i < 3) { sum->best[i] = e; if (sum->best_n < 3) sum->best_n++; }
+	}
+}
+
+static void mcs_render_class_panel(struct tcp_buffer_data *tcpbuf, int sock, char *http_buf,
+				   const char *title, const char *morelink,
+				   const struct mcs_class_summary *sum)
+{
+	int total = sum->counts[0] + sum->counts[1] + sum->counts[2] + sum->counts[3];
+	int i;
+	char esc[1200], esc2[512];
+	snprintf(http_buf, 2048,
+		"<div class='class-panel'><h3>%s<a href='%s'>view all &rarr;</a></h3>"
+		"<div class='class-counts'>"
+		"<span class='grade g3'>STRONG %d</span>"
+		"<span class='grade g2'>MEDIUM %d</span>"
+		"<span class='grade g1'>BAD %d</span>"
+		"<span class='grade g0'>NO DATA %d</span></div>",
+		title, morelink, sum->counts[3], sum->counts[2], sum->counts[1], sum->counts[0]);
+	tcp_write(tcpbuf, sock, http_buf, strlen(http_buf));
+	if (total > 0) {
+		snprintf(http_buf, 2048,
+			"<div class='class-meter'>"
+			"<i class='m3' style='width:%d%%'></i><i class='m2' style='width:%d%%'></i>"
+			"<i class='m1' style='width:%d%%'></i><i class='m0' style='width:%d%%'></i></div>",
+			sum->counts[3]*100/total, sum->counts[2]*100/total,
+			sum->counts[1]*100/total, sum->counts[0]*100/total);
+		tcp_write(tcpbuf, sock, http_buf, strlen(http_buf));
+	}
+	if (sum->worst_n) {
+		tcp_writestr(tcpbuf, sock, "<div class='home-sec'>Needs attention</div>");
+		for (i = 0; i < sum->worst_n; i++) {
+			const struct mcs_rank_entry *e = &sum->worst[i];
+			char badge[512];
+			mcs_grade_badge(badge, sizeof(badge), e->grade, e->score, e->reason);
+			snprintf(http_buf, 2048, "<div class='rank-row'>%s<a class='nm' href='%s'>%s</a><span class='rs'>%s</span><span class='sc'>%d</span></div>",
+				badge, e->link, html_esc(esc, (int)sizeof(esc), e->name), html_esc(esc2, (int)sizeof(esc2), e->reason), e->score);
+			tcp_write(tcpbuf, sock, http_buf, strlen(http_buf));
+		}
+	}
+	if (sum->best_n) {
+		tcp_writestr(tcpbuf, sock, "<div class='home-sec'>Top performers</div>");
+		for (i = 0; i < sum->best_n; i++) {
+			const struct mcs_rank_entry *e = &sum->best[i];
+			char badge[512];
+			mcs_grade_badge(badge, sizeof(badge), e->grade, e->score, e->reason);
+			snprintf(http_buf, 2048, "<div class='rank-row'>%s<a class='nm' href='%s'>%s</a><span class='rs'>%s</span><span class='sc'>%d</span></div>",
+				badge, e->link, html_esc(esc, (int)sizeof(esc), e->name), html_esc(esc2, (int)sizeof(esc2), e->reason), e->score);
+			tcp_write(tcpbuf, sock, http_buf, strlen(http_buf));
+		}
+	}
+	if (!sum->worst_n && !sum->best_n) {
+		if (total == 0)
+			tcp_writestr(tcpbuf, sock, "<div class='rank-none'>No entries configured.</div>");
+		else if (sum->counts[0] == total)
+			tcp_writestr(tcpbuf, sock, "<div class='rank-none'>Not enough ECM data yet to grade — counters start after the first ECM.</div>");
+		else
+			tcp_writestr(tcpbuf, sock, "<div class='rank-none'>Nothing graded yet.</div>");
+	}
+	tcp_writestr(tcpbuf, sock, "</div>");
+}
+
+/* filled in after the cache-peer snapshot machinery (same file) */
+static void mcs_cache_class_summary(struct mcs_class_summary *sum);
+
 #include <sys/stat.h>
 
 void http_send_file(int sock, http_request *req, char *type, char *fname)
@@ -1402,6 +1592,48 @@ void http_send_index(int sock, http_request *req)
 		total_cs378x_clients(&t, &c, &a); cli_connected += c; cli_active += a;
 		total_camd35_clients(&t, &c, &a); cli_connected += c; cli_active += a;
 	}
+	/* Band 102: grade lines, cache peers and profiles from their own stats */
+	struct mcs_class_summary line_sum, cache_sum, profile_sum;
+	int badcw_sources = 0;
+	memset(&line_sum, 0, sizeof(line_sum));
+	memset(&profile_sum, 0, sizeof(profile_sum));
+	{
+		struct server_data *s;
+		pthread_mutex_lock(&prg.locksrv);
+		int pass;
+		for (pass = 0; pass < 2; pass++) {
+			for (s = pass ? cfg.cacheexserver : cfg.server; s; s = s->next) {
+				char name[320], link[96], reason[96];
+				int ok = __atomic_load_n(&s->ecmok, __ATOMIC_RELAXED);
+				int oktime = __atomic_load_n(&s->ecmoktime, __ATOMIC_RELAXED);
+				int badcw = s->ecmerrdcw;
+#ifdef CACHEEX
+				badcw += (int)s->cacheex.badcw;
+#endif
+				int score = 0;
+				int grade = mcs_grade_server_fields(s->connection.status > 0, s->ecmnb, ok, oktime, s->ecmtimeout, badcw, &score, reason, sizeof(reason));
+				if (badcw > 0) badcw_sources++;
+				snprintf(name, sizeof(name), "%s:%d", s->host ? s->host->name : "?", s->port);
+				snprintf(link, sizeof(link), "/server?id=%d", s->id);
+				mcs_class_add(&line_sum, name, link, grade, score, reason);
+			}
+		}
+		pthread_mutex_unlock(&prg.locksrv);
+	}
+	mcs_cache_class_summary(&cache_sum);
+	{
+		struct cardserver_data *cs;
+		for (cs = cfg.cardserver; cs; cs = cs->next) {
+			char link[96], reason[96];
+			int accepted = __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED);
+			int ok = __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
+			int avgms = ok > 0 ? __atomic_load_n(&cs->ecmoktime, __ATOMIC_RELAXED) / ok : 0;
+			int score = 0;
+			int grade = mcs_grade_stats(cs->newcamd.handle > 0, accepted, ok, avgms, 0, 0, &score, reason, sizeof(reason));
+			snprintf(link, sizeof(link), "/profile?id=%d", cs->id);
+			mcs_class_add(&profile_sum, cs->name, link, grade, score, reason);
+		}
+	}
 	{
 		char et[1024];
 		snprintf( http_buf, sizeof(http_buf),
@@ -1409,10 +1641,14 @@ void http_send_index(int sock, http_request *req)
 			"<div class='hero-sub'>Multi CardServer · uptime %02dd %02d:%02d:%02d</div>"
 			"<div class='hero-chips'><span class='hero-chip'>🗄️ Servers %d/%d online</span>"
 			"<span class='hero-chip'>👥 Clients %d connected · %d active</span>"
-			"<span class='hero-chip'>🔌 Ports %d/%d listening</span></div></div>"
+			"<span class='hero-chip'>🔌 Ports %d/%d listening</span>"
+			"<span class='hero-chip'>⚡ Strong %d</span>"
+			"<span class='hero-chip'>⚠️ Needs attention %d</span></div></div>"
 			"<div class='live-badge'><span class='live-dot'></span>LIVE&nbsp;<span id='liveClock'>--:--:--</span></div></div>",
 			escf(et, cfg.http.title), d/(3600*24), (d/3600)%24, (d/60)%60, d%60,
-			srv_online, srv_total, cli_connected, cli_active, ports_open, cfg.totalprofiles );
+			srv_online, srv_total, cli_connected, cli_active, ports_open, cfg.totalprofiles,
+			line_sum.counts[3] + cache_sum.counts[3] + profile_sum.counts[3],
+			line_sum.counts[1] + cache_sum.counts[1] + profile_sum.counts[1] );
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf) );
 	}
 	tcp_writestr(&tcpbuf, sock, "<div class='perf-cards sys'>");
@@ -1471,6 +1707,34 @@ void http_send_index(int sock, http_request *req)
 		const char *rate_class = success_rate >= 90 ? "good" : (success_rate >= 70 ? "warn" : "bad");
 		sprintf(http_buf, "<div class='perf-cards'><div class='perf-card'><div class='label'>Total ECM</div><div class='value' id='kpiTotalEcm'>%d</div><div class='sub'>all profiles</div></div><div class='perf-card'><div class='label'>ECM / min</div><div class='value' id='kpiRate'>—</div><div class='sub'>live rate (browser-sampled)</div></div><div class='perf-card'><div class='label'>Accepted</div><div class='value'>%d</div><div class='sub'>passed validation</div></div><div class='perf-card %s'><div class='label'>Success Rate</div><div class='value'>%d%%</div><div class='sub'>ECM OK / Total</div></div><div class='perf-card'><div class='label'>Profiles</div><div class='value'>%d</div><div class='sub'>active bouquets</div></div></div>", total_ecm, accepted_ecm, rate_class, success_rate, cfg.totalprofiles);
 		tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+	}
+	/* Band 102: live classification panels (inside the 5s fragment) */
+	tcp_writestr(&tcpbuf, sock, "<div class='home-sec'>Health classification — graded from each entity's own stats</div><div class='class-grid'>");
+	mcs_render_class_panel(&tcpbuf, sock, http_buf, "🛰️ Lines (Servers)", "/servers", &line_sum);
+	mcs_render_class_panel(&tcpbuf, sock, http_buf, "🗄️ Cache Peers", "/cache", &cache_sum);
+	mcs_render_class_panel(&tcpbuf, sock, http_buf, "📺 Profiles", "/profiles", &profile_sum);
+	tcp_writestr(&tcpbuf, sock, "</div>");
+	{
+		int totok = 0, tothits = 0, totihits = 0;
+		struct cardserver_data *cs;
+		for (cs = cfg.cardserver; cs; cs = cs->next)
+			totok += __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
+		pthread_mutex_lock(&prg.lockcacheex);
+		for (cs = cfg.cardserver; cs; cs = cs->next) {
+			tothits += cs->hits.csp;
+			totihits += cs->hits.instant.csp;
+#ifdef CACHEEX
+			tothits += cs->hits.cacheex;
+			totihits += cs->hits.instant.cacheex;
+#endif
+		}
+		pthread_mutex_unlock(&prg.lockcacheex);
+		{
+			int hitpct = totok > 0 ? (tothits * 100) / totok : 0;
+			const char *bcw_cls = badcw_sources ? "bad" : "good";
+			snprintf(http_buf, sizeof(http_buf), "<div class='perf-cards'><div class='perf-card good'><div class='label'>Cache Hits</div><div class='value'>%d</div><div class='sub'>%d%% of ECM OK served from cache</div></div><div class='perf-card'><div class='label'>Instant Hits</div><div class='value'>%d</div><div class='sub'>zero-wait cache replies</div></div><div class='perf-card %s'><div class='label'>Bad-CW Sources</div><div class='value'>%d</div><div class='sub'>lines/peers that returned a bad CW</div></div></div>", tothits, hitpct, totihits, bcw_cls, badcw_sources);
+			tcp_write(&tcpbuf, sock, http_buf, strlen(http_buf));
+		}
 	}
 	/*
 	 * TASK 3.12 -- DCW stats on the home page, inside the refreshed div.
@@ -1922,6 +2186,20 @@ void getservercells(struct server_data *srv, char cell[8][2048] )
 
 	// CELL1
 	sprintf( cell[1],"<a href=\"/server?id=%d\">%s:%d</a><br>", srv->id,escf(et1,srv->host->name),srv->port);
+	/* Band 102: the line's own health grade next to its address */
+	{
+		int ok = __atomic_load_n(&srv->ecmok, __ATOMIC_RELAXED);
+		int oktime = __atomic_load_n(&srv->ecmoktime, __ATOMIC_RELAXED);
+		int badcw = srv->ecmerrdcw;
+#ifdef CACHEEX
+		badcw += (int)srv->cacheex.badcw;
+#endif
+		int score = 0; char reason[96]; char badge[512];
+		int grade = mcs_grade_server_fields(srv->connection.status > 0, srv->ecmnb, ok, oktime, srv->ecmtimeout, badcw, &score, reason, sizeof(reason));
+		mcs_grade_badge(badge, sizeof(badge), grade, score, reason);
+		strcat( cell[1], " " );
+		strcat( cell[1], badge );
+	}
 	if (!host_ip && host_clip)
 		sprintf(temp, "0.0.0.0 (%s)", (char *)ip2string(host_ip));
 	else {
@@ -2742,6 +3020,26 @@ static size_t http_cache_peer_list_snapshot(
 	return copied;
 }
 
+/* Band 102: grade every CSP cache peer from its own reply ratio */
+static void mcs_cache_class_summary(struct mcs_class_summary *sum)
+{
+	struct http_cache_peer_row_snapshot *rows = (struct http_cache_peer_row_snapshot *)malloc(256 * sizeof(*rows));
+	size_t total = 0, active = 0, n = 0, i;
+	memset(sum, 0, sizeof(*sum));
+	if (!rows) return;
+	n = http_cache_peer_list_snapshot(NULL, rows, 256, &total, &active);
+	(void)total; (void)active;
+	for (i = 0; i < n; i++) {
+		char name[320], link[96], reason[96];
+		int score = 0;
+		int grade = mcs_grade_stats(rows[i].ping > 0, rows[i].reqnb, rows[i].repok, 0, 0, 0, &score, reason, sizeof(reason));
+		snprintf(name, sizeof(name), "%s:%u", rows[i].host_name, rows[i].port);
+		snprintf(link, sizeof(link), "/cachepeer?id=%u", rows[i].id);
+		mcs_class_add(sum, name, link, grade, score, reason);
+	}
+	free(rows);
+}
+
 static int http_cache_peer_row_by_id(
 	uint32_t id, struct http_cache_peer_row_snapshot *snapshot)
 {
@@ -2824,6 +3122,14 @@ void getcachecells(const struct http_cache_peer_row_snapshot *peer,
 	} else
 #endif
 		sprintf(cell[0], "%s:%u", escf(et1, peer->host_name), peer->port);
+	/* Band 102: cache peer grade from its own reply ratio */
+	{
+		int score = 0; char reason[96]; char badge[512];
+		int grade = mcs_grade_stats(peer->ping > 0, peer->reqnb, peer->repok, 0, 0, 0, &score, reason, sizeof(reason));
+		mcs_grade_badge(badge, sizeof(badge), grade, score, reason);
+		strcat( cell[0], "<br>" );
+		strcat( cell[0], badge );
+	}
 	{
 		char *country = getcountrycodebyip(peer->ip);
 		if (country)
@@ -3530,6 +3836,17 @@ void getprofilecells(struct cardserver_data *cs, char cell[11][2048])
 	char et1[1024];	/* R35 text-field scratch */
 	// CELL0 # Profile name
 	sprintf( cell[0],"<a href=\"/profile?id=%d\">%s</a>", cs->id, escf(et1,cs->name));
+	/* Band 102: the profile's own health grade next to its name */
+	{
+		int accepted = __atomic_load_n(&cs->ecmaccepted, __ATOMIC_RELAXED);
+		int ok = __atomic_load_n(&cs->ecmok, __ATOMIC_RELAXED);
+		int avgms = ok > 0 ? __atomic_load_n(&cs->ecmoktime, __ATOMIC_RELAXED) / ok : 0;
+		int score = 0; char reason[96]; char badge[512];
+		int grade = mcs_grade_stats(cs->newcamd.handle > 0, accepted, ok, avgms, 0, 0, &score, reason, sizeof(reason));
+		mcs_grade_badge(badge, sizeof(badge), grade, score, reason);
+		strcat( cell[0], " " );
+		strcat( cell[0], badge );
+	}
 	// CELL1 # Port
 	sprintf( cell[1],"<a href=\"/newcamd?pid=%d\">%d</a>", cs->id, cs->newcamd.port); 
 	if (cs->newcamd.handle>0) sprintf( cell[10],"online"); else sprintf( cell[10],"offline"); 
