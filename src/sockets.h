@@ -17,6 +17,7 @@ int CreateServerSockTcp(int port, uint32_t ip);
 int CreateClientSockTcp(unsigned int netip, int port);
 // TCP NON BLOCKED CONNECTION
 int CreateClientSockTcp_nonb(unsigned int netip, int port);
+int CreateClientSockTcp_timeout(unsigned int netip, int port, int timeout_ms);
 int recv_nonb(int sock,uint8_t *buf,int len,int timeout);
 int send_nonb(int sock,uint8_t *buf,int len,int to);
 int CreateServerSockTcp_nonb(int port, uint32_t ip);

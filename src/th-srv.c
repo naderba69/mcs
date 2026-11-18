@@ -315,7 +315,10 @@ void *cs_connect_srv_th(struct server_data *srv)
 	uint32_t ip, clip;
 	host_state_snapshot(host, &ip, &clip, NULL);
 	if (!ip) ip = clip;
-	fd = CreateClientSockTcp(ip, srv->port);
+	/* Band 97: bounded at 10s -- a blocking connect to a dead host
+	 * held a config reload's drain (and with it every client) for
+	 * the kernel's full SYN budget (~127s in the field). */
+	fd = CreateClientSockTcp_timeout(ip, srv->port, 10000);
 	if (fd<0) {
 		char *msg;
 		int connect_error = errno;

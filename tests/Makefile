@@ -389,3 +389,7 @@ designaudit:
 # Band 95: the reload journal on /user-trace names save/reload drops.
 reloadjournal: .ncclient.bin .ncserver.bin
 	@python3 reloadjournal-live.py $(BIN)
+
+# Band 97: a dead outbound server must not freeze a save (drain bound).
+deaddrain:
+	@python3 deaddrain-live.py $(BIN)

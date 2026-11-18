@@ -201,7 +201,10 @@ void *reread_config_thread(void *param)
 				 * the cost is diagnosable from the web UI itself. */
 				{
 					unsigned int reload_t0 = GetTickCount();
-					char detail[48];
+					/* Band 97: was 48, which silently truncated the
+					 * Band 96 phase string ("...apply 0m") in the
+					 * journal; the trace detail field holds 128. */
+					char detail[128];
 					reload_journal_note("reload-start", "config", "", 0, "config file changed");
 					reread_config(&cfg);
 					long reload_ms = (long)(GetTickCount() - reload_t0);
