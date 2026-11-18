@@ -2169,6 +2169,7 @@ int cfg_auto_recover_enabled = 0; /* AUTO RECOVER: ON|OFF, default OFF (band 47)
  * this POD copy instead of including their headers and silently
  * seeing zeros. Cheap relaxed loads; display data only. */
 static void mcs_cwdup_status_fill(struct mcs_field_status *st);
+static void cache_gate_status_fill(struct mcs_field_status *st);
 void mcs_field_status_fill(struct mcs_field_status *st) {
 	memset(st, 0, sizeof(*st));
 	st->r22_enabled = cfg_r22_layers_enabled;
@@ -2212,6 +2213,7 @@ void mcs_field_status_fill(struct mcs_field_status *st) {
 		nopushafter_snapshot(&st->nopush_checked, &st->nopush_blocked, &st->nopush_entries);
 		service_doubt_snapshot(&st->svc_checked, &st->svc_doubt, &st->svc_majority);
 	mcs_cwdup_status_fill(st);
+	cache_gate_status_fill(st);
 		st->svc_armed = cfg.cache.service_doubt;
 		{ uint32_t ar_r = 0, ar_s = 0;
 		  autorecov_snapshot(&g_autorecov_table, &st->ar_enabled, &ar_r, &ar_s, &st->ar_active);

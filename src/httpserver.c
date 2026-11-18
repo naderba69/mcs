@@ -9725,6 +9725,17 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                      over[0] ? over : "—");
             tcp_writestr(tcpbuf, sock, out);
         }
+        /* Band 109: consensus + post-consensus gate outcomes -- the
+         * evidence base for the cycle-gate decision deferred in 105 */
+        {
+            snprintf(out, sizeof(out), "<p><b>حصيلة الإجماع والبوابات (Consensus &amp; Gate Tally):</b> أصوات: %lu | احتجازات: %lu | تصديقات: %lu | رفض إجماع: %lu | محتجَز الآن: %d (متأخر: %d)<br>ما بعد الإجماع: مرشحون: %lu (بانتهاء النافذة: %lu) | عبروا: %lu | رُفضوا — بلا دورة مثبتة: %lu · تعارض/متأخر: %lu · تعارض/خاطئ: %lu · نصف فارغ: %lu<br><small>«متأخر» = أحد نصفي الشفرة يطابق prevcw (مادة مفتاح حقيقية قديمة الدورة)؛ «خاطئ» = لا نصف يطابق. هذه الحصيلة هي دليل قرار بوابة الدورة المؤجل منذ البند 105 — لا تخفيف ولا تشديد بلا أرقام منها.</small></p>",
+                     st.cons_votes, st.cons_holds, st.cons_released, st.cons_refused,
+                     st.cons_held_now, st.cons_overdue_now,
+                     st.gate_seen, st.gate_expired, st.gate_passed,
+                     st.gate_no_cycle, st.gate_cycle_late, st.gate_cycle_wrong,
+                     st.gate_halfnull);
+            tcp_writestr(tcpbuf, sock, out);
+        }
         /* Band 106: MARCHCHECK inside CCcam Trace -- same shape as
          * CW_DUP/CW_REUSE, so all three fake-CW detectors are tuned
          * from this page alone (DCW MARCHCHECK per profile). */

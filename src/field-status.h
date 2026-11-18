@@ -130,6 +130,20 @@ struct mcs_field_status {
     uint64_t latecw_event_total;
     int latecw_event_count;
     struct mcs_cwdup_event latecw_events[MCS_CWDUP_EVENT_MAX];
+    /* Cache consensus + post-consensus gate tally (band 109) */
+    unsigned long cons_votes;
+    unsigned long cons_holds;
+    unsigned long cons_released;
+    unsigned long cons_refused;
+    int cons_held_now;
+    int cons_overdue_now;
+    unsigned long gate_seen;
+    unsigned long gate_passed;
+    unsigned long gate_expired;
+    unsigned long gate_no_cycle;
+    unsigned long gate_cycle_late;
+    unsigned long gate_cycle_wrong;
+    unsigned long gate_halfnull;
 };
 
 void mcs_field_status_fill(struct mcs_field_status *st);

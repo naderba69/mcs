@@ -185,6 +185,9 @@ def main():
             assert 'CW_REUSE' in trace and 'Cache Consensus' in trace, \
                 'CW_REUSE / consensus arming missing from the trace overview'
             print('designaudit: CW_REUSE + consensus trace sections hold')
+            assert 'حصيلة الإجماع والبوابات' in trace and 'ما بعد الإجماع' in trace, \
+                'consensus/gate tally missing from the trace overview'
+            print('designaudit: consensus + gate tally holds')
             assert 'MARCHCHECK' in trace and 'ركن النصف' in trace, \
                 'MARCHCHECK is not embedded in the CCcam trace overview'
             print('designaudit: MARCHCHECK trace section holds')

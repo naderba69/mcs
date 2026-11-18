@@ -2463,6 +2463,46 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 // 0: nothing to do
 // 1: dcw set
 // 2: dcw set & sent to pipe
+/* Band 109: post-consensus gate tally. Every cache_after_consensus()
+ * exit is accounted: entered, then either passed (derived at snapshot
+ * time as entered minus refusals) or refused for exactly one reason.
+ * late vs wrong keeps the deferred cycle-gate decision honest: late =
+ * the bytes share one half with prevcw (stale-but-real key material),
+ * wrong = neither half matches. All increments happen under
+ * prg.lockcache, which every call site already holds. */
+static unsigned long gate_tally_seen;
+static unsigned long gate_tally_no_cycle;
+static unsigned long gate_tally_cycle_late;
+static unsigned long gate_tally_cycle_wrong;
+static unsigned long gate_tally_halfnull;
+static unsigned long gate_tally_expired;
+
+static void cache_gate_status_fill(struct mcs_field_status *st)
+{
+	pthread_mutex_lock(&prg.lockcache);
+	st->cons_votes = cwconsensus_votes();
+	st->cons_holds = cwconsensus_holds();
+	st->cons_released = cwconsensus_releases();
+	st->cons_refused = cwconsensus_refusals();
+	{
+		struct cwconsensus_capacity cap;
+		uint32_t cwin = (uint32_t)(cfg.cache.consensus_window>=100?cfg.cache.consensus_window:400);
+		cwconsensus_capacity(GetTickCount(), cwin, &cap);
+		st->cons_held_now = cap.held;
+		st->cons_overdue_now = cap.overdue;
+	}
+	st->gate_seen = gate_tally_seen;
+	st->gate_expired = gate_tally_expired;
+	st->gate_no_cycle = gate_tally_no_cycle;
+	st->gate_cycle_late = gate_tally_cycle_late;
+	st->gate_cycle_wrong = gate_tally_cycle_wrong;
+	st->gate_halfnull = gate_tally_halfnull;
+	st->gate_passed = gate_tally_seen - gate_tally_no_cycle
+		- gate_tally_cycle_late - gate_tally_cycle_wrong
+		- gate_tally_halfnull;
+	pthread_mutex_unlock(&prg.lockcache);
+}
+
 /* Run the same post-consensus cycle/family gates for both immediately
  * corroborated and window-expired CWs. Caller holds prg.lockcache. */
 static int cache_after_consensus(struct cache_data *req, struct cache_data *pcache,
@@ -2470,6 +2510,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
                                  cwcycle_t cwcycle, int peerid)
 {
     int piped = 0;
+    gate_tally_seen++;
     cwcycle_t incoming_cycle = cwcycle;
     uint8_t previous_status = cwdata->status;
     cwcycle_t previous_cycle = cwdata->cwcycle;
@@ -2567,6 +2608,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 					         cwcy_str((int)incoming_cycle), cwcy_str((int)pcache->cwcycle),
 					         isnullDCW(pcache->prevcw) ? "absent" : "present");
 					user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
+					gate_tally_no_cycle++;
 					return cwdata->status | DCW_ERROR | DCW_SKIP;
 				}
 			}
@@ -2641,6 +2683,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 					int s = dcwcmp8(cw+8, pcache->prevcw+8);
 					if (f != s) cls = "late";
 				}
+				if (cls[0] == 'l') gate_tally_cycle_late++; else gate_tally_cycle_wrong++;
 				snprintf(detail, sizeof(detail), "cache cycle mismatch: expected=%s; assessed=%s; incoming=%s; class=%s",
 				         cwcy_str((int)pcache->cwcycle), cwcy_str((int)cwcycle), cwcy_str((int)incoming_cycle), cls);
 				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
@@ -2658,6 +2701,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 		// half nulled cw: exit if non-nds
 		if ( !ca_halfnull_ok(req->caid) ) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
 		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: half-null not allowed for CAID family", cw);
+			gate_tally_halfnull++;
 			cwdata->status |= DCW_ERROR;
 			return cwdata->status;
 		}
@@ -4787,6 +4831,8 @@ void *cache_thread(void *param)
 							 * gates still decide whether the CW may be forwarded. */
 							user_trace_cache_observation(chpc->caid, chpc->provid, chpc->sid, chpc->hash, cch.peerid,
 							    "cache consensus window expired; cycle checks pending", chw->cw);
+							gate_tally_expired++;
+							gate_tally_expired++;
 							cache_after_consensus(chpc, chpc, chw, chw->cw,
 							                      (cwcycle_t)cch.cycle, cch.peerid);
 							debugf(getdbgflag(DBG_CACHE,0,0),
