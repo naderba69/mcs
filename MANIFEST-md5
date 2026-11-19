@@ -152,7 +152,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-4e8f99bca9354825ec43d897c56e3a58  docs/REPORT-R48-ar.md
+ab654a4553b9cef952f5dfaca2f31702  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -421,7 +421,7 @@ f6e60d8a80d14fe8c5d7265099e93ba5  make-x64/test_supersmartfilter_ticks.c
 ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
-571f51f1cab91cc5092501bafcba2d50  multics-full-30w-52e.cfg
+a92bf02612089c6b4966b29e2ce4d6f5  multics-full-30w-52e.cfg
 ab51ddde94ca34844e4a7958ad775fa8  multics-r24-expert-reviewed.cfg
 2a59b63aea594b9460c72e902c461bad  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
