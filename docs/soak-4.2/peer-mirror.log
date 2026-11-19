@@ -2,263 +2,433 @@ PEER: bound 127.0.0.1:17105, target 127.0.0.1:17101, cw=11223366445566FF77889998
 PEER: got MultiCS ping (peer id 0004)
 PEER: sent TYPE_HELLO_ACK -- recvport and ping are now set server-side
 PEER: advertised card 18840000
-PEER: got request sid 0082 hash C997ECAA
+PEER: got request sid 0051 hash 6E0CB439
 PEER: fresh key #1: groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0082 hash C997ECAA mark 0 (1/1000000)
-PEER: got request sid 0093 hash 8A18DDFB
+PEER: replied CW for ch 1884:0000 sid 0051 hash 6E0CB439 mark 0 (1/1000000)
+PEER: got request sid 0062 hash 8673838A
 PEER: fresh key #2: 62 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0093 hash 8A18DDFB mark 0 (2/1000000)
-PEER: got request sid 00A4 hash 4FFD2D4C
+PEER: replied CW for ch 1884:0000 sid 0062 hash 8673838A mark 0 (2/1000000)
+PEER: got request sid 0073 hash 3D64B4DB
 PEER: fresh key #3: 69 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 00A4 hash 4FFD2D4C mark 0 (3/1000000)
-PEER: got request sid 00B5 hash B47B7D9D
+PEER: replied CW for ch 1884:0000 sid 0073 hash 3D64B4DB mark 0 (3/1000000)
+PEER: got request sid 0084 hash E48B052C
 PEER: fresh key #4: 51 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 00B5 hash B47B7D9D mark 0 (4/1000000)
-PEER: got request sid 00C6 hash 43980CEE
+PEER: replied CW for ch 1884:0000 sid 0084 hash E48B052C mark 0 (4/1000000)
+PEER: got request sid 0095 hash A50BF67D
 PEER: fresh key #5: 70 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 00C6 hash 43980CEE mark 0 (5/1000000)
-PEER: got request sid 00D7 hash 366B7E3F
+PEER: replied CW for ch 1884:0000 sid 0095 hash A50BF67D mark 0 (5/1000000)
+PEER: got request sid 00A6 hash 6AF045CE
 PEER: fresh key #6: 58 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 00D7 hash 366B7E3F mark 0 (6/1000000)
-PEER: got request sid 00E8 hash A902EF90
+PEER: replied CW for ch 1884:0000 sid 00A6 hash 6AF045CE mark 0 (6/1000000)
+PEER: got request sid 00B7 hash 2590951F
 PEER: fresh key #7: 73 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 00E8 hash A902EF90 mark 0 (7/1000000)
-PEER: got request sid 00F9 hash 0ED49EE1
+PEER: replied CW for ch 1884:0000 sid 00B7 hash 2590951F mark 0 (7/1000000)
+PEER: got request sid 00C8 hash 28384670
 PEER: fresh key #8: 61 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 00F9 hash 0ED49EE1 mark 0 (8/1000000)
-PEER: got request sid 010A hash 81EA4E32
+PEER: replied CW for ch 1884:0000 sid 00C8 hash 28384670 mark 0 (8/1000000)
+PEER: got request sid 00D9 hash CBA3F7C1
 PEER: fresh key #9: 66 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 010A hash 81EA4E32 mark 0 (9/1000000)
-PEER: got request sid 011B hash D188BE83
+PEER: replied CW for ch 1884:0000 sid 00D9 hash CBA3F7C1 mark 0 (9/1000000)
+PEER: got request sid 00EA hash 4E558712
 PEER: fresh key #10: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 011B hash D188BE83 mark 0 (10/1000000)
-PEER: got request sid 012C hash AE9F2ED4
+PEER: replied CW for ch 1884:0000 sid 00EA hash 4E558712 mark 0 (10/1000000)
+PEER: got request sid 00FB hash 29C7B763
 PEER: fresh key #11: 62 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 012C hash AE9F2ED4 mark 0 (11/1000000)
-PEER: got request sid 013D hash 5BF54025
+PEER: replied CW for ch 1884:0000 sid 00FB hash 29C7B763 mark 0 (11/1000000)
+PEER: got request sid 010C hash 9CDD66B4
 PEER: fresh key #12: 48 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 013D hash 5BF54025 mark 0 (12/1000000)
-PEER: got request sid 014E hash 46975076
+PEER: replied CW for ch 1884:0000 sid 010C hash 9CDD66B4 mark 0 (12/1000000)
+PEER: got request sid 011D hash EC7BD705
 PEER: fresh key #13: 69 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 014E hash 46975076 mark 0 (13/1000000)
-PEER: got request sid 015F hash 6C1E5FC7
+PEER: replied CW for ch 1884:0000 sid 011D hash EC7BD705 mark 0 (13/1000000)
+PEER: got request sid 012E hash A9CE2856
 PEER: fresh key #14: 75 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 015F hash 6C1E5FC7 mark 0 (14/1000000)
-PEER: got request sid 0170 hash 01616F18
+PEER: replied CW for ch 1884:0000 sid 012E hash A9CE2856 mark 0 (14/1000000)
+PEER: got request sid 013F hash 76E858A7
 PEER: fresh key #15: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0170 hash 01616F18 mark 0 (15/1000000)
-PEER: got request sid 0181 hash BC1E6069
+PEER: replied CW for ch 1884:0000 sid 013F hash 76E858A7 mark 0 (15/1000000)
+PEER: got request sid 0150 hash 609327F8
 PEER: fresh key #16: 59 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0181 hash BC1E6069 mark 0 (16/1000000)
-PEER: got request sid 0192 hash 2E44B0BA
+PEER: replied CW for ch 1884:0000 sid 0150 hash 609327F8 mark 0 (16/1000000)
+PEER: got request sid 0161 hash 87117849
 PEER: fresh key #17: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0192 hash 2E44B0BA mark 0 (17/1000000)
-PEER: got request sid 01A3 hash CDA1620B
+PEER: replied CW for ch 1884:0000 sid 0161 hash 87117849 mark 0 (17/1000000)
+PEER: got request sid 0172 hash 1C54879A
 PEER: fresh key #18: 65 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 01A3 hash CDA1620B mark 0 (18/1000000)
-PEER: got request sid 01B4 hash A701F15C
+PEER: replied CW for ch 1884:0000 sid 0172 hash 1C54879A mark 0 (18/1000000)
+PEER: got request sid 0183 hash D71178EB
 PEER: fresh key #19: 53 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 01B4 hash A701F15C mark 0 (19/1000000)
-PEER: got request sid 01C5 hash 361E80AD
+PEER: replied CW for ch 1884:0000 sid 0183 hash D71178EB mark 0 (19/1000000)
+PEER: got request sid 0194 hash 97926A3C
 PEER: fresh key #20: 59 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 01C5 hash 361E80AD mark 0 (20/1000000)
-PEER: got request sid 01D6 hash 28F1F1FE
+PEER: replied CW for ch 1884:0000 sid 0194 hash 97926A3C mark 0 (20/1000000)
+PEER: got request sid 01A5 hash 5D76B98D
 PEER: fresh key #21: 72 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 01D6 hash 28F1F1FE mark 0 (21/1000000)
-PEER: got request sid 01E7 hash 9B89634F
+PEER: replied CW for ch 1884:0000 sid 01A5 hash 5D76B98D mark 0 (21/1000000)
+PEER: got request sid 01B6 hash 181708DE
 PEER: fresh key #22: 54 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 01E7 hash 9B89634F mark 0 (22/1000000)
-PEER: got request sid 01F8 hash 015B12A0
+PEER: replied CW for ch 1884:0000 sid 01B6 hash 181708DE mark 0 (22/1000000)
+PEER: got request sid 01C7 hash 1ABEBA2F
 PEER: fresh key #23: 73 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 01F8 hash 015B12A0 mark 0 (23/1000000)
-PEER: got request sid 0209 hash C45542F1
+PEER: replied CW for ch 1884:0000 sid 01C7 hash 1ABEBA2F mark 0 (23/1000000)
+PEER: got request sid 01D8 hash 43E50A80
 PEER: fresh key #24: 56 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0209 hash C45542F1 mark 0 (24/1000000)
-PEER: got request sid 021A hash C40F3242
+PEER: replied CW for ch 1884:0000 sid 01D8 hash 43E50A80 mark 0 (24/1000000)
+PEER: got request sid 01E9 hash B67C7BD1
 PEER: fresh key #25: 68 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 021A hash C40F3242 mark 0 (25/1000000)
-PEER: got request sid 022B hash A125A293
+PEER: replied CW for ch 1884:0000 sid 01E9 hash B67C7BD1 mark 0 (25/1000000)
+PEER: got request sid 01FA hash 1C4E2B22
 PEER: fresh key #26: 59 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 022B hash A125A293 mark 0 (26/1000000)
-PEER: got request sid 023C hash 4E7BB3E4
+PEER: replied CW for ch 1884:0000 sid 01FA hash 1C4E2B22 mark 0 (26/1000000)
+PEER: got request sid 020B hash 8F63DA73
 PEER: fresh key #27: 57 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 023C hash 4E7BB3E4 mark 0 (27/1000000)
-PEER: got request sid 024D hash 391DC435
+PEER: replied CW for ch 1884:0000 sid 020B hash 8F63DA73 mark 0 (27/1000000)
+PEER: got request sid 021C hash DF024AC4
 PEER: fresh key #28: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 024D hash 391DC435 mark 0 (28/1000000)
-PEER: got request sid 025E hash 5EA4D386
+PEER: replied CW for ch 1884:0000 sid 021C hash DF024AC4 mark 0 (28/1000000)
+PEER: got request sid 022D hash 9C549C15
 PEER: fresh key #29: 65 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 025E hash 5EA4D386 mark 0 (29/1000000)
-PEER: got request sid 026F hash DA2323D7
+PEER: replied CW for ch 1884:0000 sid 022D hash 9C549C15 mark 0 (29/1000000)
+PEER: got request sid 023E hash 696ECC66
 PEER: fresh key #30: 60 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 026F hash DA2323D7 mark 0 (30/1000000)
-PEER: got request sid 0280 hash 26327328
+PEER: replied CW for ch 1884:0000 sid 023E hash 696ECC66 mark 0 (30/1000000)
+PEER: got request sid 024F hash 5410DCB7
 PEER: fresh key #31: 69 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0280 hash 26327328 mark 0 (31/1000000)
-PEER: got request sid 0291 hash 20CB2479
+PEER: replied CW for ch 1884:0000 sid 024F hash 5410DCB7 mark 0 (31/1000000)
+PEER: got request sid 0260 hash 7997EC08
 PEER: fresh key #32: 68 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0291 hash 20CB2479 mark 0 (32/1000000)
-PEER: got request sid 02A2 hash C027D5CA
+PEER: replied CW for ch 1884:0000 sid 0260 hash 7997EC08 mark 0 (32/1000000)
+PEER: got request sid 0271 hash 0EDAFB59
 PEER: fresh key #33: 67 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 02A2 hash C027D5CA mark 0 (33/1000000)
-PEER: got request sid 02B3 hash 9988651B
+PEER: replied CW for ch 1884:0000 sid 0271 hash 0EDAFB59 mark 0 (33/1000000)
+PEER: got request sid 0282 hash C997ECAA
 PEER: fresh key #34: 69 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 02B3 hash 9988651B mark 0 (34/1000000)
-PEER: got request sid 02C4 hash 28A4F46C
+PEER: replied CW for ch 1884:0000 sid 0282 hash C997ECAA mark 0 (34/1000000)
+PEER: got request sid 0293 hash 8A18DDFB
 PEER: fresh key #35: 57 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 02C4 hash 28A4F46C mark 0 (35/1000000)
-PEER: got request sid 02D5 hash 1B7865BD
+PEER: replied CW for ch 1884:0000 sid 0293 hash 8A18DDFB mark 0 (35/1000000)
+PEER: got request sid 02A4 hash 4FFD2D4C
 PEER: fresh key #36: 69 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 02D5 hash 1B7865BD mark 0 (36/1000000)
-PEER: got request sid 02E6 hash 8F9EB60E
+PEER: replied CW for ch 1884:0000 sid 02A4 hash 4FFD2D4C mark 0 (36/1000000)
+PEER: got request sid 02B5 hash B47B7D9D
 PEER: fresh key #37: 69 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 02E6 hash 8F9EB60E mark 0 (37/1000000)
-PEER: got request sid 02F7 hash F3E1865F
+PEER: replied CW for ch 1884:0000 sid 02B5 hash B47B7D9D mark 0 (37/1000000)
+PEER: got request sid 02C6 hash 43980CEE
 PEER: fresh key #38: 61 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 02F7 hash F3E1865F mark 0 (38/1000000)
-PEER: got request sid 0308 hash B6DBB6B0
+PEER: replied CW for ch 1884:0000 sid 02C6 hash 43980CEE mark 0 (38/1000000)
+PEER: got request sid 02D7 hash 366B7E3F
 PEER: fresh key #39: 61 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0308 hash B6DBB6B0 mark 0 (39/1000000)
-PEER: got request sid 0319 hash B695A601
+PEER: replied CW for ch 1884:0000 sid 02D7 hash 366B7E3F mark 0 (39/1000000)
+PEER: got request sid 02E8 hash A902EF90
 PEER: fresh key #40: 70 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0319 hash B695A601 mark 0 (40/1000000)
-PEER: got request sid 032A hash 93AC1652
+PEER: replied CW for ch 1884:0000 sid 02E8 hash A902EF90 mark 0 (40/1000000)
+PEER: got request sid 02F9 hash 0ED49EE1
 PEER: fresh key #41: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 032A hash 93AC1652 mark 0 (41/1000000)
-PEER: got request sid 033B hash 410227A3
+PEER: replied CW for ch 1884:0000 sid 02F9 hash 0ED49EE1 mark 0 (41/1000000)
+PEER: got request sid 030A hash 81EA4E32
 PEER: fresh key #42: 65 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 033B hash 410227A3 mark 0 (42/1000000)
-PEER: got request sid 034C hash 2BA456F4
+PEER: replied CW for ch 1884:0000 sid 030A hash 81EA4E32 mark 0 (42/1000000)
+PEER: got request sid 031B hash D188BE83
 PEER: fresh key #43: 62 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 034C hash 2BA456F4 mark 0 (43/1000000)
-PEER: got request sid 035D hash F1564845
+PEER: replied CW for ch 1884:0000 sid 031B hash D188BE83 mark 0 (43/1000000)
+PEER: got request sid 032C hash AE9F2ED4
 PEER: fresh key #44: 71 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 035D hash F1564845 mark 0 (44/1000000)
-PEER: got request sid 036E hash CCA99796
+PEER: replied CW for ch 1884:0000 sid 032C hash AE9F2ED4 mark 0 (44/1000000)
+PEER: got request sid 033D hash 5BF54025
 PEER: fresh key #45: 54 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 036E hash CCA99796 mark 0 (45/1000000)
-PEER: got request sid 037F hash 18B8E6E7
+PEER: replied CW for ch 1884:0000 sid 033D hash 5BF54025 mark 0 (45/1000000)
+PEER: got request sid 034E hash 46975076
 PEER: fresh key #46: 66 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 037F hash 18B8E6E7 mark 0 (46/1000000)
-PEER: got request sid 0390 hash 13519838
+PEER: replied CW for ch 1884:0000 sid 034E hash 46975076 mark 0 (46/1000000)
+PEER: got request sid 035F hash 6C1E5FC7
 PEER: fresh key #47: 69 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0390 hash 13519838 mark 0 (47/1000000)
-PEER: got request sid 03A1 hash B2AE4989
+PEER: replied CW for ch 1884:0000 sid 035F hash 6C1E5FC7 mark 0 (47/1000000)
+PEER: got request sid 0370 hash 01616F18
 PEER: fresh key #48: 59 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 03A1 hash B2AE4989 mark 0 (48/1000000)
-PEER: got request sid 03B2 hash 8C0ED8DA
+PEER: replied CW for ch 1884:0000 sid 0370 hash 01616F18 mark 0 (48/1000000)
+PEER: got request sid 0381 hash BC1E6069
 PEER: fresh key #49: 62 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 03B2 hash 8C0ED8DA mark 0 (49/1000000)
-PEER: got request sid 03C3 hash C58D292B
+PEER: replied CW for ch 1884:0000 sid 0381 hash BC1E6069 mark 0 (49/1000000)
+PEER: got request sid 0392 hash 2E44B0BA
 PEER: fresh key #50: 57 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 03C3 hash C58D292B mark 0 (50/1000000)
-PEER: got request sid 03D4 hash FB15F87C
+PEER: replied CW for ch 1884:0000 sid 0392 hash 2E44B0BA mark 0 (50/1000000)
+PEER: got request sid 03A3 hash CDA1620B
 PEER: fresh key #51: 68 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 03D4 hash FB15F87C mark 0 (51/1000000)
-PEER: got request sid 03E5 hash 822529CD
+PEER: replied CW for ch 1884:0000 sid 03A3 hash CDA1620B mark 0 (51/1000000)
+PEER: got request sid 03B4 hash A701F15C
 PEER: fresh key #52: 53 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 03E5 hash 822529CD mark 0 (52/1000000)
-PEER: got request sid 03F6 hash E667FA1E
+PEER: replied CW for ch 1884:0000 sid 03B4 hash A701F15C mark 0 (52/1000000)
+PEER: got request sid 03C5 hash 361E80AD
 PEER: fresh key #53: 68 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 03F6 hash E667FA1E mark 0 (53/1000000)
-PEER: got request sid 0407 hash A9622A6F
+PEER: replied CW for ch 1884:0000 sid 03C5 hash 361E80AD mark 0 (53/1000000)
+PEER: got request sid 03D6 hash 28F1F1FE
 PEER: fresh key #54: 67 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0407 hash A9622A6F mark 0 (54/1000000)
-PEER: got request sid 0418 hash A91C19C0
+PEER: replied CW for ch 1884:0000 sid 03D6 hash 28F1F1FE mark 0 (54/1000000)
+PEER: got request sid 03E7 hash 9B89634F
 PEER: fresh key #55: 71 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0418 hash A91C19C0 mark 0 (55/1000000)
-PEER: got request sid 0429 hash 86328A11
+PEER: replied CW for ch 1884:0000 sid 03E7 hash 9B89634F mark 0 (55/1000000)
+PEER: got request sid 03F8 hash 015B12A0
 PEER: fresh key #56: 54 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0429 hash 86328A11 mark 0 (56/1000000)
+PEER: replied CW for ch 1884:0000 sid 03F8 hash 015B12A0 mark 0 (56/1000000)
+PEER: got request sid 0409 hash C45542F1
+PEER: fresh key #57: 66 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0409 hash C45542F1 mark 0 (57/1000000)
 PEER: got MultiCS ping (peer id 0004)
 PEER: sent TYPE_HELLO_ACK -- recvport and ping are now set server-side
-PEER: got request sid 043A hash 72C0FA62
-PEER: fresh key #57: 66 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 043A hash 72C0FA62 mark 0 (57/1000000)
-PEER: got request sid 044B hash 1E2ACAB3
+PEER: got request sid 041A hash C40F3242
 PEER: fresh key #58: 56 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 044B hash 1E2ACAB3 mark 0 (58/1000000)
-PEER: got request sid 045C hash E3DCBC04
+PEER: replied CW for ch 1884:0000 sid 041A hash C40F3242 mark 0 (58/1000000)
+PEER: got request sid 042B hash A125A293
 PEER: fresh key #59: 72 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 045C hash E3DCBC04 mark 0 (59/1000000)
-PEER: got request sid 046D hash BF300B55
+PEER: replied CW for ch 1884:0000 sid 042B hash A125A293 mark 0 (59/1000000)
+PEER: got request sid 043C hash 4E7BB3E4
 PEER: fresh key #60: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 046D hash BF300B55 mark 0 (60/1000000)
-PEER: got request sid 047E hash 0B3F5AA6
+PEER: replied CW for ch 1884:0000 sid 043C hash 4E7BB3E4 mark 0 (60/1000000)
+PEER: got request sid 044D hash 391DC435
 PEER: fresh key #61: 59 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 047E hash 0B3F5AA6 mark 0 (61/1000000)
-PEER: got request sid 048F hash 05D80BF7
+PEER: replied CW for ch 1884:0000 sid 044D hash 391DC435 mark 0 (61/1000000)
+PEER: got request sid 045E hash 5EA4D386
 PEER: fresh key #62: 58 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 048F hash 05D80BF7 mark 0 (62/1000000)
-PEER: got request sid 04A0 hash 82FE5C48
+PEER: replied CW for ch 1884:0000 sid 045E hash 5EA4D386 mark 0 (62/1000000)
+PEER: got request sid 046F hash DA2323D7
 PEER: fresh key #63: 72 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 04A0 hash 82FE5C48 mark 0 (63/1000000)
-PEER: got request sid 04B1 hash B946CD99
+PEER: replied CW for ch 1884:0000 sid 046F hash DA2323D7 mark 0 (63/1000000)
+PEER: got request sid 0480 hash 26327328
 PEER: fresh key #64: 61 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 04B1 hash B946CD99 mark 0 (64/1000000)
-PEER: got request sid 04C2 hash B8139CEA
+PEER: replied CW for ch 1884:0000 sid 0480 hash 26327328 mark 0 (64/1000000)
+PEER: got request sid 0491 hash 20CB2479
 PEER: fresh key #65: 62 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 04C2 hash B8139CEA mark 0 (65/1000000)
-PEER: got request sid 04D3 hash ED9C6C3B
+PEER: replied CW for ch 1884:0000 sid 0491 hash 20CB2479 mark 0 (65/1000000)
+PEER: got request sid 04A2 hash C027D5CA
 PEER: fresh key #66: 68 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 04D3 hash ED9C6C3B mark 0 (66/1000000)
-PEER: got request sid 04E4 hash 74AB9D8C
+PEER: replied CW for ch 1884:0000 sid 04A2 hash C027D5CA mark 0 (66/1000000)
+PEER: got request sid 04B3 hash 9988651B
 PEER: fresh key #67: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 04E4 hash 74AB9D8C mark 0 (67/1000000)
-PEER: got request sid 04F5 hash D8EE6DDD
+PEER: replied CW for ch 1884:0000 sid 04B3 hash 9988651B mark 0 (67/1000000)
+PEER: got request sid 04C4 hash 28A4F46C
 PEER: fresh key #68: 56 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 04F5 hash D8EE6DDD mark 0 (68/1000000)
-PEER: got request sid 0506 hash 9BE89E2E
+PEER: replied CW for ch 1884:0000 sid 04C4 hash 28A4F46C mark 0 (68/1000000)
+PEER: got request sid 04D5 hash 1B7865BD
 PEER: fresh key #69: 68 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0506 hash 9BE89E2E mark 0 (69/1000000)
-PEER: got request sid 0517 hash 846ACE7F
+PEER: replied CW for ch 1884:0000 sid 04D5 hash 1B7865BD mark 0 (69/1000000)
+PEER: got request sid 04E6 hash 8F9EB60E
 PEER: fresh key #70: 53 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0517 hash 846ACE7F mark 0 (70/1000000)
-PEER: got request sid 0528 hash 78B8FDD0
+PEER: replied CW for ch 1884:0000 sid 04E6 hash 8F9EB60E mark 0 (70/1000000)
+PEER: got request sid 04F7 hash F3E1865F
 PEER: fresh key #71: 70 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0528 hash 78B8FDD0 mark 0 (71/1000000)
-PEER: got request sid 0539 hash 65476E21
+PEER: replied CW for ch 1884:0000 sid 04F7 hash F3E1865F mark 0 (71/1000000)
+PEER: got request sid 0508 hash B6DBB6B0
 PEER: fresh key #72: 63 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0539 hash 65476E21 mark 0 (72/1000000)
-PEER: got request sid 054A hash 10B13E72
+PEER: replied CW for ch 1884:0000 sid 0508 hash B6DBB6B0 mark 0 (72/1000000)
+PEER: got request sid 0519 hash B695A601
 PEER: fresh key #73: 76 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 054A hash 10B13E72 mark 0 (73/1000000)
-PEER: got request sid 055B hash D6632FC3
+PEER: replied CW for ch 1884:0000 sid 0519 hash B695A601 mark 0 (73/1000000)
+PEER: got request sid 052A hash 93AC1652
 PEER: fresh key #74: 54 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 055B hash D6632FC3 mark 0 (74/1000000)
-PEER: got request sid 056C hash B1B67F14
+PEER: replied CW for ch 1884:0000 sid 052A hash 93AC1652 mark 0 (74/1000000)
+PEER: got request sid 053B hash 410227A3
 PEER: fresh key #75: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 056C hash B1B67F14 mark 0 (75/1000000)
-PEER: got request sid 057D hash 4234CF65
+PEER: replied CW for ch 1884:0000 sid 053B hash 410227A3 mark 0 (75/1000000)
+PEER: got request sid 054C hash 2BA456F4
 PEER: fresh key #76: 66 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 057D hash 4234CF65 mark 0 (76/1000000)
-PEER: got request sid 058E hash C3005EB6
+PEER: replied CW for ch 1884:0000 sid 054C hash 2BA456F4 mark 0 (76/1000000)
+PEER: got request sid 055D hash F1564845
 PEER: fresh key #77: 67 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 058E hash C3005EB6 mark 0 (77/1000000)
-PEER: got request sid 059F hash 7584D007
+PEER: replied CW for ch 1884:0000 sid 055D hash F1564845 mark 0 (77/1000000)
+PEER: got request sid 056E hash CCA99796
 PEER: fresh key #78: 51 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 059F hash 7584D007 mark 0 (78/1000000)
-PEER: got request sid 05B0 hash ABCD4158
+PEER: replied CW for ch 1884:0000 sid 056E hash CCA99796 mark 0 (78/1000000)
+PEER: got request sid 057F hash 18B8E6E7
 PEER: fresh key #79: 75 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 05B0 hash ABCD4158 mark 0 (79/1000000)
-PEER: got request sid 05C1 hash AA9A10A9
+PEER: replied CW for ch 1884:0000 sid 057F hash 18B8E6E7 mark 0 (79/1000000)
+PEER: got request sid 0590 hash 13519838
 PEER: fresh key #80: 63 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 05C1 hash AA9A10A9 mark 0 (80/1000000)
-PEER: got request sid 05D2 hash E022DFFA
+PEER: replied CW for ch 1884:0000 sid 0590 hash 13519838 mark 0 (80/1000000)
+PEER: got request sid 05A1 hash B2AE4989
 PEER: fresh key #81: 63 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 05D2 hash E022DFFA mark 0 (81/1000000)
-PEER: got request sid 05E3 hash 6732114B
+PEER: replied CW for ch 1884:0000 sid 05A1 hash B2AE4989 mark 0 (81/1000000)
+PEER: got request sid 05B2 hash 8C0ED8DA
 PEER: fresh key #82: 57 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 05E3 hash 6732114B mark 0 (82/1000000)
-PEER: got request sid 05F4 hash A4C8009C
+PEER: replied CW for ch 1884:0000 sid 05B2 hash 8C0ED8DA mark 0 (82/1000000)
+PEER: got request sid 05C3 hash C58D292B
 PEER: fresh key #83: 68 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 05F4 hash A4C8009C mark 0 (83/1000000)
-PEER: got request sid 0605 hash 8E6F11ED
+PEER: replied CW for ch 1884:0000 sid 05C3 hash C58D292B mark 0 (83/1000000)
+PEER: got request sid 05D4 hash FB15F87C
 PEER: fresh key #84: 62 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0605 hash 8E6F11ED mark 0 (84/1000000)
-PEER: got request sid 0616 hash 76F1423E
+PEER: replied CW for ch 1884:0000 sid 05D4 hash FB15F87C mark 0 (84/1000000)
+PEER: got request sid 05E5 hash 822529CD
 PEER: fresh key #85: 63 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0616 hash 76F1423E mark 0 (85/1000000)
-PEER: got request sid 0627 hash 6B3F718F
+PEER: replied CW for ch 1884:0000 sid 05E5 hash 822529CD mark 0 (85/1000000)
+PEER: got request sid 05F6 hash E667FA1E
 PEER: fresh key #86: 67 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
-PEER: replied CW for ch 1884:0000 sid 0627 hash 6B3F718F mark 0 (86/1000000)
+PEER: replied CW for ch 1884:0000 sid 05F6 hash E667FA1E mark 0 (86/1000000)
+PEER: got request sid 0607 hash A9622A6F
+PEER: fresh key #87: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0607 hash A9622A6F mark 0 (87/1000000)
+PEER: got request sid 0618 hash A91C19C0
+PEER: fresh key #88: 65 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0618 hash A91C19C0 mark 0 (88/1000000)
+PEER: got request sid 0629 hash 86328A11
+PEER: fresh key #89: 70 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0629 hash 86328A11 mark 0 (89/1000000)
+PEER: got request sid 063A hash 72C0FA62
+PEER: fresh key #90: 55 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 063A hash 72C0FA62 mark 0 (90/1000000)
+PEER: got request sid 064B hash 1E2ACAB3
+PEER: fresh key #91: 60 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 064B hash 1E2ACAB3 mark 0 (91/1000000)
+PEER: got request sid 065C hash E3DCBC04
+PEER: fresh key #92: 73 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 065C hash E3DCBC04 mark 0 (92/1000000)
+PEER: got request sid 066D hash BF300B55
+PEER: fresh key #93: 48 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 066D hash BF300B55 mark 0 (93/1000000)
+PEER: got request sid 067E hash 0B3F5AA6
+PEER: fresh key #94: 65 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 067E hash 0B3F5AA6 mark 0 (94/1000000)
+PEER: got request sid 068F hash 05D80BF7
+PEER: fresh key #95: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 068F hash 05D80BF7 mark 0 (95/1000000)
+PEER: got request sid 06A0 hash 82FE5C48
+PEER: fresh key #96: 68 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 06A0 hash 82FE5C48 mark 0 (96/1000000)
+PEER: got request sid 06B1 hash B946CD99
+PEER: fresh key #97: 63 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 06B1 hash B946CD99 mark 0 (97/1000000)
+PEER: got request sid 06C2 hash B8139CEA
+PEER: fresh key #98: 55 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 06C2 hash B8139CEA mark 0 (98/1000000)
+PEER: got request sid 06D3 hash ED9C6C3B
+PEER: fresh key #99: 72 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 06D3 hash ED9C6C3B mark 0 (99/1000000)
+PEER: got request sid 06E4 hash 74AB9D8C
+PEER: fresh key #100: 57 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 06E4 hash 74AB9D8C mark 0 (100/1000000)
+PEER: got request sid 06F5 hash D8EE6DDD
+PEER: fresh key #101: 53 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 06F5 hash D8EE6DDD mark 0 (101/1000000)
+PEER: got request sid 0706 hash 9BE89E2E
+PEER: fresh key #102: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0706 hash 9BE89E2E mark 0 (102/1000000)
+PEER: got request sid 0717 hash 846ACE7F
+PEER: fresh key #103: 76 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0717 hash 846ACE7F mark 0 (103/1000000)
+PEER: got request sid 0728 hash 78B8FDD0
+PEER: fresh key #104: 59 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0728 hash 78B8FDD0 mark 0 (104/1000000)
+PEER: got request sid 0739 hash 65476E21
+PEER: fresh key #105: 74 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0739 hash 65476E21 mark 0 (105/1000000)
+PEER: got request sid 074A hash 10B13E72
+PEER: fresh key #106: 62 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 074A hash 10B13E72 mark 0 (106/1000000)
+PEER: got request sid 075B hash D6632FC3
+PEER: fresh key #107: 69 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 075B hash D6632FC3 mark 0 (107/1000000)
+PEER: got request sid 076C hash B1B67F14
+PEER: fresh key #108: 58 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 076C hash B1B67F14 mark 0 (108/1000000)
+PEER: got request sid 077D hash 4234CF65
+PEER: fresh key #109: 58 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 077D hash 4234CF65 mark 0 (109/1000000)
+PEER: got request sid 078E hash C3005EB6
+PEER: fresh key #110: 67 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 078E hash C3005EB6 mark 0 (110/1000000)
+PEER: got request sid 079F hash 7584D007
+PEER: fresh key #111: 67 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 079F hash 7584D007 mark 0 (111/1000000)
+PEER: got request sid 07B0 hash ABCD4158
+PEER: fresh key #112: 71 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 07B0 hash ABCD4158 mark 0 (112/1000000)
+PEER: got request sid 07C1 hash AA9A10A9
+PEER: fresh key #113: 61 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 07C1 hash AA9A10A9 mark 0 (113/1000000)
+PEER: got request sid 07D2 hash E022DFFA
+PEER: fresh key #114: 55 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 07D2 hash E022DFFA mark 0 (114/1000000)
+PEER: got MultiCS ping (peer id 0004)
+PEER: sent TYPE_HELLO_ACK -- recvport and ping are now set server-side
+PEER: got request sid 07E3 hash 6732114B
+PEER: fresh key #115: 69 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 07E3 hash 6732114B mark 0 (115/1000000)
+PEER: got request sid 07F4 hash A4C8009C
+PEER: fresh key #116: 58 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 07F4 hash A4C8009C mark 0 (116/1000000)
+PEER: got request sid 0805 hash 8E6F11ED
+PEER: fresh key #117: 63 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0805 hash 8E6F11ED mark 0 (117/1000000)
+PEER: got request sid 0816 hash 76F1423E
+PEER: fresh key #118: 82 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0816 hash 76F1423E mark 0 (118/1000000)
+PEER: got request sid 0827 hash 6B3F718F
+PEER: fresh key #119: 60 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0827 hash 6B3F718F mark 0 (119/1000000)
+PEER: got request sid 0838 hash 57CDE1E0
+PEER: fresh key #120: 63 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0838 hash 57CDE1E0 mark 0 (120/1000000)
+PEER: got request sid 0849 hash 0337B231
+PEER: fresh key #121: 63 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0849 hash 0337B231 mark 0 (121/1000000)
+PEER: got request sid 085A hash C95E0282
+PEER: fresh key #122: 60 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 085A hash C95E0282 mark 0 (122/1000000)
+PEER: got request sid 086B hash E5ABB3D3
+PEER: fresh key #123: 64 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 086B hash E5ABB3D3 mark 0 (123/1000000)
+PEER: got request sid 087C hash 34BB4324
+PEER: fresh key #124: 54 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 087C hash 34BB4324 mark 0 (124/1000000)
+PEER: got request sid 088D hash B586D275
+PEER: fresh key #125: 74 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 088D hash B586D275 mark 0 (125/1000000)
+PEER: got request sid 089E hash 680B43C6
+PEER: fresh key #126: 56 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 089E hash 680B43C6 mark 0 (126/1000000)
+PEER: got request sid 08AF hash 9E53B517
+PEER: fresh key #127: 62 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 08AF hash 9E53B517 mark 0 (127/1000000)
+PEER: got request sid 08C0 hash 9D208468
+PEER: fresh key #128: 61 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 08C0 hash 9D208468 mark 0 (128/1000000)
+PEER: got request sid 08D1 hash 6B9ED4B9
+PEER: fresh key #129: 71 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 08D1 hash 6B9ED4B9 mark 0 (129/1000000)
+PEER: got request sid 08E2 hash 5D83E40A
+PEER: fresh key #130: 62 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 08E2 hash 5D83E40A mark 0 (130/1000000)
+PEER: got request sid 08F3 hash 974E745B
+PEER: fresh key #131: 68 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 08F3 hash 974E745B mark 0 (131/1000000)
+PEER: got request sid 0904 hash 80F585AC
+PEER: fresh key #132: 53 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0904 hash 80F585AC mark 0 (132/1000000)
+PEER: got request sid 0915 hash 6977B5FD
+PEER: fresh key #133: 72 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0915 hash 6977B5FD mark 0 (133/1000000)
+PEER: got request sid 0926 hash 5DC5E54E
+PEER: fresh key #134: 53 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0926 hash 5DC5E54E mark 0 (134/1000000)
+PEER: got request sid 0937 hash 4A54559F
+PEER: fresh key #135: 74 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0937 hash 4A54559F mark 0 (135/1000000)
+PEER: got request sid 0948 hash 485AC4F0
+PEER: fresh key #136: 59 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0948 hash 485AC4F0 mark 0 (136/1000000)
+PEER: got request sid 0959 hash BBE47641
+PEER: fresh key #137: 60 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 0959 hash BBE47641 mark 0 (137/1000000)
+PEER: got request sid 096A hash D8322792
+PEER: fresh key #138: 67 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 096A hash D8322792 mark 0 (138/1000000)
+PEER: got request sid 097B hash 2741B6E3
+PEER: fresh key #139: 58 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 097B hash 2741B6E3 mark 0 (139/1000000)
+PEER: got request sid 098C hash A80D4634
+PEER: fresh key #140: 55 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 098C hash A80D4634 mark 0 (140/1000000)
+PEER: got request sid 099D hash 5A91B785
+PEER: fresh key #141: 70 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 099D hash 5A91B785 mark 0 (141/1000000)
+PEER: got request sid 09AE hash 22B807D6
+PEER: fresh key #142: 61 bit(s) from the previous one, groups 1-4 intact (mirror-built), group 4 BROKEN
+PEER: replied CW for ch 1884:0000 sid 09AE hash 22B807D6 mark 0 (142/1000000)

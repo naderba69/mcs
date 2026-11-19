@@ -2489,6 +2489,7 @@ static struct {
 	unsigned long seen, no_cycle, cycle_late, cycle_wrong;
 	unsigned long shadow_rot, shadow_neither;
 	unsigned long shadow_bothsame, shadow_noprev;
+	unsigned long cyc1_undeclared, cyc1_learnable;
 } gate_caid_tally[GATE_CAID_MAX];
 static unsigned long gate_tally_caid_overflow;
 
@@ -2509,6 +2510,26 @@ static unsigned long gate_shadow_rot_cw0;   /* second half differs -> CW0 */
 static unsigned long gate_shadow_neither;   /* both differ: no stable half */
 static unsigned long gate_shadow_bothsame;  /* both equal prevcw: same key */
 static unsigned long gate_shadow_noprev;    /* no prevcw to compare with */
+
+/* Band 113: does the refused pile at least KNOW the channel's cycle parity?
+ * The estimator's only input when prevcw is absent is cwcy_expect(tag,
+ * pcache->cw1cycle), and cw1cycle is 0 ("the operator has told us nothing
+ * about this channel's tag convention" -- cwcycle.h) unless the profile's
+ * channel list declares it (SID.xxxx.80/.81) or a local client announced it.
+ * So the two buckets below separate a gate that works from a gate starved
+ * of its one remaining input. "declared but still refused" is the bug
+ * canary: with the estimator on, a declared parity names a cycle and the
+ * key passes -- any real count there means the estimate path is broken. */
+static unsigned long gate_cyc1_declared;
+static unsigned long gate_cyc1_undeclared;
+/* Band 113: refusals whose channel DID show usable rotation evidence
+ * (prevcw present, exactly one half carried over) but that evidence could
+ * not reach the decision because the refusal arrives before any marker and
+ * no declaration exists. Every count here is one SID list line the operator
+ * could declare with real data -- "learnable but undeclared". Zero means
+ * there is nothing to declare: the starvation is the peers' missing tail,
+ * not the profile, and no cfg edit can fix this gate. */
+static unsigned long gate_cyc1_learnable;
 
 static int gate_caid_slot(uint16_t caid)
 {
@@ -2565,6 +2586,9 @@ static void cache_gate_status_fill(struct mcs_field_status *st)
 	st->shadow_neither = gate_shadow_neither;
 	st->shadow_bothsame = gate_shadow_bothsame;
 	st->shadow_noprev = gate_shadow_noprev;
+	st->cyc1_declared = gate_cyc1_declared;
+	st->cyc1_undeclared = gate_cyc1_undeclared;
+	st->cyc1_learnable = gate_cyc1_learnable;
 	{
 		/* top CAIDs by refusals, worst first (insertion sort, 32 max) */
 		struct mcs_gate_caid tmp[GATE_CAID_MAX];
@@ -2580,6 +2604,8 @@ static void cache_gate_status_fill(struct mcs_field_status *st)
 			tmp[n].shadow_neither = gate_caid_tally[i].shadow_neither;
 			tmp[n].shadow_bothsame = gate_caid_tally[i].shadow_bothsame;
 			tmp[n].shadow_noprev = gate_caid_tally[i].shadow_noprev;
+			tmp[n].cyc1_undeclared = gate_caid_tally[i].cyc1_undeclared;
+			tmp[n].cyc1_learnable = gate_caid_tally[i].cyc1_learnable;
 			n++;
 		}
 		for (i = 1; i < n; i++) {
@@ -2723,6 +2749,20 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 						case MCS_SHADOW_NEITHER:  gate_shadow_neither++; break;
 						case MCS_SHADOW_BOTHSAME: gate_shadow_bothsame++; break;
 						default: gate_shadow_noprev++; break;
+						}
+						if (pcache->cw1cycle) gate_cyc1_declared++;
+						else {
+							gate_cyc1_undeclared++;
+							{
+								int cls_ = mcs_shadow_class(!isnullDCW(pcache->prevcw),
+								                             dcwcmp8(cw, pcache->prevcw),
+								                             dcwcmp8(cw+8, pcache->prevcw+8));
+								if (cls_ == MCS_SHADOW_ROT_CW1 || cls_ == MCS_SHADOW_ROT_CW0) {
+									gate_cyc1_learnable++;
+									if (gs >= 0) gate_caid_tally[gs].cyc1_learnable++;
+								}
+							}
+							if (gs >= 0) gate_caid_tally[gs].cyc1_undeclared++;
 						}
 						if (gs >= 0) {
 							gate_caid_tally[gs].no_cycle++;

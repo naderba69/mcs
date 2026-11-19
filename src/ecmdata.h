@@ -65,6 +65,7 @@ struct ecm_request {
 	uint32_t hash;
 	uint64_t lifetime_id __attribute__((aligned(8))); /* Nonzero per allocation/reuse; aligned for atomic cache-side reads. */
 	uint64_t trace_instance; /* Assigned lazily while lockecm is held. */
+	unsigned char trace_peerwait_key; /* band 113: last peer-wait line emitted for this ECM (see trace-detail-labels.h); 0 = nothing emitted */
 #ifdef CACHEEX
 	unsigned char ecmd5[16]; //MD5_DIGEST_LENGTH];
 #endif

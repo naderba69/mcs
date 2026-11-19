@@ -9735,12 +9735,13 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         /* Band 109: consensus + post-consensus gate outcomes -- the
          * evidence base for the cycle-gate decision deferred in 105 */
         {
-            snprintf(out, sizeof(out), "<p><b>حصيلة الإجماع والبوابات (Consensus &amp; Gate Tally):</b> أصوات: %lu | احتجازات: %lu | تصديقات: %lu | رفض إجماع: %lu | محتجَز الآن: %d (متأخر: %d)<br>ما بعد الإجماع: مرشحون: %lu (بانتهاء النافذة: %lu) | عبروا: %lu | رُفضوا — بلا دورة مثبتة: %lu · تعارض/متأخر: %lu · تعارض/خاطئ: %lu · نصف فارغ: %lu<br><small>«متأخر» = أحد نصفي الشفرة يطابق prevcw (مادة مفتاح حقيقية قديمة الدورة)؛ «خاطئ» = لا نصف يطابق. هذه الحصيلة هي دليل قرار بوابة الدورة المؤجل منذ البند 105 — لا تخفيف ولا تشديد بلا أرقام منها.</small></p>",
+            snprintf(out, sizeof(out), "<p><b>حصيلة الإجماع والبوابات (Consensus &amp; Gate Tally):</b> أصوات: %lu | احتجازات: %lu | تصديقات: %lu | رفض إجماع: %lu | محتجَز الآن: %d (متأخر: %d)<br>ما بعد الإجماع: مرشحون: %lu (بانتهاء النافذة: %lu) | عبروا: %lu | رُفضوا — بلا دورة مثبتة: %lu · تعارض/متأخر: %lu · تعارض/خاطئ: %lu · نصف فارغ: %lu | القناة تُصرّح بدورتها: %lu · لا تُصرّح: %lu (منها %lu عند دوران نصفي مقاس يمكن التصريح منه)<br><small>«متأخر» = أحد نصفي الشفرة يطابق prevcw (مادة مفتاح حقيقية قديمة الدورة)؛ «خاطئ» = لا نصف يطابق. «تُصرّح بدورتها» = لاحقة الدورة في قائمة قنوات البروفايل (SID.xxxx.80/.81) أو إعلان عميل محلي؛ ما دامت «لا تُصرّح» شبه كل الرفض فالبوابة تُغلق بغير مادّة وأي قرار تشديد أو تخفيف مبنيّ عليها معيب — العلاج ترتيب القنوات لا البوابة. هذه الحصيلة هي دليل قرار بوابة الدورة المؤجل منذ البند 105 — لا تخفيف ولا تشديد بلا أرقام منها.</small></p>",
                      st.cons_votes, st.cons_holds, st.cons_released, st.cons_refused,
                      st.cons_held_now, st.cons_overdue_now,
                      st.gate_seen, st.gate_expired, st.gate_passed,
                      st.gate_no_cycle, st.gate_cycle_late, st.gate_cycle_wrong,
-                     st.gate_halfnull);
+                     st.gate_halfnull,
+                     st.cyc1_declared, st.cyc1_undeclared, st.cyc1_learnable);
             tcp_writestr(tcpbuf, sock, out);
             {
                 /* Band 112: consensus per CAID -- the hold is latency, not
@@ -9800,7 +9801,7 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                     snprintf(estnote, sizeof(estnote),
                         "المُقدِّر الآن <b>مطفأ</b>: هذه أرقام ما كان ليصنّفه ‏CACHE CYCLE ESTIMATE لو فُعِّل، بنفس مقدِّمه حرفيًا (نصف يختلف ⇔ النصف الآخر دار)، فغلبة «دوران نصفي» على CAID تعني أن فرضيته حقيقة عند نظرائك وتجربته مبرّرة له وحده.");
                 snprintf(sout, sizeof(sout),
-                    "<p><b>تصنيف الظل لرفض «بلا دورة» (Shadow — قياس فقط، لا يغيّر قرارًا):</b> دوران نصفي ‏CW1: %lu · دوران نصفي ‏CW0: %lu | لا نصف ثابت: %lu · مطابق للسابق تمامًا: %lu · بلا ‏prevcw: %lu | التثبت: مجموع الظل %lu «بلا دورة» %lu ⇒ <b>%s</b><br><small>%s يبقى الرفض صحيحًا؛ «مطابق للسابق» = نفس الشفرة أُعيدت (مكانها ‏CW_DUP لا الباب)؛ «بلا ‏prevcw» = أول شفرة على القناة، تُحسم من توقّع ‏ecmtag لا من النصفين. لا تُقرأ «متأخر/خاطئ» أعلاه إلا على مفاتيح مُعلَّمة: عند نظراء بلا علامة يخرج الرفض قبلها، فسطر الظل هذا هو الدليل الحاسم.</small></p>",
+                    "<p><b>تصنيف الظل لرفض «بلا دورة» (Shadow — قياس فقط، لا يغيّر قرارًا):</b> دوران نصفي ‏CW1: %lu · دوران نصفي ‏CW0: %lu | لا نصف ثابت: %lu · مطابق للسابق تمامًا: %lu · بلا ‏prevcw: %lu | التثبت: مجموع الظل %lu «بلا دورة» %lu ⇒ <b>%s</b><br><small>%s يبقى الرفض صحيحًا؛ «مطابق للسابق» = نفس الشفرة أُعيدت (مكانها ‏CW_DUP لا الباب)؛ «بلا ‏prevcw» = أول شفرة على القناة، تُحسم من توقّع ‏ecmtag لا من النصفين — وهذا التوقّع لا يملكه مفتاحٌ محلي بلا سابق إلا من مصدرين: لاحقة الدورة لكل ‏SID في قائمة قنوات البروفايل (‏SID:CHID:ECMLEN.80 أو ‏.81) أو إعلان عميل محلي؛ لا مفتاحًا عامًا يُقلَب وحده. لا تُقرأ «متأخر/خاطئ» أعلاه إلا على مفاتيح مُعلَّمة: عند نظراء بلا علامة يخرج الرفض قبلها، فسطر الظل هذا هو الدليل الحاسم.</small></p>",
                     st.shadow_rot_cw1, st.shadow_rot_cw0, st.shadow_neither,
                     st.shadow_bothsame, st.shadow_noprev, ssum, st.gate_no_cycle,
                     ssum == st.gate_no_cycle ? "متطابقان ✅" : "فرق — القياس ناقش ⚠️",
@@ -9817,6 +9818,10 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                              si ? " | " : "", st.gate_caids[si].caid,
                              st.gate_caids[si].shadow_rot, st.gate_caids[si].shadow_neither,
                              st.gate_caids[si].shadow_bothsame, st.gate_caids[si].shadow_noprev);
+                    snprintf(entry + strlen(entry), sizeof(entry) - strlen(entry),
+                             st.gate_caids[si].cyc1_learnable
+                               ? " · دوران مقاس قابل للتصريح: %lu" : " · لا دوران قابل للتعلم",
+                             st.gate_caids[si].cyc1_learnable);
                     if (strlen(srows) + strlen(entry) < sizeof(srows) - 1)
                         strcat(srows, entry);
                 }

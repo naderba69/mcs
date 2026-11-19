@@ -20,6 +20,25 @@
 	"طلب البحث أُرسل سابقًا وينتظر ردّ النظراء (status=قيد الانتظار) — ليس تجاوزًا ولا خلل إعدادات"
 #define MCS_LABEL_PEER_NO_CACHE \
 	"الكاش مطفأ لهذا البروفايل (fallowcache=0) فلم يُرسل طلب بحث"
+/* One line per DISTINCT (status, gate) view of this ECM -- not per scheduler
+ * pass. The line exists to explain why no peer request went out on a pass;
+ * saying it every ~30 ms while the same request is still in flight is what
+ * made a field session log ~15 copies per attempt and lose real evidence to
+ * the ring (459 replaced events, 2 lost links). The key is encoded so 0 --
+ * what a fresh ECM's byte holds -- can never collide with a real state, so
+ * the first explanation of each kind always prints. */
+static inline int mcs_trace_peerwait_log_once(unsigned char *last,
+                                              unsigned char status,
+                                              unsigned char fallow,
+                                              unsigned char sendreq)
+{
+	unsigned char key = (unsigned char)(1 + (status & 3) * 4
+	                                   + (fallow ? 2 : 0) + (sendreq ? 1 : 0));
+	if (*last == key) return 0;
+	*last = key;
+	return 1;
+}
+
 #define MCS_LABEL_PEER_NO_REQ \
 	"طلبات بحث الكاش معطلة للبروفايل (cachesendreq=0) فلم يُرسل طلب بحث"
 
