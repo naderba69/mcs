@@ -55,6 +55,30 @@ int main(void)
 	CHECK(mcs_chprev_get(0x1814, 0x000000, 0x13AE, 0) == 0,
 	      "same caid+sid under other provid must not see this memory");
 
+	/* 6. band 117: the counters are the page's whole diagnostic — a bare
+	 * ON/OFF could not tell "memory never written" from "written but not
+	 * needed", which is exactly what left the 51-minute field session
+	 * undecided. So the accounting is pinned, not decorative. */
+	mcs_chprev_reset();
+	{
+		struct mcs_chprev_stats z;
+		mcs_chprev_get_stats(&z);
+		CHECK(z.puts == 0 && z.hits == 0 && z.stale == 0 && z.dropped == 0,
+		      "reset zeroes the counters");
+	}
+	mcs_chprev_put(0x1814, 0x005211, 0x13AE, a, 0);
+	(void)mcs_chprev_get(0x1814, 0x005211, 0x13AE, 0);
+	CHECK(mcs_chprev_get(0x1814, 0x005211, 0x13AE, 0) != 0, "still readable");
+	mcs_chprev_get(0x1814, 0x005211, 0x13AE, 0);
+	(void)mcs_chprev_get(0x0100, 0x000000, 0x9999, 0);   /* a miss must not count */
+	{
+		struct mcs_chprev_stats q;
+		mcs_chprev_get_stats(&q);
+		CHECK(q.puts == 1, "one put == one write");
+		CHECK(q.hits == 3, "every successful read counts (a miss must not)");
+		CHECK(q.stale == 0 && q.dropped == 0, "no TTL takeover or crowding here");
+	}
+
 	/* 2. TTL is exact */
 	fake_now += MCS_CHPREV_DEF_TTL_MS;
 	CHECK(mcs_chprev_get(0x1814, 0x005211, 0x13AE, 0) != 0, "at == ttl still valid");

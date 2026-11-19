@@ -53,14 +53,14 @@ dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 5392840310182c115bf07767de740867  bin/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  bin/multics-r82a-r22-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-e5d41075d6ac4e4463dcdedc9af65fd7  bin/multics-r82a-stats-x64
+00d96fd091703816afaebc97e093cc3d  bin/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  bin/multics-r82a-stock-x64
 fbfef2a162b03fed8d56aca7babd3ef3  bin/multics-r82a-x64
-e5d41075d6ac4e4463dcdedc9af65fd7  bin/multics.x64
+00d96fd091703816afaebc97e093cc3d  bin/multics.x64
 9d212081c5d435e4166a24fd6a48d666  dist/multics-r82a-queue-stats-x64
 4a574b9f126f88809cbbe56f4ceaa633  dist/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  dist/multics-r82a-r22-x64
-e5d41075d6ac4e4463dcdedc9af65fd7  dist/multics-r82a-stats-x64
+00d96fd091703816afaebc97e093cc3d  dist/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
@@ -152,7 +152,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-ab654a4553b9cef952f5dfaca2f31702  docs/REPORT-R48-ar.md
+61a8842e393147900d6791e424a86d57  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -421,7 +421,7 @@ f6e60d8a80d14fe8c5d7265099e93ba5  make-x64/test_supersmartfilter_ticks.c
 ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
-a92bf02612089c6b4966b29e2ce4d6f5  multics-full-30w-52e.cfg
+f96ea7f778d6a3edaa14fc54d074be62  multics-full-30w-52e.cfg
 ab51ddde94ca34844e4a7958ad775fa8  multics-r24-expert-reviewed.cfg
 2a59b63aea594b9460c72e902c461bad  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
@@ -585,7 +585,7 @@ fcefcdfa1775d443482ebfec42fa6b98  src/fastretx.h
 f323d231e555aab62ab041dc5fe98687  src/field-status.h
 8798be7a3334dd52a05bfb5c12e3b4c5  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-2257947e4bfdef7ee2fffbbdffb83019  src/httpserver.c
+995ed4642c50c235cb7f78823f7a96a3  src/httpserver.c
 ba3dbab45abea98efcb6961173889ec0  src/httpserver.h
 fa48ec09d83b51893a5544e8364d5a59  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
@@ -806,7 +806,7 @@ bfd2c8cf7bccc1c911efdb0ff5bf8e58  tests/cwpair-confirm-live.py
 2c41e383899b98ddcae3afb18cdf8feb  tests/dcw-compare.c
 afb0c92d055b6060e8835d45ef72b143  tests/dcw-validation-reasons.c
 9623a41be9431fff6fdcdcee2d82e4ee  tests/deaddrain-live.py
-a43623504bdb53ec376f7fb017f9d99a  tests/designaudit.py
+1252cf427eb6c5d5ed6d22fc1c03cbed  tests/designaudit.py
 b5cf4be5602fcf8a63af62118e18f288  tests/docrefs.sh
 1087fb328d7422542c1952fd4106ad4f  tests/doublecheck-live.py
 37342732e71e64292d8a1f2d4cd02b07  tests/dropdiffs-live.py
@@ -891,5 +891,5 @@ a9a35d611c26e8233bdc158e0a9b5ac2  tools/profile-timeout-audit.py
 d5b0a014aafbaaa3c52fa64353f3f469  التقرير-النهائي-للإصلاح.md
 2a87852efef8f14588ce5c0199b47cdc  الجرد-الشامل-والصادق.md
 e56418d6a330cb4d112f7e5945cec4d2  src/cache-chan-prevcw.h
-b49617867081f0f81d5f33b7f099528b  tests/chan-prevcw.c
+7d5b94cb9db23fd9d96e3c936ff2feb9  tests/chan-prevcw.c
 995e193654ee00347bdbe86a8c6fcd15  tests/chan-prevcw.sh

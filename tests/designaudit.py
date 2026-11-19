@@ -199,6 +199,8 @@ def main():
                 'shadow partition self-check missing from trace overview'
             assert 'الإجماع حسب CAID' in trace, \
                 'per-CAID consensus table missing from trace overview'
+            assert 'سُقطت للازدحام' in trace and 'كُتب ' in trace, \
+                'band 117: channel-memory counters must reach /user-trace (a bare ON/OFF could not settle the 115 question)'
             assert 'المُقدِّر الآن' in trace, \
                 'shadow line must state the estimator live state'
             assert 'ذاكرة القناة لآخر شفرة' in trace, \

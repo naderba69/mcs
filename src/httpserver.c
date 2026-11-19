@@ -64,6 +64,7 @@
 #include "debug.h"
 #include "convert.h"
 #include "tools.h"
+#include "cache-chan-prevcw.h"	/* band 117: the channel-memory counters on /user-trace */
 #include "threads.h"
 #include "ecmdata.h"
 
@@ -9812,13 +9813,46 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                 char sout[1600];
                 char srows[2048] = "";
                 int si;
-                /* band 115: the per-channel last-served-CW memory state */
-                tcp_writestr(tcpbuf, sock,
-                    "<p><b>ذاكرة القناة لآخر شفرة مُسلَّمة (Channel Memory):</b> ");
-                tcp_writestr(tcpbuf, sock, cfg.cache.cycle_chan_mem
-                    ? "<b>مُشغّلة</b> — تُغذِّي المُقدِّر زمنيا بسابق القناة عند غياب سابق السجل، ولا تفتح البوابة لأحد بغير دوران مقاس."
-                    : "<b>مطفأة</b> — المُقدِّر الزمني لا يملك مادّة على شبكة بلا وسَمات نظرائك (هذا هو جوع المدخلات المُثبت بالأرقام)؛ فعّلها بـ<code>CACHE CYCLE MEMORY: ON</code>.");
-                tcp_writestr(tcpbuf, sock, "</p>");
+                /* band 115: the per-channel last-served-CW memory state.
+                 * band 117: with counters — the field snapshot proved that a
+                 * bare ON/OFF word cannot answer the only question that
+                 * matters (is the memory fed at all?), which cost a whole
+                 * 51-minute session to leave undecided. Counters are
+                 * since-boot: mcs_chprev_reset() has no production caller. */
+                {
+                    struct mcs_chprev_stats cs;
+                    char cnote[560];
+                    cnote[0] = 0;
+                    mcs_chprev_get_stats(&cs);
+                    tcp_writestr(tcpbuf, sock,
+                        "<p><b>ذاكرة القناة لآخر شفرة مُسلَّمة (Channel Memory):</b> ");
+                    tcp_writestr(tcpbuf, sock, cfg.cache.cycle_chan_mem
+                        ? "<b>مُشغّلة</b> — تُغذِّي المُقدِّر زمنيا بسابق القناة عند غياب سابق السجل، ولا تفتح البوابة لأحد بغير دوران مقاس."
+                        : "<b>مطفأة</b> — المُقدِّر الزمني لا يملك مادّة على شبكة بلا وسَمات نظرائك (هذا هو جوع المدخلات المُثبت بالأرقام)؛ فعّلها بـ<code>CACHE CYCLE MEMORY: ON</code>.");
+                    /* printed in BOTH states: with the switch off the counters
+                     * still say whether the memory ever ran in this boot — a
+                     * zero line would otherwise be ambiguous between "never
+                     * enabled" and "enabled but starved". */
+                    {
+                        char cstat[260];
+                        snprintf(cstat, sizeof(cstat),
+                            "<br>عدّاداتها (منذ الإقلاع، لا تتصفّر مع الجلسة): كُتب %lu · قُرئت %lu · أُخذت بمهلة %lu · سُقطت للازدحام %lu",
+                            cs.puts, cs.hits, cs.stale, cs.dropped);
+                        tcp_writestr(tcpbuf, sock, cstat);
+                        if (cs.puts == 0)
+                            snprintf(cnote, sizeof(cnote), cfg.cache.cycle_chan_mem
+                                ? " — <b>صفر كتابة مع أنها مُشغّلة</b>: لم يعبر أي مفتاحٌ البوابات منذ الإقلاع، فلا مُدخلات للمُقدِّر من هذه الذاكرة؛ لا تُفسِّر صفر «الدوران» بعدها على أنه حكم على نظرائك."
+                                : " — صفر كتابة والذاكرة مُطفأة: لا قرار فيها قبل <code>CACHE CYCLE MEMORY: ON</code>.");
+                        else if (cs.hits == 0)
+                            snprintf(cnote, sizeof(cnote),
+                                " — كتبت %lu مرة ولم تُقرأ مرة: سبق كل مفتاحٍ وسمُ نظيره أو كان لـ<code>prevcw</code> السجل قيمة، فالذاكرة احتياط لا أكثر وهذا سليم.");
+                        else
+                            snprintf(cnote, sizeof(cnote),
+                                " — قُرئت %lu مرة: هذا هو المُدخل الذي كان مفقودًا؛ اُقرنها بعدد «دوران نصفي» في سطر الظل أعلاه — إن تساويا فالتغذية كاملة، وإن قلّ الدوران فالبوابة لا الفرع الزمني هو القاصِر.");
+                    }
+                    tcp_writestr(tcpbuf, sock, cnote);
+                    tcp_writestr(tcpbuf, sock, "</p>");
+                }
                 for (si = 0; si < st.gate_caid_count && si < 8; si++) {
                     char entry[200];
                     snprintf(entry, sizeof(entry), "%s<code>%04X</code>: دوران %lu · لا-نصف-ثابت %lu · مطابق %lu · بلا-سابق %lu",
