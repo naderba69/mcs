@@ -139,6 +139,24 @@ int cwconsensus_is_held(uint16_t caid, uint16_t sid, uint32_t provid,
 
 /* Snapshot under the cache lock; held includes overdue holds, and retained
  * means non-held entries. These counts do not attribute entries to a client. */
+/* Band 112: per-CAID consensus tallies. Consensus is configured globally
+ * (CACHE CONSENSUS SOURCES) but paid for per provider: a hold costs the
+ * window of latency, so "how many of this CAID's votes ever got
+ * corroborated" is the number that decides a per-profile threshold
+ * override. Rows are counted at the very sites that move the global
+ * counters, so the rows add up to them (rows beyond the cap are declared).
+ */
+struct cwconsensus_caid {
+	uint16_t caid;
+	unsigned long votes;
+	unsigned long holds;
+	unsigned long releases;
+	unsigned long refusals;
+};
+#define CWC_CAID_MAX 32
+int cwconsensus_caid_snapshot(struct cwconsensus_caid *rows, int max,
+                              int *dropped, unsigned long *dropped_caids);
+
 struct cwconsensus_capacity {
     int used, capacity, held, overdue, reclaimable;
     uint32_t oldest_hold_ms;

@@ -197,6 +197,11 @@ def main():
                 'per-CAID shadow tally missing from trace overview'
             assert 'التثبت: مجموع الظل' in trace, \
                 'shadow partition self-check missing from trace overview'
+            assert 'الإجماع حسب CAID' in trace, \
+                'per-CAID consensus table missing from trace overview'
+            assert 'المُقدِّر الآن' in trace, \
+                'shadow line must state the estimator live state'
+            print('designaudit: per-CAID consensus + estimator state hold')
             print('designaudit: shadow gate tally holds')
             assert 'MARCHCHECK' in trace and 'ركن النصف' in trace, \
                 'MARCHCHECK is not embedded in the CCcam trace overview'

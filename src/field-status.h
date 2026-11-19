@@ -32,6 +32,16 @@ int cwpair_snapshot(unsigned long *observed, unsigned long *pair_matches,
 
 /* CW_DUP recent flag (band 104), newest-first copy for /user-trace */
 #define MCS_CWDUP_EVENT_MAX 12
+/* Per-CAID consensus tally row (band 112) */
+#define MCS_CONS_CAID_MAX 16
+struct mcs_cons_caid {
+    uint16_t caid;
+    unsigned long votes;
+    unsigned long holds;
+    unsigned long releases;
+    unsigned long refusals;
+};
+
 /* Per-CAID post-consensus gate tally row (band 110) */
 #define MCS_GATE_CAID_MAX 16
 struct mcs_gate_caid {
@@ -160,6 +170,10 @@ struct mcs_field_status {
     unsigned long gate_halfnull;
     unsigned long shadow_rot_cw1, shadow_rot_cw0, shadow_neither;
     unsigned long shadow_bothsame, shadow_noprev;
+    int cons_caid_count;
+    int cons_caid_dropped;
+    unsigned long cons_caid_overflow;
+    struct mcs_cons_caid cons_caids[MCS_CONS_CAID_MAX];
     int gate_caid_count;
     unsigned long gate_caid_overflow;
     struct mcs_gate_caid gate_caids[MCS_GATE_CAID_MAX];

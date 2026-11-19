@@ -2537,6 +2537,20 @@ static void cache_gate_status_fill(struct mcs_field_status *st)
 		st->cons_held_now = cap.held;
 		st->cons_overdue_now = cap.overdue;
 	}
+	{
+		struct cwconsensus_caid cc[MCS_CONS_CAID_MAX];
+		int ci, nn;
+		nn = cwconsensus_caid_snapshot(cc, MCS_CONS_CAID_MAX,
+		                                &st->cons_caid_dropped, &st->cons_caid_overflow);
+		st->cons_caid_count = nn;
+		for (ci = 0; ci < nn; ci++) {
+			st->cons_caids[ci].caid     = cc[ci].caid;
+			st->cons_caids[ci].votes    = cc[ci].votes;
+			st->cons_caids[ci].holds    = cc[ci].holds;
+			st->cons_caids[ci].releases = cc[ci].releases;
+			st->cons_caids[ci].refusals = cc[ci].refusals;
+		}
+	}
 	st->gate_seen = gate_tally_seen;
 	st->gate_expired = gate_tally_expired;
 	st->gate_no_cycle = gate_tally_no_cycle;
