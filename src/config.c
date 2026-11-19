@@ -4876,6 +4876,28 @@ link_mgcamd_user:
 						cfg->cache.cycle_estimate = parse_boolean();
 						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CYCLE ESTIMATE: %d\n",file->nbline,iparser-currentline, cfg->cache.cycle_estimate);
 					}
+					/* Band 115: feed the temporal estimator from a per-channel
+					 * memory of the last SERVED CW. opt-in, OFF default. */
+					else if (!strcmp(str,"MEMORY")) {
+						int ttl = 0;
+						parse_spaces();
+						if ((*iparser==':')||(*iparser=='=')) iparser++;
+						cfg->cache.cycle_chan_mem = parse_boolean();
+						/* optional "TTL <ms>" continuation on the same line */
+						parse_spaces();
+						{
+							char *save = iparser;
+							parse_name(str); uppercase(str);
+							if (!strcmp(str,"TTL")) {
+								parse_spaces();
+								if ((*iparser==':')||(*iparser=='=')) iparser++;
+								ttl = atoi(iparser);
+								while (*iparser>='0' && *iparser<='9') iparser++;
+							} else iparser = save;
+						}
+						if (ttl >= 2000 && ttl <= 300000) cfg->cache.cycle_chan_mem_ttl = ttl;
+						debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CYCLE MEMORY: %d TTL: %d\n",file->nbline,iparser-currentline, cfg->cache.cycle_chan_mem, cfg->cache.cycle_chan_mem_ttl);
+					}
 					continue;
 				}
 				parse_name(str);
@@ -4897,6 +4919,26 @@ link_mgcamd_user:
 					if ((*iparser==':')||(*iparser=='=')) iparser++;
 					cfg->cache.cycle_estimate = parse_boolean();
 					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CYCLE ESTIMATE: %d\n",file->nbline,iparser-currentline, cfg->cache.cycle_estimate);
+				}
+				else if (!strcmp(str,"MEMORY")) {
+					/* band 115: same option, space-separated form */
+					int ttl = 0;
+					parse_spaces();
+					if ((*iparser==':')||(*iparser=='=')) iparser++;
+					cfg->cache.cycle_chan_mem = parse_boolean();
+					parse_spaces();
+					{
+						char *save = iparser;
+						parse_name(str); uppercase(str);
+						if (!strcmp(str,"TTL")) {
+							parse_spaces();
+							if ((*iparser==':')||(*iparser=='=')) iparser++;
+							ttl = atoi(iparser);
+							while (*iparser>='0' && *iparser<='9') iparser++;
+						} else iparser = save;
+					}
+					if (ttl >= 2000 && ttl <= 300000) cfg->cache.cycle_chan_mem_ttl = ttl;
+					debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): CACHE CYCLE MEMORY: %d TTL: %d\n",file->nbline,iparser-currentline, cfg->cache.cycle_chan_mem, cfg->cache.cycle_chan_mem_ttl);
 				}
 			}
 			else if (!strcmp(str,"FILTER")) {

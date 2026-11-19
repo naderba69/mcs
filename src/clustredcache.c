@@ -193,6 +193,7 @@ int peer_doublecheck(struct cacheserver_data *cache, struct cachepeer_data *xpee
 #include "cwconsensus.h"/* TASK R8 (D62): the per-request cw arbitrer */
 #include "cache-intelligence.h" /* CACHE-AI: 7-level smart cache optimization */
 #include "cache-cycle-shadow.h" /* band 111: shadow gate classifier */
+#include "cache-chan-prevcw.h"  /* band 115: per-channel last-served CW memory */
 #include "cwpair.h" /* band 38: observe cache-stored CWs for pairing */
 #ifdef MCS_DCWSTATS
 #include "cwlog.h"		/* TASK R11 (D65): the per-CW verdict ring */
@@ -2696,9 +2697,17 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 					 * (field 2026-11-19, "previous CW=present" refusals).
 					 * Now the measured rotation itself names the cycle;
 					 * both halves changed is still a correct refusal. */
-					int first_same = dcwcmp8(cw, pcache->prevcw);
-					int second_same = dcwcmp8(cw+8, pcache->prevcw+8);
-					if (mcs_cycle_temporal_ok(1, !isnullDCW(pcache->prevcw),
+					const uint8_t *chprev = 0;
+					int first_same, second_same;
+					/* Band 115: the entry's own tail value always wins; the
+					 * channel memory only fills the null case, and only when
+					 * CACHE CYCLE MEMORY is on (default off = stock). */
+					if (cfg.cache.cycle_chan_mem && isnullDCW(pcache->prevcw))
+						chprev = mcs_chprev_get(req->caid, req->provid, req->sid,
+						                         cfg.cache.cycle_chan_mem_ttl);
+					first_same = dcwcmp8(cw, chprev ? chprev : pcache->prevcw);
+					second_same = dcwcmp8(cw+8, chprev ? chprev + 8 : pcache->prevcw+8);
+					if (mcs_cycle_temporal_ok(1, (chprev != 0) || !isnullDCW(pcache->prevcw),
 					                                pcache->cwcycle != NO_CYCLE,
 					                                (first_same != second_same) ? 1 : 0)) {
 						if (first_same && !second_same) {
@@ -2897,6 +2906,14 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 	}
 
 	cwdata->status |= DCW_PEER_READY;
+	/* Band 115: this key passed every gate on the normal path -- it IS the
+	 * channel's last served CW. Feed the per-channel memory here (and only
+	 * here): the early returns above all carry DCW_ERROR/DCW_SKIP, so a
+	 * refused or contradictory key can never become the reference that
+	 * later keys are judged against. */
+	if (cfg.cache.cycle_chan_mem && !(cwdata->status & DCW_ERROR))
+		mcs_chprev_put(req->caid, req->provid, req->sid, cw,
+		               cfg.cache.cycle_chan_mem_ttl);
 	/* Do not relay a source candidate that its own cycle/family gate
 	 * rejected. This is after the final gate on the normal path. */
 	if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid, cwdata->origin_mask);

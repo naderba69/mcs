@@ -201,6 +201,8 @@ def main():
                 'per-CAID consensus table missing from trace overview'
             assert 'المُقدِّر الآن' in trace, \
                 'shadow line must state the estimator live state'
+            assert 'ذاكرة القناة لآخر شفرة' in trace, \
+                'band 115: the channel-memory line must stay on /user-trace'
             print('designaudit: per-CAID consensus + estimator state hold')
             print('designaudit: shadow gate tally holds')
             assert 'MARCHCHECK' in trace and 'ركن النصف' in trace, \

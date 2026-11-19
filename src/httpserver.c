@@ -9812,6 +9812,13 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                 char sout[1600];
                 char srows[2048] = "";
                 int si;
+                /* band 115: the per-channel last-served-CW memory state */
+                tcp_writestr(tcpbuf, sock,
+                    "<p><b>ذاكرة القناة لآخر شفرة مُسلَّمة (Channel Memory):</b> ");
+                tcp_writestr(tcpbuf, sock, cfg.cache.cycle_chan_mem
+                    ? "<b>مُشغّلة</b> — تُغذِّي المُقدِّر زمنيا بسابق القناة عند غياب سابق السجل، ولا تفتح البوابة لأحد بغير دوران مقاس."
+                    : "<b>مطفأة</b> — المُقدِّر الزمني لا يملك مادّة على شبكة بلا وسَمات نظرائك (هذا هو جوع المدخلات المُثبت بالأرقام)؛ فعّلها بـ<code>CACHE CYCLE MEMORY: ON</code>.");
+                tcp_writestr(tcpbuf, sock, "</p>");
                 for (si = 0; si < st.gate_caid_count && si < 8; si++) {
                     char entry[200];
                     snprintf(entry, sizeof(entry), "%s<code>%04X</code>: دوران %lu · لا-نصف-ثابت %lu · مطابق %lu · بلا-سابق %lu",
