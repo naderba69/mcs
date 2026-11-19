@@ -2152,10 +2152,20 @@ struct config_data cfg;
 int cfg_doublecheck_caids[64];
 int cfg_doublecheck_caid_count = 0;
 /* Field kill switch for the R22 candidate layers (only compiled in the
- * release-r22 flavour): 1 = layers active (default), 0 = hooks return
- * immediately. Set by the config line "R22 LAYERS: YES/NO" and applied
- * live on config reload -- no rebuild needed to back out in the field. */
-int cfg_r22_layers_enabled = 1;
+ * band 118: compiled into the ONE base binary, no longer a flavour).
+ * Two flags, because 'verification tool' and 'policy' are different things:
+ *   cfg_r22_layers_enabled  -- the OBSERVATION half: feeds the ground-truth
+ *       ledgers (channel/fingerprint/validity/prediction) and every counter
+ *       on /user-trace. Cannot reject anything.
+ *   cfg_r22_layers_enforce  -- the ENFORCEMENT half: the two reject points in
+ *       r22_hook_cache_setdcw (obvious-fake pattern, propagation blocklist).
+ * Both are set by the single line "R22 LAYERS: YES/NO" (applied live on
+ * reload, no rebuild to back out). Default in the base build: 0/0 --
+ * observation and counters still run (they cost a compare), decisions stay
+ * with the existing gates until field numbers justify a second family of
+ * silent refusals on a box already fighting peer-key refusals. */
+int cfg_r22_layers_enabled = 0;
+int cfg_r22_layers_enforce = 0;
 int cfg_auto_recover_enabled = 0; /* AUTO RECOVER: ON|OFF, default OFF (band 47) */
 
 /* Field activation (2026-11-14): with no explicit "ECM DOUBLECHECK:"
@@ -2173,6 +2183,7 @@ static void cache_gate_status_fill(struct mcs_field_status *st);
 void mcs_field_status_fill(struct mcs_field_status *st) {
 	memset(st, 0, sizeof(*st));
 	st->r22_enabled = cfg_r22_layers_enabled;
+	st->r22_enforce = cfg_r22_layers_enforce;
 #ifdef R22_LAYERS
 	st->r22_compiled = 1;
 	{
@@ -3456,9 +3467,11 @@ void mainprocess()
 	 * CCcam Trace page (/user-trace) -- the operator's single page. */
 
 	/* Cache Speed Suite - 8 cache optimization systems */
-	r22_layers_init();	/* R22 candidate layers; no-op unless built -DR22_LAYERS */
+	r22_layers_init();	/* R22 layers: compiled into the base build; observe-only unless R22 LAYERS: YES */
 #ifdef R22_LAYERS
-	debugf(0, " [R22-LAYERS] candidate CW layers %s (config: R22 LAYERS: YES/NO)\n", cfg_r22_layers_enabled ? "ACTIVE" : "OFF by config");
+	debugf(0, " [R22-LAYERS] compiled into this binary; observation %s, enforcement %s (one line: R22 LAYERS: YES/NO)\n",
+		cfg_r22_layers_enabled ? "ON" : "ON (always-on in the base build: counters only)",
+		cfg_r22_layers_enforce ? "ARMED" : "OFF");
 #endif
 	cache_speed_suite_init();
 	doublecheck_autofill_from_profiles(); /* no explicit line -> operator's profile CAIDs */

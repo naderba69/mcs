@@ -73,7 +73,8 @@ struct mcs_cwdup_event {
 
 struct mcs_field_status {
     int r22_compiled;           /* built with -DR22_LAYERS */
-    int r22_enabled;            /* R22 LAYERS config switch */
+    int r22_enabled;            /* R22 LAYERS: observation half */
+    int r22_enforce;            /* R22 LAYERS: enforcement half (armable) */
     uint32_t r22_cache_total;
     uint32_t r22_cache_accepted;
     uint32_t r22_cache_rejected;

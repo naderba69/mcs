@@ -79,6 +79,7 @@
  * Writers hold no other lock while publishing policy. Readers copy a snapshot
  * and release the lock before validation or trace work. */
 extern int cfg_r22_layers_enabled;
+extern int cfg_r22_layers_enforce;   /* band 118: the armable reject half */
 extern int cfg_auto_recover_enabled;
 extern int cfg_doublecheck_caids[64];
 extern int cfg_doublecheck_caid_count;
@@ -2677,9 +2678,12 @@ sid accept:
 #endif
 
 		else if (!strcmp(str,"R22")) {
-			/* R22 LAYERS: YES/NO -- runtime kill switch for the candidate
-			 * CW layers (compiled only in the release-r22 flavour; parsed
-			 * harmlessly in every flavour). Default YES in that flavour. */
+			/* R22 LAYERS: YES/NO -- band 118: the layers are compiled into
+			 * the single base build now. YES arms BOTH halves (observation +
+			 * the two reject points); NO keeps the observation and the page
+			 * counters and disarms only the refusals. Parsed harmlessly in
+			 * every flavour and applied on reload -- backing out never
+			 * needs a rebuild. Default in the base build: OFF. */
 			parse_name(str);
 			uppercase(str);
 			if (strcmp(str,"LAYERS")) {
@@ -2691,7 +2695,11 @@ sid accept:
 				debugf(getdbgflag(DBG_CONFIG,0,0)," config(%d,%d): ':' expected\n",file->nbline,iparser-currentline);
 				continue;
 			} else iparser++;
-			cfg_r22_layers_enabled = parse_boolean();
+			{
+				int r22v = parse_boolean();
+				cfg_r22_layers_enabled = r22v;
+				cfg_r22_layers_enforce = r22v;
+			}
 		}
 
 		else if (!strcmp(str,"AUTO")) {

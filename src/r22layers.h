@@ -17,9 +17,13 @@
 #include <stdint.h>
 #include <string.h>
 
-/* Runtime kill switch (defined in main.c, set by "R22 LAYERS: YES/NO").
- * Declared unconditionally so every flavour links the same way. */
+/* Runtime switches (defined in main.c, set by "R22 LAYERS: YES/NO").
+ * Declared unconditionally so every flavour links the same way.
+ * band 118 split: 'enabled' = observation + counters (the verification
+ * tooling the single base build always runs); 'enforce' = the two reject
+ * points. Enforcement is the only part that can refuse a key. */
 extern int cfg_r22_layers_enabled;
+extern int cfg_r22_layers_enforce;
 
 #ifdef R22_LAYERS
 
@@ -128,7 +132,9 @@ static struct cwpredict_table      r22_pred;
 
 static inline void r22_layers_init(void)
 {
-    if (!cfg_r22_layers_enabled) return;  /* R22 LAYERS: NO in config */
+    /* band 118: the tables are initialised in the base build regardless of
+     * the switch -- the observation hooks below always run now, and feeding
+     * an uninitialised table would be worse than a few wasted kilobytes. */
     cwquarantine_init(&r22_quar, 3);  /* 3s quarantine */
     cwpropblock_init(&r22_propb);
     cwfeedback_init(&r22_fdbk);
@@ -214,8 +220,7 @@ static inline int r22_hook_cache_setdcw(
     int source_id = peerid & 0xFF;
     int channel_count;
 
-    if (!cfg_r22_layers_enabled) return 0;  /* R22 LAYERS: NO */
-    R22STATS_INC(hook_cache_total);
+    R22STATS_INC(hook_cache_total);   /* counted whether or not armed */
 
     /* R24: Source scoring — DISABLED TEMPORARILY (too strict) */
     /* TODO: Re-enable after testing */
@@ -242,8 +247,10 @@ static inline int r22_hook_cache_setdcw(
         /* Suspicious but don't reject yet, just lower confidence */
     }
 
-    /* 1. Pattern check — obvious fake? */
-    if (cwpattern_is_obvious_fake(cw)) {
+    /* 1. Pattern check — obvious fake? Enforcement-gated (band 118): with
+     * R22 LAYERS off, the pattern still teaches the learner and still
+     * counts, it just does not refuse. */
+    if (cfg_r22_layers_enforce && cwpattern_is_obvious_fake(cw)) {
         cwpropblock_add(&r22_propb, cw, caid, provid, sid, now);
         R22STATS_INC(pattern_obvious_fake);
         R22STATS_INC(hook_cache_rejected);
@@ -266,7 +273,8 @@ static inline int r22_hook_cache_setdcw(
     }
 
     /* 3. Propagation block — is this CW blocked? */
-    if (cwpropblock_check(&r22_propb, cw, caid, provid, sid, now)) {
+    if (cfg_r22_layers_enforce &&
+        cwpropblock_check(&r22_propb, cw, caid, provid, sid, now)) {
         R22STATS_INC(propblock_hit);
         R22STATS_INC(hook_cache_rejected);
         return -1;
@@ -340,8 +348,7 @@ static inline void r22_hook_ecm_setsrvflagdcw(
 {
     int source_id = (int)(srvid & 0xFF);
 
-    if (!cfg_r22_layers_enabled) return;  /* R22 LAYERS: NO */
-    R22STATS_INC(hook_server_total);
+    R22STATS_INC(hook_server_total);  /* pure observation: always runs */
 
     /* 1. Record as ground truth (success) */
     cwchannel_record_success(&r22_chan, source_id, caid, provid, sid);

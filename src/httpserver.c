@@ -9683,14 +9683,16 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         int i;
         mcs_field_status_fill(&st);
         if (st.r22_compiled) {
-            snprintf(out, sizeof(out), "<p><b>طبقات R22 المضادة للفايك:</b> %s | CWs من الكاش فُحصت: %u | قُبلت: %u | رُفضت: %u (فايك واضح: %u، قائمة الحظر: %u) | محتجزة بالحجر: %u | CWs بطاقات سُجلت كحقيقة: %u | اشتباه متعدد القنوات (مراقبة فقط): %u</p>",
-                     st.r22_enabled ? "✅ مفعّلة" : "⏸️ موقوفة من الإعداد (R22 LAYERS: NO)",
+            snprintf(out, sizeof(out), "<p><b>طبقات R22 المضادة للفايك (مُجمّعة في النسخة الأساسية — البند 118):</b> %s | CWs من الكاش فُحصت: %u | قُبلت: %u | رُفضت: %u (فايك واضح: %u، قائمة الحظر: %u) | محتجزة بالحجر: %u | CWs بطاقات سُجلت كحقيقة: %u | اشتباه متعدد القنوات (مراقبة فقط): %u</p>",
+                     st.r22_enforce ? "✅ مُسلّحة بالرفض والتعلّم (R22 LAYERS: YES)"
+                                    : (st.r22_enabled ? "👁️ تعلّم ومراقبة فقط — الرفض مُعطّل"
+                                                        : "👁️ عدّادات صامتة (R22 LAYERS: NO) — العدّ يعمل والرفض مُعطّل"),
                      st.r22_cache_total, st.r22_cache_accepted, st.r22_cache_rejected,
                      st.r22_pattern_fake, st.r22_propblock_hit,
                      st.r22_quarantine_held, st.r22_server_total, st.r22_cross_blocked);
             tcp_writestr(tcpbuf, sock, out);
         } else {
-            tcp_writestr(tcpbuf, sock, "<p><b>طبقات R22 المضادة للفايك:</b> ➖ غير مُجمّعة في نكهة stock هذه (ثنائي التجربة الميدانية release-r22 يفعّلها).</p>");
+            tcp_writestr(tcpbuf, sock, "<p><b>طبقات R22 المضادة للفايك:</b> ➖ ليست في هذا الثنائي — النسخة الأساسية (Band 118) تجمعها؛ أصفار هنا تعني أنك تُشغّل ثنائي A/B قديمًا لا الأساس، فحدِّد البصمة قبل أي قراءة.</p>");
         }
         snprintf(out, sizeof(out), "<p><b>التحقق المزدوج (DoubleCheck — مراقبة فقط، لا يحجب التسليم):</b> CAIDs مراقبة: %d | فحوص بدأت: %llu | تطابق مصدرين: %llu | قرارات عدم تطابق: %llu | مهلات: %llu | نسبة عدم التطابق: %.2f%% (%llu من %llu)</p>",
                  st.dc_caids,

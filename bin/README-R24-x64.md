@@ -1,42 +1,34 @@
-# MultiCS r82a — x64 binaries (updated band 40, 2026-11-14)
-
-Filename kept for compatibility; the contents are the current builds.
+# MultiCS r82a — x64 binaries (band 118: ONE base build, 2026-11-19)
 
 ## ⭐ The delivered binary — ALWAYS named `multics.x64` (R34/D85)
 
 ```
 File: bin/multics.x64    <- run this one; the name never changes
-MD5: bbc353d79d3bdd13603fec87cbf73fe6
-Size: 1045 KB
-Flavour: full build (stock logic + /cwlog verdict ring)
-Build/refresh: make -C make-x64 release-stats   (rewrites bin/multics.x64)
-Run: ./bin/multics.x64 -C multics-r24-optimized.cfg -b
-     (or start-production.sh, which already points here)
+Build:  make -C make-x64 release-stats
+Content: the single base version = stock r82a logic + MCS_DCWSTATS (the
+         /cwlog verdict ring) + R22_LAYERS compiled in (band 118).
+         Compiled is not armed: the layers' two reject points wait for
+         `R22 LAYERS: YES`; with the line absent/OFF they only count.
+Alias:  bin/multics-r82a-stats-x64 and dist/multics-r82a-stats-x64 are
+        byte-identical copies of this file (md5sum before any decision).
+Run:    ./bin/multics.x64 -C multics-full-30w-52e.cfg -b
 ```
 
-## Current (rebuilt every round from src/)
+## Band 118 rule (operator's)
 
-### multics-r82a-stock-x64 — the production binary
-```
-MD5: d09ca7aff026f93e978d3755863c2f6c
-Size: 1029 KB
-Build: make -C make-x64 release
-```
-### multics-r82a-stats-x64 — same, plus the /cwlog verdict ring
-```
-MD5: bbc353d79d3bdd13603fec87cbf73fe6
-Size: 1037 KB
-Build: make -C make-x64 release-stats
-```
-`bin/multics.x64` is THE main working binary (operator-confirmed
-2026-11-14): all live verification from band 36 runs against it.
-Both carry the full R26-R35 stack; every feature is opt-in and OFF by
-default (stock r82a behaviour until armed). Arm the stack in one line:
-`CACHE PROTECTION: STANDARD` (see `multics-r24-optimized.cfg`).
+One primary version carrying every verification instrument. Snapshot reads
+must never have to ask "which flavour was this?" — that question cost the
+band-115 decision a full field session (`/user-trace` said only ON/OFF).
+
+`release`, `release-r22`, `release-queue*`, `release-ab-stats` are **A/B
+probes**, not deliveries: they exist to answer one numbered question
+(stats-on vs stats-off decisions: `test_dcwstats`; R22-compiled vs not:
+soak A/B). Nothing in the field should run them.
 
 ## Era artifacts (not rebuilt)
 
 `multics-r82a-x64`, `multics-r82a-arm`, `multics-r82a-mipsel`,
-`multics-r82a-sh4` are R24-era builds kept for reference. They do NOT
-contain R26-R32. `../bin-frozen-D53/` is the frozen D53 pair and must
-never be touched.
+`multics-r82a-sh4` are R24-era builds kept for reference; they do NOT
+contain R26+. `multics-r82a-stock-x64`, `-r22-x64`, `-queue-x64`,
+`-queue-stats-x64`, `-ab-stats-x64` are probe outputs, rebuilt on demand.
+`../bin-frozen-D53/` is the frozen D53 pair and must never be touched.

@@ -203,6 +203,12 @@ def main():
                 'band 117: channel-memory counters must reach /user-trace (a bare ON/OFF could not settle the 115 question)'
             assert 'المُقدِّر الآن' in trace, \
                 'shadow line must state the estimator live state'
+            # band 118: one base build carries every verification tool --
+            # the R22 line must state its compile+arm state, never a flavour
+            # excuse (that excuse is what made a field read ambiguous).
+            assert 'طبقات R22 المضادة للفايك' in trace, 'R22 state line missing'
+            assert 'نكهة' not in trace.split('طبقات R22')[1][:400], \
+                'the R22 trace line must not blame a build flavour in the single-base era'
             assert 'ذاكرة القناة لآخر شفرة' in trace, \
                 'band 115: the channel-memory line must stay on /user-trace'
             print('designaudit: per-CAID consensus + estimator state hold')

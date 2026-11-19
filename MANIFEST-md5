@@ -46,21 +46,21 @@ eb063163f29b59e415aefe0c3c7521cc  README.md
 7732ca80716fc8b5db70041f1a288e9d  UPDATE-REPORT.md
 f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 3d1f58b385a7a0eea720c3c59c3bdd29  bin-frozen-D53/multics-r82a-stock-x64
-06fa5a5375cde4b2560e3330e7d01765  bin/README-R24-x64.md
+6f9afaca6e18af8b45049ad1eb36a162  bin/README-R24-x64.md
 800177a56d2f4e6f3a0a0ce5dac71c95  bin/multics-r82a-arm
 dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 8e7521c856bf7b956bd4b27903e51b7f  bin/multics-r82a-queue-stats-x64
 5392840310182c115bf07767de740867  bin/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  bin/multics-r82a-r22-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-00d96fd091703816afaebc97e093cc3d  bin/multics-r82a-stats-x64
+ec41633f3bac7e3fa9890ead9aa604dd  bin/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  bin/multics-r82a-stock-x64
 fbfef2a162b03fed8d56aca7babd3ef3  bin/multics-r82a-x64
-00d96fd091703816afaebc97e093cc3d  bin/multics.x64
+ec41633f3bac7e3fa9890ead9aa604dd  bin/multics.x64
 9d212081c5d435e4166a24fd6a48d666  dist/multics-r82a-queue-stats-x64
 4a574b9f126f88809cbbe56f4ceaa633  dist/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  dist/multics-r82a-r22-x64
-00d96fd091703816afaebc97e093cc3d  dist/multics-r82a-stats-x64
+ec41633f3bac7e3fa9890ead9aa604dd  dist/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
@@ -152,7 +152,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-96c910d78902acc1721b17ef2225ac9d  docs/REPORT-R48-ar.md
+ebdd089717bacb6e92f2a8b30be642ce  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -325,7 +325,7 @@ a1a4c6908cb92319e0d923ebf04febbe  make-cross/Makefile
 ea821dc9a69f5b6d9921930908e487b2  make-cross/cross-arm/multics
 71db1eb7a48e9eadf5b006e521c7c068  make-cross/cross-mipsel/multics
 dd70e1f361729a919b007241f311c9b1  make-cross/cross-sh4/multics
-d76a85dc23030970608c24e9272a39f4  make-x64/Makefile
+85ba19c6a7446eed37102e602e0c9f20  make-x64/Makefile
 f3f6a7c915be49c80fe39bf223631256  make-x64/asan.supp
 e6b8eca5048b3792314d5c1417632af9  make-x64/memcheck.sh
 846da9f9d1b473bb531ac20393fc0613  make-x64/memcheck.supp
@@ -421,7 +421,7 @@ f6e60d8a80d14fe8c5d7265099e93ba5  make-x64/test_supersmartfilter_ticks.c
 ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
-c8b290873119a49448020211c4065aa9  multics-full-30w-52e.cfg
+eaef9f0bd485f894324544800584b8ce  multics-full-30w-52e.cfg
 ab51ddde94ca34844e4a7958ad775fa8  multics-r24-expert-reviewed.cfg
 2a59b63aea594b9460c72e902c461bad  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
@@ -488,7 +488,7 @@ aee7bf15b72c60d902cf2dc7c11ba01e  src/cli-cs378x.c
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
 9c2fb3542929c76382867adf5cd0105b  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
-8f25fdef81f24c42d73943e023ca2df2  src/config.c
+cd2d5070385f5343b09032edb9fe8801  src/config.c
 8a02563855d2a58cbc986afa0fbc1597  src/config.h
 242b0cd6a7af2f8e2fc00434020c48dc  src/convert.c
 8b6ce1a0962d7439ca7fad29b2f6b7a7  src/convert.h
@@ -582,10 +582,10 @@ c1b9f4fa725529fd484425241d1b7679  src/ecmdata.c
 86607b6e3ddb084793c0cc3a6bc503d6  src/emm-cache.h
 54373e8292d92f415ebccef5266a09a3  src/fallback.h
 fcefcdfa1775d443482ebfec42fa6b98  src/fastretx.h
-f323d231e555aab62ab041dc5fe98687  src/field-status.h
+bdf040a8090bd079b7379da96673f983  src/field-status.h
 8798be7a3334dd52a05bfb5c12e3b4c5  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-995ed4642c50c235cb7f78823f7a96a3  src/httpserver.c
+e3e23b662d892a3c5231a1c3e8f09ac7  src/httpserver.c
 ba3dbab45abea98efcb6961173889ec0  src/httpserver.h
 fa48ec09d83b51893a5544e8364d5a59  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
@@ -601,7 +601,7 @@ c7e6fdad95760a74355a4dfc10f32c38  src/log-viewer.h
 678d8f8d061a834b21380a9bbdaaa709  src/loginthrottle.c
 9f97aac5952685fbceafc5503c35e316  src/loginthrottle.h
 ba221c77664b9b3b88184bcc4d4eae25  src/lzoconf.h
-38816aa0d9aa35dd44b46d44da7f67c4  src/main.c
+bb9997f2e27a4a746936c23c55cf4782  src/main.c
 cad8295c0e073cc695a0f79d689bea2f  src/main.h
 768f97604c3433fc57689f1b338acdda  src/md5.c
 99fc08532a6cf0afc9360597c2a848be  src/md5.h
@@ -636,7 +636,7 @@ fae10089572ef9ac94b668ef0a7e13c3  src/pipeline.h
 aa9d2a30165f4fe78acaae9cd3fc040c  src/preconn.h
 bd6a22d1a2539187d83ea333172b6172  src/predictzap.h
 cc1646196a97a4d7cd4f176e9b2d9475  src/ptguard.h
-301f178d8096838a045e12dda7086331  src/r22layers.h
+1217e489787861f7e4e2a7c741c25617  src/r22layers.h
 a7fe7bd30728be1ea3bc45b63f9fcc29  src/r22stats.h
 86b54957a2753e84cf9d4dad04dd120f  src/r48-source-reputation.h
 ff7533ec7ab0ca78b4f3efbd4fa4400e  src/resource-config.h
@@ -806,7 +806,7 @@ bfd2c8cf7bccc1c911efdb0ff5bf8e58  tests/cwpair-confirm-live.py
 2c41e383899b98ddcae3afb18cdf8feb  tests/dcw-compare.c
 afb0c92d055b6060e8835d45ef72b143  tests/dcw-validation-reasons.c
 9623a41be9431fff6fdcdcee2d82e4ee  tests/deaddrain-live.py
-1252cf427eb6c5d5ed6d22fc1c03cbed  tests/designaudit.py
+1128829ddec3f0f1e471d134e8835977  tests/designaudit.py
 b5cf4be5602fcf8a63af62118e18f288  tests/docrefs.sh
 1087fb328d7422542c1952fd4106ad4f  tests/doublecheck-live.py
 37342732e71e64292d8a1f2d4cd02b07  tests/dropdiffs-live.py
@@ -893,3 +893,4 @@ d5b0a014aafbaaa3c52fa64353f3f469  التقرير-النهائي-للإصلاح.m
 e56418d6a330cb4d112f7e5945cec4d2  src/cache-chan-prevcw.h
 7d5b94cb9db23fd9d96e3c936ff2feb9  tests/chan-prevcw.c
 995e193654ee00347bdbe86a8c6fcd15  tests/chan-prevcw.sh
+45b0b4e5602d227bebeb8f8d4651279e  dist/multics-r82a-ab-stats-x64
