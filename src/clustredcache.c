@@ -2523,9 +2523,10 @@ static unsigned long gate_shadow_noprev;    /* no prevcw to compare with */
 static unsigned long gate_cyc1_declared;
 static unsigned long gate_cyc1_undeclared;
 /* Band 113: refusals whose channel DID show usable rotation evidence
- * (prevcw present, exactly one half carried over) but that evidence could
- * not reach the decision because the refusal arrives before any marker and
- * no declaration exists. Every count here is one SID list line the operator
+ * (prevcw present, exactly one half carried over) -- since this band the
+ * estimator consumes that evidence directly, so what is left counted here
+ * is the pre-fix population plus refusals that had a marker contradicting
+ * the pattern. Every count here is one SID list line the operator
  * could declare with real data -- "learnable but undeclared". Zero means
  * there is nothing to declare: the starvation is the peers' missing tail,
  * not the profile, and no cfg edit can fix this gate. */
@@ -2686,9 +2687,20 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 				 * this stays opt-in OFF until a field capture
 				 * confirms it per provider. */
 				if (cfg.cache.cycle_estimate) {
-					if (!isnullDCW(pcache->prevcw) && pcache->cwcycle != NO_CYCLE) {
-						int first_same = dcwcmp8(cw, pcache->prevcw);
-						int second_same = dcwcmp8(cw+8, pcache->prevcw+8);
+					/* Band 113: the half-pattern was unreachable when the
+					 * entry carried no cycle marker (pcache->cwcycle is set
+					 * only from a peer's marker, line 1421) while the ecmtag
+					 * branch below covers only prevcw==absent -- so with
+					 * unmarked peers, an entry WITH a prevcw could never be
+					 * estimated, and corroborated keys died at the gate
+					 * (field 2026-11-19, "previous CW=present" refusals).
+					 * Now the measured rotation itself names the cycle;
+					 * both halves changed is still a correct refusal. */
+					int first_same = dcwcmp8(cw, pcache->prevcw);
+					int second_same = dcwcmp8(cw+8, pcache->prevcw+8);
+					if (mcs_cycle_temporal_ok(1, !isnullDCW(pcache->prevcw),
+					                                pcache->cwcycle != NO_CYCLE,
+					                                (first_same != second_same) ? 1 : 0)) {
 						if (first_same && !second_same) {
 							cwcycle = CW1CYCLE;
 							cwdata->status |= DCW_CYCLE;
@@ -2703,6 +2715,8 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 							    "cache cycle estimated temporally: CW0 (no marker)", cw);
 						}
 					} else if (isnullDCW(pcache->prevcw)) {
+					/* unchanged: no prevcw at all, only a declaration can
+					 * name the cycle here */
 						/* First CW for this channel: no prevcw. Determine the
 						 * cycle from the entry's declared expectation when the
 						 * ECM carried one (pcache->cwcycle, set from the

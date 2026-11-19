@@ -37,4 +37,28 @@ static inline int mcs_shadow_class(int have_prev, int first_same,
 		return first_same ? MCS_SHADOW_ROT_CW1 : MCS_SHADOW_ROT_CW0;
 	return first_same ? MCS_SHADOW_BOTHSAME : MCS_SHADOW_NEITHER;
 }
+
+/*
+ * Band 113: eligibility of the temporal half-pattern, shared by the
+ * estimator (clustredcache.c cache_after_consensus) and this header's
+ * shadow, so the shadow's "learnable" column and the gate's input cannot
+ * drift apart -- that drift was the starved-gate finding of the
+ * 2026-11-19 field session (40 min, 360551 candidates): a peer key
+ * corroborated by six peers was refused as "no cycle" while the
+ * estimator sat unreachable -- its branch required pcache->cwcycle
+ * != NO_CYCLE, and that field is written ONLY from a peer's own marker
+ * (clustredcache.c:1421); the ecmtag fallback branch covers only
+ * prevcw==absent. With unmarked peers the estimator could never fire on
+ * an entry that HAS a prevcw, so declaring rotation was impossible by
+ * construction and no cfg change could help. have_entry_cycle keeps the
+ * old route; rotation_evidence (exactly one half carried over) is the
+ * newly-unlocked route -- refusal behaviour is unchanged for every key
+ * that has no rotation to show.
+ */
+static inline int mcs_cycle_temporal_ok(int est_on, int have_prev,
+                                        int have_entry_cycle,
+                                        int rotation_evidence)
+{
+	return est_on && have_prev && (have_entry_cycle || rotation_evidence);
+}
 #endif

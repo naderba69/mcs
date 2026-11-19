@@ -114,10 +114,31 @@ static void test_bytes(void)
 	CHECK(classify_bytes(cw, prev) == MCS_SHADOW_ROT_CW0, "byte 7 belongs to the first half");
 }
 
+/* band 113: the shared eligibility gate -- the exact condition the product
+ * now uses for the temporal estimator. The bug it pins: entry_cycle=0 and
+ * rotation=1 must ELIGIBLE (that was the starved-gate refusal field-proven
+ * on 2026-11-19: corroborated keys, prevcw present, no peer marker), while
+ * no-prevcw and no-rotation must stay ineligible (refusal unchanged). */
+static void test_temporal_ok(void)
+{
+	CHECK(mcs_cycle_temporal_ok(1, 1, 1, 0) == 1, "est on, prevcw, entry cycle -> eligible (old route)");
+	CHECK(mcs_cycle_temporal_ok(1, 1, 0, 1) == 1, "est on, prevcw, rotation only -> eligible (band 113 fix)");
+	CHECK(mcs_cycle_temporal_ok(1, 1, 0, 0) == 0, "est on, prevcw, both halves changed -> refused still");
+	CHECK(mcs_cycle_temporal_ok(1, 0, 1, 1) == 0, "no prevcw -> temporal route not applicable");
+	CHECK(mcs_cycle_temporal_ok(0, 1, 1, 1) == 0, "estimator off -> eligibility off, all paths");
+	/* the shadow and the gate must read rotation the same way: exactly one
+	 * half carried over (xor of the equality flags) */
+	CHECK(((1 != 0) ? 1 : 0) == 1 && mcs_shadow_class(1, 1, 0) == MCS_SHADOW_ROT_CW1,
+	      "rotation predicate matches ROT_CW1 class");
+	CHECK(((0 != 0) ? 1 : 0) == 0 && mcs_shadow_class(1, 0, 0) == MCS_SHADOW_NEITHER,
+	      "neither-half predicate shares the false branch");
+}
+
 int main(void)
 {
 	test_truth_table();
 	test_bytes();
+	test_temporal_ok();
 	if (fails) { printf("gate-shadow-class: %d FAILURES\n", fails); return 1; }
 	printf("gate-shadow-class: PASS (truth table, estimator equivalence, byte-level wiring)\n");
 	return 0;

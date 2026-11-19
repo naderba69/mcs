@@ -1,410 +1,410 @@
 ncclient: MultiCS Newcamd client harness
   [ ok ] stage 1: connected and read the 14-byte keymod
-         keymod = 93B4AD3FC737BDF86DF6E41A5DFE
+         keymod = 2F91A49798E5003E8B185DB12291
   [ ok ] stage 2: the 'MCS' marker verifies -- this is MultiCS
   [ ok ] stage 3: login key derived
-         sessionkey = 5DCA94B4FD81630089B947D6A884CF00
+         sessionkey = 6C2E3D1A9E1F78005452012D541B8100
   [ ok ] stage 4: login sent (41 bytes, md5-crypt = $1$abcdefgh$wfBfK8YL8MFpMAYtvMlvA.)
   [ ok ] stage 5: LOGIN_ACK -- the server accepted the client
          post-login key: des_login_key_get(deskey, passwdcrypt (len 34))
          post-login sessionkey = B220B0F90DA62100685C69618DAA0200
          cs_message_send returned 90, socket fd=3
          poll(300) right after send -> 0, revents=0x0 (0x10=HUP 0x8=POLLERR)
-  [ ok ] stage 6: ECM 1/4000 sent (64 bytes, ch 1884:000000:0051)
+  [ ok ] stage 6: ECM 1/4000 sent (64 bytes, ch 1884:000000:002F)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 2/4000 sent (64 bytes, ch 1884:000000:0062)
+  [ ok ] stage 6: ECM 2/4000 sent (64 bytes, ch 1884:000000:0040)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 3/4000 sent (64 bytes, ch 1884:000000:0073)
+  [ ok ] stage 6: ECM 3/4000 sent (64 bytes, ch 1884:000000:0051)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 4/4000 sent (64 bytes, ch 1884:000000:0084)
+  [ ok ] stage 6: ECM 4/4000 sent (64 bytes, ch 1884:000000:0062)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 5/4000 sent (64 bytes, ch 1884:000000:0095)
+  [ ok ] stage 6: ECM 5/4000 sent (64 bytes, ch 1884:000000:0073)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 6/4000 sent (64 bytes, ch 1884:000000:00A6)
+  [ ok ] stage 6: ECM 6/4000 sent (64 bytes, ch 1884:000000:0084)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 7/4000 sent (64 bytes, ch 1884:000000:00B7)
+  [ ok ] stage 6: ECM 7/4000 sent (64 bytes, ch 1884:000000:0095)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 8/4000 sent (64 bytes, ch 1884:000000:00C8)
+  [ ok ] stage 6: ECM 8/4000 sent (64 bytes, ch 1884:000000:00A6)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 9/4000 sent (64 bytes, ch 1884:000000:00D9)
+  [ ok ] stage 6: ECM 9/4000 sent (64 bytes, ch 1884:000000:00B7)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 10/4000 sent (64 bytes, ch 1884:000000:00EA)
+  [ ok ] stage 6: ECM 10/4000 sent (64 bytes, ch 1884:000000:00C8)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 11/4000 sent (64 bytes, ch 1884:000000:00FB)
+  [ ok ] stage 6: ECM 11/4000 sent (64 bytes, ch 1884:000000:00D9)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 12/4000 sent (64 bytes, ch 1884:000000:010C)
+  [ ok ] stage 6: ECM 12/4000 sent (64 bytes, ch 1884:000000:00EA)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 13/4000 sent (64 bytes, ch 1884:000000:011D)
+  [ ok ] stage 6: ECM 13/4000 sent (64 bytes, ch 1884:000000:00FB)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 14/4000 sent (64 bytes, ch 1884:000000:012E)
+  [ ok ] stage 6: ECM 14/4000 sent (64 bytes, ch 1884:000000:010C)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 15/4000 sent (64 bytes, ch 1884:000000:013F)
+  [ ok ] stage 6: ECM 15/4000 sent (64 bytes, ch 1884:000000:011D)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 16/4000 sent (64 bytes, ch 1884:000000:0150)
+  [ ok ] stage 6: ECM 16/4000 sent (64 bytes, ch 1884:000000:012E)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 17/4000 sent (64 bytes, ch 1884:000000:0161)
+  [ ok ] stage 6: ECM 17/4000 sent (64 bytes, ch 1884:000000:013F)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 18/4000 sent (64 bytes, ch 1884:000000:0172)
+  [ ok ] stage 6: ECM 18/4000 sent (64 bytes, ch 1884:000000:0150)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 19/4000 sent (64 bytes, ch 1884:000000:0183)
+  [ ok ] stage 6: ECM 19/4000 sent (64 bytes, ch 1884:000000:0161)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 20/4000 sent (64 bytes, ch 1884:000000:0194)
+  [ ok ] stage 6: ECM 20/4000 sent (64 bytes, ch 1884:000000:0172)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 21/4000 sent (64 bytes, ch 1884:000000:01A5)
+  [ ok ] stage 6: ECM 21/4000 sent (64 bytes, ch 1884:000000:0183)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 22/4000 sent (64 bytes, ch 1884:000000:01B6)
+  [ ok ] stage 6: ECM 22/4000 sent (64 bytes, ch 1884:000000:0194)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 23/4000 sent (64 bytes, ch 1884:000000:01C7)
+  [ ok ] stage 6: ECM 23/4000 sent (64 bytes, ch 1884:000000:01A5)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 24/4000 sent (64 bytes, ch 1884:000000:01D8)
+  [ ok ] stage 6: ECM 24/4000 sent (64 bytes, ch 1884:000000:01B6)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 25/4000 sent (64 bytes, ch 1884:000000:01E9)
+  [ ok ] stage 6: ECM 25/4000 sent (64 bytes, ch 1884:000000:01C7)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 26/4000 sent (64 bytes, ch 1884:000000:01FA)
+  [ ok ] stage 6: ECM 26/4000 sent (64 bytes, ch 1884:000000:01D8)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 27/4000 sent (64 bytes, ch 1884:000000:020B)
+  [ ok ] stage 6: ECM 27/4000 sent (64 bytes, ch 1884:000000:01E9)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 28/4000 sent (64 bytes, ch 1884:000000:021C)
+  [ ok ] stage 6: ECM 28/4000 sent (64 bytes, ch 1884:000000:01FA)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 29/4000 sent (64 bytes, ch 1884:000000:022D)
+  [ ok ] stage 6: ECM 29/4000 sent (64 bytes, ch 1884:000000:020B)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 30/4000 sent (64 bytes, ch 1884:000000:023E)
+  [ ok ] stage 6: ECM 30/4000 sent (64 bytes, ch 1884:000000:021C)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 31/4000 sent (64 bytes, ch 1884:000000:024F)
+  [ ok ] stage 6: ECM 31/4000 sent (64 bytes, ch 1884:000000:022D)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 32/4000 sent (64 bytes, ch 1884:000000:0260)
+  [ ok ] stage 6: ECM 32/4000 sent (64 bytes, ch 1884:000000:023E)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 33/4000 sent (64 bytes, ch 1884:000000:0271)
+  [ ok ] stage 6: ECM 33/4000 sent (64 bytes, ch 1884:000000:024F)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 34/4000 sent (64 bytes, ch 1884:000000:0282)
+  [ ok ] stage 6: ECM 34/4000 sent (64 bytes, ch 1884:000000:0260)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 35/4000 sent (64 bytes, ch 1884:000000:0293)
+  [ ok ] stage 6: ECM 35/4000 sent (64 bytes, ch 1884:000000:0271)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 36/4000 sent (64 bytes, ch 1884:000000:02A4)
+  [ ok ] stage 6: ECM 36/4000 sent (64 bytes, ch 1884:000000:0282)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 37/4000 sent (64 bytes, ch 1884:000000:02B5)
+  [ ok ] stage 6: ECM 37/4000 sent (64 bytes, ch 1884:000000:0293)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 38/4000 sent (64 bytes, ch 1884:000000:02C6)
+  [ ok ] stage 6: ECM 38/4000 sent (64 bytes, ch 1884:000000:02A4)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 39/4000 sent (64 bytes, ch 1884:000000:02D7)
+  [ ok ] stage 6: ECM 39/4000 sent (64 bytes, ch 1884:000000:02B5)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 40/4000 sent (64 bytes, ch 1884:000000:02E8)
+  [ ok ] stage 6: ECM 40/4000 sent (64 bytes, ch 1884:000000:02C6)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 41/4000 sent (64 bytes, ch 1884:000000:02F9)
+  [ ok ] stage 6: ECM 41/4000 sent (64 bytes, ch 1884:000000:02D7)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 42/4000 sent (64 bytes, ch 1884:000000:030A)
+  [ ok ] stage 6: ECM 42/4000 sent (64 bytes, ch 1884:000000:02E8)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 43/4000 sent (64 bytes, ch 1884:000000:031B)
+  [ ok ] stage 6: ECM 43/4000 sent (64 bytes, ch 1884:000000:02F9)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 44/4000 sent (64 bytes, ch 1884:000000:032C)
+  [ ok ] stage 6: ECM 44/4000 sent (64 bytes, ch 1884:000000:030A)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 45/4000 sent (64 bytes, ch 1884:000000:033D)
+  [ ok ] stage 6: ECM 45/4000 sent (64 bytes, ch 1884:000000:031B)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 46/4000 sent (64 bytes, ch 1884:000000:034E)
+  [ ok ] stage 6: ECM 46/4000 sent (64 bytes, ch 1884:000000:032C)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 47/4000 sent (64 bytes, ch 1884:000000:035F)
+  [ ok ] stage 6: ECM 47/4000 sent (64 bytes, ch 1884:000000:033D)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 48/4000 sent (64 bytes, ch 1884:000000:0370)
+  [ ok ] stage 6: ECM 48/4000 sent (64 bytes, ch 1884:000000:034E)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 49/4000 sent (64 bytes, ch 1884:000000:0381)
+  [ ok ] stage 6: ECM 49/4000 sent (64 bytes, ch 1884:000000:035F)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 50/4000 sent (64 bytes, ch 1884:000000:0392)
+  [ ok ] stage 6: ECM 50/4000 sent (64 bytes, ch 1884:000000:0370)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 51/4000 sent (64 bytes, ch 1884:000000:03A3)
+  [ ok ] stage 6: ECM 51/4000 sent (64 bytes, ch 1884:000000:0381)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 52/4000 sent (64 bytes, ch 1884:000000:03B4)
+  [ ok ] stage 6: ECM 52/4000 sent (64 bytes, ch 1884:000000:0392)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 53/4000 sent (64 bytes, ch 1884:000000:03C5)
+  [ ok ] stage 6: ECM 53/4000 sent (64 bytes, ch 1884:000000:03A3)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 54/4000 sent (64 bytes, ch 1884:000000:03D6)
+  [ ok ] stage 6: ECM 54/4000 sent (64 bytes, ch 1884:000000:03B4)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 55/4000 sent (64 bytes, ch 1884:000000:03E7)
+  [ ok ] stage 6: ECM 55/4000 sent (64 bytes, ch 1884:000000:03C5)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 56/4000 sent (64 bytes, ch 1884:000000:03F8)
+  [ ok ] stage 6: ECM 56/4000 sent (64 bytes, ch 1884:000000:03D6)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 57/4000 sent (64 bytes, ch 1884:000000:0409)
+  [ ok ] stage 6: ECM 57/4000 sent (64 bytes, ch 1884:000000:03E7)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 58/4000 sent (64 bytes, ch 1884:000000:041A)
+  [ ok ] stage 6: ECM 58/4000 sent (64 bytes, ch 1884:000000:03F8)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 59/4000 sent (64 bytes, ch 1884:000000:042B)
+  [ ok ] stage 6: ECM 59/4000 sent (64 bytes, ch 1884:000000:0409)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 60/4000 sent (64 bytes, ch 1884:000000:043C)
+  [ ok ] stage 6: ECM 60/4000 sent (64 bytes, ch 1884:000000:041A)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 61/4000 sent (64 bytes, ch 1884:000000:044D)
+  [ ok ] stage 6: ECM 61/4000 sent (64 bytes, ch 1884:000000:042B)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 62/4000 sent (64 bytes, ch 1884:000000:045E)
+  [ ok ] stage 6: ECM 62/4000 sent (64 bytes, ch 1884:000000:043C)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 63/4000 sent (64 bytes, ch 1884:000000:046F)
+  [ ok ] stage 6: ECM 63/4000 sent (64 bytes, ch 1884:000000:044D)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 64/4000 sent (64 bytes, ch 1884:000000:0480)
+  [ ok ] stage 6: ECM 64/4000 sent (64 bytes, ch 1884:000000:045E)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 65/4000 sent (64 bytes, ch 1884:000000:0491)
+  [ ok ] stage 6: ECM 65/4000 sent (64 bytes, ch 1884:000000:046F)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 66/4000 sent (64 bytes, ch 1884:000000:04A2)
+  [ ok ] stage 6: ECM 66/4000 sent (64 bytes, ch 1884:000000:0480)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 67/4000 sent (64 bytes, ch 1884:000000:04B3)
+  [ ok ] stage 6: ECM 67/4000 sent (64 bytes, ch 1884:000000:0491)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 68/4000 sent (64 bytes, ch 1884:000000:04C4)
+  [ ok ] stage 6: ECM 68/4000 sent (64 bytes, ch 1884:000000:04A2)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 69/4000 sent (64 bytes, ch 1884:000000:04D5)
+  [ ok ] stage 6: ECM 69/4000 sent (64 bytes, ch 1884:000000:04B3)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 70/4000 sent (64 bytes, ch 1884:000000:04E6)
+  [ ok ] stage 6: ECM 70/4000 sent (64 bytes, ch 1884:000000:04C4)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 71/4000 sent (64 bytes, ch 1884:000000:04F7)
+  [ ok ] stage 6: ECM 71/4000 sent (64 bytes, ch 1884:000000:04D5)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 72/4000 sent (64 bytes, ch 1884:000000:0508)
+  [ ok ] stage 6: ECM 72/4000 sent (64 bytes, ch 1884:000000:04E6)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 73/4000 sent (64 bytes, ch 1884:000000:0519)
+  [ ok ] stage 6: ECM 73/4000 sent (64 bytes, ch 1884:000000:04F7)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 74/4000 sent (64 bytes, ch 1884:000000:052A)
+  [ ok ] stage 6: ECM 74/4000 sent (64 bytes, ch 1884:000000:0508)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 75/4000 sent (64 bytes, ch 1884:000000:053B)
+  [ ok ] stage 6: ECM 75/4000 sent (64 bytes, ch 1884:000000:0519)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 76/4000 sent (64 bytes, ch 1884:000000:054C)
+  [ ok ] stage 6: ECM 76/4000 sent (64 bytes, ch 1884:000000:052A)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 77/4000 sent (64 bytes, ch 1884:000000:055D)
+  [ ok ] stage 6: ECM 77/4000 sent (64 bytes, ch 1884:000000:053B)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 78/4000 sent (64 bytes, ch 1884:000000:056E)
+  [ ok ] stage 6: ECM 78/4000 sent (64 bytes, ch 1884:000000:054C)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 79/4000 sent (64 bytes, ch 1884:000000:057F)
+  [ ok ] stage 6: ECM 79/4000 sent (64 bytes, ch 1884:000000:055D)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 80/4000 sent (64 bytes, ch 1884:000000:0590)
+  [ ok ] stage 6: ECM 80/4000 sent (64 bytes, ch 1884:000000:056E)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 81/4000 sent (64 bytes, ch 1884:000000:05A1)
+  [ ok ] stage 6: ECM 81/4000 sent (64 bytes, ch 1884:000000:057F)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 82/4000 sent (64 bytes, ch 1884:000000:05B2)
+  [ ok ] stage 6: ECM 82/4000 sent (64 bytes, ch 1884:000000:0590)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 83/4000 sent (64 bytes, ch 1884:000000:05C3)
+  [ ok ] stage 6: ECM 83/4000 sent (64 bytes, ch 1884:000000:05A1)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 84/4000 sent (64 bytes, ch 1884:000000:05D4)
+  [ ok ] stage 6: ECM 84/4000 sent (64 bytes, ch 1884:000000:05B2)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 85/4000 sent (64 bytes, ch 1884:000000:05E5)
+  [ ok ] stage 6: ECM 85/4000 sent (64 bytes, ch 1884:000000:05C3)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 86/4000 sent (64 bytes, ch 1884:000000:05F6)
+  [ ok ] stage 6: ECM 86/4000 sent (64 bytes, ch 1884:000000:05D4)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 87/4000 sent (64 bytes, ch 1884:000000:0607)
+  [ ok ] stage 6: ECM 87/4000 sent (64 bytes, ch 1884:000000:05E5)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 88/4000 sent (64 bytes, ch 1884:000000:0618)
+  [ ok ] stage 6: ECM 88/4000 sent (64 bytes, ch 1884:000000:05F6)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 89/4000 sent (64 bytes, ch 1884:000000:0629)
+  [ ok ] stage 6: ECM 89/4000 sent (64 bytes, ch 1884:000000:0607)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 90/4000 sent (64 bytes, ch 1884:000000:063A)
+  [ ok ] stage 6: ECM 90/4000 sent (64 bytes, ch 1884:000000:0618)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 91/4000 sent (64 bytes, ch 1884:000000:064B)
+  [ ok ] stage 6: ECM 91/4000 sent (64 bytes, ch 1884:000000:0629)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 92/4000 sent (64 bytes, ch 1884:000000:065C)
+  [ ok ] stage 6: ECM 92/4000 sent (64 bytes, ch 1884:000000:063A)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 93/4000 sent (64 bytes, ch 1884:000000:066D)
+  [ ok ] stage 6: ECM 93/4000 sent (64 bytes, ch 1884:000000:064B)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 94/4000 sent (64 bytes, ch 1884:000000:067E)
+  [ ok ] stage 6: ECM 94/4000 sent (64 bytes, ch 1884:000000:065C)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 95/4000 sent (64 bytes, ch 1884:000000:068F)
+  [ ok ] stage 6: ECM 95/4000 sent (64 bytes, ch 1884:000000:066D)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 96/4000 sent (64 bytes, ch 1884:000000:06A0)
+  [ ok ] stage 6: ECM 96/4000 sent (64 bytes, ch 1884:000000:067E)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 97/4000 sent (64 bytes, ch 1884:000000:06B1)
+  [ ok ] stage 6: ECM 97/4000 sent (64 bytes, ch 1884:000000:068F)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 98/4000 sent (64 bytes, ch 1884:000000:06C2)
+  [ ok ] stage 6: ECM 98/4000 sent (64 bytes, ch 1884:000000:06A0)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 99/4000 sent (64 bytes, ch 1884:000000:06D3)
+  [ ok ] stage 6: ECM 99/4000 sent (64 bytes, ch 1884:000000:06B1)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 100/4000 sent (64 bytes, ch 1884:000000:06E4)
+  [ ok ] stage 6: ECM 100/4000 sent (64 bytes, ch 1884:000000:06C2)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 101/4000 sent (64 bytes, ch 1884:000000:06F5)
+  [ ok ] stage 6: ECM 101/4000 sent (64 bytes, ch 1884:000000:06D3)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 102/4000 sent (64 bytes, ch 1884:000000:0706)
+  [ ok ] stage 6: ECM 102/4000 sent (64 bytes, ch 1884:000000:06E4)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 103/4000 sent (64 bytes, ch 1884:000000:0717)
+  [ ok ] stage 6: ECM 103/4000 sent (64 bytes, ch 1884:000000:06F5)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 104/4000 sent (64 bytes, ch 1884:000000:0728)
+  [ ok ] stage 6: ECM 104/4000 sent (64 bytes, ch 1884:000000:0706)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 105/4000 sent (64 bytes, ch 1884:000000:0739)
+  [ ok ] stage 6: ECM 105/4000 sent (64 bytes, ch 1884:000000:0717)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 106/4000 sent (64 bytes, ch 1884:000000:074A)
+  [ ok ] stage 6: ECM 106/4000 sent (64 bytes, ch 1884:000000:0728)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 107/4000 sent (64 bytes, ch 1884:000000:075B)
+  [ ok ] stage 6: ECM 107/4000 sent (64 bytes, ch 1884:000000:0739)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 108/4000 sent (64 bytes, ch 1884:000000:076C)
+  [ ok ] stage 6: ECM 108/4000 sent (64 bytes, ch 1884:000000:074A)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 109/4000 sent (64 bytes, ch 1884:000000:077D)
+  [ ok ] stage 6: ECM 109/4000 sent (64 bytes, ch 1884:000000:075B)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 110/4000 sent (64 bytes, ch 1884:000000:078E)
+  [ ok ] stage 6: ECM 110/4000 sent (64 bytes, ch 1884:000000:076C)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 111/4000 sent (64 bytes, ch 1884:000000:079F)
+  [ ok ] stage 6: ECM 111/4000 sent (64 bytes, ch 1884:000000:077D)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 112/4000 sent (64 bytes, ch 1884:000000:07B0)
+  [ ok ] stage 6: ECM 112/4000 sent (64 bytes, ch 1884:000000:078E)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 113/4000 sent (64 bytes, ch 1884:000000:07C1)
+  [ ok ] stage 6: ECM 113/4000 sent (64 bytes, ch 1884:000000:079F)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 114/4000 sent (64 bytes, ch 1884:000000:07D2)
+  [ ok ] stage 6: ECM 114/4000 sent (64 bytes, ch 1884:000000:07B0)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 115/4000 sent (64 bytes, ch 1884:000000:07E3)
+  [ ok ] stage 6: ECM 115/4000 sent (64 bytes, ch 1884:000000:07C1)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 116/4000 sent (64 bytes, ch 1884:000000:07F4)
+  [ ok ] stage 6: ECM 116/4000 sent (64 bytes, ch 1884:000000:07D2)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 117/4000 sent (64 bytes, ch 1884:000000:0805)
+  [ ok ] stage 6: ECM 117/4000 sent (64 bytes, ch 1884:000000:07E3)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 118/4000 sent (64 bytes, ch 1884:000000:0816)
+  [ ok ] stage 6: ECM 118/4000 sent (64 bytes, ch 1884:000000:07F4)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 119/4000 sent (64 bytes, ch 1884:000000:0827)
+  [ ok ] stage 6: ECM 119/4000 sent (64 bytes, ch 1884:000000:0805)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 120/4000 sent (64 bytes, ch 1884:000000:0838)
+  [ ok ] stage 6: ECM 120/4000 sent (64 bytes, ch 1884:000000:0816)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 121/4000 sent (64 bytes, ch 1884:000000:0849)
+  [ ok ] stage 6: ECM 121/4000 sent (64 bytes, ch 1884:000000:0827)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 122/4000 sent (64 bytes, ch 1884:000000:085A)
+  [ ok ] stage 6: ECM 122/4000 sent (64 bytes, ch 1884:000000:0838)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 123/4000 sent (64 bytes, ch 1884:000000:086B)
+  [ ok ] stage 6: ECM 123/4000 sent (64 bytes, ch 1884:000000:0849)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 124/4000 sent (64 bytes, ch 1884:000000:087C)
+  [ ok ] stage 6: ECM 124/4000 sent (64 bytes, ch 1884:000000:085A)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 125/4000 sent (64 bytes, ch 1884:000000:088D)
+  [ ok ] stage 6: ECM 125/4000 sent (64 bytes, ch 1884:000000:086B)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 126/4000 sent (64 bytes, ch 1884:000000:089E)
+  [ ok ] stage 6: ECM 126/4000 sent (64 bytes, ch 1884:000000:087C)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 127/4000 sent (64 bytes, ch 1884:000000:08AF)
+  [ ok ] stage 6: ECM 127/4000 sent (64 bytes, ch 1884:000000:088D)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 128/4000 sent (64 bytes, ch 1884:000000:08C0)
+  [ ok ] stage 6: ECM 128/4000 sent (64 bytes, ch 1884:000000:089E)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 129/4000 sent (64 bytes, ch 1884:000000:08D1)
+  [ ok ] stage 6: ECM 129/4000 sent (64 bytes, ch 1884:000000:08AF)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 130/4000 sent (64 bytes, ch 1884:000000:08E2)
+  [ ok ] stage 6: ECM 130/4000 sent (64 bytes, ch 1884:000000:08C0)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 131/4000 sent (64 bytes, ch 1884:000000:08F3)
+  [ ok ] stage 6: ECM 131/4000 sent (64 bytes, ch 1884:000000:08D1)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 132/4000 sent (64 bytes, ch 1884:000000:0904)
+  [ ok ] stage 6: ECM 132/4000 sent (64 bytes, ch 1884:000000:08E2)
          reply type 0x80, len=3, dcw=
   [ ok ] stage 6: decode-failed (all-zero) -- expected with no card server
-  [ ok ] stage 6: ECM 133/4000 sent (64 bytes, ch 1884:000000:0915)
+  [ ok ] stage 6: ECM 133/4000 sent (64 bytes, ch 1884:000000:08F3)
          r
