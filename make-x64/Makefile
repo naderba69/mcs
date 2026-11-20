@@ -10,10 +10,10 @@
 # Usage:
 #   make            build          -> x64/multics
 #   make test       the full unit/regression suite, including real ../src/dcw.c
-#   make release    -> ../dist/multics-r82a-stock-x64   (stock r82a logic)
-#   make release-stats -> ../bin/multics.x64 (THE fixed delivery name, R34)
-#   make release-stats (detail)
-#                   -> ../dist/multics-r82a-stats-x64   (+ dcwstats counters)
+#   make release-stats -> ../bin/multics.x64 (THE one base build, band 118:
+#                   dcwstats + R22 layers compiled in, both opt-in at runtime)
+#   make release    -> A/B only: the same sources WITHOUT the two macros
+#   make release-r22 / release-queue* -> A/B only, equivalence probes
 #   make distclean
 #
 # NOTE: this directory is called make-x64 rather than build/ because `build`
@@ -51,6 +51,23 @@ DIST = ../dist
 STATSFLAGS = $(PORTFLAGS) -DMCS_DCWSTATS
 
 # ---------------------------------------------------------------------------
+# BAND 118 -- ONE base build. The operator's rule: a single primary version
+# that carries every verification instrument, so a field snapshot never has
+# to be cross-read against "which flavour was this?". The base therefore
+# compiles MCS_DCWSTATS (the /cwlog verdict ring) AND R22_LAYERS (the CW
+# layers + their counters) -- compiled, not armed: the layers' two reject
+# points stay behind 'R22 LAYERS: YES' (default OFF), which is what keeps
+# band 14's "no new behaviour without evidence" promise intact while the
+# counters are always live.
+#   * test_dcwstats proves stats-on/stats-off decide identically; the same
+#     argument covers R22 here: with the switch OFF the hooks only count.
+#   * The A/B targets below (release / release-r22 / release-queue*) exist
+#     to PROVE equivalence on a specific question. They are not delivery
+#     names and nothing in the field should run them.
+# ---------------------------------------------------------------------------
+BASEFLAGS = $(PORTFLAGS) -DMCS_DCWSTATS -DR22_LAYERS
+
+# ---------------------------------------------------------------------------
 # TASK R6 (D60) -- the parallel cache flavours: the bounded queue ON.
 # The default flavours never define CACHE_QUEUE, so their binaries stay
 # byte-identical to the pre-R6 releases (proven by fingerprint).
@@ -82,6 +99,24 @@ release-queue-stats:
 	@mkdir -p ../bin && cp $(DIST)/multics-r82a-queue-stats-x64 ../bin/
 	@echo "persistent copy: ../bin/multics-r82a-queue-stats-x64"
 	@nm x64/multics | grep -c cq_ | sed 's/^/  cachequeue symbols (expect 7+): /'
+	@rm -rf x64
+
+# ---------------------------------------------------------------------------
+# BAND 118 -- A/B probe: the base sources WITHOUT -DR22_LAYERS. This is not a
+# delivery flavour; it exists to answer one question with numbers: does
+# compiling the R22 layers in (switch OFF, so nothing can be refused) change
+# any ECM/CW decision or counter against the same sources without them?
+# Needed because command-line PORTFLAGS overrides do not reach these targets
+# -- each recipe pins its own PORTFLAGS, which is exactly why the old
+# "release-stats with a hand-passed PORTFLAGS" produced a byte-identical
+# binary instead of the probe.
+# ---------------------------------------------------------------------------
+release-ab-stats:
+	@rm -rf x64 && $(MAKE) --no-print-directory link PORTFLAGS="$(STATSFLAGS)" MCS_DCWSTATS=1
+	@mkdir -p $(DIST)
+	@strip -o $(DIST)/multics-r82a-ab-stats-x64 x64/multics
+	@echo "A/B probe: $(DIST)/multics-r82a-ab-stats-x64 (base sources, R22_LAYERS NOT compiled)"
+	@nm x64/multics | grep -c r22 | sed 's/^/  r22 symbols (expect 0): /'
 	@rm -rf x64
 
 release-r22:
@@ -118,7 +153,7 @@ release:
 # full recompile on every `make`, because a prerequisite that never produces a
 # file can never be up to date.)
 release-stats:
-	@rm -rf x64 && $(MAKE) --no-print-directory link PORTFLAGS="$(STATSFLAGS)" MCS_DCWSTATS=1
+	@rm -rf x64 && $(MAKE) --no-print-directory link PORTFLAGS="$(BASEFLAGS)" MCS_DCWSTATS=1 R22_LAYERS=1
 	@mkdir -p $(DIST)
 	@strip -o $(DIST)/multics-r82a-stats-x64 x64/multics
 	@echo "built $(DIST)/multics-r82a-stats-x64"

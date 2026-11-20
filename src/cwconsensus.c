@@ -41,6 +41,69 @@ struct cw_slot {
 static struct cw_slot cwc_tab[CWC_SLOTS];
 static unsigned long cwc_n_votes, cwc_n_holds, cwc_n_releases, cwc_n_refusals;
 
+/* Band 112: per-CAID mirror of the four counters above. Same lock as the
+ * callers (the cache lock), same sites, so sums match by construction. */
+static struct cwconsensus_caid cwc_caid_tab[CWC_CAID_MAX];
+static unsigned long cwc_caid_overflow;
+
+#define CWC_NOTE_VOTES    0
+#define CWC_NOTE_HOLDS    1
+#define CWC_NOTE_RELEASES 2
+#define CWC_NOTE_REFUSALS 3
+
+/* a row is live as soon as any counter moved -- no separate flag needed,
+ * so the shared snapshot struct stays display data only. */
+static int cwc_caid_used(const struct cwconsensus_caid *r)
+{
+	return r->votes || r->holds || r->releases || r->refusals;
+}
+
+static void cwc_caid_note(uint16_t caid, int which)
+{
+	int i, free_slot = -1;
+	for (i = 0; i < CWC_CAID_MAX; i++) {
+		if (cwc_caid_used(&cwc_caid_tab[i]) && cwc_caid_tab[i].caid == caid) {
+			switch (which) {
+			case CWC_NOTE_VOTES:    cwc_caid_tab[i].votes++;    break;
+			case CWC_NOTE_HOLDS:    cwc_caid_tab[i].holds++;    break;
+			case CWC_NOTE_RELEASES: cwc_caid_tab[i].releases++; break;
+			default:                cwc_caid_tab[i].refusals++; break;
+			}
+			return;
+		}
+		if (!cwc_caid_used(&cwc_caid_tab[i]) && free_slot < 0) free_slot = i;
+	}
+	if (free_slot < 0) { cwc_caid_overflow++; return; }
+	cwc_caid_tab[free_slot].caid = caid;
+	switch (which) {
+	case CWC_NOTE_VOTES:    cwc_caid_tab[free_slot].votes++;    break;
+	case CWC_NOTE_HOLDS:    cwc_caid_tab[free_slot].holds++;    break;
+	case CWC_NOTE_RELEASES: cwc_caid_tab[free_slot].releases++; break;
+	default:                cwc_caid_tab[free_slot].refusals++; break;
+	}
+}
+
+int cwconsensus_caid_snapshot(struct cwconsensus_caid *rows, int max,
+                              int *dropped, unsigned long *dropped_caids)
+{
+	struct cwconsensus_caid tmp[CWC_CAID_MAX];
+	int i, j, n = 0;
+	if (dropped) *dropped = 0;
+	if (dropped_caids) *dropped_caids = cwc_caid_overflow;
+	for (i = 0; i < CWC_CAID_MAX; i++)
+		if (cwc_caid_used(&cwc_caid_tab[i])) tmp[n++] = cwc_caid_tab[i];
+	/* worst-hold CAIDs first (same insertion sort the gate table uses) */
+	for (i = 1; i < n; i++) {
+		struct cwconsensus_caid key = tmp[i];
+		for (j = i - 1; j >= 0 && tmp[j].holds < key.holds; j--)
+			tmp[j + 1] = tmp[j];
+		tmp[j + 1] = key;
+	}
+	if (max < n) { if (dropped) *dropped = n - max; n = max; }
+	for (i = 0; i < n; i++) rows[i] = tmp[i];
+	return n;
+}
+
 /* R48 D-4 channel quarantine: 64 channel slots, 2 conflicts/10min -> 60s hold. */
 #define CWC_Q_SLOTS 64
 #define CWC_Q_CONFLICT_WINDOW 600000u
@@ -75,6 +138,8 @@ void cwconsensus_init(void)
 	memset(cwc_tab, 0, sizeof(cwc_tab));
 	memset(cwc_qtab, 0, sizeof(cwc_qtab));
 	cwc_n_votes = cwc_n_holds = cwc_n_releases = cwc_n_refusals = 0;
+	memset(cwc_caid_tab, 0, sizeof(cwc_caid_tab));
+	cwc_caid_overflow = 0;
 }
 
 static struct cwc_qslot *cwc_qslot_for(uint16_t caid, uint16_t sid,
@@ -329,10 +394,12 @@ int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
 	if (!group) group = (uint32_t)(peerid & 0xFFFF) + 0x10000u;
 	if (loser_cw) *loser_cw = NULL;
 	cwc_n_votes++;
+	cwc_caid_note(caid, CWC_NOTE_VOTES);
 	/* R48 D-4 quarantine: cache candidates held while channel is
 	 * quarantined (cache source only; caller never blocks card servers). */
 	if (cwconsensus_channel_quarantined(caid, sid, provid, provider_known, now_ms)) {
 		cwc_n_holds++;
+		cwc_caid_note(caid, CWC_NOTE_HOLDS);
 		return CWC_HOLD;
 	}
 	/* R48 storm guard: per-channel rate limit (cache source only). */
@@ -347,6 +414,7 @@ int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
 			qs->rate_count++;
 			if (qs->rate_count > CWC_STORM_RATE) {
 				cwc_n_holds++;
+				cwc_caid_note(caid, CWC_NOTE_HOLDS);
 				return CWC_HOLD;
 			}
 		}
@@ -369,7 +437,7 @@ int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
 		idx = (int)(s - cwc_tab);
 	}
 	s = &cwc_tab[idx];
-	if (s->lost) { cwc_n_refusals++; return CWC_REFUSE; }
+	if (s->lost) { cwc_n_refusals++; cwc_caid_note(caid, CWC_NOTE_REFUSALS); return CWC_REFUSE; }
 
 	/* record the arrival + voter */
 	s->tick = now_ms;
@@ -399,7 +467,7 @@ int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
 				s->holding = 0;
 				return CWC_DELIVER; /* corroborated: early unanimous */
 			}
-			if (!s->holding) { s->holding = 1; cwc_n_holds++; }
+			if (!s->holding) { s->holding = 1; cwc_n_holds++; cwc_caid_note(caid, CWC_NOTE_HOLDS); }
 			return CWC_HOLD;
 		}
 		/* conflict: weighted decision, timing only breaks silence */
@@ -420,6 +488,7 @@ int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
 		if (my_w < ot_w) {
 			s->lost = 1; s->holding = 0;
 			cwc_n_refusals++;
+			cwc_caid_note(caid, CWC_NOTE_REFUSALS);
 			/* R48 D-4: weighted loss counts toward channel quarantine. */
 			cwc_q_note_conflict(caid, sid, provid, provider_known, hash, tag, now_ms);
 			if (loser_cw) *loser_cw = cf->cw; /* winner, for the log */
@@ -428,6 +497,7 @@ int cwconsensus_verdict_group(uint16_t caid, uint16_t sid, uint32_t provid,
 		/* timing loss: refuse silently, convict nobody */
 		s->holding = 0;
 		cwc_n_refusals++;
+		cwc_caid_note(caid, CWC_NOTE_REFUSALS);
 		return CWC_REFUSE;
 	}
 }
@@ -549,6 +619,7 @@ int cwconsensus_expired(struct cwconsensus_hold *out, uint32_t now_ms,
 		out->cycle = s->cycle_set ? s->cycle : 0;
 		s->used = CWC_NOUSE; /* consumed: no double release */
 		cwc_n_releases++;
+		cwc_caid_note(s->caid, CWC_NOTE_RELEASES);
 		return 1;
 	}
 	return 0;

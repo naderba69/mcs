@@ -16,7 +16,7 @@ HTTPPORT = 15500
 R48_STATS_BIN ?= ../bin/multics-r82a-stats-x64
 R48_CWLOG_CHECK ?= 0
 
-.PHONY: pm jm sk cn smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof prof-full ce cy au pr soak pq qv rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates tm c1884 cwpair nopush svcdoubt all
+.PHONY: pm jm sk cn smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof prof-full ce cy au pr soak pq qv rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates tm c1884 cwpair nopush svcdoubt merged all
 include stability.mk
 
 # TASK R48: exercise the real server's LOGIN_ACK socket backpressure path,
@@ -72,7 +72,10 @@ smoke:
 	kill $$(cat .pid) 2>/dev/null; rm -f .pid; \
 	ok=1; \
 	if [ "$$code" = "200" ]; then echo "  [ ok ] HTTP / answered 200"; else echo "  [FAIL] HTTP / answered $$code"; ok=0; fi; \
-	if [ "$$threads_code" = "200" ] && grep -q 'THREADID Main =' .threads.html; then echo "  [ ok ] HTTP /threads answered 200 and rendered the thread snapshot"; else echo "  [FAIL] HTTP /threads answered $$threads_code or omitted the snapshot marker"; ok=0; fi; \
+	if [ "$$threads_code" = "200" ] && grep -q "home-sec'>Threads" .threads.html \
+	   && grep -q '<th>TID</th>' .threads.html; then \
+	  echo "  [ ok ] HTTP /threads rendered the Threads section with its TID column"; \
+	else echo "  [FAIL] HTTP /threads answered $$threads_code without the Threads/TID markers"; ok=0; fi; \
 	if [ "$$r48_code" = "200" ] && python3 -c 'import json; d=json.load(open(".r48.json")); s=d["r48_source_reputation"]; assert s["scope"] == "source-caid-provider" and isinstance(s["rows"], list)' ; then echo "  [ ok ] HTTP /json exposes the R48 source/provider evidence snapshot"; else echo "  [FAIL] HTTP /json answered $$r48_code or omitted the R48 evidence snapshot"; ok=0; fi; \
 	if [ "$$sf_code" = "200" ] && grep -q 'SmartFilter Console' .sf.html && grep -q 'Overview' .sf.html && grep -q 'Recent CW' .sf.html && grep -q 'Peers' .sf.html && grep -q 'Profiles' .sf.html && grep -q 'Logs' .sf.html; then echo "  [ ok ] HTTP /smartfilter renders the v6.0 console (Overview/Recent CW/Peers/Profiles/Logs)"; else echo "  [FAIL] HTTP /smartfilter answered $$sf_code or omitted console sections"; ok=0; fi; \
 	if [ "$$sf_strong_code" = "200" ] && [ "$$sf_bad_code" = "200" ]; then echo "  [ ok ] HTTP /smartfilter Strongest/Bad peer filters answered 200"; else echo "  [FAIL] HTTP /smartfilter peer filters answered strongest=$$sf_strong_code bad=$$sf_bad_code"; ok=0; fi; \
@@ -229,6 +232,14 @@ doublecheck-live:
 	@MODE=agree python3 doublecheck-live.py $(BIN)
 	@MODE=mismatch python3 doublecheck-live.py $(BIN)
 
+# Band 119: drives ONE real ECM through a fake card server and demands that the
+# /user-trace channel-memory counters move (they cannot on a pre-119 binary:
+# its state was `static` in the header, so the page printed its own never
+# written copy). Boots a server, so it lives beside the other live proofs
+# rather than inside `unit`.
+chanprevcw-live:
+	@python3 chanprevcw-live.py $(BIN)
+
 cache-check-characterization:
 	sh ./cache-check-characterization.sh
 
@@ -275,9 +286,15 @@ latecw:
 # externs; the harnesses were outside the usual run set) -- a harness
 # that is not run does not exist. Keep this list complete: any new
 # tests/*.sh unit harness joins here in the same band that adds it.
+# Band 121-B: "is main carrying the work?" Needs network, so it is deliberately NOT
+# in `unit` -- run it after every push, and before you trust a reset tree.
+merged:
+	@sh mainmerge.sh
+
 .PHONY: unit
 unit:
 	@for t in marchcheck cwdup cwreuse latecw cache-hash-invariants \
+	    gate-shadow-class trace-labels chan-prevcw staticstate dcounter bandline \
 	    cache-sms-escape ecmdata-allocation camd35-send-guard \
 	    loginaudit loginban protoban ecm-radegast-identity \
 	    cache-check-characterization cache-cross-gates \

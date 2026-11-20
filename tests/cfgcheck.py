@@ -12,6 +12,7 @@
 #
 #   python3 cfgcheck.py ../multics-r24-optimized.cfg
 import sys, re, collections
+from pathlib import Path
 
 DEAD_GLOBAL = {
     "DEFAULT FILTER", "DEFAULT FILTER TIME", "FILTER", "FILTER TIME", "DEFAULT ECM CHECK",
@@ -178,6 +179,30 @@ def main(path):
                 bad("%s: CACHE EVIDENCE has invalid boolean %r" % (p["name"], value))
     if not fails:
         ok("R48 CACHE EVIDENCE: explicit values are valid parser tokens")
+
+    # ---- band 118: single base build, verification instruments compiled in ----
+    # R22 LAYERS is the ONLY thing that separates 'observe' from 'refuse' in
+    # the base binary, so (a) the parser must still own the key and (b) the
+    # field file must state it explicitly -- an absent line would make the
+    # arm-state an accident of a default instead of an operator decision.
+    cfg_c = Path(__file__).resolve().parents[1] / "src" / "config.c"
+    parser_text = cfg_c.read_text(errors="replace")
+    if not re.search(r'else if \(!strcmp\(str,"R22"\)\)', parser_text):
+        bad("src/config.c lost the R22 parser branch (band 118 relies on it)")
+    r22_vals = glob.get("R22 LAYERS", [])
+    # Only the shipped field file must STATE the arm-state: the other audited
+    # configs are historical/probe files, and failing them would be a rule
+    # about the checker, not about the field.
+    is_field = str(path).endswith("multics-full-30w-52e.cfg")
+    if is_field and len(r22_vals) != 1:
+        bad("field file must carry exactly one global 'R22 LAYERS' line, found %d"
+            % len(r22_vals))
+    elif r22_vals:
+        token = r22_vals[0].split("#", 1)[0].strip().upper()
+        if token not in boolean_tokens:
+            bad("R22 LAYERS has invalid boolean %r" % r22_vals[0])
+        else:
+            ok("band 118: R22 LAYERS explicit (%s) and parser-owned" % token)
 
     # ---- profiles ----
     import os

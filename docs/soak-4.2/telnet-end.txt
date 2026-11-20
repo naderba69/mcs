@@ -5,8 +5,8 @@ Login: Password:
 type 'help' for command list
 
 [command]: dcwstats: ON
-accepted 516
-checksum 85
+accepted 1368
+checksum 227
 null/half-null 0
 repeat-3-bytes 0
 bad-dcw-list 0

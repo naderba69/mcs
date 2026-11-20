@@ -1,193 +1,102 @@
-# ✅ تقرير المزامنة — جميع الملفات محدّثة ومدفوعة
+# تقرير المزامنة — البند 121 (2026-11-20 23:20 UTC)
 
-**التاريخ:** 2026-10-28  
-**الفرع:** `arena/b49c4217-mcs`  
-**الحالة:** ✅ **مُزامَن بالكامل — كل شيء محدّث**
+> يُعاد كتابة هذا الملف كل دورة؛ تاريخه في git. «مُزامَن» هنا تعني شيئين
+> مُنفصلين ويُثبَتان منفصلين: **الفرع** و**الشجرة**.
 
----
-
-## 📊 حالة المزامنة
-
-### Git Status:
-```
-✅ Branch: arena/b49c4217-mcs (active)
-✅ Working tree: clean
-✅ Remote: up-to-date
-✅ Last push: successful
-```
-
-### الملفات الثنائية:
-```
-✅ bin/multics.x64:        1.1MB (Oct 28 11:11)
-✅ src/x64/multics:        1.1MB (Oct 28 11:10)
-✅ الملفات متطابقة:        نعم
-```
-
-### الملفات المصدرية:
-```
-✅ cache-intelligence.h:   1278 سطر
-✅ ملفات مُعدّلة:          49 ملف (آخر 5 commits)
-✅ commits في الفرع:       21 commit
-```
-
----
-
-## 📝 آخر 5 Commits
+## 1) الفرع
 
 ```
-31ef7d2 ✅ PROJECT COMPLETION: Final comprehensive review — 0 errors, 0 warnings, 10 systems active
-51480d7 📊 CACHE INTELLIGENCE REPORT: Complete 7-level system documentation
-d356b44 🧠 CACHE INTELLIGENCE: 7-level smart cache optimization system
-952b0eb ✅ FINAL: Rebuild after merge — 0 errors
-02b7a18 ✅ FINAL AUDIT: Complete professional review — 6 systems activated
+branch : arena/4d6fa550-mcs            (الحالة: active)
+base   : 9b94faa  (main، بعد دمج PR #12 = بنود 103–108)
+local  : (this band)  "band 119: one program-wide channel-memory instance…"
+remote : مطابق بعد `git push origin arena/4d6fa550-mcs` (يُتحقَّق بـ`git ls-remote`)
+ahead  : 16 التزامًا فوق القاعدة (بنود 109 → 121 + تشديداتها)
+tree   : git status --porcelain = 0 سطرًا ⇒ لا شيء معلَّق
 ```
 
----
+بنود هذا الفرع وآثارها: ‏109 `eb7986c` · ‏110 `877fa4a` · ‏111 `7cf3871` ·
+‏112 `967ef4b` · ‏113 `d6c2ed2` · ‏114 `86dc50a` · ‏115 `459383d` ·
+‏116 `a409e27` · ‏117 `9e1027c` + `8816df4` · ‏118 `292285d` + `3fd9411`. ‏119 `107b5da` · ‏120 `bb0d42e` · ‏121 في هذا الالتزام.
 
-## 📁 الملفات المُحدّثة
+## 2) الشجرة — مصدق البصمة
 
-### الملفات الثنائية (Binaries):
-- ✅ `bin/multics.x64` — 1.1MB (مُحدّث)
-- ✅ `src/x64/multics` — 1.1MB (مُحدّث)
+`MANIFEST-md5` = **896 إدخالًا · 0 اختلاف · 0 مفقود** (فحص حرف-بحرف مقابل
+القرص، لا إعادة توليد: التوليد الكامل من `git ls-files | xargs md5sum` معطوب
+لأن أسماء الملفات غير-ASCII تنكسر). مُدخَلات هذا التحديث: الثنائي الثلاثي،
+مسبار A/B، ملف الإعدادات، التقرير، `MANIFEST-md5` نفسه، سجلات
+`docs/soak-4.2/` (18 ملفًا)، وحالَتَي `BINARY-STATUS.md` و`SYNC-STATUS-REPORT.md`.
 
-### الملفات المصدرية (Source):
-- ✅ `src/cache-intelligence.h` — 1278 سطر (جديد)
-- ✅ `src/main.c` — مُعدّل (ci_init + 28 init functions)
-- ✅ `src/setdcw.c` — مُعدّل (SSF + CW PostVal + CI)
-- ✅ `src/th-ecm.c` — مُعدّل (Smart Select + ECM Double Check + CI)
-- ✅ `src/clustredcache.c` — مُعدّل (CI tick)
-- ✅ `src/srv-cccam.c` — مُعدّل (IBS hook)
-- ✅ `src/srv-newcamd.c` — مُعدّل (IBS hook)
-- ✅ `src/srv-camd35.c` — مُعدّل (IBS hook)
-- ✅ `src/srv-cs378x.c` — مُعدّل (IBS hook)
+## 3) دورة ارتداد git التاسعة — عولجت، ولا يُستهان بها
 
-### التقارير (Reports):
-- ✅ `PROJECT-COMPLETION-REPORT.md` — 360 سطر
-- ✅ `CACHE-INTELLIGENCE-REPORT.md` — 433 سطر
-- ✅ `FINAL-AUDIT-REPORT.md` — 238 سطر
-- ✅ `HONEST-AUDIT-REPORT.md` — مُحدّث
-- ✅ `AUDIT-FIX-REPORT.md` — مُحدّث
-- ✅ `FINAL-SUMMARY-REPORT.md` — مُحدّث
-- ✅ `BLACKSCREEN-FAKECW-RESEARCH.md` — مُحدّث
-- ✅ `CACHE-SPEED-RESEARCH-FULL.md` — مُحدّث
-- ✅ `CODE-QUALITY-REPORT.md` — مُحدّث
-- ✅ `CONFIG-UPDATE-REPORT.md` — مُحدّث
-- ✅ `CUMULATIVE-DEVELOPMENT-FINAL.md` — مُحدّث
-- ✅ `DISABLED-FUNCTIONS-ANALYSIS.md` — مُحدّث
-- ✅ `PROFILES-ANALYSIS-REPORT.md` — مُحدّث
-- ✅ `DEVELOPMENT-STATUS.md` — مُحدّث
-- ✅ `BINARY-STATUS.md` — مُحدّث
+بدأت هذه الدورة و`HEAD` مرتدّ إلى القاعدة `9b94faa` مع 48 تعديلًا غير
+مُلتزَم يحمل محتوى البنود 109–118، و`dist/multics-r82a-stats-x64` راجعًا
+لبصمة البند 112 (`af838849…`). العلاج المُعتاد:
 
-### الإعدادات (Config):
-- ✅ `multics-r24-optimized.cfg` — مُحدّث
-
----
-
-## 🔄 حالة المزامنة مع Remote
-
-```bash
-$ git status -sb
-## arena/b49c4217-mcs
-
-$ git push origin arena/b49c4217-mcs
-Everything up-to-date
+```
+git fetch origin arena/4d6fa550-mcs
+git reset --mixed FETCH_HEAD          # ⇒ HEAD = 3fd9411، المحتوى سليم
+git checkout -- dist/multics-r82a-{ab-,}stats-x64
+md5sum bin/multics.x64 bin/multics-r82a-stats-x64 dist/multics-r82a-stats-x64
 ```
 
-**النتيجة:** ✅ كل شيء مُزامَن مع الـ remote
+**لماذا يهمّك هذا**: ارتداد الشجرة لا يُغيّر ملفًا على GitHub ولا يُبطل
+لقطتك — لكنه يجعل «أي ثنائي هذا؟» سؤالًا مفتوحًا من جديد. القفل ضدّه هو
+`md5sum` الثلاثي **قبل** أي قراءة لقطة، لا بعدها.
 
----
+## 4) ما ليس مُزامَنًا — مقصود بالاسم
 
-## 📊 إحصائيات المشروع
+- `bin/multics-r82a-{stock,r22,queue,queue-stats}-x64`: مخرجات مسابر، تُبنى
+  عند الطلب ولا تُحمَّل ميدانيًا (البند 118).
+- `bin/multics-r82a-{x64,arm,mipsel,sh4}`: آثار حقبة R24، لا تحتوي R26+؛
+  تبقى للمرجع ولا تُعاد بناؤها.
+- `../bin-frozen-D53/`: زوج مُجمَّد، لا يُمسّ.
+- `docs/STATUS.md`: مرجع حقبة ‏R43/D106 (2026-10-17) — بقي كما هو مع لافتة
+  تحويل إلى `docs/REPORT-R48-ar.md`؛ إعادة كتابته كاملة ليست من هذه الدورة.
+- ملفات الحالة الجذرية القديمة (`AUDIT-FIX-REPORT.md`، `DEVELOPMENT-STATUS.md`،
+  تقارير البحوث): آثارية، بصماتها في المتغيّر ولا تُحدَّث بلا سبب.
 
-### البناء:
-```
-✅ Binary Size:    1.1MB (x64)
-✅ Errors:         0
-✅ Warnings:       0
-✅ Build Status:   Clean & Successful
-```
+## 4ب) ارتداد git الحادي عشر، وحارسٌ عفا عليه الزمن
 
-### الأنظمة:
-```
-✅ أنظمة مُفعّلة:        10/10
-✅ Init Functions:       29/29
-✅ طبقات حماية:         10
-✅ Dead Code:            0
-✅ ملفات مُعدّلة:        49 (آخر 5 commits)
-✅ Commits:              21
-```
+- **الارتداد الحادي عشر**: استُؤنفت الدورة بـ`HEAD = 9b94faa` و51 ملفًا مُعدَّلًا
+  غير مُلتزَم (بعد أن كانت الشجرة نظيفة عند ‏`41c840d`). العُرف الثابت عولج قبل أي
+  قراءة: `git fetch -q origin arena/4d6fa550-mcs && git reset --mixed FETCH_HEAD`
+  ثم `git checkout --` لمسارات `dist/` والتحقق بـ`md5sum` ⇒ الشجرة صفر أسطر و
+  الثلاثي على ‏`ec41633f…` قبل أن يبدأ البند.
+- **اكتشافٌ طوَّع القراءة كلها**: عدّادات البند 115 كانت `static` في رأسٍ يدخل ثلاث
+  وحدات ترجمة ⇒ كلٌّ نسخةً خاصة، فالصفحة طبعت نسخةً لا يكتبها أحد. لذلك **صفر
+  «كُتب» في لقطة 08:28:59 لم يكن دليلًا على starvation**؛ سُحب الاستنتاج نصًا في
+  `docs/REPORT-R48-ar.md` (فقرة «تراجُع مُقدَّم»)، وصار لكل ادّعاء من هذا النوع
+  حارسٌ مصدرى (`tests/staticstate.py` في `unit`) يُسمّي 9 رؤوس دَينًا بنفس الشكل
+  (أخطرها `cwpair.h` — مُرشَّح 120 لأنه يمسّ بوابة مُسلَّحة).
+- **`smoke` كان أحمر بلا معنى**: فحص `/threads` يشترط نصًا لا يوجد في أي مصدر
+  مُلتزَم؛ ثُبِّت على ما تطبعه الصفحة (`Threads` + `<th>TID</th>`) فصار أشدّ.
 
-### Cache Intelligence:
-```
-✅ المستويات:            7/7
-✅ الدوال:               50+ دالة
-✅ هياكل البيانات:       8 structs
-✅ خطوط الكود:           1278 سطر
-✅ التكامل:              5 ملفات
-```
+## 4ج) القاعدة الدائمة من البند 121ب: `main` تحمل العمل
 
----
+**المشكل**: ارتداد الشجرة ثلاث عشرة مرة — `HEAD` يُوجَد مرتدًّا إلى commit أساس `main` مع
+عشرات الملفات المُعدَّلة، فتُفتتح الدورة بطقس إنقاذ وتُقرأ النتائج على شجرةٍ نصف مُرمَّمة.
 
-## ✅ قائمة التحقق النهائية
+**القاعدة**: كل بندٍ يُرفع على فرع الجلسة **ثم يُدمَج في `main` عبر PR**. عندئذٍ أي ارتدادٍ نحو
+`main` يقَع فوق العمل لا خلفه، فيبطل ضرر الارتداد بدل أن يُداوى بعده.
 
-### المزامنة:
-- [x] Git status: clean
-- [x] Working tree: clean
-- [x] Remote: up-to-date
-- [x] Last push: successful
-- [x] Binary files: متطابقة (bin/ = src/x64/)
+**الأداة**: `make -C tests merged` (ملف `tests/mainmerge.sh`) تجيب `merged:` أو `NOT MERGED:` أو
+`SKIP:` عند انعدام الشبكة (فلا يُقرأ الصمت نجاة). صُمِّمت على **الاحتواء** لا المطابقة: `HEAD`
+لازمٌ أن يكون جدًّا لـ`origin/main`، لأن `gh pr merge --merge` يضيف commit دمجٍ على `main` —
+فلو قارنّا المطابقة لكان أول نجاحٍ هو أول كذب. ولم تُدرَج في `unit` لأنها تحتاج شبكة.
 
-### الملفات:
-- [x] Binary (multics.x64): 1.1MB ✅
-- [x] Source (cache-intelligence.h): 1278 سطر ✅
-- [x] Reports: 15+ تقرير ✅
-- [x] Config: مُحدّث ✅
+**طقس الإنقاذ في §3 أعلاه لا يُلغى**: هو ما يُنفَّذ حين تُخبر الأداة أن الفرع غير مُدمج، أو حين
+يسبق الارتداد هذه القاعدة. لكنه من الآن **استثناءٌ مُقاس** لا عادةٌ دورية.
 
-### البناء:
-- [x] 0 أخطاء ✅
-- [x] 0 تحذيرات ✅
-- [x] Binary size: 1.1MB ✅
-- [x] Build successful ✅
+## 5) ما يُرفَع للمشغّل الآن
 
-### الأنظمة:
-- [x] 10 أنظمة مُفعّلة ✅
-- [x] 29 init functions ✅
-- [x] 10 طبقات حماية ✅
-- [x] 0 dead code ✅
-
----
-
-## 🎯 الخلاصة
-
-### حالة المشروع:
-```
-✅ Git:           مُزامَن بالكامل
-✅ Files:         جميعها محدّثة
-✅ Binary:        1.1MB (مُحدّث)
-✅ Reports:       15+ تقرير (مُحدّث)
-✅ Build:         0 errors, 0 warnings
-✅ Systems:       10/10 active
-✅ Protection:    10 layers
-✅ Status:        Production ready
-```
-
-### آخر تحديث:
-```
-التاريخ:    2026-10-28
-الوقت:      11:11
-Commit:     31ef7d2
-Branch:     arena/b49c4217-mcs
-Remote:     ✅ up-to-date
-```
-
----
-
-**الحالة النهائية:** ✅ **جميع الملفات محدّثة ومدفوعة — المشروع جاهز 100%**
-
-**عند فحص المشروع:**
-- لن تجد أي ملفات غير محفوظة
-- لن تجد أي فرق بين local و remote
-- لن تجد أي ملفات ثنائية قديمة
-- لن تجد أي تقارير ناقصة
-
-**كل شيء مُزامَن ومُحدّث! 🎉**
+0. **ملف الإعدادات تغيّر في البند 120** (لأول مرة منذ 115): سطر واحد في ‏`[HD+ 1830]`
+   — ‏`CWPAIR ACTIVE: YES`، وبرهنه في التقرير (‏1155 تطابقًا بصفر رفضٍ للقدم + فارق
+   خدمة ‏36.3% مقابل ‏93.0%). تراجعه: إعادته إلى NO. ولا يُقرأ «قُدّمت من التوأم» على
+   ثنائي أقدم من البند 120.
+1. `bin/multics.x64` ببصمة `04349fcddd731727b44de98d58e861de` (لا أسماء dist/alias). البند 119 صحّح صفحة
+   الذاكرة (حالة واحدة للبرنامج + كاتب محلي)؛ الإعداد لا يتغيّر، ومن يشغّل بصمة
+   أقدم **لا يقرأ شيئًا** من عدّادات `كُتب/قُرئت` — صفرُها عرضٌ مكسور لا قياس.
+   والتوقع القابل للتكذيب: مع هذه البصمة يجب أن يتحرّك `كُتب` فوق الصفر في أول
+   جلسة مُخدَّمة، وأن ينقص «بلا prevcw» (‏1 477 275) ويرتفع «دوران نصفي».
+2. `multics-full-30w-52e.cfg` كما هو في HEAD (يحمل `R22 LAYERS: NO` صراحة).
+3. إعادة تحميل الإعدادات، ثم ≥45 دقيقة، ثم لقطة `/user-trace` كاملة.

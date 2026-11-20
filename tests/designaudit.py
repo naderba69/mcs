@@ -185,6 +185,34 @@ def main():
             assert 'CW_REUSE' in trace and 'Cache Consensus' in trace, \
                 'CW_REUSE / consensus arming missing from the trace overview'
             print('designaudit: CW_REUSE + consensus trace sections hold')
+            assert 'حصيلة الإجماع والبوابات' in trace and 'ما بعد الإجماع' in trace, \
+                'consensus/gate tally missing from the trace overview'
+            print('designaudit: consensus + gate tally holds')
+            assert 'حسب CAID (الأعلى رفضًا أولًا)' in trace, \
+                'per-CAID gate tally missing from the trace overview'
+            print('designaudit: per-CAID gate tally holds')
+            assert 'تصنيف الظل لرفض «بلا دورة»' in trace, \
+                'shadow classification of no-cycle refusals missing from trace'
+            assert 'تصنيف الظل حسب CAID' in trace, \
+                'per-CAID shadow tally missing from trace overview'
+            assert 'التثبت: مجموع الظل' in trace, \
+                'shadow partition self-check missing from trace overview'
+            assert 'الإجماع حسب CAID' in trace, \
+                'per-CAID consensus table missing from trace overview'
+            assert 'سُقطت للازدحام' in trace and 'كُتب ' in trace, \
+                'band 117: channel-memory counters must reach /user-trace (a bare ON/OFF could not settle the 115 question)'
+            assert 'المُقدِّر الآن' in trace, \
+                'shadow line must state the estimator live state'
+            # band 118: one base build carries every verification tool --
+            # the R22 line must state its compile+arm state, never a flavour
+            # excuse (that excuse is what made a field read ambiguous).
+            assert 'طبقات R22 المضادة للفايك' in trace, 'R22 state line missing'
+            assert 'نكهة' not in trace.split('طبقات R22')[1][:400], \
+                'the R22 trace line must not blame a build flavour in the single-base era'
+            assert 'ذاكرة القناة لآخر شفرة' in trace, \
+                'band 115: the channel-memory line must stay on /user-trace'
+            print('designaudit: per-CAID consensus + estimator state hold')
+            print('designaudit: shadow gate tally holds')
             assert 'MARCHCHECK' in trace and 'ركن النصف' in trace, \
                 'MARCHCHECK is not embedded in the CCcam trace overview'
             print('designaudit: MARCHCHECK trace section holds')

@@ -8,6 +8,9 @@
 #include "ecm-provider-config.h"  /* Provider-level ECM configuration */
 #include "cache-window.h"  /* R48 opt-in cache wait-window learning */
 #include "cw-fingerprint.h"  /* R48 CW fingerprint (observe-only) */
+#ifdef MCS_DCWSTATS
+#include "cache-chan-prevcw.h"  /* band 119: local-delivery writer for band 115 */
+#endif
 #include "cw-timing.h"  /* R48 CW timing anomaly (observe-only) */
 #include "tick_math.h"
 #include <stdlib.h>
@@ -1730,6 +1733,35 @@ trusted_deliver:
 	 * (cwn_note in main.c), cw_verified at a DoubleCheck agreement. */
 	if (srctype==DCW_SOURCE_SERVER)
 		r22_hook_ecm_setsrvflagdcw(committed_caid, committed_provid, committed_sid, committed_cw, (unsigned int)srcid, GetTickCount());
+
+	/*
+	 * Band 119 -- feed the per-channel CW memory (band 115) HERE, at the key we
+	 * actually served.
+	 *
+	 * What this path adds: until now the only writer was the peer-relay tail in
+	 * clustredcache.c, which runs AFTER the cycle gate. A channel whose arrivals
+	 * are all refused there (the field file: 1 477 564 "no cycle" refusals in one
+	 * 8h28m session) therefore never became a reference for its own next key,
+	 * while the box had in fact answered that channel many times. A committed
+	 * local delivery is exactly band 115's stated definition -- "every key it
+	 * actually serves" -- and it is the one event that cannot be refused.
+	 *
+	 * What this path does NOT rest on: the `Wrote=0` in the 2026-11-19 ~21:27
+	 * snapshot. I first read that zero as "the writer never runs"; it was the
+	 * per-translation-unit `static` state in the header (see cache-chan-prevcw.h
+	 * for the retraction), so the page was printing a copy nothing writes. The
+	 * writer's own reachability was never measured -- hence the separate
+	 * `From local delivery` counter, so the next snapshot can tell the two feeds
+	 * apart instead of guessing from one blended number.
+	 *
+	 * Observer-only: after delivery, no gate, no delay; OFF unless CACHE CYCLE
+	 * MEMORY is on.
+	 */
+#ifdef MCS_DCWSTATS
+	if (cfg.cache.cycle_chan_mem)
+		mcs_chprev_put_src(committed_caid, committed_provid, committed_sid,
+		                   committed_cw, cfg.cache.cycle_chan_mem_ttl, 1);
+#endif
 
 	/*
 	 * TASK 2.5 -- the cache hand-off, observed at the moment it happens (see

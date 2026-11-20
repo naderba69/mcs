@@ -159,6 +159,7 @@ int clients_check_sendcw_from_locked(ECM_DATA *ecm,
 #include "ecm-pattern-analysis.h"
 #include "implicit-bs-detect.h"
 #include "cache-intelligence.h"
+#include "trace-detail-labels.h" /* band 113: peer-wait throttle helper (band 112 owns its labels) */
 #include "cwpair.h" /* band 38: simulcrypt CW pairing */
 #include "nopushafter.h" /* band 41: per-CAID stale-push brake */
 #include "smart-server-select.h"
@@ -509,7 +510,12 @@ send_ecm:
 				    0, 0, ticks-ecm->recvtime, "cache peer request invoked; pipe delivery not confirmed");
 				ecm->cachestatus = ECM_CACHE_REQ;
 			}
-			else if (ecm->trace_instance) {
+			else if (ecm->trace_instance
+			         /* band 113: one line per distinct state, not per pass */
+			         && mcs_trace_peerwait_log_once(&ecm->trace_peerwait_key,
+			                (unsigned char)ecm->cachestatus,
+			                (unsigned char)cs->option.fallowcache,
+			                (unsigned char)cs->option.cachesendreq)) {
 				char detail[128];
 				snprintf(detail, sizeof(detail), "cache peer request skipped: fallow=%u sendreq=%u status=%u",
 				         (unsigned)cs->option.fallowcache,

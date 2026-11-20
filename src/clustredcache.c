@@ -192,6 +192,9 @@ int peer_doublecheck(struct cacheserver_data *cache, struct cachepeer_data *xpee
 #include "peerrep.h"		/* TASK R4 (D58): the persistent peer-reputation ladder */
 #include "cwconsensus.h"/* TASK R8 (D62): the per-request cw arbitrer */
 #include "cache-intelligence.h" /* CACHE-AI: 7-level smart cache optimization */
+#include "cache-cycle-shadow.h" /* band 111: shadow gate classifier */
+#define MCS_CHAN_PREVCW_IMPL       /* band 119: this TU owns the one instance */
+#include "cache-chan-prevcw.h"  /* band 115: per-channel last-served CW memory */
 #include "cwpair.h" /* band 38: observe cache-stored CWs for pairing */
 #ifdef MCS_DCWSTATS
 #include "cwlog.h"		/* TASK R11 (D65): the per-CW verdict ring */
@@ -2463,6 +2466,167 @@ struct cache_data *cache_fetch_goodcw3( struct cache_data *thereq, uint8_t cw[16
 // 0: nothing to do
 // 1: dcw set
 // 2: dcw set & sent to pipe
+/* Band 109: post-consensus gate tally. Every cache_after_consensus()
+ * exit is accounted: entered, then either passed (derived at snapshot
+ * time as entered minus refusals) or refused for exactly one reason.
+ * late vs wrong keeps the deferred cycle-gate decision honest: late =
+ * the bytes share one half with prevcw (stale-but-real key material),
+ * wrong = neither half matches. All increments happen under
+ * prg.lockcache, which every call site already holds. */
+static unsigned long gate_tally_seen;
+static unsigned long gate_tally_no_cycle;
+static unsigned long gate_tally_cycle_late;
+static unsigned long gate_tally_cycle_wrong;
+static unsigned long gate_tally_halfnull;
+static unsigned long gate_tally_expired;
+
+/* Band 110: the same tally per CAID. The cycle-gate decision is taken
+ * per provider (the cycle-estimate review note in this file says so),
+ * so the operator must see WHICH CAID produces late vs wrong vs
+ * unmarked refusals before arming anything. Fixed 32 slots, first-
+ * come; further CAIDs fold into gate_tally_caid_overflow. */
+#define GATE_CAID_MAX 32
+static struct {
+	uint16_t caid;
+	unsigned long seen, no_cycle, cycle_late, cycle_wrong;
+	unsigned long shadow_rot, shadow_neither;
+	unsigned long shadow_bothsame, shadow_noprev;
+	unsigned long cyc1_undeclared, cyc1_learnable;
+} gate_caid_tally[GATE_CAID_MAX];
+static unsigned long gate_tally_caid_overflow;
+
+/* Band 111: SHADOW classification of the "filter did not establish cycle"
+ * refusals -- measurement only, the refusal below is untouched.
+ * Band 109's late/wrong split lives on the CONTRADICTION branch, which an
+ * UNMARKED key never reaches: the no-cycle return happens first. So a
+ * server whose peers carry no cycle markers reads "0 late / 0 wrong"
+ * forever -- the decisive classes were structurally starved, not empty.
+ * The field trace (91033 candidates, 30521 refused, 0/0) proved that, so
+ * these counters answer the deferred question directly instead: for each
+ * refused unmarked key, what WOULD cfg.cache.cycle_estimate have claimed,
+ * using exactly its predicate (exactly one half differs from prevcw =>
+ * the other half rotated). The five classes below partition the no-cycle
+ * refusals, so shadow total == no_cycle is the only accepted self-check. */
+static unsigned long gate_shadow_rot_cw1;   /* first half differs -> CW1 */
+static unsigned long gate_shadow_rot_cw0;   /* second half differs -> CW0 */
+static unsigned long gate_shadow_neither;   /* both differ: no stable half */
+static unsigned long gate_shadow_bothsame;  /* both equal prevcw: same key */
+static unsigned long gate_shadow_noprev;    /* no prevcw to compare with */
+
+/* Band 113: does the refused pile at least KNOW the channel's cycle parity?
+ * The estimator's only input when prevcw is absent is cwcy_expect(tag,
+ * pcache->cw1cycle), and cw1cycle is 0 ("the operator has told us nothing
+ * about this channel's tag convention" -- cwcycle.h) unless the profile's
+ * channel list declares it (SID.xxxx.80/.81) or a local client announced it.
+ * So the two buckets below separate a gate that works from a gate starved
+ * of its one remaining input. "declared but still refused" is the bug
+ * canary: with the estimator on, a declared parity names a cycle and the
+ * key passes -- any real count there means the estimate path is broken. */
+static unsigned long gate_cyc1_declared;
+static unsigned long gate_cyc1_undeclared;
+/* Band 113: refusals whose channel DID show usable rotation evidence
+ * (prevcw present, exactly one half carried over) -- since this band the
+ * estimator consumes that evidence directly, so what is left counted here
+ * is the pre-fix population plus refusals that had a marker contradicting
+ * the pattern. Every count here is one SID list line the operator
+ * could declare with real data -- "learnable but undeclared". Zero means
+ * there is nothing to declare: the starvation is the peers' missing tail,
+ * not the profile, and no cfg edit can fix this gate. */
+static unsigned long gate_cyc1_learnable;
+
+static int gate_caid_slot(uint16_t caid)
+{
+	int i, free_slot = -1;
+	for (i = 0; i < GATE_CAID_MAX; i++) {
+		if (gate_caid_tally[i].caid == caid && gate_caid_tally[i].seen)
+			return i;
+		if (!gate_caid_tally[i].seen && free_slot < 0) free_slot = i;
+	}
+	if (free_slot < 0) return -1;
+	gate_caid_tally[free_slot].caid = caid;
+	return free_slot;
+}
+
+static void cache_gate_status_fill(struct mcs_field_status *st)
+{
+	pthread_mutex_lock(&prg.lockcache);
+	st->cons_votes = cwconsensus_votes();
+	st->cons_holds = cwconsensus_holds();
+	st->cons_released = cwconsensus_releases();
+	st->cons_refused = cwconsensus_refusals();
+	{
+		struct cwconsensus_capacity cap;
+		uint32_t cwin = (uint32_t)(cfg.cache.consensus_window>=100?cfg.cache.consensus_window:400);
+		cwconsensus_capacity(GetTickCount(), cwin, &cap);
+		st->cons_held_now = cap.held;
+		st->cons_overdue_now = cap.overdue;
+	}
+	{
+		struct cwconsensus_caid cc[MCS_CONS_CAID_MAX];
+		int ci, nn;
+		nn = cwconsensus_caid_snapshot(cc, MCS_CONS_CAID_MAX,
+		                                &st->cons_caid_dropped, &st->cons_caid_overflow);
+		st->cons_caid_count = nn;
+		for (ci = 0; ci < nn; ci++) {
+			st->cons_caids[ci].caid     = cc[ci].caid;
+			st->cons_caids[ci].votes    = cc[ci].votes;
+			st->cons_caids[ci].holds    = cc[ci].holds;
+			st->cons_caids[ci].releases = cc[ci].releases;
+			st->cons_caids[ci].refusals = cc[ci].refusals;
+		}
+	}
+	st->gate_seen = gate_tally_seen;
+	st->gate_expired = gate_tally_expired;
+	st->gate_no_cycle = gate_tally_no_cycle;
+	st->gate_cycle_late = gate_tally_cycle_late;
+	st->gate_cycle_wrong = gate_tally_cycle_wrong;
+	st->gate_halfnull = gate_tally_halfnull;
+	st->gate_passed = gate_tally_seen - gate_tally_no_cycle
+		- gate_tally_cycle_late - gate_tally_cycle_wrong
+		- gate_tally_halfnull;
+	st->shadow_rot_cw1 = gate_shadow_rot_cw1;
+	st->shadow_rot_cw0 = gate_shadow_rot_cw0;
+	st->shadow_neither = gate_shadow_neither;
+	st->shadow_bothsame = gate_shadow_bothsame;
+	st->shadow_noprev = gate_shadow_noprev;
+	st->cyc1_declared = gate_cyc1_declared;
+	st->cyc1_undeclared = gate_cyc1_undeclared;
+	st->cyc1_learnable = gate_cyc1_learnable;
+	{
+		/* top CAIDs by refusals, worst first (insertion sort, 32 max) */
+		struct mcs_gate_caid tmp[GATE_CAID_MAX];
+		int i, j, n = 0;
+		for (i = 0; i < GATE_CAID_MAX; i++) {
+			if (!gate_caid_tally[i].seen) continue;
+			tmp[n].caid = gate_caid_tally[i].caid;
+			tmp[n].seen = gate_caid_tally[i].seen;
+			tmp[n].no_cycle = gate_caid_tally[i].no_cycle;
+			tmp[n].cycle_late = gate_caid_tally[i].cycle_late;
+			tmp[n].cycle_wrong = gate_caid_tally[i].cycle_wrong;
+			tmp[n].shadow_rot = gate_caid_tally[i].shadow_rot;
+			tmp[n].shadow_neither = gate_caid_tally[i].shadow_neither;
+			tmp[n].shadow_bothsame = gate_caid_tally[i].shadow_bothsame;
+			tmp[n].shadow_noprev = gate_caid_tally[i].shadow_noprev;
+			tmp[n].cyc1_undeclared = gate_caid_tally[i].cyc1_undeclared;
+			tmp[n].cyc1_learnable = gate_caid_tally[i].cyc1_learnable;
+			n++;
+		}
+		for (i = 1; i < n; i++) {
+			struct mcs_gate_caid key = tmp[i];
+			unsigned long kr = key.no_cycle + key.cycle_late + key.cycle_wrong;
+			for (j = i - 1; j >= 0 &&
+				(tmp[j].no_cycle + tmp[j].cycle_late + tmp[j].cycle_wrong) < kr; j--)
+				tmp[j + 1] = tmp[j];
+			tmp[j + 1] = key;
+		}
+		if (n > MCS_GATE_CAID_MAX) n = MCS_GATE_CAID_MAX;
+		st->gate_caid_count = n;
+		for (i = 0; i < n; i++) st->gate_caids[i] = tmp[i];
+		st->gate_caid_overflow = gate_tally_caid_overflow;
+	}
+	pthread_mutex_unlock(&prg.lockcache);
+}
+
 /* Run the same post-consensus cycle/family gates for both immediately
  * corroborated and window-expired CWs. Caller holds prg.lockcache. */
 static int cache_after_consensus(struct cache_data *req, struct cache_data *pcache,
@@ -2470,6 +2634,12 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
                                  cwcycle_t cwcycle, int peerid)
 {
     int piped = 0;
+    gate_tally_seen++;
+    {
+        int gs = gate_caid_slot(req->caid);
+        if (gs >= 0) gate_caid_tally[gs].seen++;
+        else gate_tally_caid_overflow++;
+    }
     cwcycle_t incoming_cycle = cwcycle;
     uint8_t previous_status = cwdata->status;
     cwcycle_t previous_cycle = cwdata->cwcycle;
@@ -2519,9 +2689,33 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 				 * this stays opt-in OFF until a field capture
 				 * confirms it per provider. */
 				if (cfg.cache.cycle_estimate) {
-					if (!isnullDCW(pcache->prevcw) && pcache->cwcycle != NO_CYCLE) {
-						int first_same = dcwcmp8(cw, pcache->prevcw);
-						int second_same = dcwcmp8(cw+8, pcache->prevcw+8);
+					/* Band 113: the half-pattern was unreachable when the
+					 * entry carried no cycle marker (pcache->cwcycle is set
+					 * only from a peer's marker, line 1421) while the ecmtag
+					 * branch below covers only prevcw==absent -- so with
+					 * unmarked peers, an entry WITH a prevcw could never be
+					 * estimated, and corroborated keys died at the gate
+					 * (field 2026-11-19, "previous CW=present" refusals).
+					 * Now the measured rotation itself names the cycle;
+					 * both halves changed is still a correct refusal. */
+					uint8_t chan_prev[16];
+					const uint8_t *chprev = 0;
+					int first_same, second_same;
+					/* Band 115: the entry's own tail value always wins; the
+					 * channel memory only fills the null case, and only when
+					 * CACHE CYCLE MEMORY is on (default off = stock).
+					 * Band 119: copied into a local buffer -- the table now has
+					 * a second writer (the local-delivery commit in setdcw.c) on
+					 * another thread, so a pointer into it is not stable. */
+					if (cfg.cache.cycle_chan_mem && isnullDCW(pcache->prevcw) &&
+					    mcs_chprev_get(req->caid, req->provid, req->sid,
+					                   cfg.cache.cycle_chan_mem_ttl, chan_prev))
+						chprev = chan_prev;
+					first_same = dcwcmp8(cw, chprev ? chprev : pcache->prevcw);
+					second_same = dcwcmp8(cw+8, chprev ? chprev + 8 : pcache->prevcw+8);
+					if (mcs_cycle_temporal_ok(1, (chprev != 0) || !isnullDCW(pcache->prevcw),
+					                                pcache->cwcycle != NO_CYCLE,
+					                                (first_same != second_same) ? 1 : 0)) {
 						if (first_same && !second_same) {
 							cwcycle = CW1CYCLE;
 							cwdata->status |= DCW_CYCLE;
@@ -2536,6 +2730,8 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 							    "cache cycle estimated temporally: CW0 (no marker)", cw);
 						}
 					} else if (isnullDCW(pcache->prevcw)) {
+					/* unchanged: no prevcw at all, only a declaration can
+					 * name the cycle here */
 						/* First CW for this channel: no prevcw. Determine the
 						 * cycle from the entry's declared expectation when the
 						 * ECM carried one (pcache->cwcycle, set from the
@@ -2567,6 +2763,48 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 					         cwcy_str((int)incoming_cycle), cwcy_str((int)pcache->cwcycle),
 					         isnullDCW(pcache->prevcw) ? "absent" : "present");
 					user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
+					gate_tally_no_cycle++;
+					{
+						/* Same inputs the estimator reads, same order --
+						 * dcwcmp8() is an EQUALITY test, so the flags below
+						 * mean "this half carried over". */
+						int gs = gate_caid_slot(req->caid);
+						int cls = mcs_shadow_class(!isnullDCW(pcache->prevcw),
+						                           dcwcmp8(cw, pcache->prevcw),
+						                           dcwcmp8(cw+8, pcache->prevcw+8));
+						switch (cls) {
+						case MCS_SHADOW_ROT_CW1:  gate_shadow_rot_cw1++; break;
+						case MCS_SHADOW_ROT_CW0:  gate_shadow_rot_cw0++; break;
+						case MCS_SHADOW_NEITHER:  gate_shadow_neither++; break;
+						case MCS_SHADOW_BOTHSAME: gate_shadow_bothsame++; break;
+						default: gate_shadow_noprev++; break;
+						}
+						if (pcache->cw1cycle) gate_cyc1_declared++;
+						else {
+							gate_cyc1_undeclared++;
+							{
+								int cls_ = mcs_shadow_class(!isnullDCW(pcache->prevcw),
+								                             dcwcmp8(cw, pcache->prevcw),
+								                             dcwcmp8(cw+8, pcache->prevcw+8));
+								if (cls_ == MCS_SHADOW_ROT_CW1 || cls_ == MCS_SHADOW_ROT_CW0) {
+									gate_cyc1_learnable++;
+									if (gs >= 0) gate_caid_tally[gs].cyc1_learnable++;
+								}
+							}
+							if (gs >= 0) gate_caid_tally[gs].cyc1_undeclared++;
+						}
+						if (gs >= 0) {
+							gate_caid_tally[gs].no_cycle++;
+							if (cls == MCS_SHADOW_ROT_CW1 || cls == MCS_SHADOW_ROT_CW0)
+								gate_caid_tally[gs].shadow_rot++;
+							else if (cls == MCS_SHADOW_NEITHER)
+								gate_caid_tally[gs].shadow_neither++;
+							else if (cls == MCS_SHADOW_BOTHSAME)
+								gate_caid_tally[gs].shadow_bothsame++;
+							else
+								gate_caid_tally[gs].shadow_noprev++;
+						}
+					}
 					return cwdata->status | DCW_ERROR | DCW_SKIP;
 				}
 			}
@@ -2641,6 +2879,8 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 					int s = dcwcmp8(cw+8, pcache->prevcw+8);
 					if (f != s) cls = "late";
 				}
+				if (cls[0] == 'l') { gate_tally_cycle_late++; { int gs = gate_caid_slot(req->caid); if (gs >= 0) gate_caid_tally[gs].cycle_late++; } }
+				else { gate_tally_cycle_wrong++; { int gs = gate_caid_slot(req->caid); if (gs >= 0) gate_caid_tally[gs].cycle_wrong++; } }
 				snprintf(detail, sizeof(detail), "cache cycle mismatch: expected=%s; assessed=%s; incoming=%s; class=%s",
 				         cwcy_str((int)pcache->cwcycle), cwcy_str((int)cwcycle), cwcy_str((int)incoming_cycle), cls);
 				user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, detail, cw);
@@ -2658,6 +2898,7 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 		// half nulled cw: exit if non-nds
 		if ( !ca_halfnull_ok(req->caid) ) { /* TASK R36 (D92): CAID FAMILY HALFNULLED (stock: 09 only) */
 		user_trace_cache_observation(req->caid, req->provid, req->sid, req->hash, peerid, "cache rejected: half-null not allowed for CAID family", cw);
+			gate_tally_halfnull++;
 			cwdata->status |= DCW_ERROR;
 			return cwdata->status;
 		}
@@ -2671,6 +2912,14 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 	}
 
 	cwdata->status |= DCW_PEER_READY;
+	/* Band 115: this key passed every gate on the normal path -- it IS the
+	 * channel's last served CW. Feed the per-channel memory here (and only
+	 * here): the early returns above all carry DCW_ERROR/DCW_SKIP, so a
+	 * refused or contradictory key can never become the reference that
+	 * later keys are judged against. */
+	if (cfg.cache.cycle_chan_mem && !(cwdata->status & DCW_ERROR))
+		mcs_chprev_put(req->caid, req->provid, req->sid, cw,
+		               cfg.cache.cycle_chan_mem_ttl);
 	/* Do not relay a source candidate that its own cycle/family gate
 	 * rejected. This is after the final gate on the normal path. */
 	if (cfg.cache.dcwcheck2) cache_fetch_goodcw2(pcache, cw, peerid, cwdata->origin_mask);
@@ -4787,6 +5036,7 @@ void *cache_thread(void *param)
 							 * gates still decide whether the CW may be forwarded. */
 							user_trace_cache_observation(chpc->caid, chpc->provid, chpc->sid, chpc->hash, cch.peerid,
 							    "cache consensus window expired; cycle checks pending", chw->cw);
+							gate_tally_expired++;
 							cache_after_consensus(chpc, chpc, chw, chw->cw,
 							                      (cwcycle_t)cch.cycle, cch.peerid);
 							debugf(getdbgflag(DBG_CACHE,0,0),
@@ -4890,6 +5140,7 @@ void *cache_thread(void *param)
 							 * gates still decide whether the CW may be forwarded. */
 							user_trace_cache_observation(chpc->caid, chpc->provid, chpc->sid, chpc->hash, cch.peerid,
 							    "cache consensus window expired; cycle checks pending", chw->cw);
+							gate_tally_expired++;
 							cache_after_consensus(chpc, chpc, chw, chw->cw,
 							                      (cwcycle_t)cch.cycle, cch.peerid);
 							debugf(getdbgflag(DBG_CACHE,0,0),

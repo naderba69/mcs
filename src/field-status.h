@@ -32,6 +32,32 @@ int cwpair_snapshot(unsigned long *observed, unsigned long *pair_matches,
 
 /* CW_DUP recent flag (band 104), newest-first copy for /user-trace */
 #define MCS_CWDUP_EVENT_MAX 12
+/* Per-CAID consensus tally row (band 112) */
+#define MCS_CONS_CAID_MAX 16
+struct mcs_cons_caid {
+    uint16_t caid;
+    unsigned long votes;
+    unsigned long holds;
+    unsigned long releases;
+    unsigned long refusals;
+};
+
+/* Per-CAID post-consensus gate tally row (band 110) */
+#define MCS_GATE_CAID_MAX 16
+struct mcs_gate_caid {
+    uint16_t caid;
+    unsigned long seen;
+    unsigned long no_cycle;
+    unsigned long cycle_late;
+    unsigned long cycle_wrong;
+    unsigned long shadow_rot;       /* one-half rotation (est. would pass) */
+    unsigned long shadow_neither;   /* neither half stable */
+    unsigned long shadow_bothsame;  /* identical to prevcw */
+    unsigned long shadow_noprev;    /* no previous CW on the channel */
+    unsigned long cyc1_undeclared;  /* channel declares no cycle parity */
+    unsigned long cyc1_learnable;   /* ...with real rotation evidence unused */
+};
+
 struct mcs_cwdup_event {
     uint32_t timestamp;
     uint16_t caid;
@@ -47,7 +73,8 @@ struct mcs_cwdup_event {
 
 struct mcs_field_status {
     int r22_compiled;           /* built with -DR22_LAYERS */
-    int r22_enabled;            /* R22 LAYERS config switch */
+    int r22_enabled;            /* R22 LAYERS: observation half */
+    int r22_enforce;            /* R22 LAYERS: enforcement half (armable) */
     uint32_t r22_cache_total;
     uint32_t r22_cache_accepted;
     uint32_t r22_cache_rejected;
@@ -61,6 +88,7 @@ struct mcs_field_status {
     uint64_t dc_ok;
     uint64_t dc_fail;
     uint64_t dc_timeouts;
+    uint64_t dc_closed;             /* band 120: all reclaimed slots (see header) */
     int dc_event_count;
     struct mcs_dc_event dc_events[MCS_DC_EVENT_MAX]; /* newest first */
     /* CWPAIR (band 38) */
@@ -130,6 +158,30 @@ struct mcs_field_status {
     uint64_t latecw_event_total;
     int latecw_event_count;
     struct mcs_cwdup_event latecw_events[MCS_CWDUP_EVENT_MAX];
+    /* Cache consensus + post-consensus gate tally (band 109) */
+    unsigned long cons_votes;
+    unsigned long cons_holds;
+    unsigned long cons_released;
+    unsigned long cons_refused;
+    int cons_held_now;
+    int cons_overdue_now;
+    unsigned long gate_seen;
+    unsigned long gate_passed;
+    unsigned long gate_expired;
+    unsigned long gate_no_cycle;
+    unsigned long gate_cycle_late;
+    unsigned long gate_cycle_wrong;
+    unsigned long gate_halfnull;
+    unsigned long shadow_rot_cw1, shadow_rot_cw0, shadow_neither;
+    unsigned long shadow_bothsame, shadow_noprev;
+    unsigned long cyc1_declared, cyc1_undeclared, cyc1_learnable;
+    int cons_caid_count;
+    int cons_caid_dropped;
+    unsigned long cons_caid_overflow;
+    struct mcs_cons_caid cons_caids[MCS_CONS_CAID_MAX];
+    int gate_caid_count;
+    unsigned long gate_caid_overflow;
+    struct mcs_gate_caid gate_caids[MCS_GATE_CAID_MAX];
 };
 
 void mcs_field_status_fill(struct mcs_field_status *st);

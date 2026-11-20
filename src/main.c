@@ -1,5 +1,6 @@
 #include "common.h"
 #include "tick_math.h"
+#include "build-identity.h"  /* band 121: boot banner carries the build identity */
 #include "cafamily.h"	/* TASK R38 (D94) */
 
 #include <stdio.h>
@@ -2152,10 +2153,20 @@ struct config_data cfg;
 int cfg_doublecheck_caids[64];
 int cfg_doublecheck_caid_count = 0;
 /* Field kill switch for the R22 candidate layers (only compiled in the
- * release-r22 flavour): 1 = layers active (default), 0 = hooks return
- * immediately. Set by the config line "R22 LAYERS: YES/NO" and applied
- * live on config reload -- no rebuild needed to back out in the field. */
-int cfg_r22_layers_enabled = 1;
+ * band 118: compiled into the ONE base binary, no longer a flavour).
+ * Two flags, because 'verification tool' and 'policy' are different things:
+ *   cfg_r22_layers_enabled  -- the OBSERVATION half: feeds the ground-truth
+ *       ledgers (channel/fingerprint/validity/prediction) and every counter
+ *       on /user-trace. Cannot reject anything.
+ *   cfg_r22_layers_enforce  -- the ENFORCEMENT half: the two reject points in
+ *       r22_hook_cache_setdcw (obvious-fake pattern, propagation blocklist).
+ * Both are set by the single line "R22 LAYERS: YES/NO" (applied live on
+ * reload, no rebuild to back out). Default in the base build: 0/0 --
+ * observation and counters still run (they cost a compare), decisions stay
+ * with the existing gates until field numbers justify a second family of
+ * silent refusals on a box already fighting peer-key refusals. */
+int cfg_r22_layers_enabled = 0;
+int cfg_r22_layers_enforce = 0;
 int cfg_auto_recover_enabled = 0; /* AUTO RECOVER: ON|OFF, default OFF (band 47) */
 
 /* Field activation (2026-11-14): with no explicit "ECM DOUBLECHECK:"
@@ -2169,9 +2180,11 @@ int cfg_auto_recover_enabled = 0; /* AUTO RECOVER: ON|OFF, default OFF (band 47)
  * this POD copy instead of including their headers and silently
  * seeing zeros. Cheap relaxed loads; display data only. */
 static void mcs_cwdup_status_fill(struct mcs_field_status *st);
+static void cache_gate_status_fill(struct mcs_field_status *st);
 void mcs_field_status_fill(struct mcs_field_status *st) {
 	memset(st, 0, sizeof(*st));
 	st->r22_enabled = cfg_r22_layers_enabled;
+	st->r22_enforce = cfg_r22_layers_enforce;
 #ifdef R22_LAYERS
 	st->r22_compiled = 1;
 	{
@@ -2192,6 +2205,7 @@ void mcs_field_status_fill(struct mcs_field_status *st) {
 		int i, n = ecm_doublecheck_recent_events(ev, DOUBLECHECK_EVENT_MAX,
 		                                         &st->dc_ok, &st->dc_fail,
 		                                         &st->dc_total, &st->dc_timeouts);
+		st->dc_closed = ecm_doublecheck_closed();   /* band 120: reclaims vs timeouts */
 		st->dc_event_count = n;
 		for (i = 0; i < n; i++) {
 			st->dc_events[i].timestamp = ev[i].timestamp;
@@ -2212,6 +2226,7 @@ void mcs_field_status_fill(struct mcs_field_status *st) {
 		nopushafter_snapshot(&st->nopush_checked, &st->nopush_blocked, &st->nopush_entries);
 		service_doubt_snapshot(&st->svc_checked, &st->svc_doubt, &st->svc_majority);
 	mcs_cwdup_status_fill(st);
+	cache_gate_status_fill(st);
 		st->svc_armed = cfg.cache.service_doubt;
 		{ uint32_t ar_r = 0, ar_s = 0;
 		  autorecov_snapshot(&g_autorecov_table, &st->ar_enabled, &ar_r, &ar_s, &st->ar_active);
@@ -3454,9 +3469,11 @@ void mainprocess()
 	 * CCcam Trace page (/user-trace) -- the operator's single page. */
 
 	/* Cache Speed Suite - 8 cache optimization systems */
-	r22_layers_init();	/* R22 candidate layers; no-op unless built -DR22_LAYERS */
+	r22_layers_init();	/* R22 layers: compiled into the base build; observe-only unless R22 LAYERS: YES */
 #ifdef R22_LAYERS
-	debugf(0, " [R22-LAYERS] candidate CW layers %s (config: R22 LAYERS: YES/NO)\n", cfg_r22_layers_enabled ? "ACTIVE" : "OFF by config");
+	debugf(0, " [R22-LAYERS] compiled into this binary; observation %s, enforcement %s (one line: R22 LAYERS: YES/NO)\n",
+		cfg_r22_layers_enabled ? "ON" : "ON (always-on in the base build: counters only)",
+		cfg_r22_layers_enforce ? "ARMED" : "OFF");
 #endif
 	cache_speed_suite_init();
 	doublecheck_autofill_from_profiles(); /* no explicit line -> operator's profile CAIDs */
@@ -3467,6 +3484,12 @@ void mainprocess()
 	debugf(0, "   [CW-CACHE-SETTINGS] Per-CAID cache settings loaded\n");
 	debugf(0, "   [CACHEX-WAITTIME] Per-CAID wait times loaded\n");
 	debugf(0, "   [CACHEX-ADVANCED] inert on the live path: DropDiffs/NoPushAfter run only in dead code; ECM DoubleCheck is the separate observe-only engine\n");
+
+	/* Band 121: a saved log must be matchable to a snapshot without the page. */
+	{
+		char idbuf[192];
+		debugf(0, " [BUILD] %s\n", mcs_build_identity_log(idbuf, (int)sizeof(idbuf)));
+	}
 
 	/* CW Post-Validation - Detect fake CWs after acceptance */
 	cwpostval_init();

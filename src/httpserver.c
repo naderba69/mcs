@@ -17,6 +17,7 @@
 #include "server-stats.h"	/* Server statistics */
 #include "log-viewer.h"	/* Live log viewer */
 #include "user-trace.h"
+#include "trace-detail-labels.h" /* band 112: gate-value aware labels */
 #include "field-status.h"	/* field-trial snapshot filled by main.c */
 #include "cache-analytics.h"	/* Cache analytics */
 #include "auto-tuning.h"	/* Auto-tuning suggestions */
@@ -63,6 +64,8 @@
 #include "debug.h"
 #include "convert.h"
 #include "tools.h"
+#include "cache-chan-prevcw.h"	/* band 117: the channel-memory counters on /user-trace */
+#include "build-identity.h"  /* band 121: which build produced the numbers on this page */
 #include "threads.h"
 #include "ecmdata.h"
 
@@ -9568,7 +9571,13 @@ static const char *trace_detail_ar(const char *detail)
     if (!strcmp(detail, "cache rejected: CacheEX local-only gate")) return "رفض الكاش CW بسبب CacheEX local-only";
     if (!strcmp(detail, "cache lookup invoked; pipe delivery and result not confirmed")) return "طُلب بحث الكاش؛ وصول الطلب والنتيجة غير مؤكدين";
     if (!strcmp(detail, "cache peer request invoked; pipe delivery not confirmed")) return "طُلب إرسال بحث إلى نظراء الكاش؛ وصول الطلب غير مؤكد";
-    if (!strncmp(detail, "cache peer request skipped:", 27)) return "تُجاوز طلب نظراء الكاش؛ قيم البوابات في التفاصيل";
+    if (!strncmp(detail, "cache peer request skipped:", 27)) {
+        /* Band 112: the mapping (and its unit package) live in
+         * trace-detail-labels.h so the meaning cannot drift unnoticed. */
+        const char *lbl = mcs_trace_label_peer_skip(detail);
+        if (lbl) return lbl;
+        return "تُجاوز طلب نظراء الكاش؛ قيم البوابات في التفاصيل";
+    }
     if (!strcmp(detail, "cache peer retry invoked; pipe delivery not confirmed")) return "طُلبت إعادة البحث لدى نظراء الكاش؛ وصول الطلب غير مؤكد";
     if (!strcmp(detail, "Newcamd retry send reported success")) return "أفادت دالة الإرسال بنجاح إعادة الطلب إلى Newcamd";
     return "";
@@ -9655,6 +9664,13 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         snprintf(out, sizeof(out), "<p>✅ النظام نشط | وقت التشغيل %02dd %02d:%02d:%02d | الباقات: %d | إجمالي الطلبات: %ld | فك تشفير ناجح: %ld | مرفوض/فاشل: %ld | نسبة النجاح: %.1f%%</p>",
                  up/(3600*24), (up/3600)%24, (up/60)%60, up%60, profiles, tot_req, tot_ok, tot_req - tot_ok, rate);
         tcp_writestr(tcpbuf, sock, out);
+        /* Band 121: the build identity, right above every number it explains.
+         * Cheap to skip and expensive to miss: two sessions were steered by a
+         * zero that belonged to an older binary's display, not to the traffic. */
+        mcs_build_identity(out, (int)sizeof(out));
+        tcp_writestr(tcpbuf, sock, "<p>");
+        tcp_writestr(tcpbuf, sock, out);
+        tcp_writestr(tcpbuf, sock, "</p>");
     }
     tcp_writestr(tcpbuf, sock, "<table><tr><th>الباقة</th><th>CAID</th><th>الطلبات</th><th>نسبة النجاح</th><th>الحالة</th></tr>");
     cs = cfg.cardserver;
@@ -9675,19 +9691,27 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         int i;
         mcs_field_status_fill(&st);
         if (st.r22_compiled) {
-            snprintf(out, sizeof(out), "<p><b>طبقات R22 المضادة للفايك:</b> %s | CWs من الكاش فُحصت: %u | قُبلت: %u | رُفضت: %u (فايك واضح: %u، قائمة الحظر: %u) | محتجزة بالحجر: %u | CWs بطاقات سُجلت كحقيقة: %u | اشتباه متعدد القنوات (مراقبة فقط): %u</p>",
-                     st.r22_enabled ? "✅ مفعّلة" : "⏸️ موقوفة من الإعداد (R22 LAYERS: NO)",
+            snprintf(out, sizeof(out), "<p><b>طبقات R22 المضادة للفايك (مُجمّعة في النسخة الأساسية — البند 118):</b> %s | CWs من الكاش فُحصت: %u | قُبلت: %u | رُفضت: %u (فايك واضح: %u، قائمة الحظر: %u) | محتجزة بالحجر: %u | CWs بطاقات سُجلت كحقيقة: %u | اشتباه متعدد القنوات (مراقبة فقط): %u</p>",
+                     st.r22_enforce ? "✅ مُسلّحة بالرفض والتعلّم (R22 LAYERS: YES)"
+                                    : (st.r22_enabled ? "👁️ تعلّم ومراقبة فقط — الرفض مُعطّل"
+                                                        : "👁️ عدّادات صامتة (R22 LAYERS: NO) — العدّ يعمل والرفض مُعطّل"),
                      st.r22_cache_total, st.r22_cache_accepted, st.r22_cache_rejected,
                      st.r22_pattern_fake, st.r22_propblock_hit,
                      st.r22_quarantine_held, st.r22_server_total, st.r22_cross_blocked);
             tcp_writestr(tcpbuf, sock, out);
         } else {
-            tcp_writestr(tcpbuf, sock, "<p><b>طبقات R22 المضادة للفايك:</b> ➖ غير مُجمّعة في نكهة stock هذه (ثنائي التجربة الميدانية release-r22 يفعّلها).</p>");
+            tcp_writestr(tcpbuf, sock, "<p><b>طبقات R22 المضادة للفايك:</b> ➖ ليست في هذا الثنائي — النسخة الأساسية (Band 118) تجمعها؛ أصفار هنا تعني أنك تُشغّل ثنائي A/B قديمًا لا الأساس، فحدِّد البصمة قبل أي قراءة.</p>");
         }
-        snprintf(out, sizeof(out), "<p><b>التحقق المزدوج (DoubleCheck — مراقبة فقط، لا يحجب التسليم):</b> CAIDs مراقبة: %d | فحوص بدأت: %llu | تطابق مصدرين: %llu | قرارات عدم تطابق: %llu | مهلات: %llu | نسبة عدم التطابق: %.2f%% (%llu من %llu)</p>",
+        /* Band 120: «مهلات» أعلاه كانت تُقرأ كنسبة من الفحوص («99% تنتهي
+         * بالمهلة») وهي في الحقيقة عدّاد إغلاق خانات. صارت الآن عدد الفحوص التي
+         * أُغلقت **بلا قرار**، وبجانبها «أُغلقت» لكل الإغلاقيات: إن تساويا فلا قرار
+         * اصلاً قبل المهلة، وإن قلّت عن الإجمالي فمعظم الفحوص قرّرت ثم أُطلق
+         * سراح خانتها بعد 2×المهلة — لا علاقة لها بالفشل. */
+        snprintf(out, sizeof(out), "<p><b>التحقق المزدوج (DoubleCheck — مراقبة فقط، لا يحجب التسليم):</b> CAIDs مراقبة: %d | فحوص بدأت: %llu | تطابق مصدرين: %llu | قرارات عدم تطابق: %llu | مهلات (بلا قرار): %llu | أُغلقت بعد قرار أو بدونه: %llu | نسبة عدم التطابق: %.2f%% (%llu من %llu)</p>",
                  st.dc_caids,
                  (unsigned long long)st.dc_total, (unsigned long long)st.dc_ok,
                  (unsigned long long)st.dc_fail, (unsigned long long)st.dc_timeouts,
+                 (unsigned long long)st.dc_closed,
                  st.dc_total ? (100.0 * (double)st.dc_fail / (double)st.dc_total) : 0.0,
                  (unsigned long long)st.dc_fail, (unsigned long long)st.dc_total);
         tcp_writestr(tcpbuf, sock, out);
@@ -9724,6 +9748,153 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                      cfg.cache.consensus_sources >= 2 ? cfg.cache.consensus_sources : 2,
                      over[0] ? over : "—");
             tcp_writestr(tcpbuf, sock, out);
+        }
+        /* Band 109: consensus + post-consensus gate outcomes -- the
+         * evidence base for the cycle-gate decision deferred in 105 */
+        {
+            snprintf(out, sizeof(out), "<p><b>حصيلة الإجماع والبوابات (Consensus &amp; Gate Tally):</b> أصوات: %lu | احتجازات: %lu | تصديقات: %lu | رفض إجماع: %lu | محتجَز الآن: %d (متأخر: %d)<br>ما بعد الإجماع: مرشحون: %lu (بانتهاء النافذة: %lu) | عبروا: %lu | رُفضوا — بلا دورة مثبتة: %lu · تعارض/متأخر: %lu · تعارض/خاطئ: %lu · نصف فارغ: %lu | القناة تُصرّح بدورتها: %lu · لا تُصرّح: %lu (منها %lu عند دوران نصفي مقاس يمكن التصريح منه)<br><small>«متأخر» = أحد نصفي الشفرة يطابق prevcw (مادة مفتاح حقيقية قديمة الدورة)؛ «خاطئ» = لا نصف يطابق. «تُصرّح بدورتها» = لاحقة الدورة في قائمة قنوات البروفايل (SID.xxxx.80/.81) أو إعلان عميل محلي؛ ما دامت «لا تُصرّح» شبه كل الرفض فالبوابة تُغلق بغير مادّة وأي قرار تشديد أو تخفيف مبنيّ عليها معيب — العلاج ترتيب القنوات لا البوابة. هذه الحصيلة هي دليل قرار بوابة الدورة المؤجل منذ البند 105 — لا تخفيف ولا تشديد بلا أرقام منها.</small></p>",
+                     st.cons_votes, st.cons_holds, st.cons_released, st.cons_refused,
+                     st.cons_held_now, st.cons_overdue_now,
+                     st.gate_seen, st.gate_expired, st.gate_passed,
+                     st.gate_no_cycle, st.gate_cycle_late, st.gate_cycle_wrong,
+                     st.gate_halfnull,
+                     st.cyc1_declared, st.cyc1_undeclared, st.cyc1_learnable);
+            tcp_writestr(tcpbuf, sock, out);
+            {
+                /* Band 112: consensus per CAID -- the hold is latency, not
+                 * denial, and it is paid per provider, so the threshold is
+                 * a per-profile question that global numbers cannot answer. */
+                char crows[2100] = "";
+                int ci, cv = 0, ch = 0, cr = 0, cf = 0;
+                for (ci = 0; ci < st.cons_caid_count; ci++) {
+                    char entry[220];
+                    cv += st.cons_caids[ci].votes; ch += st.cons_caids[ci].holds;
+                    cr += st.cons_caids[ci].releases; cf += st.cons_caids[ci].refusals;
+                    snprintf(entry, sizeof(entry),
+                             "%s<code>%04X</code>: أصوات %lu · احتجازات %lu · تصديقات %lu · رفض %lu",
+                             ci ? " | " : "", st.cons_caids[ci].caid,
+                             st.cons_caids[ci].votes, st.cons_caids[ci].holds,
+                             st.cons_caids[ci].releases, st.cons_caids[ci].refusals);
+                    if (strlen(crows) + strlen(entry) < sizeof(crows) - 1)
+                        strcat(crows, entry);
+                }
+                snprintf(out, sizeof(out),
+                    "<p><b>الإجماع حسب CAID (الأعلى احتجازًا أولًا):</b> %s<br><small>الاحتجاز = انتظار نافذة التوثيق (زمن استجابة، لا حرمان)؛ «تصديقات/احتجازات» هي نسبة الإنقاذ للتوثيق. CAID بنسبة إنقاذ منخفضة واحتجازات كثيرة = العتبة العامة 2 أثقل من عدد نظرائه المستقلين، فله وحده ‏<code>CACHE CONSENSUS SOURCES: 1</code> تُجرَّب بعد قياس أثرها على «متأخر/ظِل» عنده؛ وأما ‏1803/1861 فتنقصهما ولا تزيدهما (أدلة الفايك المنشورة عليهما). التثبت: مجموع الصفوف %d/%d/%d/%d مقابل عالمي %lu/%lu/%lu/%lu%s.</small></p>",
+                    crows[0] ? crows : "لا أصوات إجماع بعد في هذه الجلسة",
+                    cv, ch, cr, cf, st.cons_votes, st.cons_holds, st.cons_released, st.cons_refused,
+                    (st.cons_caid_dropped || st.cons_caid_overflow)
+                        ? " (فرقٌ متوقّع: CAIDs خارج الجدول)" : " — متطابقان");
+                tcp_writestr(tcpbuf, sock, out);
+            }
+            {
+                char rows[1500] = "";
+                int gi;
+                for (gi = 0; gi < st.gate_caid_count; gi++) {
+                    char entry[220];
+                    snprintf(entry, sizeof(entry), "%s<code>%04X</code>: مرشحون %lu · بلا دورة %lu · متأخر %lu · خاطئ %lu",
+                             gi ? " | " : "", st.gate_caids[gi].caid,
+                             st.gate_caids[gi].seen, st.gate_caids[gi].no_cycle,
+                             st.gate_caids[gi].cycle_late, st.gate_caids[gi].cycle_wrong);
+                    if (strlen(rows) + strlen(entry) < sizeof(rows) - 1)
+                        strcat(rows, entry);
+                }
+                snprintf(out, sizeof(out), "<p><b>حسب CAID (الأعلى رفضًا أولًا):</b> %s%s<br><small>قرار بوابة الدورة/التقدير يُبنى لكل CAID من صفّه وحده. انتبه: «متأخر/خاطئ» لا يتحرّكان إلا على مفاتيح تحمل علامة دورة من النظير؛ إن كان نظراؤك بلا علامة فالدليل الحاسم هو سطر «تصنيف الظل» تاليًا لا هذان.</small></p>",
+                         rows[0] ? rows : "لا مرشحين بعد في هذه الجلسة",
+                         st.gate_caid_overflow ? " | (+CAIDs beyond the 32-slot tally)" : "");
+                tcp_writestr(tcpbuf, sock, out);
+            }
+            /* Band 111: shadow classification of the no-cycle refusals --
+             * the numbers the late/wrong pair can never show when peers
+             * carry no marker. Measure only; nothing here decides. */
+            {
+                char sout[2600];
+                char estnote[900];
+                unsigned long ssum = st.shadow_rot_cw1 + st.shadow_rot_cw0
+                    + st.shadow_neither + st.shadow_bothsame + st.shadow_noprev;
+                if (cfg.cache.cycle_estimate)
+                    snprintf(estnote, sizeof(estnote),
+                        "المُقدِّر الآن <b>مُفعَّل (عام)</b> — فهذه ليست أرقام «ما لو فُعِّل»، بل أرقام ما رآه المُقدِّر ولم يقدر على استخدامه: «دوران» موجب مع مُقدِّر مُفعَّل يعني أن القناة بلا توقّع دورة موثّق فأُهدر النمط؛ وصفر دوران مع رفض كثيرة يعني أن النصفين تغيّرا أو لا ‏prevcw على القناة، وهو <b>رفض صحيح لا قمع زائد</b> — لا مسوّغ لتخفيف البوابة منه (بند ‏114: صفر دوران أصبح الآن قابلًا للقياس مباشرة لا للاستهلال، والحدّ يفتح الفرع الزمني عند وجوده). أما إن غلب «دوران» فذلك ثغرة في مقدّمات المُقدِّر تُغلق بضبط توقّع الدورة للبروفايل لا بفتح البوابة.");
+                else
+                    snprintf(estnote, sizeof(estnote),
+                        "المُقدِّر الآن <b>مطفأ</b>: هذه أرقام ما كان ليصنّفه ‏CACHE CYCLE ESTIMATE لو فُعِّل، بنفس مقدِّمه حرفيًا (نصف يختلف ⇔ النصف الآخر دار)، فغلبة «دوران نصفي» على CAID تعني أن فرضيته حقيقة عند نظرائك وتجربته مبرّرة له وحده.");
+                snprintf(sout, sizeof(sout),
+                    "<p><b>تصنيف الظل لرفض «بلا دورة» (Shadow — قياس فقط، لا يغيّر قرارًا):</b> دوران نصفي ‏CW1: %lu · دوران نصفي ‏CW0: %lu | لا نصف ثابت: %lu · مطابق للسابق تمامًا: %lu · بلا ‏prevcw: %lu | التثبت: مجموع الظل %lu «بلا دورة» %lu ⇒ <b>%s</b><br><small>%s يبقى الرفض صحيحًا؛ «مطابق للسابق» = نفس الشفرة أُعيدت (مكانها ‏CW_DUP لا الباب)؛ «بلا ‏prevcw» = أول شفرة على القناة، تُحسم من توقّع ‏ecmtag لا من النصفين — وهذا التوقّع لا يملكه مفتاحٌ محلي بلا سابق إلا من مصدرين: لاحقة الدورة لكل ‏SID في قائمة قنوات البروفايل (‏SID:CHID:ECMLEN.80 أو ‏.81) أو إعلان عميل محلي؛ لا مفتاحًا عامًا يُقلَب وحده. لا تُقرأ «متأخر/خاطئ» أعلاه إلا على مفاتيح مُعلَّمة: عند نظراء بلا علامة يخرج الرفض قبلها، فسطر الظل هذا هو الدليل الحاسم.</small></p>",
+                    st.shadow_rot_cw1, st.shadow_rot_cw0, st.shadow_neither,
+                    st.shadow_bothsame, st.shadow_noprev, ssum, st.gate_no_cycle,
+                    ssum == st.gate_no_cycle ? "متطابقان ✅" : "فرق — القياس ناقش ⚠️",
+                    estnote);
+                tcp_writestr(tcpbuf, sock, sout);
+            }
+            {
+                char sout[1600];
+                char srows[2048] = "";
+                int si;
+                /* band 119: the counters below are only meaningful because the
+                 * state became program-wide (it was `static` in the header, so
+                 * httpserver.o printed its own never-written copy -- `Wrote=0`
+                 * forever). The line now also separates the two writers: the
+                 * peer-relay tail and the local-delivery commit in setdcw.c. */
+                /* band 115: the per-channel last-served-CW memory state.
+                 * band 117: with counters — the field snapshot proved that a
+                 * bare ON/OFF word cannot answer the only question that
+                 * matters (is the memory fed at all?), which cost a whole
+                 * 51-minute session to leave undecided. Counters are
+                 * since-boot: mcs_chprev_reset() has no production caller. */
+                {
+                    struct mcs_chprev_stats cs;
+                    char cnote[560];
+                    cnote[0] = 0;
+                    mcs_chprev_get_stats(&cs);
+                    tcp_writestr(tcpbuf, sock,
+                        "<p><b>ذاكرة القناة لآخر شفرة مُسلَّمة (Channel Memory):</b> ");
+                    tcp_writestr(tcpbuf, sock, cfg.cache.cycle_chan_mem
+                        ? "<b>مُشغّلة</b> — تُغذِّي المُقدِّر زمنيا بسابق القناة عند غياب سابق السجل، ولا تفتح البوابة لأحد بغير دوران مقاس."
+                        : "<b>مطفأة</b> — المُقدِّر الزمني لا يملك مادّة على شبكة بلا وسَمات نظرائك (هذا هو جوع المدخلات المُثبت بالأرقام)؛ فعّلها بـ<code>CACHE CYCLE MEMORY: ON</code>.");
+                    /* printed in BOTH states: with the switch off the counters
+                     * still say whether the memory ever ran in this boot — a
+                     * zero line would otherwise be ambiguous between "never
+                     * enabled" and "enabled but starved". */
+                    {
+                        char cstat[260];
+                        snprintf(cstat, sizeof(cstat),
+                            "<br>عدّاداتها (منذ الإقلاع، لا تتصفّر مع الجلسة): كُتب %lu (منه من التسليم المحلي %lu) · قُرئت %lu · أُخذت بمهلة %lu · أُزيحت عن خانة %lu · سُقطت للازدحام %lu",
+                            cs.puts, cs.loc, cs.hits, cs.stale, cs.evicted, cs.dropped);
+                        tcp_writestr(tcpbuf, sock, cstat);
+                        if (cs.puts == 0)
+                            snprintf(cnote, sizeof(cnote), cfg.cache.cycle_chan_mem
+                                ? " — <b>صفر كتابة مع أنها مُشغّلة</b>: لم يُكتب في الذاكرة مفتاحٌ واحد منذ الإقلاع لا من الترحيل النظيري ولا من التسليم المحلي، فلا مُدخلات للمُقدِّر من هذه الذاكرة؛ لا تُفسِّر صفر «الدوران» بعدها على أنه حكم على نظرائك. (هذا الرقم جديرٌ بالثقة منذ البند 119 فقط: قبله كان العدّاد يُقرأ من نسخةٍ خاصة بهذا الملف لم تكتب فيها قطعةٌ واحدة.)"
+                                : " — صفر كتابة والذاكرة مُطفأة: لا قرار فيها قبل <code>CACHE CYCLE MEMORY: ON</code>.");
+                        else if (cs.loc == 0 && cfg.cache.cycle_chan_mem)
+                            snprintf(cnote, sizeof(cnote),
+                                " — كل ما كُتب جاء من مسار الترحيل النظيري؛ فرع التسليم المحلي (البند 119) لم يُسجّل شيئًا: إن كان الثنائي أقدَمَ من البند 119 فهذا متوقّع، وإلا فلا تسليم محليّ مُعتمَد في هذه الجلسة.");
+                        else if (cs.hits == 0)
+                            snprintf(cnote, sizeof(cnote),
+                                " — كتبت %lu مرة ولم تُقرأ مرة: سبق كل مفتاحٍ وسمُ نظيره أو كان لـ<code>prevcw</code> السجل قيمة، فالذاكرة احتياط لا أكثر وهذا سليم.");
+                        else
+                            snprintf(cnote, sizeof(cnote),
+                                " — قُرئت %lu مرة: هذا هو المُدخل الذي كان مفقودًا؛ اُقرنها بعدد «دوران نصفي» في سطر الظل أعلاه — إن تساويا فالتغذية كاملة، وإن قلّ الدوران فالبوابة لا الفرع الزمني هو القاصِر.");
+                    }
+                    tcp_writestr(tcpbuf, sock, cnote);
+                    tcp_writestr(tcpbuf, sock, "</p>");
+                }
+                for (si = 0; si < st.gate_caid_count && si < 8; si++) {
+                    char entry[200];
+                    snprintf(entry, sizeof(entry), "%s<code>%04X</code>: دوران %lu · لا-نصف-ثابت %lu · مطابق %lu · بلا-سابق %lu",
+                             si ? " | " : "", st.gate_caids[si].caid,
+                             st.gate_caids[si].shadow_rot, st.gate_caids[si].shadow_neither,
+                             st.gate_caids[si].shadow_bothsame, st.gate_caids[si].shadow_noprev);
+                    snprintf(entry + strlen(entry), sizeof(entry) - strlen(entry),
+                             st.gate_caids[si].cyc1_learnable
+                               ? " · دوران مقاس قابل للتصريح: %lu" : " · لا دوران قابل للتعلم",
+                             st.gate_caids[si].cyc1_learnable);
+                    if (strlen(srows) + strlen(entry) < sizeof(srows) - 1)
+                        strcat(srows, entry);
+                }
+                snprintf(sout, sizeof(sout), "<p><b>تصنيف الظل حسب CAID (أعلى 8 رفضًا):</b> %s%s</p>",
+                         srows[0] ? srows : "لا رفض «بلا دورة» بعد في هذه الجلسة",
+                         st.gate_caid_count > 8 ? " | (ثمانية أولًا — الباقون في العالمي)" : "");
+                tcp_writestr(tcpbuf, sock, sout);
+            }
         }
         /* Band 106: MARCHCHECK inside CCcam Trace -- same shape as
          * CW_DUP/CW_REUSE, so all three fake-CW detectors are tuned

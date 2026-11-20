@@ -1602,6 +1602,9 @@ struct config_data
 		 * cap30: unproven sources (n<5) capped at rank 30. */
 		int cycle_error_reset;
 		int cycle_estimate;
+		/* band 115: per-channel last-served-CW memory feeding the estimator */
+		int cycle_chan_mem;
+		int cycle_chan_mem_ttl;
 		int consensus_independence;
 		int quarantine;
 		int storm_guard;
