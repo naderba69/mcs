@@ -9694,10 +9694,16 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         } else {
             tcp_writestr(tcpbuf, sock, "<p><b>طبقات R22 المضادة للفايك:</b> ➖ ليست في هذا الثنائي — النسخة الأساسية (Band 118) تجمعها؛ أصفار هنا تعني أنك تُشغّل ثنائي A/B قديمًا لا الأساس، فحدِّد البصمة قبل أي قراءة.</p>");
         }
-        snprintf(out, sizeof(out), "<p><b>التحقق المزدوج (DoubleCheck — مراقبة فقط، لا يحجب التسليم):</b> CAIDs مراقبة: %d | فحوص بدأت: %llu | تطابق مصدرين: %llu | قرارات عدم تطابق: %llu | مهلات: %llu | نسبة عدم التطابق: %.2f%% (%llu من %llu)</p>",
+        /* Band 120: «مهلات» أعلاه كانت تُقرأ كنسبة من الفحوص («99% تنتهي
+         * بالمهلة») وهي في الحقيقة عدّاد إغلاق خانات. صارت الآن عدد الفحوص التي
+         * أُغلقت **بلا قرار**، وبجانبها «أُغلقت» لكل الإغلاقيات: إن تساويا فلا قرار
+         * اصلاً قبل المهلة، وإن قلّت عن الإجمالي فمعظم الفحوص قرّرت ثم أُطلق
+         * سراح خانتها بعد 2×المهلة — لا علاقة لها بالفشل. */
+        snprintf(out, sizeof(out), "<p><b>التحقق المزدوج (DoubleCheck — مراقبة فقط، لا يحجب التسليم):</b> CAIDs مراقبة: %d | فحوص بدأت: %llu | تطابق مصدرين: %llu | قرارات عدم تطابق: %llu | مهلات (بلا قرار): %llu | أُغلقت بعد قرار أو بدونه: %llu | نسبة عدم التطابق: %.2f%% (%llu من %llu)</p>",
                  st.dc_caids,
                  (unsigned long long)st.dc_total, (unsigned long long)st.dc_ok,
                  (unsigned long long)st.dc_fail, (unsigned long long)st.dc_timeouts,
+                 (unsigned long long)st.dc_closed,
                  st.dc_total ? (100.0 * (double)st.dc_fail / (double)st.dc_total) : 0.0,
                  (unsigned long long)st.dc_fail, (unsigned long long)st.dc_total);
         tcp_writestr(tcpbuf, sock, out);
@@ -9843,8 +9849,8 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                     {
                         char cstat[260];
                         snprintf(cstat, sizeof(cstat),
-                            "<br>عدّاداتها (منذ الإقلاع، لا تتصفّر مع الجلسة): كُتب %lu (منه من التسليم المحلي %lu) · قُرئت %lu · أُخذت بمهلة %lu · سُقطت للازدحام %lu",
-                            cs.puts, cs.loc, cs.hits, cs.stale, cs.dropped);
+                            "<br>عدّاداتها (منذ الإقلاع، لا تتصفّر مع الجلسة): كُتب %lu (منه من التسليم المحلي %lu) · قُرئت %lu · أُخذت بمهلة %lu · أُزيحت عن خانة %lu · سُقطت للازدحام %lu",
+                            cs.puts, cs.loc, cs.hits, cs.stale, cs.evicted, cs.dropped);
                         tcp_writestr(tcpbuf, sock, cstat);
                         if (cs.puts == 0)
                             snprintf(cnote, sizeof(cnote), cfg.cache.cycle_chan_mem

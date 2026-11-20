@@ -100,6 +100,15 @@ typedef struct {
     uint64_t verified_ok;
     uint64_t verified_fail;
     uint64_t timeouts;
+    /* Band 120: every slot the reclaim sweep takes back, decided or not.
+     * `timeouts` used to be incremented HERE for every reclaim, which made it a
+     * CLOSURE counter wearing a FAILURE label: the field snapshot of
+     * 2026-11-20 22:08 read "started 3317 | timeouts 3276" -- 98.8%, which I
+     * (and any reader of that line) read as "almost every check ends in a
+     * timeout". It cannot mean that: a check that agreed is still `active`
+     * until this same sweep reclaims it 2x DOUBLECHECK_TIMEOUT_MS later. So the
+     * two numbers are now separate facts, and the page prints both. */
+    uint64_t closed;
 
     /* Recent decisions ring (for the trace page) */
     doublecheck_event_t events[DOUBLECHECK_EVENT_MAX];
@@ -192,8 +201,12 @@ static inline doublecheck_pending_t *ecm_doublecheck_start(uint32_t ecm_hash,
         doublecheck_pending_t *p = &g_doublecheck.pending[i];
         if (p->active &&
             (uint32_t)(now - p->start_time) > DOUBLECHECK_TIMEOUT_MS * 2) {
+            int decided = p->verified || (p->event_flags & 0x02);
             p->active = 0;
-            g_doublecheck.timeouts++;
+            g_doublecheck.closed++;
+            /* Only an UNDECIDED closure is a timeout. event_flags bit1 marks a
+             * mismatch decision, bit0 a verified one (see record_event). */
+            if (!decided) g_doublecheck.timeouts++;
         }
     }
 
@@ -318,13 +331,29 @@ static inline int ecm_doublecheck_is_verified(doublecheck_pending_t *p,
 /* Check if double check has timed out */
 static inline int ecm_doublecheck_is_timeout(doublecheck_pending_t *p) {
     if (!p || !p->active) return 1;
-    
+
     uint32_t now = DC_NOW_MS();
     if ((now - p->start_time) > DOUBLECHECK_TIMEOUT_MS) {
-        g_doublecheck.timeouts++;
+        /* Band 120: the counter used to be incremented HERE. This predicate has
+         * no callers today, but a predicate that mutates a statistic is a trap
+         * -- called from a display loop it would count one stalled check once
+         * per pass, and `timeouts` would stop being a number of checks at all
+         * (which is exactly the class of error `Wrote=0` was). Age is still
+         * answered; the accounting belongs to the sweep that closes slots. */
         return 1;
     }
     return 0;
+}
+
+/* Band 120: all reclaims (decided + undecided). The page prints it next to
+ * `timeouts` so the two can never be confused again: if closed == timeouts, no
+ * check ever reached a decision before its slot was taken back. */
+static inline uint64_t ecm_doublecheck_closed(void) {
+    uint64_t v;
+    pthread_mutex_lock(&g_doublecheck.lock);
+    v = g_doublecheck.closed;
+    pthread_mutex_unlock(&g_doublecheck.lock);
+    return v;
 }
 
 /* Cleanup completed/timeout entries */

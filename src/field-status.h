@@ -88,6 +88,7 @@ struct mcs_field_status {
     uint64_t dc_ok;
     uint64_t dc_fail;
     uint64_t dc_timeouts;
+    uint64_t dc_closed;             /* band 120: all reclaimed slots (see header) */
     int dc_event_count;
     struct mcs_dc_event dc_events[MCS_DC_EVENT_MAX]; /* newest first */
     /* CWPAIR (band 38) */

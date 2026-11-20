@@ -2204,6 +2204,7 @@ void mcs_field_status_fill(struct mcs_field_status *st) {
 		int i, n = ecm_doublecheck_recent_events(ev, DOUBLECHECK_EVENT_MAX,
 		                                         &st->dc_ok, &st->dc_fail,
 		                                         &st->dc_total, &st->dc_timeouts);
+		st->dc_closed = ecm_doublecheck_closed();   /* band 120: reclaims vs timeouts */
 		st->dc_event_count = n;
 		for (i = 0; i < n; i++) {
 			st->dc_events[i].timestamp = ev[i].timestamp;

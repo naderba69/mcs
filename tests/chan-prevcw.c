@@ -130,6 +130,54 @@ int main(void)
 	p_hit = mcs_chprev_get(0x1814, 0x005211, 0x13AE, 0, got);
 	CHECK(p_hit == 1 && memcmp(got, b, 16) == 0, "newest served key wins and refreshes");
 
+	/* 8. band 120: crowding must EVICT the stalest neighbour, never drop the
+	 * write. Pinned because the shipped code dropped it while its own comment
+	 * described eviction, and the field then read Dropped=71429 of
+	 * Wrote=109489 -- 65% of served keys lost to capacity, not to policy.
+	 * Collisions are constructed on purpose (same bucket by the table's own
+	 * hash), since a 8192-slot table otherwise never crowds. */
+	mcs_chprev_reset();
+	{
+		uint32_t samep[9];            /* provids chosen to collide in one probe run */
+		uint32_t want;
+		uint32_t prov;
+		int found = 0;
+		int j;
+		/* sid fixed, provid swept: provid takes part in the key, so an
+		 * 8192-bucket table yields about one hit per 8192 probes -- sweeping
+		 * sids (only 65536 exist) would not find nine. */
+		want = mcs_chprev_key(0x1814, 0, 0x2000) % MCS_CHPREV_SLOTS;
+		for (prov = 1; prov < 400000 && found < 9; prov++)
+			if (mcs_chprev_key(0x1814, prov, 0x2000) % MCS_CHPREV_SLOTS == want)
+				samep[found++] = prov;
+		CHECK(found == 9, "nine channels hashing into one probe run");
+		/* 8 live slots, strictly increasing age: the first is the stalest */
+		for (j = 0; j < 8 && found == 9; j++) {
+			set_cw(a, 10 + j);
+			mcs_chprev_put(0x1814, samep[j], 0x2000, a, 30000);
+			fake_now += 100;
+		}
+		set_cw(b, 99);
+		if (found == 9) mcs_chprev_put(0x1814, samep[8], 0x2000, b, 30000);
+		{
+			struct mcs_chprev_stats e;
+			mcs_chprev_get_stats(&e);
+			CHECK(e.puts == 9, "the crowding write is a put like any other");
+			CHECK(e.evicted == 1, "crowding counts as exactly one eviction");
+			CHECK(e.dropped == 0, "band 120: nothing is dropped while a victim exists");
+			CHECK(e.stale == 0, "no slot was past TTL -- this is capacity, not expiry");
+		}
+		CHECK(found == 9 &&
+		      mcs_chprev_get(0x1814, samep[8], 0x2000, 30000, got) == 1 &&
+		      memcmp(got, b, 16) == 0, "the crowding key is actually stored");
+		/* The price, named rather than hidden: the evicted channel loses its
+		 * memory until its own next served key -- the pre-115 state, and in
+		 * any case bounded by the TTL this table was configured with. */
+		CHECK(found == 9 &&
+		      mcs_chprev_get(0x1814, samep[0], 0x2000, 30000, got) == 0,
+		      "the evicted channel reads as no-memory, not as a wrong key");
+	}
+
 	/* 3+4: what the estimator does with the memory -- the mapping the
 	 * product's NOTE declares, and the refusal of the two non-rotations */
 	{

@@ -29,7 +29,16 @@
  * protocol, no stock write to pcache->prevcw -- the entry's own tail value
  * always wins (the hook only fills the null case).
  */
-#define MCS_CHPREV_SLOTS 256
+/* Band 120: 256 -> 8192. The field measured the old size for me: the first
+ * trustworthy snapshot (2026-11-20 22:08, uptime 7m34s) printed
+ * Wrote=109489 with Dropped=71429 -- 241 puts/second into 256 slots, so two
+ * thirds of what this box had served was thrown away by capacity, not policy.
+ * 8192 slots * 28 B = 229 KB of .bss (against the 9 801 768 B the single base
+ * build already carries, i.e. +2.3%) and is still fixed-size, lock-free of
+ * allocation, and non-growing: the same constraints band 115 chose them by.
+ * Eviction alone would zero `dropped`; capacity is what raises `hits`, so the
+ * two effects stay separable in the numbers. */
+#define MCS_CHPREV_SLOTS 8192
 #define MCS_CHPREV_DEF_TTL_MS 30000u
 
 /* enable/TTL are passed at each call from cfg.cache (config.c owns them),
@@ -43,13 +52,16 @@ struct mcs_chprev_slot {
 	uint32_t key;             /* nonzero; 0 = free */
 	uint8_t cw[16];           /* last served key on this channel */
 	unsigned int stamp_ms;    /* low 32 bits of the serving tick */
+	int evicted;              /* band 120: last write into this slot evicted another */
 };
 
 struct mcs_chprev_stats {
-	unsigned long puts, hits, stale, dropped, loc;
+	unsigned long puts, hits, stale, dropped, loc, evicted;
 };
 
 /*
+ * Band 120 -- the crowding drop, and the eviction this file's own comment had
+ * been promising since band 115 without ever implementing it.
  * Band 119 -- ONE instance for the whole program.
  *
  * Until now the table, the counters and the lock were `static` in this header,
@@ -145,12 +157,16 @@ static inline void mcs_chprev_put_src(uint16_t caid, uint32_t provid, uint16_t s
 	/* linear probe, 8 steps: replace an equal key, a free slot, or the
 	 * stalest occupant seen; a full collision run drops the memory rather
 	 * than evicting a live channel (drop is visible in stats). */
+	uint32_t victim = 0;              /* stalest slot seen in this probe run */
+	unsigned int victim_age = 0;
+	int have_victim = 0;
 	for (probe = 0; probe < 8; probe++, i = (i + 1) % MCS_CHPREV_SLOTS) {
 		struct mcs_chprev_slot *s = &mcs_chprev_tab[i];
 		if (!s->key || s->key == key) {
 			s->key = key;
 			memcpy(s->cw, cw, 16);
 			s->stamp_ms = now;
+			s->evicted = 0;            /* same channel refreshing its own memory */
 			pthread_mutex_unlock(&mcs_chprev_lk);
 			return;
 		}
@@ -159,12 +175,46 @@ static inline void mcs_chprev_put_src(uint16_t caid, uint32_t provid, uint16_t s
 			s->key = key;
 			memcpy(s->cw, cw, 16);
 			s->stamp_ms = now;
+			s->evicted = 1;
 			mcs_chprev_st.stale++;
+			mcs_chprev_st.evicted++;
 			pthread_mutex_unlock(&mcs_chprev_lk);
 			return;
 		}
+		{
+			unsigned int age = (unsigned int)(now - s->stamp_ms);
+			if (!have_victim || age > victim_age) {
+				victim_age = age;
+				victim = i;
+				have_victim = 1;
+			}
+		}
 	}
-	mcs_chprev_st.dropped++;
+	if (have_victim) {
+		/* Band 120: nothing in the probe run was free or TTL-stale, so the old
+		 * code dropped the write -- and the field measured what that cost in the
+		 * first snapshot after the counters became trustworthy: Wrote=109489 /
+		 * Dropped=71429, i.e. 65% of every key this box had just served was
+		 * thrown away because eight neighbours happened to be younger than the
+		 * TTL. Now the stalest of them is replaced, which is the documented
+		 * policy and the honest one for an invariant of the form "the last key
+		 * served on THIS channel": a younger neighbour is not the previous key of
+		 * my channel, so the gate loses nothing it could have used, and the
+		 * evicted channel is at worst back to "no memory" -- the state it was in
+		 * before band 115 existed -- until its next served key (TTL <= 5 min by
+		 * config, 30 s by default here).
+		 * `evicted` is counted apart from `dropped`, so the price of the change
+		 * is visible and arguable rather than assumed. */
+		struct mcs_chprev_slot *s = &mcs_chprev_tab[victim];
+		s->key = key;
+		memcpy(s->cw, cw, 16);
+		s->stamp_ms = now;
+		s->evicted = 1;
+		mcs_chprev_st.evicted++;
+		pthread_mutex_unlock(&mcs_chprev_lk);
+		return;
+	}
+	mcs_chprev_st.dropped++;   /* table completely empty probe: cannot happen unless SLOTS==0 */
 	pthread_mutex_unlock(&mcs_chprev_lk);
 }
 
