@@ -193,6 +193,7 @@ int peer_doublecheck(struct cacheserver_data *cache, struct cachepeer_data *xpee
 #include "cwconsensus.h"/* TASK R8 (D62): the per-request cw arbitrer */
 #include "cache-intelligence.h" /* CACHE-AI: 7-level smart cache optimization */
 #include "cache-cycle-shadow.h" /* band 111: shadow gate classifier */
+#define MCS_CHAN_PREVCW_IMPL       /* band 119: this TU owns the one instance */
 #include "cache-chan-prevcw.h"  /* band 115: per-channel last-served CW memory */
 #include "cwpair.h" /* band 38: observe cache-stored CWs for pairing */
 #ifdef MCS_DCWSTATS
@@ -2697,14 +2698,19 @@ static int cache_after_consensus(struct cache_data *req, struct cache_data *pcac
 					 * (field 2026-11-19, "previous CW=present" refusals).
 					 * Now the measured rotation itself names the cycle;
 					 * both halves changed is still a correct refusal. */
+					uint8_t chan_prev[16];
 					const uint8_t *chprev = 0;
 					int first_same, second_same;
 					/* Band 115: the entry's own tail value always wins; the
 					 * channel memory only fills the null case, and only when
-					 * CACHE CYCLE MEMORY is on (default off = stock). */
-					if (cfg.cache.cycle_chan_mem && isnullDCW(pcache->prevcw))
-						chprev = mcs_chprev_get(req->caid, req->provid, req->sid,
-						                         cfg.cache.cycle_chan_mem_ttl);
+					 * CACHE CYCLE MEMORY is on (default off = stock).
+					 * Band 119: copied into a local buffer -- the table now has
+					 * a second writer (the local-delivery commit in setdcw.c) on
+					 * another thread, so a pointer into it is not stable. */
+					if (cfg.cache.cycle_chan_mem && isnullDCW(pcache->prevcw) &&
+					    mcs_chprev_get(req->caid, req->provid, req->sid,
+					                   cfg.cache.cycle_chan_mem_ttl, chan_prev))
+						chprev = chan_prev;
 					first_same = dcwcmp8(cw, chprev ? chprev : pcache->prevcw);
 					second_same = dcwcmp8(cw+8, chprev ? chprev + 8 : pcache->prevcw+8);
 					if (mcs_cycle_temporal_ok(1, (chprev != 0) || !isnullDCW(pcache->prevcw),

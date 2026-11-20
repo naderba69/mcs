@@ -9815,6 +9815,11 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                 char sout[1600];
                 char srows[2048] = "";
                 int si;
+                /* band 119: the counters below are only meaningful because the
+                 * state became program-wide (it was `static` in the header, so
+                 * httpserver.o printed its own never-written copy -- `Wrote=0`
+                 * forever). The line now also separates the two writers: the
+                 * peer-relay tail and the local-delivery commit in setdcw.c. */
                 /* band 115: the per-channel last-served-CW memory state.
                  * band 117: with counters — the field snapshot proved that a
                  * bare ON/OFF word cannot answer the only question that
@@ -9838,13 +9843,16 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
                     {
                         char cstat[260];
                         snprintf(cstat, sizeof(cstat),
-                            "<br>عدّاداتها (منذ الإقلاع، لا تتصفّر مع الجلسة): كُتب %lu · قُرئت %lu · أُخذت بمهلة %lu · سُقطت للازدحام %lu",
-                            cs.puts, cs.hits, cs.stale, cs.dropped);
+                            "<br>عدّاداتها (منذ الإقلاع، لا تتصفّر مع الجلسة): كُتب %lu (منه من التسليم المحلي %lu) · قُرئت %lu · أُخذت بمهلة %lu · سُقطت للازدحام %lu",
+                            cs.puts, cs.loc, cs.hits, cs.stale, cs.dropped);
                         tcp_writestr(tcpbuf, sock, cstat);
                         if (cs.puts == 0)
                             snprintf(cnote, sizeof(cnote), cfg.cache.cycle_chan_mem
-                                ? " — <b>صفر كتابة مع أنها مُشغّلة</b>: لم يعبر أي مفتاحٌ البوابات منذ الإقلاع، فلا مُدخلات للمُقدِّر من هذه الذاكرة؛ لا تُفسِّر صفر «الدوران» بعدها على أنه حكم على نظرائك."
+                                ? " — <b>صفر كتابة مع أنها مُشغّلة</b>: لم يُكتب في الذاكرة مفتاحٌ واحد منذ الإقلاع لا من الترحيل النظيري ولا من التسليم المحلي، فلا مُدخلات للمُقدِّر من هذه الذاكرة؛ لا تُفسِّر صفر «الدوران» بعدها على أنه حكم على نظرائك. (هذا الرقم جديرٌ بالثقة منذ البند 119 فقط: قبله كان العدّاد يُقرأ من نسخةٍ خاصة بهذا الملف لم تكتب فيها قطعةٌ واحدة.)"
                                 : " — صفر كتابة والذاكرة مُطفأة: لا قرار فيها قبل <code>CACHE CYCLE MEMORY: ON</code>.");
+                        else if (cs.loc == 0 && cfg.cache.cycle_chan_mem)
+                            snprintf(cnote, sizeof(cnote),
+                                " — كل ما كُتب جاء من مسار الترحيل النظيري؛ فرع التسليم المحلي (البند 119) لم يُسجّل شيئًا: إن كان الثنائي أقدَمَ من البند 119 فهذا متوقّع، وإلا فلا تسليم محليّ مُعتمَد في هذه الجلسة.");
                         else if (cs.hits == 0)
                             snprintf(cnote, sizeof(cnote),
                                 " — كتبت %lu مرة ولم تُقرأ مرة: سبق كل مفتاحٍ وسمُ نظيره أو كان لـ<code>prevcw</code> السجل قيمة، فالذاكرة احتياط لا أكثر وهذا سليم.");

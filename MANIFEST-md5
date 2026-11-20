@@ -1,6 +1,6 @@
 18f8a0cb17b12aa30501b28134953ff3  .gitignore
 11d14936e4d1c59b0964db764234330d  AUDIT-FIX-REPORT.md
-12d878978e0507777796ca8a67c92123  BINARY-STATUS.md
+ebcc6601bfac6f9a2e799c55ee1b1463  BINARY-STATUS.md
 e2a622410ac408651f9688ff5d64d5c5  BLACKSCREEN-FAKECW-RESEARCH.md
 7d5f1f3d51090bc61719636a70377fc6  BLACKSCREEN-FAKECW-SOLUTION.md
 f3fc54807bccbb39748a1d699d4b3aef  BUILD-FIX-REPORT.md
@@ -42,7 +42,7 @@ c572dfdcff42f26ff11f5f22bc45c45c  PROJECT-COMPLETION-REPORT.md
 c899c4e81667d989f1b0671f90019c9a  README-R48.md
 eb063163f29b59e415aefe0c3c7521cc  README.md
 60e7ba6de9e6d79b916869342dddce86  RESOURCE-OPTIMIZATION-GUIDE.md
-9e79b7146038370b50145272289eb56c  SYNC-STATUS-REPORT.md
+d88a7fc8d193398d60a32ede739a0b80  SYNC-STATUS-REPORT.md
 7732ca80716fc8b5db70041f1a288e9d  UPDATE-REPORT.md
 f6d29d2e8585f08537b6b645d4df6666  bin-frozen-D53/multics-r82a-stats-x64
 3d1f58b385a7a0eea720c3c59c3bdd29  bin-frozen-D53/multics-r82a-stock-x64
@@ -53,14 +53,14 @@ dfe5a832b822aee1c2487ee5871c0ae9  bin/multics-r82a-mipsel
 5392840310182c115bf07767de740867  bin/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  bin/multics-r82a-r22-x64
 0ec90fd16489b58f55bd50e804b4c27c  bin/multics-r82a-sh4
-ec41633f3bac7e3fa9890ead9aa604dd  bin/multics-r82a-stats-x64
+9771c5352fd07921c5c0bf7c5917bc4c  bin/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  bin/multics-r82a-stock-x64
 fbfef2a162b03fed8d56aca7babd3ef3  bin/multics-r82a-x64
-ec41633f3bac7e3fa9890ead9aa604dd  bin/multics.x64
+9771c5352fd07921c5c0bf7c5917bc4c  bin/multics.x64
 9d212081c5d435e4166a24fd6a48d666  dist/multics-r82a-queue-stats-x64
 4a574b9f126f88809cbbe56f4ceaa633  dist/multics-r82a-queue-x64
 e17b99917112e14d193a9b1ba0e6e981  dist/multics-r82a-r22-x64
-ec41633f3bac7e3fa9890ead9aa604dd  dist/multics-r82a-stats-x64
+9771c5352fd07921c5c0bf7c5917bc4c  dist/multics-r82a-stats-x64
 d09ca7aff026f93e978d3755863c2f6c  dist/multics-r82a-stock-x64
 b3d15a4c16813f32330f1be260ccd818  docs/API-REFERENCE-ar.md
 9675281416020a1384938309c4654c5b  docs/ARCHITECTURE.md
@@ -152,7 +152,7 @@ c29d3b204f5fc66fac917ca6a534a73c  docs/REPORT-R37-ar.md
 d40bac22b1780b4f008b1c6e473c3192  docs/REPORT-R41-ar.md
 d28ce62c8885bd4d5d2e0977e9fb0624  docs/REPORT-R42-ar.md
 ec8d99af0cb3cf65204812dd01600bcb  docs/REPORT-R43-ar.md
-49fb30f6994076c318681fb6e46db3c9  docs/REPORT-R48-ar.md
+7bc2685613b047c367798971aa531b57  docs/REPORT-R48-ar.md
 760e303bb89cf80ae2421402faa559b1  docs/REPORT-R5-ar.md
 00931cf623b9b12727e0cadd2ee1425a  docs/REPORT-R6-ar.md
 011bf3fc7f64ae875b85ac2ffd393763  docs/REPORT-R7-ar.md
@@ -421,7 +421,7 @@ f6e60d8a80d14fe8c5d7265099e93ba5  make-x64/test_supersmartfilter_ticks.c
 ab135e6a07cfbb79a0e3f9d74a461b07  make-x64/test_trustagg.c
 18d26a4da5c2bca73799a6cd22de2f6a  make-x64/test_trustlife.c
 b94db079c51a01f8c99ec8010805a544  make-x64/test_udpfast_ticks.c
-eaef9f0bd485f894324544800584b8ce  multics-full-30w-52e.cfg
+9587139135a4ec4717a559003b719fc4  multics-full-30w-52e.cfg
 ab51ddde94ca34844e4a7958ad775fa8  multics-r24-expert-reviewed.cfg
 2a59b63aea594b9460c72e902c461bad  multics-r24-optimized.cfg
 a84588dd72f9fc9b63c3cfb02e4497bb  scripts/monitor-systems.sh
@@ -486,7 +486,7 @@ aee7bf15b72c60d902cf2dc7c11ba01e  src/cli-cs378x.c
 1e537a9b8b7eafda1dfe25e4ca9d0a58  src/cli-newcamd.c
 9a182126cded77f7345f719f38b2bb22  src/cli-radegast.c
 8506788b14a423e6d5e18e49bc5a61b4  src/clientbuf.h
-9c2fb3542929c76382867adf5cd0105b  src/clustredcache.c
+0ea9e1624981c5f842321505d0ac7b7f  src/clustredcache.c
 49d006f775344cf36a12c119ae59538a  src/common.h
 cd2d5070385f5343b09032edb9fe8801  src/config.c
 8a02563855d2a58cbc986afa0fbc1597  src/config.h
@@ -585,7 +585,7 @@ fcefcdfa1775d443482ebfec42fa6b98  src/fastretx.h
 bdf040a8090bd079b7379da96673f983  src/field-status.h
 8798be7a3334dd52a05bfb5c12e3b4c5  src/htmlesc.h
 8ff85bbeb5c5a9b85d3d33a613b0f037  src/httpbuffer.c
-e3e23b662d892a3c5231a1c3e8f09ac7  src/httpserver.c
+ba4f12bc038017329ae7082cf1b255ee  src/httpserver.c
 ba3dbab45abea98efcb6961173889ec0  src/httpserver.h
 fa48ec09d83b51893a5544e8364d5a59  src/httpstyle.c
 59701f0bbd93a3edfb9cc0933eaa5572  src/images.c
@@ -650,7 +650,7 @@ bb42a53e55698772ba3b4e6dd8fb80f6  src/scramchk.h
 443bfe888cce44b30ec6639915ec090c  src/server-performance.h
 9617bb181a5b48a4e496f43541b21936  src/server-stats.c
 614c96c16fce728cdf28c2a94b457c9e  src/server-stats.h
-3ae0046463242dfcbd30650898b66580  src/setdcw.c
+109567d113937012407d27e3eafa6ad5  src/setdcw.c
 16c69e6b1bab07c3fd1af90038d12fa6  src/sha1.c
 f245f7e5032e0752df586d67ed24942a  src/sha1.h
 9cfcb141eba70989f1caf2ff070cc994  src/sha256.c
@@ -739,7 +739,7 @@ addad57e2865ca125b0a0e344a04d5b2  src/zerohandoff.h
 d891e63347205f1bde3fca5ae2239420  src/zerolatency.h
 49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-a37ddece64196438607b6b1872c0b7e9  tests/Makefile
+2b0749702541f69115ec9da3aee81da0  tests/Makefile
 85a50334f924c448f2b91bc8fb5f9923  tests/__pycache__/cccam-trace-success.cpython-311.pyc
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 20d219f9c855160bef706a75cc36cea2  tests/ca-bite.c
@@ -789,6 +789,7 @@ e198eff69959679f80509fe2d99a1f86  tests/cccam-trace-success.py
 7a0fcaee202f49aa4fd04a3b7e4907d3  tests/ccdcw.c
 0ff0ccc77e0e2d3673a64f0a4945cc86  tests/cedcw.py
 478dd65b4c694b5984fd382b7f0d9d62  tests/cfgcheck.py
+36e4740de4d2d2daad8d13e6ebbc635a  tests/chanprevcw-live.py
 f82225de33969f5d737ceb9afc4c5cc4  tests/ci-validate-live.py
 2af59e7fd9d55d06e734176d176568a7  tests/client-id-reload.py
 23cc74be3f43edc4814aeb88e6859a32  tests/crypto-alignment.c
@@ -875,6 +876,8 @@ b7c2703b1ceb20a754b47f46ad6faf89  tests/share-limits.c
 ef6860cfd781fe4d7e32496f784b92ce  tests/sp-peer.c
 662f8a46ca84fd676c4385f9b79795ba  tests/ssfconsole-live.py
 f406bf242644b2c0497834156723f4ec  tests/stability.mk
+b760682802128e3bf05623f35b2860df  tests/staticstate.py
+2de7c739e11b7ceedf9a2311f2c5c0ca  tests/staticstate.sh
 db652feb1be96203f8708df2b2b5ee9c  tests/storm-repro.sh
 53ae8bfafba95484e8e78ca411323617  tests/test_cfgcheck_blind.py
 4b0b7518bc1609cb2f0eb1bb406b8b58  tests/thread-create-unaligned.c
@@ -890,7 +893,7 @@ d1210a33b893cf56e0efdfef4a04d8a8  tools/profile-matrix-audit.py
 a9a35d611c26e8233bdc158e0a9b5ac2  tools/profile-timeout-audit.py
 d5b0a014aafbaaa3c52fa64353f3f469  التقرير-النهائي-للإصلاح.md
 2a87852efef8f14588ce5c0199b47cdc  الجرد-الشامل-والصادق.md
-e56418d6a330cb4d112f7e5945cec4d2  src/cache-chan-prevcw.h
-7d5b94cb9db23fd9d96e3c936ff2feb9  tests/chan-prevcw.c
+38454267f5598f26fec7b6cb0563b49f  src/cache-chan-prevcw.h
+cf3d0f29bd3a3db5532aba9042ea670f  tests/chan-prevcw.c
 995e193654ee00347bdbe86a8c6fcd15  tests/chan-prevcw.sh
 45b0b4e5602d227bebeb8f8d4651279e  dist/multics-r82a-ab-stats-x64
