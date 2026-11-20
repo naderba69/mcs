@@ -65,6 +65,7 @@
 #include "convert.h"
 #include "tools.h"
 #include "cache-chan-prevcw.h"	/* band 117: the channel-memory counters on /user-trace */
+#include "build-identity.h"  /* band 121: which build produced the numbers on this page */
 #include "threads.h"
 #include "ecmdata.h"
 
@@ -9663,6 +9664,13 @@ static void trace_overview_write(struct tcp_buffer_data *tcpbuf, int sock)
         snprintf(out, sizeof(out), "<p>✅ النظام نشط | وقت التشغيل %02dd %02d:%02d:%02d | الباقات: %d | إجمالي الطلبات: %ld | فك تشفير ناجح: %ld | مرفوض/فاشل: %ld | نسبة النجاح: %.1f%%</p>",
                  up/(3600*24), (up/3600)%24, (up/60)%60, up%60, profiles, tot_req, tot_ok, tot_req - tot_ok, rate);
         tcp_writestr(tcpbuf, sock, out);
+        /* Band 121: the build identity, right above every number it explains.
+         * Cheap to skip and expensive to miss: two sessions were steered by a
+         * zero that belonged to an older binary's display, not to the traffic. */
+        mcs_build_identity(out, (int)sizeof(out));
+        tcp_writestr(tcpbuf, sock, "<p>");
+        tcp_writestr(tcpbuf, sock, out);
+        tcp_writestr(tcpbuf, sock, "</p>");
     }
     tcp_writestr(tcpbuf, sock, "<table><tr><th>الباقة</th><th>CAID</th><th>الطلبات</th><th>نسبة النجاح</th><th>الحالة</th></tr>");
     cs = cfg.cardserver;

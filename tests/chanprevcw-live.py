@@ -120,6 +120,19 @@ def main():
                 assert pair == (0, 0), f"memory written before any delivery: {pair}"
                 print(f"before the delivery: Wrote={pair[0]} local={pair[1]} (as expected: nothing served yet)")
 
+                # Band 121 rides along here because this is the harness that boots
+                # a real binary and reads the page: the identity line must RENDER,
+                # not merely exist in the source, and its band must be the header's.
+                bi = re.search(r"بِناء البند\s*(?:<b>)?(\d+)", page)   # <b> wraps the number
+                hdr = (ROOT / "src/build-identity.h").read_text(encoding="utf-8")
+                want = int(re.search(r"#define\s+MCS_BUILD_BAND\s+(\d+)", hdr).group(1))
+                assert bi and int(bi.group(1)) == want, (
+                    f"identity line on /user-trace is {bi and bi.group(1)!r}, header says "
+                    f"{want} -- the page must not be able to claim a stale build")
+                n_id = page.count("هوية هذا الثنائي")
+                assert n_id == 1, f"{n_id} identity lines on one page"
+                print(f"identity line rendered: band {bi.group(1)}, exactly one emitter")
+
                 token = re.search("name='csrf' value='([a-f0-9]{64})'", page)
                 client = re.search("<option value='(\d+)'[^>]*>traceuser", page)
                 assert token and client, "trace form not found"

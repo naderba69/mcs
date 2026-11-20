@@ -1,5 +1,6 @@
 #include "common.h"
 #include "tick_math.h"
+#include "build-identity.h"  /* band 121: boot banner carries the build identity */
 #include "cafamily.h"	/* TASK R38 (D94) */
 
 #include <stdio.h>
@@ -3483,6 +3484,12 @@ void mainprocess()
 	debugf(0, "   [CW-CACHE-SETTINGS] Per-CAID cache settings loaded\n");
 	debugf(0, "   [CACHEX-WAITTIME] Per-CAID wait times loaded\n");
 	debugf(0, "   [CACHEX-ADVANCED] inert on the live path: DropDiffs/NoPushAfter run only in dead code; ECM DoubleCheck is the separate observe-only engine\n");
+
+	/* Band 121: a saved log must be matchable to a snapshot without the page. */
+	{
+		char idbuf[192];
+		debugf(0, " [BUILD] %s\n", mcs_build_identity_log(idbuf, (int)sizeof(idbuf)));
+	}
 
 	/* CW Post-Validation - Detect fake CWs after acceptance */
 	cwpostval_init();

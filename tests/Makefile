@@ -289,7 +289,7 @@ latecw:
 .PHONY: unit
 unit:
 	@for t in marchcheck cwdup cwreuse latecw cache-hash-invariants \
-	    gate-shadow-class trace-labels chan-prevcw staticstate dcounter \
+	    gate-shadow-class trace-labels chan-prevcw staticstate dcounter bandline \
 	    cache-sms-escape ecmdata-allocation camd35-send-guard \
 	    loginaudit loginban protoban ecm-radegast-identity \
 	    cache-check-characterization cache-cross-gates \
