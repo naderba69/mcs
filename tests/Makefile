@@ -16,7 +16,7 @@ HTTPPORT = 15500
 R48_STATS_BIN ?= ../bin/multics-r82a-stats-x64
 R48_CWLOG_CHECK ?= 0
 
-.PHONY: pm jm sk cn smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof prof-full ce cy au pr soak pq qv rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates tm c1884 cwpair nopush svcdoubt all
+.PHONY: pm jm sk cn smoke r48-web no-profile dcwfilter stability ncclient newcamd-ack-race newcamd-config-reload cachecw cwreuse cachepref dstruct cfg19 purgeage agreement agreement-reference entropy timing plaus cyc nt cm pt cg tl ha xs dl ca cu sp ps u ds dt dw xe fl bd pf fs pc rs docrefs cfgcheck prof prof-full ce cy au pr soak pq qv rt ecm-radegast-identity cacheex-provider-collision cache-check-characterization cache-cross-provider cache-cross-gates tm c1884 cwpair nopush svcdoubt merged all
 include stability.mk
 
 # TASK R48: exercise the real server's LOGIN_ACK socket backpressure path,
@@ -286,6 +286,11 @@ latecw:
 # externs; the harnesses were outside the usual run set) -- a harness
 # that is not run does not exist. Keep this list complete: any new
 # tests/*.sh unit harness joins here in the same band that adds it.
+# Band 121-B: "is main carrying the work?" Needs network, so it is deliberately NOT
+# in `unit` -- run it after every push, and before you trust a reset tree.
+merged:
+	@sh mainmerge.sh
+
 .PHONY: unit
 unit:
 	@for t in marchcheck cwdup cwreuse latecw cache-hash-invariants \
