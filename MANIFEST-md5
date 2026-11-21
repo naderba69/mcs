@@ -82,6 +82,7 @@ ac011de86babbca67c9ab672ac170906  docs/INVENTORY-ar.md
 70ab1bccd5e598d5ec3b59a888ba17d8  docs/ORIGIN.md
 c16b39bad6ebc83d5ad5bae1c1cc90f1  docs/PATCH-PLAN.md
 d6ba07bec01772ec8700943cf5e11b4b  docs/PILOT-GOLIVE-ar.md
+59b15dc8dba0f928994b28690d332584  docs/PLAN-COMPETITION-ar.md
 5a77307915765e38508c869973d00476  docs/PROFILES-AUDIT-REPORT-ar.md
 acf661bbd1f1e5ce213733351cec6836  docs/PROJECT-ANALYSIS-REPORT-ar.md
 b3e9b0715ac9bd6c55df190336999b93  docs/PROJECT-PLAN-ar.md
@@ -740,7 +741,7 @@ addad57e2865ca125b0a0e344a04d5b2  src/zerohandoff.h
 d891e63347205f1bde3fca5ae2239420  src/zerolatency.h
 49cfacdc89d14decf5bca5e3f10e2d27  start-production.sh
 0ba561daaecbedbf411923348773e8df  tests/.dbg-pr.cfg
-a241a5c2a9bfa99ac8cf5107d41a785c  tests/Makefile
+7e29e3fffefc6d68074c4476c2eaa262  tests/Makefile
 85a50334f924c448f2b91bc8fb5f9923  tests/__pycache__/cccam-trace-success.cpython-311.pyc
 c8e985e299cb6c56ba0c285bdcc79037  tests/autelnet.py
 25ea16c3ae61dca5e22bf7946a3036d1  tests/bandline.sh
@@ -857,6 +858,7 @@ a168e99a87ae0f663022747cd22ee70a  tests/packed-time.c
 52562e2e603deb421c6f4665c55f89de  tests/pageaudit.py
 4b6856a7c73f8749d6df9107f616f779  tests/peerrep-ui.py
 d7f112a7f829d5653c5d1c0691aa2242  tests/peerrep-web.py
+ac8a794b8fd17e19e5503dfc22e8aee5  tests/plancompet.sh
 83c31baa0d97dbf966978885f4d47846  tests/profile-functional-audit.py
 cabb30742f044ba99f530ce7a5f518b5  tests/profile-runtime-audit.py
 a69e62118399aa39a8459e84b8e33048  tests/protoban
